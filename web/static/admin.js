@@ -364,6 +364,7 @@ function renderUnplacedPeople() {
 
 function orgNode(entry, visible, trail) {
   const li = document.createElement("li");
+  li.className = `org-node${entry.id === selectedOrgId ? " selected-node" : ""}`;
   const row = document.createElement("div");
   row.className = "org-node-row";
   const allChildren = orgChildren(entry.id);
@@ -398,12 +399,15 @@ function orgNode(entry, visible, trail) {
     (["unresolved", "conflict", "draft"].includes(entry.status)
       ? `<i>${entry.status === "unresolved" ? "待确认上级" : entry.status === "conflict" ? "关系冲突" : "提取草稿"}</i>` : "") +
     (allChildren.length ? `<small>${allChildren.length} 直属</small>` : "") + `</div>`;
-  card.onclick = () => {
+  const selectNode = () => {
     $(".org-card.selected")?.classList.remove("selected");
+    $(".org-node.selected-node")?.classList.remove("selected-node");
     selectedOrgId = entry.id;
     card.classList.add("selected");
+    li.classList.add("selected-node");
     renderOrgInspector();
   };
+  card.onclick = selectNode;
   card.addEventListener("dragstart", ev => {
     draggedOrgId = entry.id;
     draggedPersonId = null;
@@ -424,6 +428,28 @@ function orgNode(entry, visible, trail) {
   });
   row.appendChild(card);
   li.appendChild(row);
+
+  const quick = document.createElement("div");
+  quick.className = "org-quick-actions";
+  quick.innerHTML = `<button type="button" data-act="add-child">＋ 下属</button>` +
+    `<button type="button" data-act="edit">编辑</button>` +
+    (entry.manager_id ? `<button type="button" data-act="make-root">设为根节点</button>` : "") +
+    `<button type="button" class="danger" data-act="delete">删除</button>`;
+  $("[data-act=add-child]", quick).onclick = () => {
+    selectedOrgId = entry.id;
+    addOrgNode(entry.id);
+  };
+  $("[data-act=edit]", quick).onclick = () => {
+    selectNode();
+    $("#org-name").focus();
+    $("#org-name").select();
+  };
+  $("[data-act=make-root]", quick)?.addEventListener("click", () => reparentOrg(entry.id, null));
+  $("[data-act=delete]", quick).onclick = () => {
+    selectedOrgId = entry.id;
+    deleteSelectedOrg();
+  };
+  li.appendChild(quick);
 
   if (trail.has(entry.id)) return li;
   const nextTrail = new Set(trail);

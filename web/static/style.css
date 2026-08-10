@@ -647,6 +647,15 @@ body.page-admin { overflow: hidden; }
 .org-card-side { display: grid; justify-items: end; gap: 2px; white-space: nowrap; }
 .org-card-side > i { color: #e2a13c; font-style: normal; font-size: 10px; }
 .org-card-side > small { color: var(--dim); font-size: 10px; }
+.org-quick-actions {
+  display: none;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 2px 0 3px 30px;
+}
+.org-node.selected-node > .org-quick-actions { display: flex; }
+.org-quick-actions button { padding: 2px 8px; font-size: 11px; }
 .org-card.status-conflict { border-color: var(--danger); }
 .org-card.status-unresolved { border-style: dashed; }
 .org-card.status-draft { border-color: #8a5cd6; }
