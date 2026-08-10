@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>会议纪要</title>
-<link rel="stylesheet" href="/static/style.css?v=20260810c">
+<link rel="stylesheet" href="/static/style.css?v=20260810d">
 </head>
 <body class="page-index">
 <header class="topbar">
@@ -40,7 +40,6 @@
         <div id="meeting-meta" class="meeting-meta">阅读纪要、追问内容并修正记录</div>
       </div>
       <div class="meeting-head-actions">
-        <button id="media-toggle" type="button" disabled>展开播放</button>
         <details class="more-menu">
           <summary>更多</summary>
           <div class="more-menu-pop">
@@ -52,14 +51,13 @@
       </div>
     </header>
 
-    <div class="player-box media-collapsed">
-      <div id="player-holder"><p class="placeholder">播放器</p></div>
-      <div id="timeline" class="timeline"></div>
-      <div id="tl-tip" class="tl-tip hidden"></div>
-    </div>
-
     <div class="review-grid">
       <section class="transcript-pane">
+        <div class="player-box">
+          <div id="player-holder"><p class="placeholder">选择会议后可回放</p></div>
+          <div id="timeline" class="timeline"></div>
+          <div id="tl-tip" class="tl-tip hidden"></div>
+        </div>
         <div class="col-header">
           <span>逐字稿</span>
           <label class="follow"><input type="checkbox" id="follow" checked> 跟随播放</label>
@@ -105,7 +103,7 @@
     <h3>绑定说话人</h3>
     <p class="dim">声纹 <code id="bind-voice"></code> · 当前显示名 <b id="bind-name"></b></p>
     <audio id="bind-sample" controls preload="none"></audio>
-    <input id="bind-input" list="person-list" placeholder="输入姓名（自动匹配声纹库 / org chart）" autocomplete="off">
+    <input id="bind-input" list="person-list" placeholder="输入任一已确认名称；相似名称只显示候选" autocomplete="off">
     <datalist id="person-list"></datalist>
     <div id="bind-cands" class="cands"></div>
     <div class="dialog-btns">
@@ -115,6 +113,6 @@
   </div>
 </div>
 
-<script src="/static/app.js?v=20260810c"></script>
+<script src="/static/app.js?v=20260810d"></script>
 </body>
 </html>

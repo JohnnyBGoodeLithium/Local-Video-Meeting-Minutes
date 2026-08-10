@@ -4,12 +4,12 @@
 用法（在 ~/meeting-minutes 下）：
     .venv/bin/python bin/voice_tool.py list                       # 看库里有哪些人和声纹
     .venv/bin/python bin/voice_tool.py sample meetings/2026-08-06_FY28-...   # 切试听片段
-    .venv/bin/python bin/voice_tool.py bind v_0003 "Peter Yuan"   # 绑定(模糊匹配 org chart/常用名)
+    .venv/bin/python bin/voice_tool.py bind v_0003 "Peter Yuan"   # 绑定（唯一精确已确认名称）
     .venv/bin/python bin/voice_tool.py alias "Peter Yuan" 彼得 Peter
     .venv/bin/python bin/voice_tool.py merge v_0003 v_0007        # v_0007 并入 v_0003 对应的人
     .venv/bin/python bin/voice_tool.py unbind v_0003
 
-模糊匹配顺序：精确(大小写不敏感) → 别名 → 包含 → difflib 近似。
+唯一精确匹配可以绑定；包含和 difflib 近似只列候选，绝不自动绑定。
 org chart 放在 speaker_bank/orgchart.json(格式见 orgchart.template.json)，只被本工具本地读取。
 """
 
@@ -30,8 +30,9 @@ def cmd_list(args):
     print(f"人: {len(bank['persons'])} | 声纹: {len(bank['voices'])}")
     for p in bank["persons"]:
         n_v = sum(1 for v in bank["voices"] if v.get("person_id") == p["id"])
-        alias = f" (别名: {', '.join(p['aliases'])})" if p.get("aliases") else ""
-        print(f"  {p['id']}  {p['name']}{alias}  [声纹 {n_v} 条]")
+        names = ", ".join(f"{n['type']}:{n['value']}" for n in p.get("names", []))
+        print(f"  {p['id']}  {p.get('display_name') or p['name']}"
+              f"  [声纹 {n_v} 条]  名称={names}")
     for v in bank["voices"]:
         nm = vb.person_name(bank, v.get("person_id"))
         print(f"  {v['id']}  -> {nm or '(未绑定)'}  hint={v.get('label_hint','')}  来源 {len(v.get('sources',[]))} 场")
@@ -92,13 +93,14 @@ def cmd_bind(args):
         if how:  # 有候选但不确信 → 让用户定夺
             print("没精确命中，候选如下(用更准的名字重试或先加别名):")
             for p in how:
-                print(f"  {p['id']}  {p['name']} 别名={p.get('aliases',[])}")
+                print(f"  {p.get('id', '(org)')}  {p.get('display_name') or p['name']}"
+                      f" 名称={[n.get('value') for n in p.get('names', [])]}")
             return 2
         person = vb.add_person(bank, args.name)
         how = "新建"
     voice["person_id"] = person["id"]
     vb.save_bank(BANK, bank)
-    print(f"已绑定 {args.voice_id} -> {person['name']} ({how})")
+    print(f"已绑定 {args.voice_id} -> {person.get('display_name') or person['name']} ({how})")
     return 0
 
 
@@ -111,8 +113,9 @@ def cmd_alias(args):
     for a in args.aliases:
         if a not in person["aliases"]:
             person["aliases"].append(a)
+    vb.normalize_person(person)
     vb.save_bank(BANK, bank)
-    print(f"{person['name']} 别名现为: {person['aliases']}")
+    print(f"{person.get('display_name') or person['name']} 别名现为: {person['aliases']}")
     return 0
 
 

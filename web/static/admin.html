@@ -3,57 +3,138 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>声纹库 / 架构管理</title>
-<link rel="stylesheet" href="/static/style.css?v=20260810">
+<title>人员与组织设置</title>
+<link rel="stylesheet" href="/static/style.css?v=20260810d">
 </head>
 <body class="page-admin">
 <header class="topbar">
-  <span class="brand">🛠 声纹库 / 架构管理</span>
+  <span class="brand">人员与组织设置</span>
+  <nav class="admin-tabs" aria-label="设置页面">
+    <button type="button" class="active" data-admin-view="voices">人员与声音</button>
+    <button type="button" data-admin-view="org">组织架构</button>
+  </nav>
   <span id="admin-status" class="job-status"></span>
   <a class="toplink" href="/">← 返回会议</a>
 </header>
 
-<main class="admin-layout">
-  <!-- 声纹库 -->
-  <section class="admin-col">
-    <h2>声纹库</h2>
-    <input id="voice-filter" type="search" placeholder="按来源会议过滤声纹…">
-    <h3>人（<span id="n-persons">0</span>）</h3>
-    <table class="tbl" id="persons-tbl">
-      <thead><tr><th>姓名</th><th>别名</th><th>声纹</th><th></th></tr></thead>
-      <tbody></tbody>
-    </table>
-    <h3>声纹（<span id="n-voices">0</span>）</h3>
-    <table class="tbl" id="voices-tbl">
-      <thead><tr><th>ID</th><th>绑定人</th><th>提示名</th><th>来源</th><th></th></tr></thead>
-      <tbody></tbody>
-    </table>
+<main class="admin-shell">
+  <section id="view-voices" class="admin-view">
+    <div class="voice-layout">
+      <section class="admin-col">
+        <div class="section-heading">
+          <div><h2>人员</h2><p>每个人可维护中文名、全拼、英文显示名等已确认名称。</p></div>
+          <span class="count"><span id="n-persons">0</span> 人</span>
+        </div>
+        <table class="tbl" id="persons-tbl">
+          <thead><tr><th>首选显示名</th><th>已确认名称</th><th>声纹</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </section>
+
+      <section class="admin-col">
+        <div class="section-heading">
+          <div><h2>声音审核</h2><p>先试听，再绑定、创建人员或合并声纹；相似名称不会自动写入。</p></div>
+          <span class="count"><span id="n-voices">0</span> 条</span>
+        </div>
+        <input id="voice-filter" type="search" placeholder="按来源会议或名称过滤…">
+        <table class="tbl voices-review-table" id="voices-tbl">
+          <thead><tr><th>声纹</th><th>试听</th><th>当前人员</th><th>来源</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </section>
+    </div>
   </section>
 
-  <!-- Org chart 树编辑 -->
-  <section class="admin-col">
-    <h2>Org Chart</h2>
-    <div class="row">
-      <button id="org-add-root" type="button">＋根节点</button>
-      <button id="org-save" type="button">保存（整体回写）</button>
-      <button id="org-reload" type="button">放弃改动重载</button>
-      <button id="org-draft" type="button" title="把 VL 从参考文件提取的草稿(orgchart_draft.json)载入编辑器">载入提取草稿</button>
+  <section id="view-org" class="admin-view hidden">
+    <div class="org-toolbar">
+      <button id="org-add-root" class="primary" type="button">＋ 新增根节点</button>
+      <button id="org-undo" type="button" disabled>撤销</button>
+      <button id="org-save" type="button">保存组织架构</button>
+      <button id="org-reload" type="button">放弃改动</button>
+      <button id="org-draft" type="button">合并提取草稿</button>
+      <input id="org-search" type="search" placeholder="搜索姓名、职务或团队…">
+      <span id="org-review-summary" class="dim"></span>
     </div>
-    <div id="org-tree" class="org-tree"></div>
-  </section>
 
-  <!-- 参考文件 -->
-  <section class="admin-col">
-    <h2>参考文件</h2>
-    <div class="row">
-      <input type="file" id="org-file-input" accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.svg" hidden>
-      <button id="org-upload-btn" type="button">上传 PDF / 图片</button>
+    <div class="org-workspace">
+      <section class="org-canvas-wrap">
+        <div class="org-canvas-note">拖动成员卡片到另一张卡片，可修改其直接上级；拖到空白区域可设为根节点。</div>
+        <div id="org-unplaced" class="org-unplaced"></div>
+        <div id="org-root-drop" class="org-root-drop">拖到这里设为根节点</div>
+        <div id="org-tree" class="org-tree org-graph"></div>
+      </section>
+
+      <aside class="org-inspector">
+        <div id="org-inspector-empty" class="placeholder">选择节点后，在这里确认姓名、职务和直接上级。</div>
+        <form id="org-inspector-form" class="hidden">
+          <h2>节点信息</h2>
+          <input id="org-node-id" type="hidden">
+          <label>Org Chart 原名<input id="org-name" type="text" required></label>
+          <label>别名<input id="org-aliases" type="text" placeholder="逗号分隔"></label>
+          <label>职务<input id="org-title" type="text"></label>
+          <label>团队<input id="org-team" type="text"></label>
+          <label>直接上级<select id="org-manager"></select></label>
+          <label>备注<textarea id="org-note" rows="3"></textarea></label>
+          <div id="org-node-meta" class="inspector-meta"></div>
+          <div class="inspector-actions">
+            <button class="primary" type="submit">应用到草稿</button>
+            <button id="org-add-child" type="button">＋ 下属</button>
+            <button id="org-delete" class="danger" type="button">删除</button>
+          </div>
+        </form>
+      </aside>
     </div>
-    <ul id="org-files"></ul>
-    <div id="org-file-view" class="org-file-view"></div>
+
+    <details class="org-reference-panel">
+      <summary>参考文件与本地视觉提取</summary>
+      <div class="reference-grid">
+        <section>
+          <input type="file" id="org-file-input" accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.svg" hidden>
+          <button id="org-upload-btn" type="button">上传 PDF / 图片</button>
+          <ul id="org-files"></ul>
+        </section>
+        <div id="org-file-view" class="org-file-view"></div>
+      </div>
+    </details>
   </section>
 </main>
 
-<script src="/static/admin.js?v=20260810"></script>
+<div id="voice-review-mask" class="mask hidden">
+  <div class="dialog review-dialog">
+    <h3 id="voice-review-title">审核声音</h3>
+    <p id="voice-review-meta" class="dim"></p>
+    <audio id="voice-review-audio" controls preload="metadata"></audio>
+    <label>搜索已有人员
+      <input id="voice-person-input" list="voice-person-list" placeholder="输入任一已确认名称" autocomplete="off">
+    </label>
+    <datalist id="voice-person-list"></datalist>
+    <div id="voice-candidates" class="candidate-list"></div>
+    <div class="dialog-btns">
+      <button id="voice-bind-existing" class="primary" type="button">绑定已有人员</button>
+      <button id="voice-create-person" type="button">新建此人</button>
+      <button id="voice-review-cancel" type="button">取消</button>
+    </div>
+  </div>
+</div>
+
+<div id="person-edit-mask" class="mask hidden">
+  <div class="dialog identity-dialog">
+    <h3>人员名称</h3>
+    <input id="person-edit-id" type="hidden">
+    <label>首选显示名<input id="person-display-name" type="text" required></label>
+    <p class="dim">新的说话人标记和后续生成的纪要默认使用这个名称；既有逐字稿标签会同步更新。</p>
+    <label>Org Chart 原名<input id="person-org-name" type="text"></label>
+    <label>中文名<input id="person-chinese-name" type="text"></label>
+    <label>全拼<input id="person-pinyin-name" type="text"></label>
+    <label>英文名 + 姓氏拼音<input id="person-english-name" type="text"></label>
+    <label>其他已确认名称<input id="person-other-names" type="text" placeholder="逗号分隔"></label>
+    <div class="dialog-btns">
+      <button id="person-edit-save" class="primary" type="button">保存</button>
+      <button id="person-edit-cancel" type="button">取消</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/admin.js?v=20260810d"></script>
 </body>
 </html>

@@ -99,11 +99,8 @@ async function deleteMeeting(ev, slug) {
     $("#meeting-meta").textContent = "阅读纪要、追问内容并修正记录";
     $("#transcript").innerHTML = '<p class="placeholder">← 选择一场会议</p>';
     $("#minutes").innerHTML = '<p class="placeholder">纪要内容</p>';
-    $("#player-holder").innerHTML = '<p class="placeholder">播放器</p>';
+    $("#player-holder").innerHTML = '<p class="placeholder">选择会议后可回放</p>';
     $("#timeline").innerHTML = "";
-    $(".player-box").classList.add("media-collapsed");
-    $("#media-toggle").textContent = "展开播放";
-    $("#media-toggle").disabled = true;
     $("#regen-btn").disabled = true;
     $("#refine-btn").disabled = true;
     resetAssistant();
@@ -118,11 +115,7 @@ function player() { return $("#player-holder video") || $("#player-holder audio"
 async function loadMeeting(slug) {
   const changed = state.slug !== slug;
   state.slug = slug;
-  if (changed) {
-    resetAssistant();
-    $(".player-box").classList.add("media-collapsed");
-    $("#media-toggle").textContent = "展开播放";
-  }
+  if (changed) resetAssistant();
   renderMeetingList();
   const b = await jget(`/api/meetings/${encodeURIComponent(slug)}/bundle`);
   state.bundle = b;
@@ -138,8 +131,6 @@ async function loadMeeting(slug) {
   renderMinutes();
   $("#regen-btn").disabled = false;
   $("#refine-btn").disabled = false;
-  const hasMedia = b.has_video || b.has_audio;
-  $("#media-toggle").disabled = !hasMedia;
 }
 
 function renderPlayer() {
@@ -250,8 +241,6 @@ function hideTip() { $("#tl-tip").classList.add("hidden"); }
 function seek(t) {
   const p = player();
   if (p) {
-    $(".player-box").classList.remove("media-collapsed");
-    $("#media-toggle").textContent = "收起播放";
     p.currentTime = t;
     p.play().catch(() => {});
   }
@@ -664,9 +653,10 @@ async function openBind(voice, name) {
   $("#bind-cands").innerHTML = "";
   const sp = await ensureSpeakers();
   $("#person-list").innerHTML =
-    sp.persons.map(p => `<option value="${esc(p.name)}">`).join("");
+    sp.persons.flatMap(p => (p.names || [{ value: p.name }])
+      .map(n => `<option value="${esc(n.value)}">${esc(p.display_name || p.name)}</option>`)).join("");
   const sample = $("#bind-sample");
-  sample.src = `/api/meetings/${encodeURIComponent(state.slug)}/samples/${encodeURIComponent(name)}.wav`;
+  sample.src = `/api/speakers/${encodeURIComponent(voice)}/sample`;
   sample.onerror = () => { sample.style.display = "none"; };
   sample.style.display = "";
   $("#bind-mask").classList.remove("hidden");
@@ -795,12 +785,6 @@ function init() {
   $("#bind-cancel").onclick = closeBind;
   $("#bind-mask").addEventListener("click", e => { if (e.target.id === "bind-mask") closeBind(); });
 
-  $("#media-toggle").onclick = () => {
-    const box = $(".player-box");
-    box.classList.toggle("media-collapsed");
-    $("#media-toggle").textContent = box.classList.contains("media-collapsed")
-      ? "展开播放" : "收起播放";
-  };
   $("#assistant-thread-close").onclick = () => setAssistantThread(false);
   $("#assistant-send").onclick = sendAssistant;
   $("#assistant-input").addEventListener("keydown", e => {

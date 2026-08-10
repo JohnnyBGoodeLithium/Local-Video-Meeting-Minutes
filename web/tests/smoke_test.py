@@ -145,12 +145,17 @@ s, _, _ = req("GET", "/api/meetings/_smoke/samples/Alice.wav", raw=True)
 check("samples/Alice.wav → 200", s == 200)
 s, _, _ = req("GET", "/api/meetings/_smoke/samples/v_9001.wav", raw=True)
 check("samples/v_9001.wav（voice→显示名映射）→ 200", s == 200)
+s, _, _ = req("GET", "/api/speakers/v_9001/sample", raw=True)
+check("后台声纹试听接口 → 200", s == 200)
 
 # 6. speakers（绑定前）
 s, _, j = req("GET", "/api/speakers")
 check("GET /api/speakers → 200",
       s == 200 and len(j["persons"]) == 1 and len(j["voices"]) == 2,
       f"persons={len(j.get('persons', []))} voices={len(j.get('voices', []))}")
+check("人员 API 提供首选显示名和类型化名称",
+      j["persons"][0].get("display_name") == "Alice Example"
+      and bool(j["persons"][0].get("names")))
 
 # 7. bind 候选路径（模糊名 → 409 + 候选，且不写库）
 s, _, j = req("POST", "/api/meetings/_smoke/bind", {"voice": "v_9002", "name": "Alicia"})
@@ -158,6 +163,9 @@ bank_now = json.loads((FAKE_BANK / "bank.json").read_text())
 v2 = next(v for v in bank_now["voices"] if v["id"] == "v_9002")
 check("bind 模糊名 → 409 + 候选", s == 409 and bool((j.get("detail") or {}).get("candidates")))
 check("409 时库未改", v2["person_id"] is None)
+s, _, _ = req("POST", "/api/meetings/_smoke/bind",
+              {"voice": "v_9002", "name": "Alice Exampl"})
+check("高相似但非精确名称也只返回候选，不强绑", s == 409)
 
 # 8. bind 正常路径：v_9001 → Alice Example（库内精确命中）
 s, _, j = req("POST", "/api/meetings/_smoke/bind", {"voice": "v_9001", "name": "Alice Example"})
@@ -179,6 +187,28 @@ n_sample_files = len(list((SMOKE / "samples").glob("*.wav")))
 check("试听片段跟随改名", (SMOKE / "samples" / "Alice_Example.wav").is_file()
       and n_sample_files == 2, f"samples={n_sample_files}")
 
+# 8a. 每个人独立首选显示名 + 国际化类型名称，并同步已有逐字稿标签
+s, _, identity = req("PUT", "/api/speakers/person/p_0001", {
+    "display_name": "Alice E.",
+    "names": [
+        {"value": "艾丽丝", "type": "chinese", "verified": True},
+        {"value": "Ai Li Si", "type": "pinyin", "verified": True},
+        {"value": "Alice Example", "type": "english_display", "verified": True},
+    ],
+})
+turns = json.loads((SMOKE / "transcript.spk.json").read_text())
+check("更新首选显示名 → 保存类型化名称并同步已有逐字稿",
+      s == 200 and identity.get("display_name") == "Alice E."
+      and identity.get("turns") == 2
+      and sum(t["speaker"] == "Alice E." for t in turns) == 2)
+s, _, speakers_after_identity = req("GET", "/api/speakers")
+alice_identity = next(p for p in speakers_after_identity["persons"] if p["id"] == "p_0001")
+check("中文名/全拼/英文显示名归属同一稳定人员 ID",
+      s == 200 and {n["type"] for n in alice_identity["names"]}
+      >= {"chinese", "pinyin", "english_display"})
+s, _, _ = req("GET", "/api/speakers/v_9001/sample", raw=True)
+check("首选显示名变更后后台试听仍可用", s == 200)
+
 # 8b. 未命中姓名显式新建，并同步当前会议
 s, _, j = req("POST", "/api/meetings/_smoke/bind",
               {"voice": "v_9002", "name": "Charlie Example", "create": True})
@@ -189,6 +219,9 @@ check("bind create=true → 新建并改当前会议", s == 200 and j.get("how")
 s, _, j = req("GET", "/api/orgchart")
 check("GET /api/orgchart → 200", s == 200 and len(j["entries"]) == 2,
       f"entries={len(j.get('entries', []))}")
+check("新建人员不会被相似 Org Chart 姓名强行合并，进入待放置区",
+      any(p.get("display_name") == "Charlie Example"
+          for p in j.get("unplaced_people", [])))
 new_entries = j["entries"] + [{"name": "Eve Example", "aliases": ["Eve"], "title": "Eng",
                                "team": "BU1", "leader": "Dave Example", "note": ""}]
 s, _, j = req("PUT", "/api/orgchart", {"entries": new_entries})
@@ -196,6 +229,20 @@ check("PUT /api/orgchart → 200 count=3", s == 200 and j.get("count") == 3)
 s, _, j = req("GET", "/api/orgchart")
 check("PUT 后 GET → 3 条", s == 200 and len(j["entries"]) == 3)
 check("PUT 已落盘假库", len(json.loads((FAKE_BANK / "orgchart.json").read_text())) == 3)
+by_name = {e["name"]: e for e in j["entries"]}
+check("Org Chart 使用稳定节点 ID 和 manager_id",
+      bool(by_name["Eve Example"].get("id"))
+      and by_name["Eve Example"].get("manager_id") == by_name["Dave Example"].get("id"))
+cycle_entries = json.loads(json.dumps(j["entries"]))
+cycle_by_name = {e["name"]: e for e in cycle_entries}
+cycle_by_name["Alice Example"]["manager_id"] = cycle_by_name["Dave Example"]["id"]
+cycle_by_name["Dave Example"]["manager_id"] = cycle_by_name["Alice Example"]["id"]
+s, _, _ = req("PUT", "/api/orgchart", {"entries": cycle_entries})
+check("Org Chart 拒绝循环汇报关系", s == 400)
+missing_manager = json.loads(json.dumps(j["entries"]))
+missing_manager[0]["manager_id"] = "o_missing"
+s, _, _ = req("PUT", "/api/orgchart", {"entries": missing_manager})
+check("Org Chart 拒绝不存在的上级节点", s == 400)
 
 # 10. orgchart 参考文件（小 PDF → pdftoppm 页图）
 s, _, j = multipart("/api/orgchart/files", "file", "Fake_Org.pdf", make_pdf(), "application/pdf")

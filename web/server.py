@@ -480,7 +480,10 @@ def _resolve_or_409(bank: dict, name: str, orgchart=None):
     """返回 (person, how)；未命中时抛 409(候选 + can_create 提示前端可新建)。"""
     person, how = vb.resolve_person(bank, name, orgchart=orgchart)
     if person is None:
-        cands = [{"name": p.get("name", ""), "aliases": p.get("aliases", [])}
+        cands = [{"id": p.get("id"),
+                  "name": p.get("display_name") or p.get("name", ""),
+                  "names": p.get("names", []), "aliases": p.get("aliases", []),
+                  "score": p.get("_match_score")}
                  for p in (how or [])]
         raise HTTPException(409, {"ok": False, "candidates": cands, "can_create": True,
                                   "detail": "没有精确命中：可从候选选择，或用 create=true 新建此人"})
@@ -495,18 +498,16 @@ def _bind_voice(voice_id: str, name: str, create: bool = False):
         if not voice:
             raise HTTPException(404, "没有这条声纹")
         if create:
-            person = next((p for p in bank["persons"]
-                           if p["name"].strip().lower() == name.strip().lower()), None)
-            how = "bank"
+            person, how = vb.resolve_person(bank, name)
             if person is None:
-                person = vb.add_person(bank, name.strip())
+                person = vb.add_person(bank, name.strip(), display_name=name.strip())
                 how = "新建"
         else:
             org = vb.load_orgchart(BANK_DIR)
             person, how = _resolve_or_409(bank, name, orgchart=org)
         voice["person_id"] = person["id"]
         vb.save_bank(BANK_DIR, bank)
-        return person["name"], (how if isinstance(how, str) else "?")
+        return vb.person_name(bank, person["id"]), (how if isinstance(how, str) else "新建")
 
 
 TURN_LINE_RE = re.compile(r"^\[\d{1,3}:\d{2}(?::\d{2})?\] \*\*")
@@ -575,11 +576,89 @@ def list_speakers():
                "sources": v.get("sources", []),
                "created": v.get("created", "")}
               for v in bank["voices"]]
-    persons = [{"id": p["id"], "name": p["name"], "aliases": p.get("aliases", []),
+    persons = [{"id": p["id"], "name": p["name"],
+                "display_name": p.get("display_name") or p["name"],
+                "names": p.get("names", []), "aliases": p.get("aliases", []),
                 "created": p.get("created", ""),
                 "voices": sum(1 for v in bank["voices"] if v.get("person_id") == p["id"])}
                for p in bank["persons"]]
     return {"persons": persons, "voices": voices}
+
+
+def _voice_sample(voice_id: str) -> Path | None:
+    """从声纹来源会议中找一个代表试听片段；不在 API 中暴露磁盘路径。"""
+    bank = vb.load_bank(BANK_DIR)
+    voice = next((v for v in bank["voices"] if v["id"] == voice_id), None)
+    if voice is None:
+        raise HTTPException(404, "没有这条声纹")
+    candidates = [vb.display_name(bank, voice), voice.get("label_hint", ""), voice_id]
+    for slug in reversed(voice.get("sources", [])):
+        mdir = (MEETINGS / slug).resolve()
+        if mdir.parent != MEETINGS.resolve() or not mdir.is_dir():
+            continue
+        for turn in _read_json(mdir / "transcript.spk.json", []):
+            if turn.get("voice") == voice_id:
+                candidates.insert(0, turn.get("speaker", ""))
+                break
+        for value in candidates:
+            p = mdir / "samples" / f"{_safe(value)}.wav"
+            if value and p.is_file():
+                return p
+    return None
+
+
+@app.get("/api/speakers/{voice_id}/sample")
+def speaker_sample(voice_id: str):
+    p = _voice_sample(voice_id)
+    if p is None:
+        raise HTTPException(404, "没有可用试听片段")
+    return FileResponse(p, media_type="audio/wav")
+
+
+class PersonPutReq(BaseModel):
+    display_name: str
+    names: list[dict] = Field(default_factory=list)
+
+
+@app.put("/api/speakers/person/{person_id}")
+def update_person(person_id: str, req: PersonPutReq):
+    display = req.display_name.strip()
+    if not display:
+        raise HTTPException(400, "首选显示名不能为空")
+    typed = []
+    for item in req.names:
+        value = str(item.get("value", "")).strip()
+        if not value:
+            continue
+        kind = str(item.get("type", "other"))
+        typed.append({"value": value,
+                      "type": kind if kind in vb.NAME_TYPES else "other",
+                      "verified": bool(item.get("verified", True))})
+    if not any(vb.normalize_name(n["value"]) == vb.normalize_name(display) for n in typed):
+        typed.append({"value": display, "type": "other", "verified": True})
+    with BANK_LOCK:
+        bank = vb.load_bank(BANK_DIR)
+        person = next((p for p in bank["persons"] if p["id"] == person_id), None)
+        if person is None:
+            raise HTTPException(404, "没有这个人")
+        person["display_name"] = display
+        person["names"] = typed
+        vb.normalize_person(person)
+        linked_voices = [v for v in bank["voices"] if v.get("person_id") == person_id]
+        vb.save_bank(BANK_DIR, bank)
+    changed_turns, changed_meeting_ids = 0, set()
+    for voice in linked_voices:
+        for slug in voice.get("sources", []):
+            mdir = (MEETINGS / slug).resolve()
+            if mdir.parent != MEETINGS.resolve() or not mdir.is_dir():
+                continue
+            count = _rename_voice_in_meeting(mdir, slug, voice["id"], display)
+            changed_turns += count
+            if count:
+                changed_meeting_ids.add(slug)
+    return {"ok": True, "id": person_id, "display_name": person["display_name"],
+            "names": person["names"], "meetings": len(changed_meeting_ids),
+            "turns": changed_turns}
 
 
 @app.post("/api/speakers/bind")
@@ -605,7 +684,8 @@ def add_alias(req: AliasReq):
             if a and a not in person["aliases"]:
                 person["aliases"].append(a)
         vb.save_bank(BANK_DIR, bank)
-        return {"ok": True, "name": person["name"], "aliases": person["aliases"]}
+        return {"ok": True, "name": vb.person_name(bank, person["id"]),
+                "aliases": person["aliases"]}
 
 
 class MergeReq(BaseModel):
@@ -656,9 +736,74 @@ def unbind_voice(req: VoiceReq):
 
 # ---------------------------------------------------------------- Org chart
 
+def _org_entry_id(name: str, index: int) -> str:
+    return "o_" + uuid.uuid5(uuid.NAMESPACE_URL, f"meeting-org:{index}:{name}").hex[:12]
+
+
+def _normalize_org_entries(raw_entries: list[dict]) -> list[dict]:
+    """兼容 leader=姓名的旧数据，并为图编辑器补稳定节点/上级 ID。"""
+    entries, used = [], set()
+    for index, raw in enumerate(raw_entries):
+        name = str(raw.get("name", "")).strip()
+        node_id = str(raw.get("id", "")).strip() or _org_entry_id(name, index)
+        if node_id in used:
+            node_id = _org_entry_id(name, index)
+        used.add(node_id)
+        entries.append({
+            "id": node_id,
+            "person_id": str(raw.get("person_id", "")).strip() or None,
+            "name": name,
+            "aliases": [str(a).strip() for a in raw.get("aliases", []) if str(a).strip()],
+            "title": str(raw.get("title", "")).strip(),
+            "team": str(raw.get("team", "")).strip(),
+            "manager_id": str(raw.get("manager_id", "")).strip() or None,
+            "leader": str(raw.get("leader", "")).strip(),
+            "leader_raw": str(raw.get("leader_raw", raw.get("leader", ""))).strip(),
+            "status": str(raw.get("status", "")).strip(),
+            "source_pages": [int(x) for x in raw.get("source_pages", [])
+                             if isinstance(x, (int, float, str)) and str(x).isdigit()],
+            "conflicts": [str(x) for x in raw.get("conflicts", []) if str(x).strip()],
+            "note": str(raw.get("note", "")).strip(),
+        })
+    by_id = {e["id"]: e for e in entries}
+    by_name: dict[str, list[str]] = {}
+    for e in entries:
+        by_name.setdefault(vb.normalize_name(e["name"]), []).append(e["id"])
+        for alias in e["aliases"]:
+            by_name.setdefault(vb.normalize_name(alias), []).append(e["id"])
+    for e in entries:
+        if e["manager_id"] not in by_id:
+            e["manager_id"] = None
+        if not e["manager_id"] and e["leader"]:
+            matches = list(dict.fromkeys(by_name.get(vb.normalize_name(e["leader"]), [])))
+            if len(matches) == 1 and matches[0] != e["id"]:
+                e["manager_id"] = matches[0]
+        if e["manager_id"]:
+            e["leader"] = by_id[e["manager_id"]]["name"]
+        if not e["status"]:
+            e["status"] = "conflict" if e["conflicts"] else (
+                "unresolved" if e["leader_raw"] and not e["manager_id"] else "confirmed")
+    return entries
+
+
 @app.get("/api/orgchart")
 def get_orgchart():
-    return {"entries": vb.load_orgchart(BANK_DIR)}
+    entries = _normalize_org_entries(vb.load_orgchart(BANK_DIR))
+    bank = vb.load_bank(BANK_DIR)
+    valid_person_ids = {p["id"] for p in bank["persons"]}
+    placed = {e["person_id"] for e in entries if e.get("person_id") in valid_person_ids}
+    # 旧 Org Chart 没有 person_id：只按唯一的已确认名称精确关联，不做任何模糊合并。
+    for entry in entries:
+        if entry.get("person_id") in valid_person_ids:
+            continue
+        person, _how = vb.resolve_person(bank, entry["name"])
+        if person is not None:
+            entry["person_id"] = person["id"]
+            placed.add(person["id"])
+    unplaced = [{"id": p["id"], "display_name": p.get("display_name") or p["name"],
+                 "name": p["name"], "names": p.get("names", [])}
+                for p in bank["persons"] if p["id"] not in placed]
+    return {"entries": entries, "unplaced_people": unplaced}
 
 
 class OrgPut(BaseModel):
@@ -667,20 +812,33 @@ class OrgPut(BaseModel):
 
 @app.put("/api/orgchart")
 def put_orgchart(req: OrgPut):
-    """前端按 leader 字段组装树，保存时整体回写扁平 list。"""
-    entries = []
-    for e in req.entries:
-        name = str(e.get("name", "")).strip()
-        if not name:
-            raise HTTPException(400, "存在空名字条目")
-        entries.append({
-            "name": name,
-            "aliases": [str(a) for a in e.get("aliases", []) if str(a).strip()],
-            "title": str(e.get("title", "")),
-            "team": str(e.get("team", "")),
-            "leader": str(e.get("leader", "")),
-            "note": str(e.get("note", "")),
-        })
+    """保存图关系；服务端验证上级存在、自指和环路。"""
+    supplied_ids = [str(e.get("id", "")).strip() for e in req.entries if e.get("id")]
+    if len(supplied_ids) != len(set(supplied_ids)):
+        raise HTTPException(400, "存在重复节点 ID")
+    supplied_id_set = set(supplied_ids)
+    for raw in req.entries:
+        raw_manager_id = raw.get("manager_id")
+        manager_id = str(raw_manager_id).strip() if raw_manager_id else ""
+        if manager_id and manager_id not in supplied_id_set:
+            name = str(raw.get("name", "")).strip() or "未命名节点"
+            raise HTTPException(400, f"{name} 的上级节点不存在")
+    entries = _normalize_org_entries(req.entries)
+    if any(not e["name"] for e in entries):
+        raise HTTPException(400, "存在空名字条目")
+    by_id = {e["id"]: e for e in entries}
+    for e in entries:
+        manager_id = e.get("manager_id")
+        if manager_id and manager_id not in by_id:
+            raise HTTPException(400, f"{e['name']} 的上级节点不存在")
+        if manager_id == e["id"]:
+            raise HTTPException(400, f"{e['name']} 不能成为自己的上级")
+        seen, cursor = set(), e["id"]
+        while cursor:
+            if cursor in seen:
+                raise HTTPException(400, "组织架构存在循环汇报关系")
+            seen.add(cursor)
+            cursor = by_id.get(cursor, {}).get("manager_id")
     with BANK_LOCK:
         BANK_DIR.mkdir(parents=True, exist_ok=True)
         (BANK_DIR / "orgchart.json").write_text(
@@ -765,7 +923,7 @@ def orgchart_draft():
     p = BANK_DIR / "orgchart_draft.json"
     if not p.is_file():
         return {"entries": [], "has_draft": False}
-    return {"entries": _read_json(p, []), "has_draft": True}
+    return {"entries": _normalize_org_entries(_read_json(p, [])), "has_draft": True}
 
 
 # ---------------------------------------------------------------- 上传与作业

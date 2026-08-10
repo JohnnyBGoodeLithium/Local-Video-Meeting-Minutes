@@ -23,7 +23,7 @@ meeting-minutes/
     2026-08-06_171137/        # 录音笔会议: transcript.txt / stamps.json / transcript.ts.md
                               #   / diarization.json / transcript.spk.* / minutes*.md
   speaker_bank/               # 声纹库(个人数据, 云端不读)
-    bank.json                 #   v2: persons(人+别名) 与 voices(声纹) 分离, 一人可挂多条声纹
+    bank.json                 #   v3: 稳定人员 ID + 类型化名称 + 首选显示名；一人可挂多条声纹
     emb/v_XXXX.npy            #   声纹向量(质心, 不可还原成声音)
     orgchart.json             #   可选: BU 架构, 用户自放, 只被本地脚本读取
     orgchart.template.json    #   格式模板(假数据示例)
@@ -47,11 +47,11 @@ python3 -m venv --system-site-packages .venv
 .venv/bin/python web/server.py
 # 或 make run
 # http://127.0.0.1:8899/       打开已处理会议，阅读纪要、核对逐字稿、追问和修正
-# http://127.0.0.1:8899/admin  声纹库 + org chart 树编辑 + 参考文件(PDF 渲图)
+# http://127.0.0.1:8899/admin  人员身份 + 声纹试听/确认 + 图形化 org chart + 参考文件
 ```
 左栏拖入 视频(可带同名 .vtt) 或 音频 即自动处理。详见 [web/README.md](web/README.md)。
 
-会议详情默认并排展示逐字稿和纪要，播放器折叠在顶部，底部助手可引用一轮或多轮逐字稿进行本地问答；回答带可点击时间来源。直接输入修改要求时，系统先展示可读的章节修改预览，只有用户确认后才写入，并支持立即撤销。
+会议详情左侧是常驻的播放证据栏：播放器、带页区间/议题标记的时间轴和逐字稿在同一列；右侧阅读纪要。底部助手可引用一轮或多轮逐字稿进行本地问答，回答带可点击时间来源。直接输入修改要求时，系统先展示可读的章节修改预览，只有用户确认后才写入，并支持立即撤销。
 
 ### 录音笔 WAV：一条命令
 
@@ -114,15 +114,15 @@ make smoke
 ```bash
 .venv/bin/python bin/voice_tool.py sample meetings/<某会议>/   # 1) 每个声音切 ≤20s 试听片段
 .venv/bin/python bin/voice_tool.py list                       # 2) 看库里的人和声纹
-.venv/bin/python bin/voice_tool.py bind v_0003 "Peter Yuan"   # 3) 绑定(模糊匹配 org chart/别名)
+.venv/bin/python bin/voice_tool.py bind v_0003 "Peter Yuan"   # 3) 绑定（只接受唯一精确已确认名称）
 .venv/bin/python bin/voice_tool.py alias "Peter Yuan" 彼得 Peter   # 加别名(多标签)
 .venv/bin/python bin/voice_tool.py merge v_0003 v_0007        # 多条声纹并给同一人(拆过头时)
 .venv/bin/python bin/voice_tool.py unbind v_0003              # 绑错了撤销
 ```
 
-绑定一次，之后所有会议自动认人（余弦相似度 ≥0.70，`teams_minutes.py --match-threshold` 可调）。org chart 复制 `speaker_bank/orgchart.template.json` 为 `orgchart.json` 填入真实数据即可，绑定工具按"精确→别名→包含→近似"模糊匹配正式名与常用名。
+绑定一次，之后所有会议可通过声纹自动认人（余弦相似度 ≥0.70，`teams_minutes.py --match-threshold` 可调）。姓名绑定只接受唯一、精确的已确认名称；包含或近似匹配只展示候选，必须由用户选择或显式新建，不能自动归到相似人员。每个人可保存 Org Chart 原名、中文名、全拼、英文名加姓氏等类型化名称，并独立选择首选显示名。
 
-org chart 也可以走 `/admin` 网页：上传架构 PDF → "提取草稿"（VL 逐页读人名/层级，跨页规范化去重、变体收别名、leader 悬空建占位、冲突记 note）→ 树状编辑器检查 → 保存。提取 prompt 与后处理规范在 `prompts/orgchart_extract.md`（其他团队可复用）。`bin/orgchart_mermaid.py` 把 orgchart.json 导成 `speaker_bank/orgchart.mmd`（Mermaid 自上而下层级图，VS Code 装 Mermaid 扩展可预览）。
+org chart 也可以走 `/admin` 网页：上传架构 PDF → “提取草稿”（VL 逐页读姓名/岗位/汇报关系，不翻译、不补全拼音、不合并跨语言变体）→ 将草稿增量合并到图形画布 → 拖动节点确认上级 → 保存。未确认上级、重名与冲突保留为待人工处理项，不创建虚假上级。人员身份与岗位节点分离，新建人员会先进入“待放置人员”区。提取规范见 `prompts/orgchart_extract.md`；`bin/orgchart_mermaid.py` 可导出 Mermaid 层级图。
 
 注意：所有脚本的 stdout 只打印元数据(耗时/数量/时长)，不打印转写、纪要或人名，防止内容进入云端 agent 上下文。
 
@@ -154,7 +154,7 @@ org chart 也可以走 `/admin` 网页：上传架构 PDF → "提取草稿"（V
 
 - [x] 录音笔管线（转写/时间戳/分离/纪要，一条命令 `bin/run_all.py`）
 - [x] Teams 管线（VTT 姓名对齐 + 房间声纹拆分 + 截图纪要，见 `bin/teams_minutes.py`）
-- [x] 声纹库 v2 + 绑定工具（`bin/voice_tool.py`：试听/绑定/别名/合并；跨会议认人）
+- [x] 声纹库 v3 + 人员身份管理（国际化类型名称、独立首选显示名、精确绑定、后台试听与跨会议认人）
 - [x] 本地会议助手（逐字稿引用问答 + 来源跳转 + 纪要预览/确认/撤销/版本备份）
 - [x] 隔离测试数据根、环境 doctor、Git 私有数据边界与工程文档
 - [ ] 与 Whisper 的对照评估

@@ -1,22 +1,66 @@
 """声纹库读写/比对共享模块（teams_minutes.py 与 voice_tool.py 共用）。
 
-库结构 v2（speaker_bank/）：
-    bank.json   {"persons": [{id,name,aliases,created}], "voices": [{id,person_id,label_hint,emb,sources,created}]}
+库结构 v3（speaker_bank/）：
+    bank.json   {"persons": [{id,name,display_name,names,aliases,created}], "voices": [...]}
     emb/v_XXXX.npy   每条声纹的质心向量(L2 归一化)
     orgchart.json    用户自放的 BU 架构(可选)，只被本地脚本读取——云端 agent 不读。
 
 设计：人(person) 与 声纹(voice) 分离。一个人可挂多条声纹(聚类过拆/音色变化)，
-匹配在声纹层做(取最大相似度)，显示名取 person.name，未绑定显示 label_hint。
+匹配在声纹层做(取最大相似度)，显示名取 person.display_name，未绑定显示 label_hint。
+一名人员可有中文名、全拼、英文名+姓氏等多个经过确认的名称；近似名称只给候选，
+永远不能自动绑定。
 """
 
 import difflib
 import json
 import time
+import unicodedata
 from pathlib import Path
 
 import numpy as np
 
-SCHEMA = 2
+SCHEMA = 3
+NAME_TYPES = {"org", "chinese", "pinyin", "english_display", "other"}
+
+
+def normalize_name(value: str) -> str:
+    """用于已确认名称的等价比较：统一字符/大小写/空白和常见分隔符。"""
+    value = unicodedata.normalize("NFKC", str(value or "")).strip().lower()
+    value = " ".join(value.split())
+    return value
+
+
+def _person_names(person: dict) -> list[dict]:
+    """兼容旧 aliases，并返回去重后的类型化名称。"""
+    out, seen = [], set()
+    raw = list(person.get("names") or [])
+    # 用户明确设置的类型优先；兼容字段只在缺失时兜底。
+    raw.append({"value": person.get("name", ""), "type": "org", "verified": True})
+    raw.append({"value": person.get("display_name", ""),
+                "type": "english_display", "verified": True})
+    raw += [{"value": a, "type": "other", "verified": True}
+            for a in person.get("aliases", [])]
+    for item in raw:
+        if isinstance(item, str):
+            item = {"value": item, "type": "other", "verified": True}
+        value = str(item.get("value", "")).strip()
+        key = normalize_name(value)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        out.append({"value": value,
+                    "type": item.get("type") if item.get("type") in NAME_TYPES else "other",
+                    "verified": bool(item.get("verified", True))})
+    return out
+
+
+def normalize_person(person: dict) -> dict:
+    person["name"] = str(person.get("name") or person.get("display_name") or "").strip()
+    person["display_name"] = str(person.get("display_name") or person["name"]).strip()
+    person["names"] = _person_names(person)
+    person["aliases"] = [n["value"] for n in person["names"]
+                           if normalize_name(n["value"]) != normalize_name(person["name"])]
+    return person
 
 
 def load_bank(bank_dir: Path) -> dict:
@@ -24,7 +68,8 @@ def load_bank(bank_dir: Path) -> dict:
     if not path.is_file():
         return {"schema": SCHEMA, "persons": [], "voices": []}
     bank = json.loads(path.read_text(encoding="utf-8"))
-    if bank.get("schema") != SCHEMA:  # v1: voices 带 name 字段, 无 persons
+    schema = bank.get("schema", 1)
+    if schema == 1:  # v1: voices 带 name 字段, 无 persons
         persons, voices = [], []
         for v in bank.get("voices", []):
             name = v.get("name") or ""
@@ -36,7 +81,14 @@ def load_bank(bank_dir: Path) -> dict:
             voices.append({"id": v["id"], "person_id": pid, "label_hint": name,
                            "emb": v["emb"], "sources": v.get("sources", []),
                            "created": v.get("created", "")})
-        bank = {"schema": SCHEMA, "persons": persons, "voices": voices}
+        bank = {"schema": 2, "persons": persons, "voices": voices}
+    changed = bank.get("schema") != SCHEMA
+    for person in bank.get("persons", []):
+        before = json.dumps(person, ensure_ascii=False, sort_keys=True)
+        normalize_person(person)
+        changed = changed or before != json.dumps(person, ensure_ascii=False, sort_keys=True)
+    bank["schema"] = SCHEMA
+    if changed:
         save_bank(Path(bank_dir), bank)
     return bank
 
@@ -56,7 +108,7 @@ def vec_of(bank_dir: Path, voice: dict) -> np.ndarray:
 def person_name(bank: dict, person_id):
     for p in bank["persons"]:
         if p["id"] == person_id:
-            return p["name"]
+            return p.get("display_name") or p["name"]
     return None
 
 
@@ -90,9 +142,15 @@ def add_voice(bank_dir: Path, bank: dict, vec, label_hint: str, source: str,
     return entry
 
 
-def add_person(bank: dict, name: str, aliases=None) -> dict:
+def add_person(bank: dict, name: str, aliases=None, *, display_name=None,
+               names=None, name_type="other") -> dict:
+    typed = [{"value": name, "type": name_type, "verified": True}]
+    typed += list(names or [])
+    typed += [{"value": a, "type": "other", "verified": True} for a in (aliases or [])]
     p = {"id": f"p_{len(bank['persons'])+1:04d}", "name": name,
+         "display_name": display_name or name, "names": typed,
          "aliases": list(aliases or []), "created": time.strftime("%Y-%m-%d")}
+    normalize_person(p)
     bank["persons"].append(p)
     return p
 
@@ -107,51 +165,46 @@ def load_orgchart(bank_dir: Path):
 
 
 def resolve_person(bank: dict, query: str, orgchart=None, cutoff: float = 0.65):
-    """模糊找人：先库内 persons，再 orgchart。命中 orgchart 的人会被引入库内。
-
-    匹配优先级(严格先于宽松，避免 "Test One/Test Two" 这类共前缀误配)：
-    库内精确(含别名, 大小写不敏感) → 库内包含 → orgchart 精确/包含 → 全池 difflib 近似。
-    返回 (person_dict, how) 或 (None, candidates)。
-    """
-    q = query.strip().lower()
+    """只自动接受唯一的已确认名称精确匹配；包含/近似结果只返回候选。"""
+    q = normalize_name(query)
 
     def names_of(p):
+        if "names" in p:
+            return [n["value"] for n in _person_names(p) if n.get("verified", True)]
         return [p.get("name", "")] + list(p.get("aliases", []))
 
     def exact(p):
-        return any(q == n.lower() for n in names_of(p))
+        return any(q == normalize_name(n) for n in names_of(p))
 
     def contains(p):
-        return any(q in n.lower() or n.lower() in q for n in names_of(p) if n)
+        return any(q in normalize_name(n) or normalize_name(n) in q for n in names_of(p) if n)
 
     def score(p):
-        return max((difflib.SequenceMatcher(None, q, n.lower()).ratio() for n in names_of(p)),
+        return max((difflib.SequenceMatcher(None, q, normalize_name(n)).ratio()
+                    for n in names_of(p)),
                    default=0)
 
-    for p in bank["persons"]:
-        if exact(p):
-            return p, "bank"
-    for p in bank["persons"]:
-        if contains(p):
-            return p, "bank:contains"
+    bank_exact = [p for p in bank["persons"] if exact(p)]
+    if len(bank_exact) == 1:
+        return bank_exact[0], "bank:verified-name"
+    if len(bank_exact) > 1:
+        return None, bank_exact
 
-    org_entries = [{"name": e.get("name", ""), "aliases": list(e.get("aliases", []))}
+    org_entries = [{"name": e.get("name", ""),
+                    "display_name": e.get("display_name") or e.get("name", ""),
+                    "aliases": list(e.get("aliases", [])),
+                    "names": list(e.get("names", [])), "_source": "orgchart"}
                    for e in (orgchart or [])]
-    for p in org_entries:
-        if p["name"] and (exact(p) or contains(p)):
-            return add_person(bank, p["name"], p["aliases"]), "orgchart"
+    org_exact = [p for p in org_entries if p["name"] and exact(p)]
+    if len(org_exact) == 1:
+        p = org_exact[0]
+        return add_person(bank, p["name"], p["aliases"], display_name=p["display_name"],
+                          names=p["names"], name_type="org"), "orgchart:verified-name"
+    if len(org_exact) > 1:
+        return None, org_exact
 
     pool = [(p, "bank") for p in bank["persons"]] + [(p, "orgchart") for p in org_entries]
-    best, best_how, best_s = None, None, 0.0
-    for p, how in pool:
-        s = score(p)
-        if s > best_s:
-            best, best_how, best_s = p, how, s
-    if best is not None and best_s >= cutoff:
-        if best_how == "orgchart":
-            return add_person(bank, best["name"], best["aliases"]), "orgchart:fuzzy"
-        return best, "bank:fuzzy"
-
-    cands = sorted((p for p, _ in pool), key=score, reverse=True)[:3]
-    cands = [p for p in cands if score(p) >= cutoff * 0.8]
+    ranked = sorted((p for p, _ in pool if contains(p) or score(p) >= cutoff * 0.8),
+                    key=score, reverse=True)[:5]
+    cands = [{**p, "_match_score": round(score(p), 3)} for p in ranked]
     return None, cands
