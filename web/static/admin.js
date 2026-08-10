@@ -281,6 +281,23 @@ function descendantIds(id) {
   return out;
 }
 
+function clearOrgSearch() {
+  const input = $("#org-search");
+  const hadFilter = Boolean(input.value.trim());
+  input.value = "";
+  return hadFilter;
+}
+
+function revealOrgPath(id) {
+  const seen = new Set();
+  let cursor = orgById(id);
+  while (cursor && !seen.has(cursor.id)) {
+    seen.add(cursor.id);
+    collapsedOrgIds.delete(cursor.id);
+    cursor = orgById(cursor.manager_id);
+  }
+}
+
 function rememberOrg() {
   orgUndo.push({ org: clone(org), unplacedPeople: clone(unplacedPeople) });
   if (orgUndo.length > 30) orgUndo.shift();
@@ -328,8 +345,15 @@ function renderOrg() {
     for (const root of roots) {
       if (!visible || visible.has(root.id)) ul.appendChild(orgNode(root, visible, new Set()));
     }
-    if (ul.childElementCount) box.appendChild(ul);
-    else box.innerHTML = '<p class="placeholder">没有匹配的组织节点。</p>';
+    if (ul.childElementCount) {
+      box.appendChild(ul);
+    } else {
+      const empty = document.createElement("div");
+      empty.className = "placeholder org-no-match";
+      empty.innerHTML = `<p>没有匹配的组织节点。</p><button type="button">清除搜索</button>`;
+      $("button", empty).onclick = () => { clearOrgSearch(); renderOrg(); };
+      box.appendChild(empty);
+    }
   }
   const unresolved = org.filter(e => e.status === "unresolved").length;
   const conflicts = org.filter(e => e.status === "conflict").length;
@@ -479,7 +503,8 @@ function placePersonInOrg(personId, managerId) {
     team: manager?.team || "", manager_id: managerId || null, leader: manager?.name || "",
     leader_raw: "", status: "confirmed", source_pages: [], conflicts: [], note: "" });
   unplacedPeople = unplacedPeople.filter(item => item.id !== person.id);
-  if (managerId) collapsedOrgIds.delete(managerId);
+  clearOrgSearch();
+  if (managerId) revealOrgPath(managerId);
   renderOrg();
   toast(`已把“${person.display_name}”放到“${target}”下；尚未保存，可撤销`);
 }
@@ -500,7 +525,8 @@ function reparentOrg(childId, managerId) {
   child.status = "confirmed";
   child.conflicts = [];
   selectedOrgId = child.id;
-  if (managerId) collapsedOrgIds.delete(managerId);
+  clearOrgSearch();
+  if (managerId) revealOrgPath(managerId);
   renderOrg();
   toast(`已把“${child.name}”移动到“${target}”下；尚未保存，可撤销`);
 }
@@ -566,7 +592,8 @@ function addOrgNode(managerId = null) {
     leader_raw: "", status: "confirmed", source_pages: [], conflicts: [], note: "" };
   org.push(entry);
   selectedOrgId = entry.id;
-  if (managerId) collapsedOrgIds.delete(managerId);
+  clearOrgSearch();
+  if (managerId) revealOrgPath(managerId);
   renderOrg();
   $("#org-name").select();
 }
@@ -585,7 +612,9 @@ function deleteSelectedOrg() {
   }
   org = org.filter(e => e.id !== entry.id);
   collapsedOrgIds.delete(entry.id);
-  if (entry.manager_id) collapsedOrgIds.delete(entry.manager_id);
+  clearOrgSearch();
+  indexOrg();
+  if (entry.manager_id) revealOrgPath(entry.manager_id);
   selectedOrgId = null;
   renderOrg();
   toast(children.length

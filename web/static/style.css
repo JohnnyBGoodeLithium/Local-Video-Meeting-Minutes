@@ -657,6 +657,8 @@ body.page-admin { overflow: hidden; }
 }
 .org-node.selected-node > .org-quick-actions { display: flex; }
 .org-quick-actions button { padding: 2px 8px; font-size: 11px; }
+.org-no-match { display: grid; justify-items: start; gap: 6px; }
+.org-no-match p { margin: 0; }
 .org-card.status-conflict { border-color: var(--danger); }
 .org-card.status-unresolved { border-style: dashed; }
 .org-card.status-draft { border-color: #8a5cd6; }
