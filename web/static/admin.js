@@ -219,6 +219,9 @@ let selectedOrgId = null;
 let draggedOrgId = null;
 let draggedPersonId = null;
 let orgUndo = [];
+let collapsedOrgIds = new Set();
+let orgIndex = new Map();
+let orgChildrenIndex = new Map();
 
 function localOrgId() {
   return `o_local_${globalThis.crypto?.randomUUID?.() || `${Date.now()}_${Math.random()}`}`;
@@ -231,11 +234,39 @@ async function loadOrg() {
   unplacedPeople = data.unplaced_people || [];
   selectedOrgId = null;
   orgUndo = [];
+  indexOrg();
+  collapsedOrgIds = defaultOrgCollapse();
   renderOrg();
 }
 
-function orgById(id) { return org.find(entry => entry.id === id); }
-function orgChildren(id) { return org.filter(entry => (entry.manager_id || null) === (id || null)); }
+function indexOrg() {
+  orgIndex = new Map(org.map(entry => [entry.id, entry]));
+  orgChildrenIndex = new Map();
+  for (const entry of org) {
+    const parent = entry.manager_id || null;
+    if (!orgChildrenIndex.has(parent)) orgChildrenIndex.set(parent, []);
+    orgChildrenIndex.get(parent).push(entry);
+  }
+}
+
+function orgById(id) { return orgIndex.get(id); }
+function orgChildren(id) { return orgChildrenIndex.get(id || null) || []; }
+
+function defaultOrgCollapse(force = false) {
+  if (!force && org.length <= 40) return new Set();
+  const collapsed = new Set();
+  const roots = org.filter(entry => !entry.manager_id || !orgById(entry.manager_id));
+  const walk = (entry, depth, trail) => {
+    if (trail.has(entry.id)) return;
+    const children = orgChildren(entry.id);
+    if (depth >= 1 && children.length) collapsed.add(entry.id);
+    const next = new Set(trail);
+    next.add(entry.id);
+    for (const child of children) walk(child, depth + 1, next);
+  };
+  for (const root of roots) walk(root, 0, new Set());
+  return collapsed;
+}
 
 function descendantIds(id) {
   const out = new Set();
@@ -283,6 +314,7 @@ function orgVisibleIds() {
 }
 
 function renderOrg() {
+  indexOrg();
   const box = $("#org-tree");
   box.innerHTML = "";
   const visible = orgVisibleIds();
@@ -292,15 +324,17 @@ function renderOrg() {
     box.innerHTML = '<p class="placeholder">暂无节点。点“新增根节点”开始。</p>';
   } else {
     const ul = document.createElement("ul");
+    ul.className = "org-root-list";
     for (const root of roots) {
       if (!visible || visible.has(root.id)) ul.appendChild(orgNode(root, visible, new Set()));
     }
-    box.appendChild(ul);
+    if (ul.childElementCount) box.appendChild(ul);
+    else box.innerHTML = '<p class="placeholder">没有匹配的组织节点。</p>';
   }
   const unresolved = org.filter(e => e.status === "unresolved").length;
   const conflicts = org.filter(e => e.status === "conflict").length;
   const rootsCount = roots.length;
-  $("#org-review-summary").textContent = `${org.length} 人 · ${rootsCount} 个根 · ${unresolved} 待确认上级 · ${conflicts} 冲突`;
+  $("#org-review-summary").textContent = `${org.length} 人 · ${rootsCount} 个根 · ${collapsedOrgIds.size} 处折叠 · ${unresolved} 待确认上级 · ${conflicts} 冲突`;
   renderOrgInspector();
 }
 
@@ -330,16 +364,46 @@ function renderUnplacedPeople() {
 
 function orgNode(entry, visible, trail) {
   const li = document.createElement("li");
+  const row = document.createElement("div");
+  row.className = "org-node-row";
+  const allChildren = orgChildren(entry.id);
+  const children = allChildren.filter(child => !visible || visible.has(child.id));
+  const isCollapsed = !visible && collapsedOrgIds.has(entry.id);
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = `org-toggle${children.length ? "" : " spacer"}`;
+  if (children.length) {
+    toggle.textContent = isCollapsed ? "▸" : "▾";
+    toggle.title = isCollapsed ? `展开 ${children.length} 个直属下属` : "折叠直属下属";
+    toggle.setAttribute("aria-expanded", String(!isCollapsed));
+    toggle.onclick = ev => {
+      ev.stopPropagation();
+      if (isCollapsed) collapsedOrgIds.delete(entry.id);
+      else collapsedOrgIds.add(entry.id);
+      renderOrg();
+    };
+  } else {
+    toggle.tabIndex = -1;
+    toggle.setAttribute("aria-hidden", "true");
+  }
+  row.appendChild(toggle);
   const card = document.createElement("div");
   card.className = `org-card status-${entry.status || "confirmed"}` +
     (entry.id === selectedOrgId ? " selected" : "");
   card.draggable = true;
   card.dataset.id = entry.id;
-  card.innerHTML = `<b>${esc(entry.name)}</b>` +
-    `<span>${esc([entry.title, entry.team].filter(Boolean).join(" · ") || "未填写职务")}</span>` +
+  card.innerHTML = `<div class="org-card-main"><b>${esc(entry.name)}</b>` +
+    `<span>${esc([entry.title, entry.team].filter(Boolean).join(" · ") || "未填写职务")}</span></div>` +
+    `<div class="org-card-side">` +
     (["unresolved", "conflict", "draft"].includes(entry.status)
-      ? `<i>${entry.status === "unresolved" ? "待确认上级" : entry.status === "conflict" ? "关系冲突" : "提取草稿"}</i>` : "");
-  card.onclick = () => { selectedOrgId = entry.id; renderOrg(); };
+      ? `<i>${entry.status === "unresolved" ? "待确认上级" : entry.status === "conflict" ? "关系冲突" : "提取草稿"}</i>` : "") +
+    (allChildren.length ? `<small>${allChildren.length} 直属</small>` : "") + `</div>`;
+  card.onclick = () => {
+    $(".org-card.selected")?.classList.remove("selected");
+    selectedOrgId = entry.id;
+    card.classList.add("selected");
+    renderOrgInspector();
+  };
   card.addEventListener("dragstart", ev => {
     draggedOrgId = entry.id;
     draggedPersonId = null;
@@ -358,13 +422,13 @@ function orgNode(entry, visible, trail) {
       reparentOrg(draggedOrgId || payload, entry.id);
     }
   });
-  li.appendChild(card);
+  row.appendChild(card);
+  li.appendChild(row);
 
   if (trail.has(entry.id)) return li;
   const nextTrail = new Set(trail);
   nextTrail.add(entry.id);
-  const children = orgChildren(entry.id).filter(child => !visible || visible.has(child.id));
-  if (children.length) {
+  if (children.length && !isCollapsed) {
     const ul = document.createElement("ul");
     for (const child of children) ul.appendChild(orgNode(child, visible, nextTrail));
     li.appendChild(ul);
@@ -384,6 +448,7 @@ function placePersonInOrg(personId, managerId) {
     team: manager?.team || "", manager_id: managerId || null, leader: manager?.name || "",
     leader_raw: "", status: "confirmed", source_pages: [], conflicts: [], note: "" });
   unplacedPeople = unplacedPeople.filter(item => item.id !== person.id);
+  if (managerId) collapsedOrgIds.delete(managerId);
   renderOrg();
 }
 
@@ -404,6 +469,7 @@ function reparentOrg(childId, managerId) {
   child.status = "confirmed";
   child.conflicts = [];
   selectedOrgId = child.id;
+  if (managerId) collapsedOrgIds.delete(managerId);
   renderOrg();
 }
 
@@ -464,6 +530,7 @@ function addOrgNode(managerId = null) {
     leader_raw: "", status: "confirmed", source_pages: [], conflicts: [], note: "" };
   org.push(entry);
   selectedOrgId = entry.id;
+  if (managerId) collapsedOrgIds.delete(managerId);
   renderOrg();
   $("#org-name").select();
 }
@@ -479,6 +546,7 @@ function deleteSelectedOrg() {
     child.leader = entry.manager_id ? orgById(entry.manager_id)?.name || "" : "";
   }
   org = org.filter(e => e.id !== entry.id);
+  collapsedOrgIds.delete(entry.id);
   selectedOrgId = null;
   renderOrg();
 }
@@ -518,6 +586,7 @@ async function mergeOrgDraft() {
     }
     idMap.set(item.id, target.id);
   }
+  indexOrg();
   for (const item of draft.entries) {
     const target = orgById(idMap.get(item.id));
     if (!target.manager_id && item.manager_id && idMap.get(item.manager_id)) {
@@ -613,7 +682,13 @@ function init() {
   $("#org-save").onclick = saveOrg;
   $("#org-reload").onclick = () => { if (confirm("放弃尚未保存的组织架构修改？")) loadOrg(); };
   $("#org-draft").onclick = mergeOrgDraft;
-  $("#org-search").addEventListener("input", renderOrg);
+  $("#org-expand-all").onclick = () => { collapsedOrgIds.clear(); renderOrg(); };
+  $("#org-collapse").onclick = () => { collapsedOrgIds = defaultOrgCollapse(true); renderOrg(); };
+  let orgSearchTimer = null;
+  $("#org-search").addEventListener("input", () => {
+    clearTimeout(orgSearchTimer);
+    orgSearchTimer = setTimeout(renderOrg, 120);
+  });
   $("#org-inspector-form").addEventListener("submit", applyOrgInspector);
   $("#org-root-drop").addEventListener("dragover", ev => { ev.preventDefault(); ev.currentTarget.classList.add("drop-target"); });
   $("#org-root-drop").addEventListener("dragleave", ev => ev.currentTarget.classList.remove("drop-target"));

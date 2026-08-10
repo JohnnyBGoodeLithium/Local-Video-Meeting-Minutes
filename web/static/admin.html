@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>人员与组织设置</title>
-<link rel="stylesheet" href="/static/style.css?v=20260810d">
+<link rel="stylesheet" href="/static/style.css?v=20260810e">
 </head>
 <body class="page-admin">
 <header class="topbar">
@@ -52,13 +52,15 @@
       <button id="org-save" type="button">保存组织架构</button>
       <button id="org-reload" type="button">放弃改动</button>
       <button id="org-draft" type="button">合并提取草稿</button>
+      <button id="org-expand-all" type="button">展开全部</button>
+      <button id="org-collapse" type="button">折叠到一级</button>
       <input id="org-search" type="search" placeholder="搜索姓名、职务或团队…">
       <span id="org-review-summary" class="dim"></span>
     </div>
 
     <div class="org-workspace">
       <section class="org-canvas-wrap">
-        <div class="org-canvas-note">拖动成员卡片到另一张卡片，可修改其直接上级；拖到空白区域可设为根节点。</div>
+        <div class="org-canvas-note">纵向层级视图可展开/折叠。拖动成员卡片到另一张卡片可修改直接上级；拖到根节点区域可取消上级。</div>
         <div id="org-unplaced" class="org-unplaced"></div>
         <div id="org-root-drop" class="org-root-drop">拖到这里设为根节点</div>
         <div id="org-tree" class="org-tree org-graph"></div>
@@ -135,6 +137,6 @@
   </div>
 </div>
 
-<script src="/static/admin.js?v=20260810d"></script>
+<script src="/static/admin.js?v=20260810e"></script>
 </body>
 </html>

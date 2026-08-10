@@ -552,7 +552,7 @@ body.page-admin { overflow: hidden; }
 }
 .candidate-card audio { width: 180px; height: 30px; margin: 0; }
 
-.org-toolbar { display: flex; align-items: center; gap: 7px; margin-bottom: 10px; }
+.org-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin-bottom: 10px; }
 .org-toolbar #org-search { width: 260px; margin-left: auto; }
 .org-workspace {
   display: grid;
@@ -564,7 +564,7 @@ body.page-admin { overflow: hidden; }
   overflow: hidden;
   background: var(--panel);
 }
-.org-canvas-wrap { min-width: 0; overflow: auto; padding: 12px 20px 50px; background: #16191e; }
+.org-canvas-wrap { min-width: 0; overflow: auto; padding: 12px 20px 50px; background: #16191e; contain: layout paint; }
 .org-canvas-note { color: var(--dim); font-size: 12px; margin-bottom: 7px; }
 .org-unplaced {
   position: sticky;
@@ -594,47 +594,44 @@ body.page-admin { overflow: hidden; }
   text-align: center;
 }
 .org-root-drop.drop-target { border-color: var(--accent); color: var(--text); background: rgba(79, 124, 255, .12); }
-.org-graph { display: inline-block; min-width: 100%; padding-top: 8px; }
-.org-graph ul {
-  position: relative;
-  display: flex;
-  justify-content: center;
-  list-style: none;
-  margin: 0;
-  padding: 28px 0 0;
+.org-graph { display: block; width: 100%; min-width: 0; max-width: 1180px; padding-top: 8px; }
+.org-graph ul { position: relative; list-style: none; margin: 0; padding: 0; }
+.org-graph > .org-root-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(390px, 100%), 1fr));
+  align-items: start;
+  gap: 14px 24px;
 }
-.org-graph > ul { padding-top: 0; gap: 28px; }
-.org-graph li { position: relative; padding: 28px 8px 0; text-align: center; }
-.org-graph > ul > li { padding-top: 0; }
-.org-graph li::before, .org-graph li::after {
+.org-graph li { position: relative; min-width: 0; padding: 4px 0; }
+.org-graph ul ul { margin: 3px 0 1px 13px; padding-left: 18px; border-left: 1px solid #46505f; }
+.org-graph ul ul > li::before {
   content: "";
   position: absolute;
-  top: 0;
-  right: 50%;
-  width: 50%;
-  height: 28px;
+  top: 29px;
+  left: -18px;
+  width: 18px;
   border-top: 1px solid #46505f;
 }
-.org-graph li::after { left: 50%; right: auto; border-left: 1px solid #46505f; }
-.org-graph li:only-child::before, .org-graph li:only-child::after { display: none; }
-.org-graph li:first-child::before, .org-graph li:last-child::after { border: 0; }
-.org-graph li:last-child::before { border-right: 1px solid #46505f; border-radius: 0 6px 0 0; }
-.org-graph li:first-child::after { border-radius: 6px 0 0; }
-.org-graph ul ul::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 50%;
-  height: 28px;
-  border-left: 1px solid #46505f;
+.org-node-row { display: flex; align-items: stretch; gap: 5px; min-width: 0; }
+.org-toggle {
+  flex: 0 0 25px;
+  width: 25px;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--dim);
+  font-size: 15px;
 }
-.org-graph > ul > li::before, .org-graph > ul > li::after { display: none; }
+.org-toggle:hover { color: var(--text); border-color: var(--border); }
+.org-toggle.spacer { pointer-events: none; visibility: hidden; }
 .org-card {
   display: grid;
-  gap: 2px;
-  width: 174px;
-  min-height: 58px;
-  padding: 8px 9px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  width: min(620px, calc(100% - 30px));
+  min-height: 48px;
+  padding: 6px 9px;
   border: 1px solid var(--border);
   border-radius: 9px;
   background: var(--panel2);
@@ -644,8 +641,12 @@ body.page-admin { overflow: hidden; }
 }
 .org-card:hover, .org-card.selected { border-color: var(--accent); }
 .org-card.drop-target { outline: 2px solid var(--accent); background: rgba(79, 124, 255, .15); }
-.org-card > span { color: var(--dim); font-size: 11px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.org-card > i { color: #e2a13c; font-style: normal; font-size: 10px; }
+.org-card-main { display: grid; min-width: 0; gap: 2px; }
+.org-card-main > b, .org-card-main > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.org-card-main > span { color: var(--dim); font-size: 11px; }
+.org-card-side { display: grid; justify-items: end; gap: 2px; white-space: nowrap; }
+.org-card-side > i { color: #e2a13c; font-style: normal; font-size: 10px; }
+.org-card-side > small { color: var(--dim); font-size: 10px; }
 .org-card.status-conflict { border-color: var(--danger); }
 .org-card.status-unresolved { border-style: dashed; }
 .org-card.status-draft { border-color: #8a5cd6; }
