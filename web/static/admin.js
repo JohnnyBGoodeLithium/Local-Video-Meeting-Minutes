@@ -441,7 +441,6 @@ function placePersonInOrg(personId, managerId) {
   const manager = managerId ? orgById(managerId) : null;
   if (!person) return;
   const target = manager ? manager.name : "根节点";
-  if (!confirm(`确认把“${person.display_name}”加入组织架构，上级设为“${target}”？`)) return;
   rememberOrg();
   const orgName = person.names?.find(n => n.type === "org")?.value || person.name || person.display_name;
   org.push({ id: localOrgId(), person_id: person.id, name: orgName, aliases: [], title: "",
@@ -450,6 +449,7 @@ function placePersonInOrg(personId, managerId) {
   unplacedPeople = unplacedPeople.filter(item => item.id !== person.id);
   if (managerId) collapsedOrgIds.delete(managerId);
   renderOrg();
+  toast(`已把“${person.display_name}”放到“${target}”下；尚未保存，可撤销`);
 }
 
 function reparentOrg(childId, managerId) {
@@ -461,7 +461,6 @@ function reparentOrg(childId, managerId) {
   }
   if ((child.manager_id || null) === (managerId || null)) return;
   const target = manager ? manager.name : "根节点";
-  if (!confirm(`确认把“${child.name}”的直接上级改为“${target}”？`)) return;
   rememberOrg();
   child.manager_id = managerId || null;
   child.leader = manager?.name || "";
@@ -471,6 +470,7 @@ function reparentOrg(childId, managerId) {
   selectedOrgId = child.id;
   if (managerId) collapsedOrgIds.delete(managerId);
   renderOrg();
+  toast(`已把“${child.name}”移动到“${target}”下；尚未保存，可撤销`);
 }
 
 function renderOrgInspector() {
