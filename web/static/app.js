@@ -103,6 +103,10 @@ async function deleteMeeting(ev, slug) {
     $("#timeline").innerHTML = "";
     $("#regen-btn").disabled = true;
     $("#refine-btn").disabled = true;
+    $("#export-btn").disabled = true;
+    $("#export-audio-btn").disabled = true;
+    $("#export-video-btn").disabled = true;
+    $("#evidence-card").classList.add("hidden");
     resetAssistant();
   }
   loadMeetings();
@@ -131,6 +135,9 @@ async function loadMeeting(slug) {
   renderMinutes();
   $("#regen-btn").disabled = false;
   $("#refine-btn").disabled = false;
+  $("#export-btn").disabled = false;
+  $("#export-audio-btn").disabled = !b.has_audio;
+  $("#export-video-btn").disabled = !b.has_video;
 }
 
 function renderPlayer() {
@@ -303,6 +310,55 @@ function renderTranscript() {
 function renderMinutes() {
   const box = $("#minutes");
   box.innerHTML = state.bundle.minutes_html || '<p class="placeholder">暂无纪要</p>';
+  $$('a[href^="#mm-"]', box).forEach(link => {
+    link.onclick = ev => {
+      ev.preventDefault();
+      showMinutesEvidence(link.getAttribute("href").slice(4));
+    };
+  });
+}
+
+function showMinutesEvidence(claimId) {
+  const claim = (state.bundle?.evidence?.claims || []).find(c => c.id === claimId);
+  if (!claim) return;
+  const turns = (claim.turn_indexes || []).map(i => ({ i, t: state.bundle.transcript[i] })).filter(x => x.t);
+  const pageNumbers = (claim.page_ids || []).map(id => Number(id.slice(1))).filter(Number.isFinite);
+  const pages = pageNumbers.map(n => state.bundle.slides.find(p => p.page === n)).filter(Boolean);
+  let html = `<div class="evidence-claim">${esc(claim.text)}</div>` +
+    `<div class="evidence-tags"><span>${esc(claim.kind)}</span><span>${esc(claim.status)}</span>` +
+    `<span>置信度 ${esc(claim.confidence)}</span></div>`;
+  for (const { i, t } of turns) {
+    html += `<div class="evidence-source"><div><b>${esc(t.speaker)}</b>` +
+      `<button type="button" class="evidence-seek" data-index="${i}">${fmt(t.start)}</button></div>` +
+      `<p>${esc(t.text)}</p></div>`;
+  }
+  for (const p of pages) {
+    const image = p.image
+      ? `/api/meetings/${encodeURIComponent(state.slug)}/file?path=${encodeURIComponent("slides/" + p.image)}` : "";
+    html += `<div class="evidence-source"><div><b>第${p.page}页</b>` +
+      `<button type="button" class="evidence-page-seek" data-time="${p.first || 0}">${fmt(p.first)}</button></div>` +
+      (image ? `<img src="${image}" alt="第${p.page}页">` : "") + `</div>`;
+  }
+  $("#evidence-body").innerHTML = html;
+  $("#evidence-card").classList.remove("hidden");
+  $$(".evidence-seek", $("#evidence-body")).forEach(btn => btn.onclick = () => {
+    const index = Number(btn.dataset.index);
+    highlightTurns([index]);
+    seek(state.bundle.transcript[index]?.start || 0);
+  });
+  $$(".evidence-page-seek", $("#evidence-body")).forEach(btn =>
+    btn.onclick = () => seek(Number(btn.dataset.time || 0)));
+}
+
+function exportMeeting(media = "none") {
+  if (!state.slug) return;
+  const a = document.createElement("a");
+  a.href = `/api/meetings/${encodeURIComponent(state.slug)}/export?media=${encodeURIComponent(media)}`;
+  a.download = "";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  toast(media === "none" ? "正在生成离线查看包（默认不含音视频）…" : `正在生成含${media === "video" ? "视频" : "音频"}的查看包…`);
 }
 
 /* ---------- 本地会议助手：结构化逐字稿引用 ---------- */
@@ -782,6 +838,10 @@ function init() {
     if (confirm("用 122B 大模型整体重写纪要？首次调用需加载模型(数分钟)，且会挤占常驻模型。"))
       regenMinutes("qwen3.5-122b-a10b-planner");
   };
+  $("#export-btn").onclick = () => exportMeeting("none");
+  $("#export-audio-btn").onclick = () => exportMeeting("audio");
+  $("#export-video-btn").onclick = () => exportMeeting("video");
+  $("#evidence-close").onclick = () => $("#evidence-card").classList.add("hidden");
   $("#bind-cancel").onclick = closeBind;
   $("#bind-mask").addEventListener("click", e => { if (e.target.id === "bind-mask") closeBind(); });
 

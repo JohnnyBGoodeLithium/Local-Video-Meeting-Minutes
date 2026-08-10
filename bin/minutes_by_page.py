@@ -20,6 +20,7 @@ stdout 只打印元数据(字数/页数/tokens/耗时)，不打印任何会议�
 import argparse
 import atexit
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -30,6 +31,13 @@ from pathlib import Path
 
 from slide_pages import page_at
 from vl_page_test import DETAIL_PROMPT, grab_fullres, chat_with_image
+from meeting_artifact import (
+    CONCLUSION_POLICY,
+    MARKER_RE,
+    build_prompt_context,
+    load_speaker_profiles,
+    write_evidence_document,
+)
 
 ROUTER = "http://127.0.0.1:11435/v1/chat/completions"
 MODEL = "qwen3.6-35b-a3b-operator"
@@ -38,49 +46,65 @@ VL_MODEL = Path.home() / "视频/joyai-test/models/MiMo-VL-Miloco-7B_Q4_0.gguf"
 VL_MMPROJ = Path.home() / "视频/joyai-test/models/mmproj-MiMo-VL-Miloco-7B_BF16.gguf"
 VL_MAXTOK = 2048
 
-SUM_PROMPT = """你是一名会议纪要助手。下面是会议的分说话人逐字稿，已按"说话时正显示的幻灯片页"分块（可能有个别错字与归属错误）。
+EVIDENCE_RULES = """
+证据与结论规则（必须遵守）：
+1. `turns` 是会议决定、共识、行动、风险的唯一主证据；每轮有稳定 T 编号。
+2. `pages.visual_*` 来自 VL，只证明页面展示了什么。它可以核对术语、数字和议题结构，
+   但不能单独证明“会上说过”或“会议决定了”。页面用 P 编号引用。
+3. `speaker_profiles` 的岗位、团队和 org_depth 只提供决策权限语境，不能把建议自动升级成结论。
+   职级最多在发言明确表示决定/批准时，帮助判断此人是否可能有确认权限。
+4. 结论状态严格区分：confirmed=明确决定/批准且权限或多人确认成立；
+   working_alignment=方向共识但仍需最终确认；proposal=建议/方案；open=未决；
+   informational=汇报或页面展示，不是决定。
+5. 行动项必须有明确动作；负责人/期限没说就写“不明”，不能根据职级猜。
+6. 每个事实性条目末尾必须原样附一个机器标记（Markdown 阅读时会隐藏）：
+   `<!-- mm:evidence kind=decision status=confirmed confidence=high turns=T000001,T000003 pages=P0002 -->`
+   turns/pages 只能写输入中真实存在的 ID；没有页面依据时省略 pages，没有逐字稿依据的页面事实只能用
+   kind=slide_fact status=informational，绝不能标成 decision/action。
+"""
 
-请通读后输出两部分：
+SUM_PROMPT = """你是一名严谨的会议纪要编辑。你收到的是 `meeting-minutes-prompt/v1` JSON，
+其中逐字稿可能有少量转写或说话人归属错误。请输出 Markdown，且只输出以下结构：
 
 ## 总体摘要
-- **主旨**：一段话说明这个会为什么开、要达到什么目的
-- **关键结论**：分条列出（没有就写"未形成结论"）
-- **待办事项**：动作 + 负责人（归属不明写"不明"）+ 期限（如提到）
-- **风险/待确认**
+- **主旨**：一段话说明会议目的，并附证据标记
+- **关键结论**：按重要性列出；若只有方向/提议要明确标注状态；没有就写“未形成已确认结论”
+- **待办事项**：用表格（事项 / 负责人 / 期限 / 状态）；每个事项所在单元格或紧随该行附证据标记
+- **风险/待确认**：分条列出
 
 ## 议题板块
-把连续的幻灯片页按议题归并成板块（deck 本身有 agenda/章节结构就按它划，否则按讨论主题推断），每块一行：
-- 板块名（第X–Y页，mm:ss 起）：一句话概括
+把连续页面按议题归并；优先使用页面读出的 agenda/章节标题，但概括必须有逐字稿依据。
+每块一行：板块名（第X–Y页，mm:ss 起）：一句话概括，并附证据标记。
 
-说明：每页开头标注的【页面内容】是视觉模型对该页截图的解读（供参考，可能有个别错误），
-板块划分优先依据它读出的 agenda/章节标题；逐字稿里没有、只出现在【页面内容】里的事实不要当作讨论内容引用。
-只根据逐字稿内容总结，不要编造。逐字稿如下：
+{evidence_rules}
 
----
-{transcript}
----"""
+结论策略配置：
+{policy}
 
-GROUP_PROMPT = """你是一名会议纪要助手。下面是某会议逐字稿中若干页的切片（按"说话时正显示的幻灯片页"切，可能有个别错字与归属错误）。
+输入 JSON：
+```json
+{context}
+```"""
 
-请为每一页输出纪要块，严格按页码顺序，格式：
+GROUP_PROMPT = """你是一名严谨的会议纪要编辑。输入是 `meeting-minutes-prompt/v1` JSON，
+只包含若干页面、这些页面显示时的逐字稿和说话人权限语境。
+
+请为每页输出一个纪要块，严格按页码顺序：
 
 ### 第N页 [mm:ss] 一句话主题
-- 讨论要点（2-4 条，每条一句话，带 [mm:ss]）
-- **本页结论**：xxx（没有就写"未形成结论"）
+- 讨论要点（2-4 条，每条一句话，带 [mm:ss] 和证据标记）
+- **本页结论**：结论及其 confirmed/working alignment/proposal 状态，并附证据标记；
+  没有就写“未形成结论”（这一句不需要伪造标记）
 
-规则：
-- 只输出页块，不要前言、总结或其它标题
-- 每页不超过 5 行
-- 切片里【页面内容】是视觉模型对截图的解读(供参考, 可能有误)；讨论要点以发言文字为准，
-  【页面内容】只用于核对术语/数字/页标题——不要把画面描述写进要点(它会单独进附录)，
-  也不要把里面的事实当作"会上说过的"
-- 切片里没说的不要编
+规则：只输出页块；每页不超过 6 行。VL 完整页面解释会由程序放进附录，正文只写会上实际讨论的内容。
+页面数字若在发言中被明确引用，可同时标 turn 和 page；否则页面内容只能作 informational 页面事实。
 
-切片如下：
+{evidence_rules}
 
----
-{slices}
----"""
+输入 JSON：
+```json
+{context}
+```"""
 
 
 def mmss(sec: float) -> str:
@@ -203,19 +227,23 @@ def block_text(opening, per_page, pages, descs=None, desc_limit=None) -> str:
     return "\n".join(lines)
 
 
-RETRY_PROMPT = """你是一名会议纪要助手。下面是某会议逐字稿中几页的切片（按"说话时正显示的幻灯片页"切）。
+RETRY_PROMPT = """你是一名严谨的会议纪要编辑。下面是 `meeting-minutes-prompt/v1` JSON。
 请只为这些页输出纪要块，严格按页码顺序，格式：
 
 ### 第N页 [mm:ss] 一句话主题
-- 讨论要点（1-3 条，各带 [mm:ss]）
-- **本页结论**：xxx（没有就写"未形成结论"）
+- 讨论要点（1-3 条，各带 [mm:ss] 和证据标记）
+- **本页结论**：xxx（没有就写“未形成结论”）
 
 标注了"(本页无对应讨论)"的页只输出一行 `### 第N页 [mm:ss] （快速带过）`。
-只根据切片内容总结，不要编造。切片如下：
+只根据 turns 总结，不要编造；VL 只作页面展示资料。
 
----
-{slices}
----"""
+{evidence_rules}
+
+输入 JSON：
+
+```json
+{context}
+```"""
 
 REFINE_PROMPT = """你是一名资深会议纪要编辑。下面是一份按页成稿的会议纪要（总体摘要 + 议题板块 + 逐页详情），
 由较小的模型生成，可能有重复、板块划分不当、措辞不统一的问题。请在不改变任何事实的前提下整体重写。
@@ -223,10 +251,12 @@ REFINE_PROMPT = """你是一名资深会议纪要编辑。下面是一份按页�
 信息分层纪律（必须遵守）：
 - 讨论要点/结论只来自发言内容；页面截图的视觉解读仅用于锚定议题结构和核对术语，
   不要把画面描述写进正文（它们会单独进附录）
+- 岗位/职级只能提供决策权限语境；不能把建议或单人观点自动升级为结论
 - **总体摘要**：主旨凝练；关键结论/待办/风险去重合并；待办汇总成表（事项/负责人/期限）
 - **议题板块**：校准板块划分与命名（可合并或拆分；页码范围必须使用原文出现过的页码）
 - **逐页详情**：润色语句、统一术语、去掉跨页重复；"本页结论"与总体摘要的关键结论保持一致
 - **严禁**新增原文没有的事实、数字、人名；保留所有 [mm:ss] 时间戳 与 `### 第N页` 标题结构
+- 所有 `<!-- mm:evidence ... -->` 标记必须逐字保留，不能删除、改写、移动到其他事实后面或新增
 - 直接输出完整新版纪要（Markdown），不要解释、不要前后寒暄
 
 纪要原文：
@@ -267,15 +297,19 @@ def insert_images(md: str, pages, descs=None) -> str:
     return "\n".join(out)
 
 
-def appendix_md(pages, descs) -> str:
-    """VL 逐页详解全部沉到附录。"""
+def appendix_md(pages, descs, per_page=None) -> str:
+    """VL 逐页详解全部沉到附录，并明确区分“有讨论”和“仅展示”。"""
     if not descs:
         return ""
     first = {p["page"]: p["first"] for p in pages}
-    out = ["\n## 附录: 页面详解(视觉模型逐页解读, 仅供参考)\n"]
+    per_page = per_page or {}
+    out = ["\n## 附录: 页面详解(视觉模型逐页解读)\n",
+           "> 本附录完整保留页面展示信息。标记为“仅展示”的页面没有对应逐字稿讨论；"
+           "页面内容本身不代表会议结论。\n"]
     for n in sorted(descs):
         d = re.sub(r"^#{1,4}\s*", "##### ", descs[n], flags=re.M)  # 标题降级, 不抢结构
-        out.append(f"### 第{n}页 [{mmss(first.get(n, 0))}]\n\n{d}\n")
+        status = "有讨论" if per_page.get(n) else "仅展示"
+        out.append(f"### 页面 P{n:04d} · 第{n}页 · {status} [{mmss(first.get(n, 0))}]\n\n{d}\n")
     return "\n".join(out)
 
 
@@ -303,25 +337,28 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
         if api:
             descs = describe_pages(mdir, pages, api, video)
 
-    transcript = block_text(opening, per_page, pages, descs, desc_limit=160)
-    print(f"[meta] 逐字稿 {len(turns)} 轮/{len(transcript)} 字 | 页数 {len(pages)}"
+    bank_dir = Path(os.environ.get("MEETING_WEB_BANK", mdir.parent.parent / "speaker_bank"))
+    profiles = load_speaker_profiles(turns, bank_dir)
+    summary_context = build_prompt_context(turns, pages, descs, profiles)
+    context_json = json.dumps(summary_context, ensure_ascii=False, separators=(",", ":"))
+    print(f"[meta] 逐字稿 {len(turns)} 轮/{len(context_json)} 字结构化输入 | 页数 {len(pages)}"
           f" | 开场 {len(opening)} 轮 | VL解读 {len(descs)} 页", flush=True)
 
     t0 = time.time()
-    part1, u1 = chat(SUM_PROMPT.replace("{transcript}", transcript))
+    part1, u1 = chat(SUM_PROMPT.format(
+        evidence_rules=EVIDENCE_RULES,
+        policy=json.dumps(CONCLUSION_POLICY, ensure_ascii=False, indent=2),
+        context=context_json,
+    ))
     print(f"[meta] 总体摘要+板块 {len(part1)} 字 | tokens {u1.get('completion_tokens','?')}"
           f" | {time.time()-t0:.0f}s", flush=True)
 
-    def fmt(ts):
-        return "\n".join(f"[{mmss(t['start'])} {t['speaker']}] {t['text']}" for t in ts)
-
-    def page_slice(p):
-        lines = [f"【第{p['page']}页 显示自 {mmss(p['first'])}】"]
-        d = descs.get(p["page"])
-        if d:
-            lines.append(f"【页面内容】{' '.join(d.split())}")
-        lines.append(fmt(per_page.get(p["page"], [])) or "(本页无对应讨论)")
-        return "\n".join(lines)
+    def pages_context(group):
+        numbers = {int(p["page"]) for p in group}
+        return json.dumps(
+            build_prompt_context(turns, pages, descs, profiles, detail=True,
+                                 page_numbers=numbers),
+            ensure_ascii=False, separators=(",", ":"))
 
     # 逐页详情：有讨论的页按 8 页一组分次调用(防单次输出截断); 空页走确定性占位
     blocks = {}
@@ -329,8 +366,8 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
     t0 = time.time()
     for gi in range(0, len(content_pages), 8):
         grp = content_pages[gi:gi + 8]
-        g_out, u_g = chat(GROUP_PROMPT.replace("{slices}", "\n".join(page_slice(p) for p in grp)),
-                          max_tokens=4096)
+        g_out, u_g = chat(GROUP_PROMPT.format(
+            evidence_rules=EVIDENCE_RULES, context=pages_context(grp)), max_tokens=4096)
         got = _extract_blocks(g_out)
         blocks.update(got)
         print(f"[meta] 页块 第{grp[0]['page']}-{grp[-1]['page']}页: 得 {len(got)}/{len(grp)}"
@@ -339,8 +376,9 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
     by_page = {p["page"]: p for p in pages}
     missing = [n for n in by_page if n not in blocks and per_page.get(n)]
     if missing:  # 分组仍漏的页 → 只带缺页切片补问一次
-        r_out, u3 = chat(RETRY_PROMPT.replace("{slices}", "\n".join(page_slice(by_page[n]) for n in missing)),
-                         max_tokens=4096)
+        r_out, u3 = chat(RETRY_PROMPT.format(
+            evidence_rules=EVIDENCE_RULES,
+            context=pages_context([by_page[n] for n in missing])), max_tokens=4096)
         got = _extract_blocks(r_out)
         for n in missing:
             if n in got:
@@ -361,22 +399,38 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
     if refine_model:
         t0 = time.time()
         r_out, u4 = chat(REFINE_PROMPT.replace("{minutes}", body), model=refine_model)
-        # 结构校验：每个 `### 第N页` 都必须在，缺一页就弃用精修稿
-        if len(re.findall(r"^#{3,4}\s*第\s*\d+\s*页", r_out, re.M)) >= len(pages):
+        markers_before = [m.group(0) for m in MARKER_RE.finditer(body)]
+        markers_after = [m.group(0) for m in MARKER_RE.finditer(r_out)]
+        # 结构与证据双校验：少页、删除/改写/移动证据标记都弃用精修稿。
+        structure_ok = len(re.findall(r"^#{3,4}\s*第\s*\d+\s*页", r_out, re.M)) >= len(pages)
+        if structure_ok and markers_before == markers_after:
             body = r_out if r_out.lstrip().startswith("#") else "# 会议纪要\n\n" + r_out
             refined = True
             print(f"[meta] 大模型精修({refine_model}) {len(r_out)} 字"
                   f" | tokens {u4.get('completion_tokens','?')} | {time.time()-t0:.0f}s", flush=True)
         else:
-            print("[meta] 精修稿页块缺失, 保留原稿", flush=True)
+            reason = "页块缺失" if not structure_ok else "证据标记变化"
+            print(f"[meta] 精修稿{reason}, 保留原稿", flush=True)
     md = insert_images(body, pages, descs)
-    md += appendix_md(pages, descs)
+    md += appendix_md(pages, descs, per_page)
     out = Path(out) if out else mdir / "minutes.md"
     if out.exists():
         shutil.move(str(out), str(out.with_name("minutes.prev.md")))
     out.write_text(md, encoding="utf-8")
+    _evidence_path, evidence = write_evidence_document(
+        mdir, md, turns, pages, descs, profiles,
+        generation={
+            "prompt_schema": "meeting-minutes-prompt/v1",
+            "conclusion_policy": CONCLUSION_POLICY["version"],
+            "text_model": MODEL,
+            "vl_enabled": bool(vl),
+            "vl_pages": len(descs),
+            "refined": refined,
+            "refine_model": refine_model if refined else None,
+        })
     return out, {"pages": len(pages), "page_blocks": len(pages), "chars": len(md),
-                 "vl_pages": len(descs), "refined": refined}
+                 "vl_pages": len(descs), "refined": refined,
+                 "claims": len(evidence["claims"])}
 
 
 def main() -> int:

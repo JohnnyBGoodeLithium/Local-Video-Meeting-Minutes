@@ -2,7 +2,7 @@
 
 目标：把录音笔/会议录音变成**带时间戳的逐字稿 + 结构化会议纪要**，全流程在本机完成，音频和文字不出机器。
 
-工程文档：[系统架构](docs/ARCHITECTURE.md) · [产品与交互](docs/PRODUCT_UX.md) · [开发与验证](docs/DEVELOPMENT.md) · [工程走查](docs/ENGINEERING_REVIEW.md) · [模型矩阵](docs/MODELS.md)
+工程文档：[系统架构](docs/ARCHITECTURE.md) · [产品与交互](docs/PRODUCT_UX.md) · [开发与验证](docs/DEVELOPMENT.md) · [工程走查](docs/ENGINEERING_REVIEW.md) · [模型矩阵](docs/MODELS.md) · [结论/导出/RAG 规范](docs/EXPORT_AND_RAG.md)
 
 ## 为什么做这个
 
@@ -18,6 +18,7 @@ meeting-minutes/
       audio.wav               # 16k 单声道音轨
       transcript.spk.md/json  # 具名/分说话人逐字稿
       minutes.md              # 纪要(Teams 场: 总体摘要+议题板块+逐页详情, 每页内嵌截图)
+      minutes.evidence.json   # 纪要 claim ↔ 逐字稿 T ID / 页面 P ID 的 canonical sidecar
       slides/                 # 屏幕共享逻辑页截图(page_NN_t####s.jpg) + slides.json(页码时间线)
       samples/                # 声纹试听片段(voice_tool 生成)
     2026-08-06_171137/        # 录音笔会议: transcript.txt / stamps.json / transcript.ts.md
@@ -53,6 +54,8 @@ python3 -m venv --system-site-packages .venv
 
 会议详情左侧是常驻的播放证据栏：播放器、带页区间/议题标记的时间轴和逐字稿在同一列；右侧阅读纪要。底部助手可引用一轮或多轮逐字稿进行本地问答，回答带可点击时间来源。直接输入修改要求时，系统先展示可读的章节修改预览，只有用户确认后才写入，并支持立即撤销。
 
+新生成的纪要会把结论关联到稳定的逐字稿/页面证据，正文只显示轻量“依据”链接；岗位职级只作为决策权限语境，不能把建议自动升级为结论。“更多”菜单可导出 `.meetingpack.zip`：默认不带音视频，收件人解压后双击 `viewer.html` 即可离线阅读、搜索和核对依据，无需服务或 LLM。格式与 RAG 接入见 [结论/导出/RAG 规范](docs/EXPORT_AND_RAG.md)。
+
 ### 录音笔 WAV：一条命令
 
 ```bash
@@ -84,6 +87,9 @@ python3 -m venv --system-site-packages .venv
 
 # 只重生成纪要(逐字稿/slides.json 已在, 旧纪要备份为 minutes.prev.md):
 .venv/bin/python bin/minutes_by_page.py meetings/<某会议>/ --video 原视频.mp4   # 不带 --video 则用 slides/ 里 1280px 图给 VL
+
+# 导出无需本机服务/LLM 的离线查看包（默认不带媒体；可改 audio/video）:
+.venv/bin/python bin/export_meeting.py meetings/<某会议>/ --media none
 
 # VL 读页单独测试/评审(对照模型用):
 .venv/bin/python bin/vl_page_test.py meetings/<某会议>/ --tag xxx --detail --video 原视频.mp4 [--pages 2,9,11]

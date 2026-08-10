@@ -12,10 +12,18 @@
 
 import argparse
 import json
+import os
 import sys
 import time
 import urllib.request
 from pathlib import Path
+
+from meeting_artifact import (
+    CONCLUSION_POLICY,
+    build_prompt_context,
+    load_speaker_profiles,
+    write_evidence_document,
+)
 
 ROUTER = "http://127.0.0.1:11435/v1/chat/completions"
 MODEL = "qwen3.6-35b-a3b-operator"
@@ -34,6 +42,35 @@ PROMPT = """你是一名会议纪要助手。下面是会议录音的逐字稿(�
 ---
 {transcript}
 ---"""
+
+STRUCTURED_PROMPT = """你是一名严谨的会议纪要编辑。输入是 `meeting-minutes-prompt/v1` JSON，
+逐字稿可能有少量转写或说话人归属错误。请输出 Markdown：
+
+# 会议纪要
+## 总体摘要
+- 主旨
+- 关键结论（区分 已确认 / 方向共识 / 提议 / 未决）
+## 待办事项
+- 动作 + 负责人（未提到写“不明”）+ 期限（未提到写“不明”）
+## 风险/待确认
+## 议题详情
+
+规则：
+- turns 是决定、共识、行动和风险的唯一主证据。
+- 岗位/职级只提供决策权限语境，不能把建议或单人观点自动升级为结论。
+- 已确认结论需要明确决定/批准措辞，并由议题责任人作出，或得到多人明确确认且无未解决反对。
+- 行动项按动作、接受责任、负责人和期限判断，不按职级判断。
+- 每个事实性条目末尾附机器标记：
+  `<!-- mm:evidence kind=decision status=confirmed confidence=high turns=T000001,T000003 -->`
+  turns 只能写输入中存在的 T 编号；kind 可用 purpose/decision/alignment/action/risk/open_question/discussion。
+
+结论策略：
+{policy}
+
+输入 JSON：
+```json
+{context}
+```"""
 
 
 def _fmt_mmss(seconds: float) -> str:
@@ -66,8 +103,12 @@ def main() -> int:
             print(f"找不到说话人轮次文件: {args.spk}", file=sys.stderr)
             return 1
         turns = json.loads(args.spk.read_text(encoding="utf-8"))
-        text = "\n".join(f"[{_fmt_mmss(t['start'])} {t['speaker']}] {t['text']}" for t in turns)
-        prompt = SPK_PROMPT.format(transcript=text)
+        bank_dir = Path(os.environ.get("MEETING_WEB_BANK", args.spk.parent.parent.parent / "speaker_bank"))
+        profiles = load_speaker_profiles(turns, bank_dir)
+        context = build_prompt_context(turns, [], {}, profiles)
+        text = json.dumps(context, ensure_ascii=False, separators=(",", ":"))
+        prompt = STRUCTURED_PROMPT.format(
+            policy=json.dumps(CONCLUSION_POLICY, ensure_ascii=False, indent=2), context=text)
     else:
         if not args.transcript.is_file():
             print(f"找不到输入文件: {args.transcript}", file=sys.stderr)
@@ -106,6 +147,12 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / ("minutes.spk.md" if args.spk else "minutes.md")
     out_path.write_text(minutes + "\n", encoding="utf-8")
+    if args.spk:
+        write_evidence_document(
+            args.spk.parent, minutes + "\n", turns, [], {}, profiles,
+            generation={"prompt_schema": "meeting-minutes-prompt/v1",
+                        "conclusion_policy": CONCLUSION_POLICY["version"],
+                        "text_model": MODEL, "vl_enabled": False})
 
     usage = data.get("usage", {})
     print(f"[meta] 纪要生成 {elapsed:.1f}s | 输入 {usage.get('prompt_tokens','?')} tok"

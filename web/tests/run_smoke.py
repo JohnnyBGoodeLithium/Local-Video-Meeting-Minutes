@@ -84,6 +84,11 @@ def main() -> int:
                     [str(PY), str(PROJECT / "web/tests/smoke_test.py")],
                     env=env, cwd=PROJECT,
                 )
+                if result.returncode:
+                    time.sleep(0.2)
+                    print("\n--- isolated server log (failure tail) ---", file=sys.stderr)
+                    print(log_path.read_text(encoding="utf-8", errors="replace")[-12000:],
+                          file=sys.stderr)
                 return result.returncode
             finally:
                 if proc.poll() is None:

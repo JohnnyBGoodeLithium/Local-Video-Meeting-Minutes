@@ -17,6 +17,10 @@ import numpy as np
 import soundfile as sf
 from PIL import Image
 
+PROJECT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(PROJECT / "bin"))
+from meeting_artifact import load_speaker_profiles, write_evidence_document  # noqa: E402
+
 ROOT = Path(os.environ.get("MM_TEST_ROOT", "/home/johnny-tcx_ultra/meeting-minutes")).resolve()
 mdir = ROOT / "meetings" / "_smoke"
 SR = 16000
@@ -58,7 +62,7 @@ minutes = """# 会议纪要
 
 ## 总体摘要
 
-- **主旨**：合成夹具，无真实内容。
+- **主旨**：合成夹具，无真实内容。 <!-- mm:evidence kind=purpose status=informational confidence=high turns=T000001,T000002 pages=P0001 -->
 
 ## 议题板块
 
@@ -71,19 +75,34 @@ minutes = """# 会议纪要
 ![第1页](slides/page1.png)
 
 - **本页结论**：未形成结论
+- 讨论了第一轮假数据。 <!-- mm:evidence kind=discussion status=informational confidence=high turns=T000001,T000002 pages=P0001 -->
 
 ### 第2页 [00:05] 假页面二
 
 ![第2页](slides/page2.png)
 
 - **本页结论**：未形成结论
+- 讨论结束。 <!-- mm:evidence kind=discussion status=informational confidence=high turns=T000003 pages=P0002 -->
 """
 (mdir / "minutes.md").write_text(minutes, encoding="utf-8")
+
+page_desc = {"model": "synthetic-vl", "desc": {
+    "1": "# 标题\n合成页面一。页面展示蓝色测试背景，不代表会议结论。",
+    "2": "# 标题\n合成页面二。页面展示绿色测试背景，仅供页面检索。",
+}}
+(mdir / "page_desc.json").write_text(json.dumps(page_desc, ensure_ascii=False, indent=1),
+                                      encoding="utf-8")
 
 for name in ("Alice", "Bob"):
     sf.write(str(mdir / "samples" / f"{name}.wav"), np.zeros(SR, dtype=np.float32), SR)
 
 (mdir / "source.json").write_text(json.dumps(
     {"wav": str(mdir / "audio.wav")}, ensure_ascii=False, indent=1), encoding="utf-8")
+
+bank_dir = Path(os.environ.get("MM_TEST_BANK", "/tmp/mm_fake_bank"))
+profiles = load_speaker_profiles(turns, bank_dir)
+write_evidence_document(
+    mdir, minutes, turns, slides, {1: page_desc["desc"]["1"], 2: page_desc["desc"]["2"]}, profiles,
+    generation={"synthetic_fixture": True})
 
 print("smoke fixture ok:", sorted(p.name for p in mdir.iterdir()))

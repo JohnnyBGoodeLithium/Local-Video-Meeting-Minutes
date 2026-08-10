@@ -1,0 +1,477 @@
+#!/usr/bin/env python3
+"""纪要证据模型与 RAG 导出共享逻辑。
+
+这个模块不调用模型。它把逐字稿、页面理解、人员身份和纪要中的轻量证据标记
+整理成一个稳定的机器可读 sidecar，供 Web、便携查看器和后续 RAG 共用。
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import re
+import unicodedata
+import uuid
+from pathlib import Path
+
+
+EVIDENCE_SCHEMA = "meeting-minutes-evidence/v1"
+RAG_SCHEMA = "meeting-minutes-rag/v1"
+MARKER_RE = re.compile(r"<!--\s*mm:evidence\s+([^<>]*?)\s*-->")
+HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.M)
+
+CONCLUSION_POLICY = {
+    "version": "conclusion-policy/v1",
+    "principles": [
+        "逐字稿发言是会议决定、共识、行动和风险的唯一主证据。",
+        "岗位/职级只提供决策权限语境；不能把提议、设想或单人观点自动升级为结论。",
+        "已确认结论需要明确决定/批准措辞，并由议题责任人作出，或得到多人明确确认且无未解决反对。",
+        "行动项按动作、接受责任、负责人和期限判定，不按职级判定。",
+        "风险和待确认按影响、紧迫性和未解决程度判定，不按发言者职级判定。",
+        "VL 页面理解证明页面展示了什么；页面内容本身不能证明会议作出了决定。",
+    ],
+    "decision_status": {
+        "confirmed": "明确决定/批准，且权限或多人确认信号成立，没有仍在场的明确反对。",
+        "working_alignment": "形成方向性共识，但权限、范围或最终确认仍不完整。",
+        "proposal": "建议、方案、偏好或尚待批准的选择。",
+        "open": "问题、风险或分歧仍未解决。",
+        "informational": "陈述事实、汇报状态或展示材料，不是会议决定。",
+    },
+    "seniority_rule": "职级最多影响‘此人是否有权确认决定’的置信度，不改变发言行为本身的类别。",
+    "visual_rule": "所有页面进入页面附录；只有与讨论或结论相关的页面进入正文证据链接。",
+}
+
+
+def _read_json(path: Path, default):
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return default
+
+
+def file_revision(path: Path) -> str | None:
+    if not path.is_file():
+        return None
+    return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+
+
+def _norm(value: str) -> str:
+    value = unicodedata.normalize("NFKC", str(value or "")).strip().lower()
+    return " ".join(value.split())
+
+
+def turn_id(index: int) -> str:
+    return f"T{index + 1:06d}"
+
+
+def page_id(number: int) -> str:
+    return f"P{int(number):04d}"
+
+
+def _page_for_time(pages: list[dict], sec: float) -> dict | None:
+    for page in pages:
+        for start, end in page.get("ranges", []):
+            if float(start) <= sec < float(end):
+                return page
+    previous = [p for p in pages if float(p.get("first", 0)) <= sec]
+    return max(previous, key=lambda p: float(p.get("first", 0))) if previous else None
+
+
+def _org_depth(entry: dict, by_id: dict[str, dict]) -> int | None:
+    depth, cursor, seen = 0, entry, set()
+    while cursor and cursor.get("manager_id"):
+        manager_id = cursor.get("manager_id")
+        if manager_id in seen or manager_id not in by_id:
+            return None
+        seen.add(manager_id)
+        cursor = by_id[manager_id]
+        depth += 1
+    return depth
+
+
+def load_speaker_profiles(turns: list[dict], bank_dir: Path | None) -> list[dict]:
+    """只用稳定 person_id/voice 绑定或唯一精确名称关联身份；绝不模糊匹配。"""
+    bank = _read_json(Path(bank_dir) / "bank.json", {}) if bank_dir else {}
+    org_raw = _read_json(Path(bank_dir) / "orgchart.json", []) if bank_dir else []
+    if isinstance(org_raw, dict):
+        org_raw = org_raw.get("persons", [])
+    persons = {str(p.get("id")): p for p in bank.get("persons", []) if p.get("id")}
+    voices = {str(v.get("id")): v for v in bank.get("voices", []) if v.get("id")}
+
+    org = [dict(item) for item in org_raw if isinstance(item, dict)]
+    org_by_id = {str(o.get("id")): o for o in org if o.get("id")}
+    # 兼容旧 leader 字段，但只接受唯一精确名字。
+    org_name_ids: dict[str, list[str]] = {}
+    for i, item in enumerate(org):
+        oid = str(item.get("id") or f"legacy-{i}")
+        item.setdefault("id", oid)
+        org_by_id[oid] = item
+        raw_names = [item.get("name", ""), *item.get("aliases", [])]
+        raw_names += [n.get("value", "") if isinstance(n, dict) else n
+                      for n in item.get("names", [])]
+        for name in raw_names:
+            if _norm(name):
+                org_name_ids.setdefault(_norm(name), []).append(oid)
+    for item in org:
+        if item.get("manager_id") or not item.get("leader"):
+            continue
+        matches = list(dict.fromkeys(org_name_ids.get(_norm(item["leader"]), [])))
+        if len(matches) == 1 and matches[0] != item["id"]:
+            item["manager_id"] = matches[0]
+
+    person_org: dict[str, dict] = {}
+    for item in org:
+        pid = str(item.get("person_id") or "")
+        if pid and pid in persons and pid not in person_org:
+            person_org[pid] = item
+    # 老数据没有 person_id 时，仅用人员已确认名称唯一精确关联。
+    for pid, person in persons.items():
+        if pid in person_org:
+            continue
+        names = [person.get("name", ""), person.get("display_name", ""), *person.get("aliases", [])]
+        names += [n.get("value", "") if isinstance(n, dict) else n
+                  for n in person.get("names", []) if not isinstance(n, dict) or n.get("verified", True)]
+        matched = set()
+        for name in names:
+            ids = list(dict.fromkeys(org_name_ids.get(_norm(name), [])))
+            if len(ids) == 1:
+                matched.add(ids[0])
+        if len(matched) == 1:
+            person_org[pid] = org_by_id[next(iter(matched))]
+
+    speaker_voices: dict[str, list[str]] = {}
+    for turn in turns:
+        speaker = str(turn.get("speaker") or "未知")
+        voice = str(turn.get("voice") or "")
+        if voice and voice not in speaker_voices.setdefault(speaker, []):
+            speaker_voices[speaker].append(voice)
+        else:
+            speaker_voices.setdefault(speaker, [])
+
+    profiles = []
+    for speaker, voice_ids in speaker_voices.items():
+        pids = {str(voices[v].get("person_id")) for v in voice_ids
+                if v in voices and voices[v].get("person_id") in persons}
+        pid = next(iter(pids)) if len(pids) == 1 else None
+        person = persons.get(pid, {}) if pid else {}
+        entry = person_org.get(pid) if pid else None
+        if entry is None:
+            exact = list(dict.fromkeys(org_name_ids.get(_norm(speaker), [])))
+            entry = org_by_id.get(exact[0]) if len(exact) == 1 else None
+        profiles.append({
+            "speaker": speaker,
+            "voice_ids": voice_ids,
+            "person_id": pid,
+            "display_name": person.get("display_name") or person.get("name") or speaker,
+            "identity_basis": "verified_voice_binding" if pid else "speaker_label_only",
+            "title": str((entry or {}).get("title") or ""),
+            "team": str((entry or {}).get("team") or ""),
+            "org_depth": _org_depth(entry, org_by_id) if entry else None,
+            "authority_context": "role_context_only" if entry else "unknown",
+        })
+    return profiles
+
+
+def build_prompt_context(turns: list[dict], pages: list[dict], descs: dict[int, str],
+                         profiles: list[dict], *, detail: bool = False,
+                         page_numbers: set[int] | None = None) -> dict:
+    selected_pages = [p for p in pages if page_numbers is None or int(p["page"]) in page_numbers]
+    selected_numbers = {int(p["page"]) for p in selected_pages}
+    page_rows = []
+    for page in selected_pages:
+        number = int(page["page"])
+        description = str(descs.get(number, ""))
+        row = {
+            "id": page_id(number),
+            "number": number,
+            "first": round(float(page.get("first", 0)), 3),
+            "ranges": page.get("ranges", []),
+            "visual_summary": " ".join(description.split())[:500],
+        }
+        if detail:
+            row["visual_detail"] = description
+        page_rows.append(row)
+    turn_rows = []
+    by_voice = {v: p for p in profiles for v in p.get("voice_ids", [])}
+    for index, turn in enumerate(turns):
+        mid = (float(turn.get("start", 0)) + float(turn.get("end", 0))) / 2
+        page = _page_for_time(pages, mid)
+        number = int(page["page"]) if page else None
+        if page_numbers is not None and number not in selected_numbers:
+            continue
+        profile = by_voice.get(str(turn.get("voice") or ""))
+        turn_rows.append({
+            "id": turn_id(index),
+            "index": index,
+            "start": round(float(turn.get("start", 0)), 3),
+            "end": round(float(turn.get("end", 0)), 3),
+            "speaker": str(turn.get("speaker") or "未知"),
+            "voice_id": turn.get("voice"),
+            "person_id": (profile or {}).get("person_id"),
+            "page_id": page_id(number) if number is not None else None,
+            "text": str(turn.get("text") or ""),
+        })
+    return {
+        "schema": "meeting-minutes-prompt/v1",
+        "speaker_profiles": profiles,
+        "pages": page_rows,
+        "turns": turn_rows,
+    }
+
+
+def _marker_values(raw: str) -> dict[str, str]:
+    values = {}
+    for token in raw.split():
+        if "=" not in token:
+            continue
+        key, value = token.split("=", 1)
+        values[key.strip()] = value.strip()
+    return values
+
+
+def _ids(value: str, prefix: str) -> list[str]:
+    return list(dict.fromkeys(x for x in value.split(",") if re.fullmatch(prefix + r"\d+", x)))
+
+
+def _clean_markdown_text(value: str) -> str:
+    value = MARKER_RE.sub("", value)
+    value = re.sub(r"!\[[^]]*]\([^)]*\)", "", value)
+    value = re.sub(r"\[([^]]+)]\([^)]*\)", r"\1", value)
+    value = re.sub(r"^[\s>*#-]+", "", value)
+    value = value.replace("**", "").replace("__", "").replace("`", "")
+    return " ".join(value.split()).strip()
+
+
+def parse_claims(minutes: str, valid_turns: set[str], valid_pages: set[str]) -> list[dict]:
+    claims, heading, previous_line = [], "", ""
+    lines = minutes.splitlines()
+    for line_number, line in enumerate(lines, 1):
+        hm = re.match(r"^#{1,6}\s+(.+?)\s*$", line)
+        if hm:
+            heading = hm.group(1).strip()
+        matches = list(MARKER_RE.finditer(line))
+        for match in matches:
+            values = _marker_values(match.group(1))
+            turns = [x for x in _ids(values.get("turns", ""), "T") if x in valid_turns]
+            pages = [x for x in _ids(values.get("pages", ""), "P") if x in valid_pages]
+            if not turns and not pages:
+                continue
+            raw_text = line[:match.start()].strip() or previous_line
+            text = _clean_markdown_text(raw_text)
+            if not text:
+                continue
+            claims.append({
+                "id": f"C{len(claims) + 1:05d}",
+                "text": text,
+                "section": heading,
+                "kind": values.get("kind", "discussion"),
+                "status": values.get("status", "informational"),
+                "confidence": values.get("confidence", "medium"),
+                "turn_ids": turns,
+                "page_ids": pages,
+                "evidence_ids": turns + pages,
+                "line": line_number,
+                "marker": match.group(0),
+            })
+        if line.strip() and not matches:
+            previous_line = line.strip()
+    return claims
+
+
+def _meeting_uid(slug: str) -> str:
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"meeting-minutes:meeting:{slug}"))
+
+
+def _artifact_uid(slug: str, transcript_revision: str | None, minutes_revision: str) -> str:
+    raw = f"meeting-minutes:artifact:{slug}:{transcript_revision or 'no-transcript'}:{minutes_revision}"
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, raw))
+
+
+def build_evidence_document(mdir: Path, minutes: str, turns: list[dict], pages: list[dict],
+                            descs: dict[int, str], profiles: list[dict],
+                            generation: dict | None = None) -> dict:
+    transcript_revision = file_revision(mdir / "transcript.spk.json")
+    minutes_revision = hashlib.sha256(minutes.encode("utf-8")).hexdigest()[:16]
+    slug = mdir.name
+    meeting_uid = _meeting_uid(slug)
+    artifact_uid = _artifact_uid(slug, transcript_revision, minutes_revision)
+    profile_by_voice = {v: p for p in profiles for v in p.get("voice_ids", [])}
+    turn_sources = []
+    for index, turn in enumerate(turns):
+        mid = (float(turn.get("start", 0)) + float(turn.get("end", 0))) / 2
+        page = _page_for_time(pages, mid)
+        profile = profile_by_voice.get(str(turn.get("voice") or ""), {})
+        turn_sources.append({
+            "id": turn_id(index),
+            "index": index,
+            "start": round(float(turn.get("start", 0)), 3),
+            "end": round(float(turn.get("end", 0)), 3),
+            "speaker": str(turn.get("speaker") or "未知"),
+            "voice_id": turn.get("voice"),
+            "person_id": profile.get("person_id"),
+            "page_id": page_id(page["page"]) if page else None,
+            "text": str(turn.get("text") or ""),
+        })
+    page_sources = []
+    for page in pages:
+        number = int(page["page"])
+        pid = page_id(number)
+        related = [t["id"] for t in turn_sources if t.get("page_id") == pid]
+        page_sources.append({
+            "id": pid,
+            "number": number,
+            "first": round(float(page.get("first", 0)), 3),
+            "ranges": page.get("ranges", []),
+            "image": f"slides/{page.get('image')}" if page.get("image") else None,
+            "visual_description": str(descs.get(number, "")),
+            "discussion_turn_ids": related,
+            "display_status": "discussed" if related else "display_only",
+        })
+    valid_turns = {t["id"] for t in turn_sources}
+    valid_pages = {p["id"] for p in page_sources}
+    claims = parse_claims(minutes, valid_turns, valid_pages)
+    turn_by_id = {t["id"]: t for t in turn_sources}
+    for claim in claims:
+        linked = [turn_by_id[x] for x in claim["turn_ids"] if x in turn_by_id]
+        claim["turn_indexes"] = [t["index"] for t in linked]
+        claim["start"] = min((t["start"] for t in linked), default=None)
+        claim["end"] = max((t["end"] for t in linked), default=None)
+        claim["speakers"] = list(dict.fromkeys(t["speaker"] for t in linked))
+        claim["person_ids"] = list(dict.fromkeys(t["person_id"] for t in linked if t.get("person_id")))
+    return {
+        "schema": EVIDENCE_SCHEMA,
+        "meeting_id": meeting_uid,
+        "artifact_id": artifact_uid,
+        "slug": slug,
+        "revisions": {
+            "transcript": transcript_revision,
+            "minutes": minutes_revision,
+            "slides": file_revision(mdir / "slides.json"),
+            "page_descriptions": file_revision(mdir / "page_desc.json"),
+        },
+        "policy": CONCLUSION_POLICY,
+        "generation": generation or {},
+        "speaker_profiles": profiles,
+        "sources": {"transcript": turn_sources, "pages": page_sources},
+        "claims": claims,
+        "linkage": {
+            "claim_count": len(claims),
+            "claims_with_transcript": sum(bool(c["turn_ids"]) for c in claims),
+            "claims_with_pages": sum(bool(c["page_ids"]) for c in claims),
+        },
+    }
+
+
+def write_evidence_document(mdir: Path, minutes: str, turns: list[dict], pages: list[dict],
+                            descs: dict[int, str], profiles: list[dict],
+                            generation: dict | None = None) -> tuple[Path, dict]:
+    document = build_evidence_document(
+        mdir, minutes, turns, pages, descs, profiles, generation=generation)
+    path = mdir / "minutes.evidence.json"
+    path.write_text(json.dumps(document, ensure_ascii=False, indent=2), encoding="utf-8")
+    return path, document
+
+
+def markdown_with_evidence_links(minutes: str, evidence: dict) -> str:
+    """把不可见 marker 转成很轻的 Markdown“依据”链接；其余 marker 一律剥离。"""
+    by_marker: dict[str, list[dict]] = {}
+    for claim in evidence.get("claims", []):
+        by_marker.setdefault(claim.get("marker", ""), []).append(claim)
+
+    def replace(match):
+        queue = by_marker.get(match.group(0), [])
+        claim = queue.pop(0) if queue else None
+        return f" [依据](#mm-{claim['id']})" if claim else ""
+
+    return MARKER_RE.sub(replace, minutes)
+
+
+def _minutes_sections(minutes: str) -> list[dict]:
+    clean = MARKER_RE.sub("", minutes)
+    matches = list(HEADING_RE.finditer(clean))
+    sections = []
+    for i, match in enumerate(matches):
+        level = len(match.group(1))
+        end = len(clean)
+        for later in matches[i + 1:]:
+            if len(later.group(1)) <= level:
+                end = later.start()
+                break
+        text = clean[match.end():end]
+        text = _clean_markdown_text(text)
+        if text:
+            sections.append({"heading": match.group(2).strip(), "level": level, "text": text})
+    return sections
+
+
+def rag_records(evidence: dict, minutes: str) -> list[dict]:
+    """生成可直接写 JSONL 的检索记录；结论和原始证据用 ID 显式相连。"""
+    meeting_id = evidence["meeting_id"]
+    artifact_id = evidence["artifact_id"]
+    common = {"schema": RAG_SCHEMA, "meeting_id": meeting_id, "artifact_id": artifact_id,
+              "meeting_slug": evidence["slug"]}
+    records = []
+    for claim in evidence.get("claims", []):
+        records.append({
+            **common,
+            "id": f"{artifact_id}:claim:{claim['id']}",
+            "record_type": "claim",
+            "claim_type": claim["kind"],
+            "status": claim["status"],
+            "confidence": claim["confidence"],
+            "text": claim["text"],
+            "section": claim["section"],
+            "start": claim.get("start"),
+            "end": claim.get("end"),
+            "speakers": claim.get("speakers", []),
+            "person_ids": claim.get("person_ids", []),
+            "evidence_ids": claim["evidence_ids"],
+            "turn_ids": claim["turn_ids"],
+            "page_ids": claim["page_ids"],
+            "retrieval_priority": 1.0 if claim["kind"] in {"decision", "action"} else 0.8,
+        })
+    for turn in evidence.get("sources", {}).get("transcript", []):
+        records.append({
+            **common,
+            "id": f"{artifact_id}:source:{turn['id']}",
+            "source_id": turn["id"],
+            "record_type": "transcript",
+            "text": turn["text"],
+            "speaker": turn["speaker"],
+            "person_id": turn.get("person_id"),
+            "start": turn["start"],
+            "end": turn["end"],
+            "page_id": turn.get("page_id"),
+            "retrieval_priority": 0.7,
+        })
+    for page in evidence.get("sources", {}).get("pages", []):
+        if not page.get("visual_description"):
+            continue
+        records.append({
+            **common,
+            "id": f"{artifact_id}:source:{page['id']}",
+            "source_id": page["id"],
+            "record_type": "slide",
+            "text": page["visual_description"],
+            "page_number": page["number"],
+            "start": page["first"],
+            "display_status": page["display_status"],
+            "discussion_turn_ids": page["discussion_turn_ids"],
+            "image": page.get("image"),
+            "retrieval_priority": 0.55 if page["display_status"] == "discussed" else 0.35,
+        })
+    claim_by_section: dict[str, list[str]] = {}
+    for claim in evidence.get("claims", []):
+        claim_by_section.setdefault(claim["section"], []).append(claim["id"])
+    for i, section in enumerate(_minutes_sections(minutes), 1):
+        records.append({
+            **common,
+            "id": f"{artifact_id}:minutes:S{i:04d}",
+            "record_type": "minutes_section",
+            "text": section["text"],
+            "section": section["heading"],
+            "level": section["level"],
+            "claim_ids": claim_by_section.get(section["heading"], []),
+            "retrieval_priority": 0.75,
+        })
+    return records

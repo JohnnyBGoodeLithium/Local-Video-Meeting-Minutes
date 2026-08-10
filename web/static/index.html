@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>会议纪要</title>
-<link rel="stylesheet" href="/static/style.css?v=20260810e">
+<link rel="stylesheet" href="/static/style.css?v=20260810f">
 </head>
 <body class="page-index">
 <header class="topbar">
@@ -45,6 +45,9 @@
           <div class="more-menu-pop">
             <button id="regen-btn" type="button" disabled>重新生成纪要</button>
             <button id="refine-btn" type="button" disabled title="使用更强的本地模型优化全文">优化全文</button>
+            <button id="export-btn" type="button" disabled title="无需模型，解压后双击 viewer.html">导出离线查看包</button>
+            <button id="export-audio-btn" type="button" disabled>导出并包含音频</button>
+            <button id="export-video-btn" type="button" disabled>导出并包含源视频</button>
             <a href="/admin">人员与高级设置</a>
           </div>
         </details>
@@ -97,6 +100,14 @@
   <button type="button" data-intent="edit">用这段更新纪要</button>
 </div>
 
+<aside id="evidence-card" class="evidence-card hidden" aria-live="polite">
+  <div class="evidence-card-head">
+    <b>纪要依据</b>
+    <button id="evidence-close" type="button">关闭</button>
+  </div>
+  <div id="evidence-body"></div>
+</aside>
+
 <!-- 说话人绑定弹框 -->
 <div id="bind-mask" class="mask hidden">
   <div class="dialog">
@@ -113,6 +124,6 @@
   </div>
 </div>
 
-<script src="/static/app.js?v=20260810e"></script>
+<script src="/static/app.js?v=20260810f"></script>
 </body>
 </html>

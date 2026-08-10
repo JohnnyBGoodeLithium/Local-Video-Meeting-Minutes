@@ -353,6 +353,43 @@ body.page-index { overflow: hidden; }
 .minutes table { border-collapse: collapse; }
 .minutes th, .minutes td { border: 1px solid var(--border); padding: 4px 8px; }
 .minutes code { background: var(--panel2); border-radius: 4px; padding: 0 4px; }
+.minutes a[href^="#mm-"] {
+  display: inline-block;
+  margin-left: 3px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--dim);
+  font-size: 10px;
+  line-height: 17px;
+  text-decoration: none;
+  vertical-align: 1px;
+}
+.minutes a[href^="#mm-"]:hover { color: var(--accent); border-color: var(--accent); }
+.evidence-card {
+  position: fixed;
+  z-index: 80;
+  top: 74px;
+  right: 18px;
+  width: min(380px, calc(100vw - 36px));
+  max-height: calc(100vh - 96px);
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: 0 14px 38px rgba(0, 0, 0, .42);
+}
+.evidence-card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 9px; }
+.evidence-card-head button { border: none; background: transparent; color: var(--dim); }
+.evidence-claim { padding: 9px; border-radius: 7px; background: rgba(79, 124, 255, .13); }
+.evidence-tags { display: flex; flex-wrap: wrap; gap: 5px; margin: 7px 0 10px; }
+.evidence-tags span { padding: 1px 6px; border: 1px solid var(--border); border-radius: 10px; color: var(--dim); font-size: 10px; }
+.evidence-source { margin-top: 8px; padding: 8px; border: 1px solid var(--border); border-radius: 7px; background: var(--panel2); }
+.evidence-source > div:first-child { display: flex; justify-content: space-between; gap: 8px; }
+.evidence-source p { margin: 5px 0 0; }
+.evidence-source img { width: 100%; margin-top: 7px; border-radius: 5px; }
+.evidence-seek, .evidence-page-seek { border: none; background: transparent; color: var(--accent); padding: 0; }
 
 /* 底部常驻会议助手 */
 .assistant-dock {

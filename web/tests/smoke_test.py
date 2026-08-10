@@ -9,6 +9,7 @@ import os
 import time
 import urllib.request
 import urllib.error
+import zipfile
 from pathlib import Path
 
 BASE = os.environ.get("MM_TEST_BASE", "http://127.0.0.1:8899")
@@ -119,6 +120,37 @@ check("bundle 含可读会议身份元数据",
       j.get("title") == "smoke" and j.get("speaker_count") == 2)
 check("bundle minutes_html 图片已改写为 file 路由",
       f'/api/meetings/_smoke/file?path=slides/' in j.get("minutes_html", ""))
+check("bundle 提供可点击纪要依据且 HTML 不泄露机器标记",
+      len(j.get("evidence", {}).get("claims", [])) == 3
+      and '#mm-C00001' in j.get("minutes_html", "")
+      and 'mm:evidence' not in j.get("minutes_html", ""))
+
+# 2a. MeetingPack 默认不带媒体，解压后 viewer.html 可直接 file:// 打开
+s, h, pack_bytes = req("GET", "/api/meetings/_smoke/export?media=none", raw=True)
+pack = zipfile.ZipFile(io.BytesIO(pack_bytes)) if s == 200 else None
+names = set(pack.namelist()) if pack else set()
+required = {"viewer.html", "minutes.md", "evidence.json", "rag/records.jsonl",
+            "manifest.json", "README.txt", "slides/page1.png", "slides/page2.png"}
+check("导出 MeetingPack → 标准文件齐全且默认无音视频",
+      s == 200 and required <= names and not any(n.startswith("media/") for n in names))
+if pack:
+    manifest = json.loads(pack.read("manifest.json"))
+    evidence = json.loads(pack.read("evidence.json"))
+    viewer = pack.read("viewer.html").decode("utf-8")
+    rag = [json.loads(line) for line in pack.read("rag/records.jsonl").decode("utf-8").splitlines()]
+else:
+    manifest, evidence, viewer, rag = {}, {}, "", []
+check("MeetingPack manifest/evidence/RAG 共享稳定 linkage",
+      manifest.get("schema") == "meetingpack/v1"
+      and evidence.get("schema") == "meeting-minutes-evidence/v1"
+      and evidence.get("claims", [{}])[0].get("turn_ids") == ["T000001", "T000002"]
+      and any(r.get("record_type") == "claim" and r.get("evidence_ids") for r in rag))
+check("viewer 为无外链、自包含数据的静态页面",
+      'id="meeting-data"' in viewer and "fetch(" not in viewer
+      and "http://" not in viewer and "https://" not in viewer)
+s, _, audio_pack_bytes = req("GET", "/api/meetings/_smoke/export?media=audio", raw=True)
+audio_names = set(zipfile.ZipFile(io.BytesIO(audio_pack_bytes)).namelist()) if s == 200 else set()
+check("MeetingPack 可选包含音频", s == 200 and "media/audio.wav" in audio_names)
 
 # 3. Range 请求
 s, h, b = req("GET", "/api/meetings/_smoke/media/audio",

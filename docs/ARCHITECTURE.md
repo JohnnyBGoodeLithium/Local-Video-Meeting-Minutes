@@ -22,6 +22,9 @@ flowchart LR
     API --> ASSIST[assistant_service.py]
     ASSIST --> ROUTER[本机 llama-router :11435]
     ASSIST --> DATA
+    DATA --> EXPORT[MeetingPack 导出器]
+    EXPORT --> VIEWER[静态 viewer.html]
+    EXPORT --> RAG[证据 JSON + RAG JSONL]
 ```
 
 ## 目录职责
@@ -51,6 +54,10 @@ flowchart LR
 ### Teams 录制
 
 `teams_minutes.py` 使用 VTT 的姓名线索与本地分离结果对齐；会议室混合通道继续按声纹拆分，然后进入抽页和按页纪要流程。
+
+### 纪要证据与导出
+
+`minutes_by_page.py` 和 `summarize.py` 使用 `meeting-minutes-prompt/v1` 结构化输入，并在可读 Markdown 中留下隐藏的 T/P 证据 marker。`meeting_artifact.py` 将其规范化为 `minutes.evidence.json`；Web、`export_meeting.py` 和后续 RAG 都消费同一 sidecar。导出器生成 `.meetingpack.zip`，其中 `viewer.html` 不依赖服务、LLM、CDN 或网络请求。完整规范见 `docs/EXPORT_AND_RAG.md`。
 
 ## Web 作业模型
 

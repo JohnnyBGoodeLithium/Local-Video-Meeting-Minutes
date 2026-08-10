@@ -22,6 +22,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import uuid
@@ -33,6 +34,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from starlette.background import BackgroundTask
 
 WEB_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = WEB_DIR.parent.resolve()
@@ -57,6 +59,8 @@ sys.path.insert(0, str(ROOT / "bin"))
 import voice_bank as vb  # noqa: E402
 import meeting_dir as md_util  # noqa: E402
 import assistant_service as assistant  # noqa: E402
+import meeting_artifact as artifact  # noqa: E402
+import export_meeting as meeting_export  # noqa: E402
 
 from markdown_it import MarkdownIt  # noqa: E402
 
@@ -148,6 +152,38 @@ def _minutes_file(mdir: Path) -> Path | None:
         if p.is_file():
             return p
     return None
+
+
+def _current_evidence(mdir: Path) -> dict:
+    """只返回与当前逐字稿/纪要 revision 一致的证据，避免展示过期链接。"""
+    evidence = _read_json(mdir / "minutes.evidence.json", {})
+    minutes = _minutes_file(mdir)
+    if not evidence or minutes is None:
+        return {}
+    revisions = evidence.get("revisions", {})
+    if revisions.get("transcript") != assistant.revision(mdir / "transcript.spk.json"):
+        return {}
+    if revisions.get("minutes") != assistant.revision(minutes):
+        return {}
+    return evidence
+
+
+def _refresh_evidence(mdir: Path) -> dict:
+    """在确定性编辑后重建 sidecar；不调用 LLM。"""
+    minutes_path = _minutes_file(mdir)
+    if minutes_path is None or not (mdir / "transcript.spk.json").is_file():
+        return {}
+    turns = _read_json(mdir / "transcript.spk.json", [])
+    pages = [p for p in _read_json(mdir / "slides.json", [])
+             if p.get("kind", "slide") == "slide" and p.get("page") is not None]
+    raw_desc = _read_json(mdir / "page_desc.json", {}).get("desc", {})
+    descs = {int(k): str(v) for k, v in raw_desc.items() if str(k).isdigit()}
+    profiles = artifact.load_speaker_profiles(turns, BANK_DIR)
+    previous = _read_json(mdir / "minutes.evidence.json", {}).get("generation", {})
+    _path, evidence = artifact.write_evidence_document(
+        mdir, minutes_path.read_text(encoding="utf-8"), turns, pages, descs, profiles,
+        generation={**previous, "refreshed_after_edit": True})
+    return evidence
 
 
 def _slugify(name: str) -> str:
@@ -288,6 +324,7 @@ def _minutes_html(mdir: Path, slug: str):
     if mf is None:
         return "", []
     text = mf.read_text(encoding="utf-8")
+    text = artifact.markdown_with_evidence_links(text, _current_evidence(mdir))
     html = MD.render(text)
     # 纪要里的 slides/ 相对图片 → 本服务 file 路由
     html = html.replace('src="slides/', f'src="/api/meetings/{slug}/file?path=slides/')
@@ -325,6 +362,7 @@ def get_bundle(slug: str):
     src = _source(mdir)
     samples_dir = mdir / "samples"
     samples = sorted(p.stem for p in samples_dir.glob("*.wav")) if samples_dir.is_dir() else []
+    evidence = _current_evidence(mdir)
     return {
         "slug": slug,
         **_meeting_identity(slug),
@@ -341,7 +379,33 @@ def get_bundle(slug: str):
         "speaker_count": len({t.get("speaker") for t in transcript if t.get("speaker")}),
         "transcript_revision": assistant.revision(mdir / "transcript.spk.json"),
         "minutes_revision": assistant.revision(_minutes_file(mdir)) if _minutes_file(mdir) else None,
+        "evidence": {
+            "schema": evidence.get("schema"),
+            "claims": evidence.get("claims", []),
+            "linkage": evidence.get("linkage", {}),
+        },
     }
+
+
+@app.get("/api/meetings/{slug}/export")
+def export_meeting_pack(slug: str, media: str = Query("none", pattern="^(none|audio|video)$")):
+    """生成静态 MeetingPack；默认不带媒体，收件人无需本机模型或 Web 服务。"""
+    mdir = _mdir(slug)
+    fd, temp_name = tempfile.mkstemp(prefix="meetingpack-", suffix=".zip")
+    os.close(fd)
+    archive = Path(temp_name)
+    ident = _meeting_identity(slug)
+    try:
+        meeting_export.export_meeting(
+            mdir, archive, bank_dir=BANK_DIR, media_mode=media,
+            title=ident["title"], date=ident["date"])
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        archive.unlink(missing_ok=True)
+        raise HTTPException(400, str(exc)) from exc
+    filename = f"{_safe(ident['title']) or 'meeting'}.meetingpack.zip"
+    return FileResponse(
+        archive, media_type="application/zip", filename=filename,
+        background=BackgroundTask(archive.unlink, missing_ok=True))
 
 
 # ---------------------------------------------------------------- 本地会议助手
@@ -414,7 +478,9 @@ def assistant_edit_apply(slug: str, req: AssistantApplyReq):
     if minutes is None:
         raise HTTPException(400, "没有可修改的纪要")
     try:
-        return assistant.apply_minutes_edit(minutes, req.proposal_id)
+        result = assistant.apply_minutes_edit(minutes, req.proposal_id)
+        _refresh_evidence(mdir)
+        return result
     except assistant.AssistantError as exc:
         _assistant_http_error(exc)
 
@@ -426,7 +492,9 @@ def assistant_edit_undo(slug: str, req: AssistantApplyReq):
     if minutes is None:
         raise HTTPException(400, "没有可恢复的纪要")
     try:
-        return assistant.undo_minutes_edit(minutes, req.proposal_id)
+        result = assistant.undo_minutes_edit(minutes, req.proposal_id)
+        _refresh_evidence(mdir)
+        return result
     except assistant.AssistantError as exc:
         _assistant_http_error(exc)
 
@@ -564,6 +632,8 @@ def bind_in_meeting(slug: str, req: BindReq):
     mdir = _mdir(slug)
     new_name, how = _bind_voice(req.voice, req.name, req.create)
     n = _rename_voice_in_meeting(mdir, slug, req.voice, new_name)
+    if n:
+        _refresh_evidence(mdir)
     return {"ok": True, "name": new_name, "turns": n, "how": how}
 
 
@@ -656,6 +726,8 @@ def update_person(person_id: str, req: PersonPutReq):
             changed_turns += count
             if count:
                 changed_meeting_ids.add(slug)
+    for slug in changed_meeting_ids:
+        _refresh_evidence(MEETINGS / slug)
     return {"ok": True, "id": person_id, "display_name": person["display_name"],
             "names": person["names"], "meetings": len(changed_meeting_ids),
             "turns": changed_turns}
