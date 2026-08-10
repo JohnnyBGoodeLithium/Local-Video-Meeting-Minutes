@@ -6,7 +6,8 @@
 - voices v_9001/v_9002 均未绑定
 - orgchart 两条（Alice Example / Dave Example，aliases 空）
 
-设置 MM_TEST_ORG_SIZE=124 可生成完全虚构的大型层级树，用于前端布局/性能验收。
+设置 MM_TEST_ORG_SIZE=124 可生成完全虚构的大型层级树，用于前端布局/性能验收；
+再设 MM_TEST_ORG_FLAT=1 会生成一个直属人数异常的扁平分支，用于删除/提升回归。
 """
 import json
 import os
@@ -47,9 +48,13 @@ if org_size == 2:
 else:
     # 大型视觉夹具：3 个根、每名经理最多 4 个直属下属，全是虚构名称。
     names = [f"Synthetic Person {i + 1:03d}" for i in range(org_size)]
+    flat = os.environ.get("MM_TEST_ORG_FLAT") == "1"
     org = []
     for i, name in enumerate(names):
-        parent = "" if i < 3 else names[(i - 3) // 4]
+        if flat:
+            parent = "" if i == 0 else (names[0] if i == 1 else names[1])
+        else:
+            parent = "" if i < 3 else names[(i - 3) // 4]
         org.append({"name": name, "aliases": [],
                     "title": "Director" if i < 3 else ("Manager" if i < 15 else "Engineer"),
                     "team": f"Synthetic BU {i % 3 + 1}", "leader": parent, "note": ""})

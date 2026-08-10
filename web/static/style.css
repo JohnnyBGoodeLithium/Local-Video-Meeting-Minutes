@@ -647,6 +647,7 @@ body.page-admin { overflow: hidden; }
 .org-card-side { display: grid; justify-items: end; gap: 2px; white-space: nowrap; }
 .org-card-side > i { color: #e2a13c; font-style: normal; font-size: 10px; }
 .org-card-side > small { color: var(--dim); font-size: 10px; }
+.relation-warning { color: #f0ad4e !important; }
 .org-quick-actions {
   display: none;
   align-items: center;

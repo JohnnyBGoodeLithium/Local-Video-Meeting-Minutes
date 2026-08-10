@@ -333,8 +333,10 @@ function renderOrg() {
   }
   const unresolved = org.filter(e => e.status === "unresolved").length;
   const conflicts = org.filter(e => e.status === "conflict").length;
+  const overloaded = org.filter(e => orgChildren(e.id).length >= 30).length;
   const rootsCount = roots.length;
-  $("#org-review-summary").textContent = `${org.length} 人 · ${rootsCount} 个根 · ${collapsedOrgIds.size} 处折叠 · ${unresolved} 待确认上级 · ${conflicts} 冲突`;
+  $("#org-review-summary").textContent = `${org.length} 人 · ${rootsCount} 个根 · ${collapsedOrgIds.size} 处折叠 · ${unresolved} 待确认上级 · ${conflicts} 冲突` +
+    (overloaded ? ` · ${overloaded} 个节点直属人数异常` : "");
   renderOrgInspector();
 }
 
@@ -398,7 +400,11 @@ function orgNode(entry, visible, trail) {
     `<div class="org-card-side">` +
     (["unresolved", "conflict", "draft"].includes(entry.status)
       ? `<i>${entry.status === "unresolved" ? "待确认上级" : entry.status === "conflict" ? "关系冲突" : "提取草稿"}</i>` : "") +
-    (allChildren.length ? `<small>${allChildren.length} 直属</small>` : "") + `</div>`;
+    (allChildren.length
+      ? `<small class="${allChildren.length >= 30 ? "relation-warning" : ""}"` +
+        ` title="直属人数来自 manager_id 关系，不是全部后代">${allChildren.length} 直属` +
+        (allChildren.length >= 30 ? "（请检查）" : "") + `</small>`
+      : "") + `</div>`;
   const selectNode = () => {
     $(".org-card.selected")?.classList.remove("selected");
     $(".org-node.selected-node")?.classList.remove("selected-node");
@@ -511,6 +517,7 @@ function renderOrgInspector() {
   $("#org-team").value = entry.team || "";
   $("#org-note").value = entry.note || "";
   const blocked = descendantIds(entry.id);
+  const directReports = orgChildren(entry.id).length;
   const options = org.filter(e => e.id !== entry.id && !blocked.has(e.id));
   $("#org-manager").innerHTML = '<option value="">— 根节点 / 待归属 —</option>' +
     options.map(e => `<option value="${esc(e.id)}">${esc(e.name)}${e.title ? ` · ${esc(e.title)}` : ""}</option>`).join("");
@@ -519,7 +526,10 @@ function renderOrgInspector() {
     `<span class="status-pill ${esc(entry.status || "confirmed")}">${esc(entry.status || "confirmed")}</span>` +
     (entry.source_pages?.length ? ` 来源页 ${entry.source_pages.join("、")}` : "") +
     (entry.leader_raw && !entry.manager_id ? `<br>提取的上级原文：${esc(entry.leader_raw)}` : "") +
-    (entry.conflicts?.length ? `<br>冲突候选：${esc(entry.conflicts.join("、"))}` : "");
+    (entry.conflicts?.length ? `<br>冲突候选：${esc(entry.conflicts.join("、"))}` : "") +
+    (directReports >= 30
+      ? `<br><span class="relation-warning">当前有 ${directReports} 个直属下属，可能是导入关系过平，请抽查直接上级。</span>`
+      : "");
 }
 
 function applyOrgInspector(ev) {
@@ -565,6 +575,8 @@ function deleteSelectedOrg() {
   const entry = orgById(selectedOrgId);
   if (!entry) return;
   const children = orgChildren(entry.id);
+  const parent = entry.manager_id ? orgById(entry.manager_id) : null;
+  const destination = parent ? parent.name : "根节点";
   if (!confirm(`删除“${entry.name}”？${children.length ? `其 ${children.length} 个直属下属会移动到当前上级。` : ""}`)) return;
   rememberOrg();
   for (const child of children) {
@@ -573,8 +585,12 @@ function deleteSelectedOrg() {
   }
   org = org.filter(e => e.id !== entry.id);
   collapsedOrgIds.delete(entry.id);
+  if (entry.manager_id) collapsedOrgIds.delete(entry.manager_id);
   selectedOrgId = null;
   renderOrg();
+  toast(children.length
+    ? `已删除“${entry.name}”，${children.length} 个直属下属已移动到“${destination}”并展开；尚未保存，可撤销`
+    : `已删除“${entry.name}”；尚未保存，可撤销`);
 }
 
 async function saveOrg() {
