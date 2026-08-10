@@ -158,6 +158,18 @@ def _slugify(name: str) -> str:
     return re.sub(r"-{2,}", "-", name) or "meeting"
 
 
+def _meeting_identity(slug: str) -> dict:
+    """把目录 slug 转为面向用户的标题与日期；不读取会议正文。"""
+    match = re.match(r"^(\d{4}-\d{2}-\d{2})_(.+)$", slug)
+    date, raw = (match.group(1), match.group(2)) if match else ("", slug)
+    if re.fullmatch(r"\d{6}", raw):
+        title = f"录音 {raw[:2]}:{raw[2:4]}"
+    else:
+        title = re.sub(r"[_-]+", " ", raw).strip()
+        title = re.sub(r"\s+", " ", title)
+    return {"title": title or "未命名会议", "date": date}
+
+
 # ---------------------------------------------------------------- 作业
 
 def _job_path(jid: str) -> Path:
@@ -251,12 +263,14 @@ def list_meetings():
             if not d.is_dir():
                 continue
             item = {"slug": d.name, "has_transcript": False, "has_minutes": False,
-                    "has_video": False, "turns": 0, "pages": 0, "duration": None}
+                    "has_video": False, "turns": 0, "pages": 0, "duration": None,
+                    "speaker_count": 0, **_meeting_identity(d.name)}
             turns = _read_json(d / "transcript.spk.json", [])
             if turns:
                 item["has_transcript"] = True
                 item["turns"] = len(turns)
                 item["duration"] = max((t.get("end", 0) for t in turns), default=0)
+                item["speaker_count"] = len({t.get("speaker") for t in turns if t.get("speaker")})
             slides = _read_json(d / "slides.json", [])
             item["pages"] = sum(1 for p in slides if p.get("kind") == "slide") or len(slides)
             item["has_minutes"] = _minutes_file(d) is not None
@@ -313,6 +327,7 @@ def get_bundle(slug: str):
     samples = sorted(p.stem for p in samples_dir.glob("*.wav")) if samples_dir.is_dir() else []
     return {
         "slug": slug,
+        **_meeting_identity(slug),
         "transcript": transcript,
         "slides": slides,
         "minutes_html": minutes_html,
@@ -323,6 +338,7 @@ def get_bundle(slug: str):
         "has_audio": (mdir / "audio.wav").is_file(),
         "has_video": bool(src.get("mp4") and Path(src["mp4"]).is_file()),
         "duration": max((t.get("end", 0) for t in transcript), default=0),
+        "speaker_count": len({t.get("speaker") for t in transcript if t.get("speaker")}),
         "transcript_revision": assistant.revision(mdir / "transcript.spk.json"),
         "minutes_revision": assistant.revision(_minutes_file(mdir)) if _minutes_file(mdir) else None,
     }
@@ -399,6 +415,18 @@ def assistant_edit_apply(slug: str, req: AssistantApplyReq):
         raise HTTPException(400, "没有可修改的纪要")
     try:
         return assistant.apply_minutes_edit(minutes, req.proposal_id)
+    except assistant.AssistantError as exc:
+        _assistant_http_error(exc)
+
+
+@app.post("/api/meetings/{slug}/assistant/edit/undo")
+def assistant_edit_undo(slug: str, req: AssistantApplyReq):
+    mdir = _mdir(slug)
+    minutes = _minutes_file(mdir)
+    if minutes is None:
+        raise HTTPException(400, "没有可恢复的纪要")
+    try:
+        return assistant.undo_minutes_edit(minutes, req.proposal_id)
     except assistant.AssistantError as exc:
         _assistant_http_error(exc)
 

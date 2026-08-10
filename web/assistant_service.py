@@ -349,23 +349,56 @@ def apply_minutes_edit(minutes_path: Path, proposal_id: str) -> dict:
         if proposal["applied"]:
             raise AssistantConflict("该修改提案已经应用")
 
-    current_revision = revision(minutes_path)
-    if current_revision != proposal["base_revision"]:
-        raise AssistantConflict("纪要已被其他操作修改，请重新生成预览")
-    text = minutes_path.read_text(encoding="utf-8")
-    if text.count(proposal["before"]) != 1:
-        raise AssistantConflict("无法唯一定位原纪要章节，请重新生成预览")
+        # 提案状态检查与文件替换共用一把锁，避免同一提案被并发应用两次。
+        current_revision = revision(minutes_path)
+        if current_revision != proposal["base_revision"]:
+            raise AssistantConflict("纪要已被其他操作修改，请重新生成预览")
+        text = minutes_path.read_text(encoding="utf-8")
+        if text.count(proposal["before"]) != 1:
+            raise AssistantConflict("无法唯一定位原纪要章节，请重新生成预览")
 
-    history = minutes_path.parent / ".history" / "minutes"
-    history.mkdir(parents=True, exist_ok=True)
-    stamp = time.strftime("%Y%m%d-%H%M%S")
-    backup = history / f"{stamp}_{current_revision}.md"
-    shutil.copy2(minutes_path, backup)
-    updated = text.replace(proposal["before"], proposal["after"], 1)
-    tmp = minutes_path.with_suffix(minutes_path.suffix + ".tmp")
-    tmp.write_text(updated, encoding="utf-8")
-    tmp.replace(minutes_path)
-    with _PROPOSAL_LOCK:
+        history = minutes_path.parent / ".history" / "minutes"
+        history.mkdir(parents=True, exist_ok=True)
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        backup = history / f"{stamp}_{current_revision}.md"
+        shutil.copy2(minutes_path, backup)
+        updated = text.replace(proposal["before"], proposal["after"], 1)
+        tmp = minutes_path.with_suffix(minutes_path.suffix + ".tmp")
+        tmp.write_text(updated, encoding="utf-8")
+        tmp.replace(minutes_path)
         proposal["applied"] = True
-    return {"ok": True, "proposal_id": proposal_id, "backup": backup.name,
-            "minutes_revision": revision(minutes_path)}
+        proposal["applied_revision"] = revision(minutes_path)
+        proposal["backup_path"] = str(backup)
+        proposal["undone"] = False
+        return {"ok": True, "proposal_id": proposal_id, "backup": backup.name,
+                "minutes_revision": proposal["applied_revision"]}
+
+
+def undo_minutes_edit(minutes_path: Path, proposal_id: str) -> dict:
+    """撤销刚应用的助手修改；只在纪要没有再次变化时恢复。"""
+    with _PROPOSAL_LOCK:
+        proposal = _PROPOSALS.get(proposal_id)
+        if proposal is None or proposal["minutes_path"] != str(minutes_path):
+            raise AssistantError("修改记录不存在或已经过期")
+        if not proposal.get("applied"):
+            raise AssistantConflict("该修改尚未应用")
+        if proposal.get("undone"):
+            raise AssistantConflict("该修改已经撤销")
+        applied_revision = proposal.get("applied_revision")
+        backup = Path(proposal.get("backup_path", ""))
+
+        if revision(minutes_path) != applied_revision:
+            raise AssistantConflict("纪要在修改后又发生了变化，无法安全撤销")
+        if not backup.is_file():
+            raise AssistantConflict("找不到修改前的本地历史版本")
+
+        history = minutes_path.parent / ".history" / "minutes"
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        edited_copy = history / f"{stamp}_{applied_revision}_before-undo.md"
+        shutil.copy2(minutes_path, edited_copy)
+        tmp = minutes_path.with_suffix(minutes_path.suffix + ".tmp")
+        shutil.copy2(backup, tmp)
+        tmp.replace(minutes_path)
+        proposal["undone"] = True
+        return {"ok": True, "proposal_id": proposal_id,
+                "minutes_revision": revision(minutes_path)}

@@ -10,7 +10,7 @@
 
 ```mermaid
 flowchart LR
-    UI[三栏 Web UI] --> API[FastAPI web/server.py]
+    UI[会议回顾工作台] --> API[FastAPI web/server.py]
     API --> JOBS[串行作业执行器]
     JOBS --> AUDIO[录音管线 run_all.py]
     JOBS --> VIDEO[普通视频 video_minutes.py]
@@ -67,7 +67,8 @@ flowchart LR
 2. 服务端从正式逐字稿解析引用，并补充相邻语境或执行轻量本地检索。
 3. 问答调用本机 OpenAI-compatible API，返回可点击来源编号。
 4. 修改纪要时，模型只能选择候选 Markdown 章节并返回替换建议。
-5. 服务端生成 diff；用户确认后再次校验 revision，保存历史版本，再原子替换文件。
+5. 服务端生成结构化预览；用户确认后再次校验 revision，保存历史版本，再原子替换文件。
+6. 用户可撤销刚应用的修改；服务端只在当前 revision 仍与该提案一致时恢复历史版本，并留存撤销前副本。
 
 默认只允许 `localhost/127.0.0.1/::1` 模型地址。远程模型必须在一次明确授权后设置 `MEETING_ALLOW_REMOTE_LLM=1`。
 
@@ -78,4 +79,3 @@ flowchart LR
 - LLM 输出不能直接成为文件操作、shell 命令或未确认的写入。
 - 逐字稿 JSON 与 Markdown 的同步修改必须走同一个确定性函数。
 - 会议正文不得进入 Git、作业元数据日志或云端诊断上下文。
-

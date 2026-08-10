@@ -4,87 +4,100 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>会议纪要</title>
-<link rel="stylesheet" href="/static/style.css?v=20260810b">
+<link rel="stylesheet" href="/static/style.css?v=20260810c">
 </head>
 <body class="page-index">
 <header class="topbar">
   <span class="brand">🎙 会议纪要</span>
   <span id="job-status" class="job-status"></span>
-  <a class="toplink" href="/admin">声纹库 / 架构管理</a>
+  <a class="toplink" href="/admin">设置</a>
 </header>
 
 <main class="layout">
-  <!-- 左栏：会议列表 + 拖放区 -->
+  <!-- 左栏：回顾入口为主，导入与处理状态为辅 -->
   <aside class="col-left">
     <div id="dropzone">
-      <p>拖入视频(可配同名 .vtt)或音频<br>自动走管线生成纪要</p>
       <input type="file" id="file-input" multiple hidden>
-      <button id="pick-btn" type="button">选择文件</button>
-      <label class="skip-vl"><input type="checkbox" id="skip-vl"> 跳过 VL 画面解读(快很多)</label>
+      <button id="pick-btn" class="primary import-button" type="button">＋ 导入会议</button>
+      <span class="drop-hint">或把视频、VTT、音频拖到这里</span>
+      <details class="import-options">
+        <summary>导入设置</summary>
+        <label class="skip-vl"><input type="checkbox" id="skip-vl"> 快速处理，不分析共享画面</label>
+      </details>
     </div>
-    <div id="jobs-panel">
-      <div class="jobs-head">处理队列</div>
+    <div id="jobs-panel" class="hidden">
+      <div class="jobs-head">正在处理</div>
       <ul id="jobs-list"></ul>
     </div>
     <input id="search" type="search" placeholder="搜索会议…">
     <ul id="meeting-list"></ul>
   </aside>
 
-  <!-- 中栏：转写 -->
-  <section class="col-center">
-    <div class="col-header">
-      <span id="tr-title">转写</span>
-      <label class="follow"><input type="checkbox" id="follow" checked> 跟随播放</label>
-    </div>
-    <div id="transcript" class="transcript"><p class="placeholder">← 选择一场会议</p></div>
-  </section>
+  <section class="workspace">
+    <header class="meeting-head">
+      <div>
+        <h1 id="meeting-title">选择一场会议</h1>
+        <div id="meeting-meta" class="meeting-meta">阅读纪要、追问内容并修正记录</div>
+      </div>
+      <div class="meeting-head-actions">
+        <button id="media-toggle" type="button" disabled>展开播放</button>
+        <details class="more-menu">
+          <summary>更多</summary>
+          <div class="more-menu-pop">
+            <button id="regen-btn" type="button" disabled>重新生成纪要</button>
+            <button id="refine-btn" type="button" disabled title="使用更强的本地模型优化全文">优化全文</button>
+            <a href="/admin">人员与高级设置</a>
+          </div>
+        </details>
+      </div>
+    </header>
 
-  <!-- 右栏：播放器 + 纪要 -->
-  <section class="col-right">
-    <div class="player-box">
+    <div class="player-box media-collapsed">
       <div id="player-holder"><p class="placeholder">播放器</p></div>
       <div id="timeline" class="timeline"></div>
       <div id="tl-tip" class="tl-tip hidden"></div>
     </div>
-    <div class="minutes-box">
-      <div class="col-header">
-        <span class="view-tabs">
-          <button id="tab-minutes" class="view-tab active" type="button">纪要</button>
-          <button id="tab-assistant" class="view-tab" type="button">助手</button>
-        </span>
-        <span class="min-btns">
-          <button id="regen-btn" type="button" disabled>重新生成纪要</button>
-          <button id="refine-btn" type="button" disabled title="用 122B 大模型整体重写(首次需加载数分钟)">大模型精修</button>
-        </span>
-      </div>
-      <div id="minutes" class="minutes"><p class="placeholder">纪要内容</p></div>
-      <div id="assistant-panel" class="assistant-panel hidden">
-        <div class="assistant-note">本地会议助手 · 引用逐字稿提问，或先预览再修改纪要</div>
-        <div id="assistant-refs" class="assistant-refs"></div>
-        <div id="assistant-messages" class="assistant-messages">
-          <p class="placeholder">在中间逐字稿点击“引用”，然后输入问题或修改要求。</p>
+
+    <div class="review-grid">
+      <section class="transcript-pane">
+        <div class="col-header">
+          <span>逐字稿</span>
+          <label class="follow"><input type="checkbox" id="follow" checked> 跟随播放</label>
         </div>
-        <div class="assistant-compose">
-          <div class="assistant-compose-row">
-            <select id="assistant-intent" aria-label="操作类型">
-              <option value="ask">询问</option>
-              <option value="edit">更新纪要</option>
-            </select>
-            <span id="assistant-state" class="dim"></span>
-          </div>
-          <textarea id="assistant-input" rows="3" maxlength="8000"
-                    placeholder="例如：这里最终决定了什么？"></textarea>
-          <div class="assistant-actions">
-            <button id="assistant-clear-refs" type="button">清空引用</button>
-            <button id="assistant-send" class="primary" type="button">发送</button>
-          </div>
-        </div>
-      </div>
+        <div id="transcript" class="transcript"><p class="placeholder">← 选择一场会议</p></div>
+      </section>
+
+      <section class="minutes-pane">
+        <div class="col-header"><span>会议纪要</span></div>
+        <div id="minutes" class="minutes"><p class="placeholder">纪要内容</p></div>
+      </section>
     </div>
+
+    <section id="assistant-dock" class="assistant-dock">
+      <div id="assistant-thread" class="assistant-thread hidden">
+        <div class="assistant-thread-head">
+          <b>会议助手</b>
+          <button id="assistant-thread-close" type="button" aria-label="收起助手">收起</button>
+        </div>
+        <div id="assistant-messages" class="assistant-messages"></div>
+      </div>
+      <div id="assistant-refs" class="assistant-refs"></div>
+      <div class="assistant-compose">
+        <textarea id="assistant-input" rows="1" maxlength="8000"
+                  placeholder="问这场会议，或告诉我如何修改纪要…"></textarea>
+        <div class="assistant-compose-actions">
+          <span id="assistant-state" class="dim"></span>
+          <button id="assistant-send" class="primary" type="button">发送</button>
+        </div>
+      </div>
+    </section>
   </section>
 </main>
 
-<button id="quote-pop" class="quote-pop hidden" type="button">引用到助手</button>
+<div id="quote-pop" class="quote-pop hidden">
+  <button type="button" data-intent="ask">问助手</button>
+  <button type="button" data-intent="edit">用这段更新纪要</button>
+</div>
 
 <!-- 说话人绑定弹框 -->
 <div id="bind-mask" class="mask hidden">
@@ -102,6 +115,6 @@
   </div>
 </div>
 
-<script src="/static/app.js?v=20260810b"></script>
+<script src="/static/app.js?v=20260810c"></script>
 </body>
 </html>

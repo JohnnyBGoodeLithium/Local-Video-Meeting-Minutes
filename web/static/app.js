@@ -1,4 +1,4 @@
-/* 会议列表 + 妙计式详情页 */
+/* 会议列表 + 回顾工作台 */
 "use strict";
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -14,6 +14,7 @@ const state = {
   assistantHistory: [],
   assistantMessages: [],
   assistantBusy: false,
+  assistantNextIntent: null,
 };
 
 /* ---------- 工具 ---------- */
@@ -58,18 +59,18 @@ function renderMeetingList() {
   const ul = $("#meeting-list");
   ul.innerHTML = "";
   for (const m of state.meetings) {
-    if (q && !m.slug.toLowerCase().includes(q)) continue;
+    if (q && !`${m.title || ""} ${m.date || ""} ${m.slug}`.toLowerCase().includes(q)) continue;
     const li = document.createElement("li");
     li.className = "meeting-item" + (m.slug === state.slug ? " active" : "");
-    const badges = [
-      m.has_minutes ? "纪要" : null,
-      m.has_video ? "视频" : null,
+    const meta = [
+      m.date,
+      m.duration ? fmt(m.duration) : null,
+      m.speaker_count ? `${m.speaker_count} 人` : null,
+      m.has_minutes ? "可回顾" : "待生成纪要",
     ].filter(Boolean).join(" · ");
     li.innerHTML =
-      `<div class="m-title">${esc(m.slug)}</div>` +
-      `<div class="m-meta">${m.turns}轮 · ${m.pages}页` +
-      (m.duration ? ` · ${fmt(m.duration)}` : "") +
-      (badges ? ` · ${badges}` : "") + `</div>`;
+      `<div class="m-title">${esc(m.title || m.slug)}</div>` +
+      `<div class="m-meta">${esc(meta)}</div>`;
     const del = document.createElement("button");
     del.type = "button";
     del.className = "m-del";
@@ -86,18 +87,23 @@ function renderMeetingList() {
 
 async function deleteMeeting(ev, slug) {
   ev.stopPropagation();
-  if (!confirm(`删除会议「${slug}」？\n目录内全部文件(逐字稿/纪要/截图/音轨)将被删除，不可恢复。`)) return;
+  const meeting = state.meetings.find(m => m.slug === slug);
+  if (!confirm(`删除会议「${meeting?.title || slug}」？\n逐字稿、纪要、截图和音视频都会删除，且无法恢复。`)) return;
   const r = await api(`/api/meetings/${encodeURIComponent(slug)}/delete`, { method: "POST" });
   if (!r.ok) { toast(`删除失败: ${r.status}`); return; }
   toast(`已删除 ${slug}`);
   if (state.slug === slug) {
     state.slug = null;
     state.bundle = null;
-    $("#tr-title").textContent = "转写";
+    $("#meeting-title").textContent = "选择一场会议";
+    $("#meeting-meta").textContent = "阅读纪要、追问内容并修正记录";
     $("#transcript").innerHTML = '<p class="placeholder">← 选择一场会议</p>';
     $("#minutes").innerHTML = '<p class="placeholder">纪要内容</p>';
     $("#player-holder").innerHTML = '<p class="placeholder">播放器</p>';
     $("#timeline").innerHTML = "";
+    $(".player-box").classList.add("media-collapsed");
+    $("#media-toggle").textContent = "展开播放";
+    $("#media-toggle").disabled = true;
     $("#regen-btn").disabled = true;
     $("#refine-btn").disabled = true;
     resetAssistant();
@@ -114,17 +120,26 @@ async function loadMeeting(slug) {
   state.slug = slug;
   if (changed) {
     resetAssistant();
-    switchRightView("minutes");
+    $(".player-box").classList.add("media-collapsed");
+    $("#media-toggle").textContent = "展开播放";
   }
   renderMeetingList();
   const b = await jget(`/api/meetings/${encodeURIComponent(slug)}/bundle`);
   state.bundle = b;
-  $("#tr-title").textContent = slug;
+  $("#meeting-title").textContent = b.title || slug;
+  $("#meeting-meta").textContent = [
+    b.date,
+    b.duration ? `${fmt(b.duration)} 时长` : null,
+    b.speaker_count ? `${b.speaker_count} 位发言人` : null,
+    b.transcript?.length ? `${b.transcript.length} 段逐字稿` : null,
+  ].filter(Boolean).join(" · ") || "会议记录";
   renderPlayer();
   renderTranscript();
   renderMinutes();
   $("#regen-btn").disabled = false;
   $("#refine-btn").disabled = false;
+  const hasMedia = b.has_video || b.has_audio;
+  $("#media-toggle").disabled = !hasMedia;
 }
 
 function renderPlayer() {
@@ -234,7 +249,12 @@ function hideTip() { $("#tl-tip").classList.add("hidden"); }
 
 function seek(t) {
   const p = player();
-  if (p) { p.currentTime = t; p.play(); }
+  if (p) {
+    $(".player-box").classList.remove("media-collapsed");
+    $("#media-toggle").textContent = "收起播放";
+    p.currentTime = t;
+    p.play().catch(() => {});
+  }
 }
 
 function onTimeUpdate() {
@@ -298,13 +318,8 @@ function renderMinutes() {
 
 /* ---------- 本地会议助手：结构化逐字稿引用 ---------- */
 
-function switchRightView(view) {
-  const assistant = view === "assistant";
-  $("#minutes").classList.toggle("hidden", assistant);
-  $("#assistant-panel").classList.toggle("hidden", !assistant);
-  $("#tab-minutes").classList.toggle("active", !assistant);
-  $("#tab-assistant").classList.toggle("active", assistant);
-  $(".min-btns").classList.toggle("hidden", assistant);
+function setAssistantThread(open) {
+  $("#assistant-thread")?.classList.toggle("hidden", !open);
 }
 
 function resetAssistant() {
@@ -312,8 +327,14 @@ function resetAssistant() {
   state.assistantHistory = [];
   state.assistantMessages = [];
   state.assistantBusy = false;
+  state.assistantNextIntent = null;
   if ($("#assistant-refs")) renderAssistantRefs();
   if ($("#assistant-messages")) renderAssistantMessages();
+  setAssistantThread(false);
+  if ($("#assistant-input")) {
+    $("#assistant-input").value = "";
+    $("#assistant-input").placeholder = "问这场会议，或告诉我如何修改纪要…";
+  }
 }
 
 function referenceGroups() {
@@ -326,14 +347,19 @@ function referenceGroups() {
   return groups;
 }
 
-function addReferenceRange(start, end) {
+function addReferenceRange(start, end, intent = null) {
   if (!state.bundle) return;
   const lo = Math.max(0, Math.min(start, end));
   const hi = Math.min(state.bundle.transcript.length - 1, Math.max(start, end));
   for (let i = lo; i <= hi; i++) state.assistantRefs.push(i);
   state.assistantRefs = [...new Set(state.assistantRefs)].sort((a, b) => a - b).slice(0, 30);
+  state.assistantNextIntent = intent;
   renderAssistantRefs();
-  switchRightView("assistant");
+  if (intent === "edit") {
+    $("#assistant-input").placeholder = "说明要怎样把这段内容更新到纪要…";
+  } else if (intent === "ask") {
+    $("#assistant-input").placeholder = "针对这段逐字稿提问…";
+  }
   $("#assistant-input").focus();
 }
 
@@ -389,7 +415,7 @@ function renderAssistantMessages() {
   const box = $("#assistant-messages");
   if (!box) return;
   if (!state.assistantMessages.length) {
-    box.innerHTML = '<p class="placeholder">在中间逐字稿点击“引用”，然后输入问题或修改要求。</p>';
+    box.innerHTML = '<p class="placeholder">你可以直接追问整场会议；引用逐字稿后，回答和修改会优先使用这些内容。</p>';
     return;
   }
   box.innerHTML = "";
@@ -400,15 +426,30 @@ function renderAssistantMessages() {
       `<div class="msg-body">${citedText(msg.content, msg.sources)}</div>`;
     if (msg.proposal) {
       const p = msg.proposal;
-      el.innerHTML +=
-        `<div class="edit-card">` +
-        `<div><b>修改目标：</b>${esc(p.target_heading)}</div>` +
-        `<div class="dim">${esc(p.summary || "")}</div>` +
-        `<details><summary>查看修改差异</summary><pre>${esc(p.diff || "")}</pre></details>` +
-        `<div class="edit-actions">` +
-        `<button type="button" class="apply-edit primary" data-id="${esc(p.proposal_id)}">应用修改</button>` +
-        `<button type="button" class="dismiss-edit">取消</button>` +
-        `</div></div>`;
+      if (p.status === "applied") {
+        el.innerHTML += `<div class="edit-card edit-result"><span class="applied">已更新会议纪要</span>` +
+          `<button type="button" class="undo-edit" data-id="${esc(p.proposal_id)}">撤销</button></div>`;
+      } else if (p.status === "undone") {
+        el.innerHTML += '<div class="edit-card edit-result"><span class="dim">这次修改已撤销，纪要已恢复。</span></div>';
+      } else if (p.status === "cancelled") {
+        el.innerHTML += '<div class="edit-card edit-result"><span class="dim">这次修改已取消。</span></div>';
+      } else if (p.status === "superseded") {
+        el.innerHTML += '<div class="edit-card edit-result"><span class="dim">正在继续调整，旧方案不会写入。</span></div>';
+      } else {
+        el.innerHTML +=
+          `<div class="edit-card">` +
+          `<div class="edit-card-kicker">准备更新 · ${esc(p.target_heading)}</div>` +
+          `<div class="edit-summary">${esc(p.summary || "已根据要求整理修改")}</div>` +
+          `<div class="edit-actions">` +
+          `<button type="button" class="apply-edit primary" data-id="${esc(p.proposal_id)}">保存到纪要</button>` +
+          `<button type="button" class="adjust-edit">继续调整</button>` +
+          `<button type="button" class="dismiss-edit">取消</button>` +
+          `</div>` +
+          `<div class="edit-after"><span>修改后</span><pre>${esc(p.after || "")}</pre></div>` +
+          `<details><summary>查看完整修改与原内容</summary>` +
+          `<div class="compare-label">完整修改后</div><pre>${esc(p.after || "")}</pre>` +
+          `<div class="compare-label">修改前</div><pre>${esc(p.before || "")}</pre></details></div>`;
+      }
     }
     $$(".source-link", el).forEach(btn => {
       btn.onclick = () => {
@@ -420,13 +461,40 @@ function renderAssistantMessages() {
     });
     const apply = $(".apply-edit", el);
     if (apply) apply.onclick = () => applyAssistantEdit(apply.dataset.id, apply);
+    const undo = $(".undo-edit", el);
+    if (undo) undo.onclick = () => undoAssistantEdit(undo.dataset.id, undo);
+    const adjust = $(".adjust-edit", el);
+    if (adjust) adjust.onclick = () => {
+      const p = msg.proposal;
+      const msgIndex = state.assistantMessages.indexOf(msg);
+      const original = state.assistantMessages.slice(0, msgIndex).reverse()
+        .find(item => item.role === "user")?.content || p.summary || "修改纪要";
+      p.status = "superseded";
+      state.assistantNextIntent = "edit";
+      renderAssistantMessages();
+      $("#assistant-input").value = `${original}\n请继续调整：`;
+      $("#assistant-input").focus();
+    };
     const dismiss = $(".dismiss-edit", el);
     if (dismiss) dismiss.onclick = () => {
-      $(".edit-card", el).innerHTML = '<span class="dim">修改已取消</span>';
+      msg.proposal.status = "cancelled";
+      renderAssistantMessages();
     };
     box.appendChild(el);
   }
   box.scrollTop = box.scrollHeight;
+}
+
+function inferAssistantIntent(message) {
+  if (state.assistantNextIntent) return state.assistantNextIntent;
+  const editPatterns = [
+    /(写入|加入|添加|补充|更新|同步).{0,10}(纪要|总结|行动项|决定|结论)/,
+    /(纪要|总结|行动项|决定|结论).{0,10}(改成|改为|修改|改写|润色|精简|删除|移除|补充|更新)/,
+    /^(请)?(帮我|把|将)?\s*(修改|改写|润色|精简|删除|移除|补充|更新)/,
+    /(请|帮我).{0,8}(修改|改写|补充|更新|写入|加入|删除|润色)/,
+    /(把|将).{0,20}(改成|改为|写入|加入|补充到|删除)/,
+  ];
+  return editPatterns.some(pattern => pattern.test(message)) ? "edit" : "ask";
 }
 
 function assistantError(detail) {
@@ -440,7 +508,8 @@ async function sendAssistant() {
   const input = $("#assistant-input");
   const message = input.value.trim();
   if (!message) return;
-  const intent = $("#assistant-intent").value;
+  const intent = inferAssistantIntent(message);
+  state.assistantNextIntent = null;
   const common = {
     message,
     turn_indexes: state.assistantRefs,
@@ -453,7 +522,9 @@ async function sendAssistant() {
     ? { ...common, minutes_revision: state.bundle.minutes_revision }
     : { ...common, history: state.assistantHistory.slice(-8) };
   addAssistantMessage({ role: "user", content: message, sources: [] });
+  setAssistantThread(true);
   input.value = "";
+  input.placeholder = "问这场会议，或告诉我如何修改纪要…";
   state.assistantBusy = true;
   $("#assistant-send").disabled = true;
   $("#assistant-state").textContent = intent === "edit" ? "正在生成修改预览…" : "正在查找证据并回答…";
@@ -468,7 +539,7 @@ async function sendAssistant() {
     if (intent === "edit") {
       addAssistantMessage({
         role: "assistant",
-        content: "已生成纪要修改预览。确认差异后才能写入。",
+        content: "我整理了一项纪要更新，请确认后再保存。",
         sources: j.sources || [],
         proposal: j,
       });
@@ -488,7 +559,6 @@ async function sendAssistant() {
 }
 
 async function applyAssistantEdit(proposalId, button) {
-  if (!confirm("应用这项纪要修改？原文件会自动保存到本地历史版本。")) return;
   button.disabled = true;
   const r = await api(`/api/meetings/${encodeURIComponent(state.slug)}/assistant/edit/apply`, {
     method: "POST",
@@ -503,7 +573,29 @@ async function applyAssistantEdit(proposalId, button) {
   }
   state.bundle = await jget(`/api/meetings/${encodeURIComponent(state.slug)}/bundle`);
   renderMinutes();
-  button.closest(".edit-card").innerHTML = `<span class="applied">已应用 · 备份 ${esc(j.backup)}</span>`;
+  const msg = state.assistantMessages.find(item => item.proposal?.proposal_id === proposalId);
+  if (msg) msg.proposal.status = "applied";
+  renderAssistantMessages();
+}
+
+async function undoAssistantEdit(proposalId, button) {
+  button.disabled = true;
+  const r = await api(`/api/meetings/${encodeURIComponent(state.slug)}/assistant/edit/undo`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ proposal_id: proposalId }),
+  });
+  const j = await r.json();
+  if (!r.ok) {
+    button.disabled = false;
+    addAssistantMessage({ role: "assistant", content: `撤销失败：${assistantError(j.detail)}`, sources: [] });
+    return;
+  }
+  state.bundle = await jget(`/api/meetings/${encodeURIComponent(state.slug)}/bundle`);
+  renderMinutes();
+  const msg = state.assistantMessages.find(item => item.proposal?.proposal_id === proposalId);
+  if (msg) msg.proposal.status = "undone";
+  renderAssistantMessages();
 }
 
 function setupTranscriptSelection() {
@@ -520,16 +612,18 @@ function setupTranscriptSelection() {
     const pop = $("#quote-pop");
     pop.dataset.start = startEl.dataset.index;
     pop.dataset.end = endEl.dataset.index;
-    pop.style.left = `${Math.min(window.innerWidth - 130, rect.right + 8)}px`;
+    pop.style.left = `${Math.max(8, Math.min(window.innerWidth - 290, rect.right + 8))}px`;
     pop.style.top = `${Math.max(8, rect.top - 36)}px`;
     pop.classList.remove("hidden");
   });
-  $("#quote-pop").onclick = () => {
-    const pop = $("#quote-pop");
-    addReferenceRange(Number(pop.dataset.start), Number(pop.dataset.end));
-    pop.classList.add("hidden");
-    window.getSelection()?.removeAllRanges();
-  };
+  $$("#quote-pop [data-intent]").forEach(btn => {
+    btn.onclick = () => {
+      const pop = $("#quote-pop");
+      addReferenceRange(Number(pop.dataset.start), Number(pop.dataset.end), btn.dataset.intent);
+      pop.classList.add("hidden");
+      window.getSelection()?.removeAllRanges();
+    };
+  });
   document.addEventListener("mousedown", ev => {
     if (!ev.target.closest("#quote-pop") && !ev.target.closest("#transcript"))
       $("#quote-pop").classList.add("hidden");
@@ -664,8 +758,10 @@ async function pollJobs() {
 function renderJobs(jobs) {
   const ul = $("#jobs-list");
   if (!ul) return;
+  const activeJobs = jobs.filter(j => j.status === "queued" || j.status === "running");
+  $("#jobs-panel").classList.toggle("hidden", activeJobs.length === 0);
   ul.innerHTML = "";
-  for (const j of jobs) {
+  for (const j of activeJobs) {
     const li = document.createElement("li");
     const active = j.status === "queued" || j.status === "running";
     li.innerHTML =
@@ -699,22 +795,20 @@ function init() {
   $("#bind-cancel").onclick = closeBind;
   $("#bind-mask").addEventListener("click", e => { if (e.target.id === "bind-mask") closeBind(); });
 
-  $("#tab-minutes").onclick = () => switchRightView("minutes");
-  $("#tab-assistant").onclick = () => switchRightView("assistant");
-  $("#assistant-clear-refs").onclick = () => {
-    state.assistantRefs = [];
-    renderAssistantRefs();
-    $$(".turn.referenced").forEach(el => el.classList.remove("referenced"));
+  $("#media-toggle").onclick = () => {
+    const box = $(".player-box");
+    box.classList.toggle("media-collapsed");
+    $("#media-toggle").textContent = box.classList.contains("media-collapsed")
+      ? "展开播放" : "收起播放";
   };
+  $("#assistant-thread-close").onclick = () => setAssistantThread(false);
   $("#assistant-send").onclick = sendAssistant;
   $("#assistant-input").addEventListener("keydown", e => {
-    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) sendAssistant();
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendAssistant();
+    }
   });
-  $("#assistant-intent").onchange = e => {
-    $("#assistant-input").placeholder = e.target.value === "edit"
-      ? "例如：根据引用，把这个决定补充到纪要第 8 页"
-      : "例如：这里最终决定了什么？";
-  };
   setupTranscriptSelection();
 
   const dz = $("#dropzone");

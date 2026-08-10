@@ -99,6 +99,9 @@ s, _, j = req("GET", "/api/meetings")
 n = len(j.get("meetings", []))
 check("GET /api/meetings → 200 且只见隔离夹具", s == 200 and n == 1, f"会议数={n}")
 check("列表含 _smoke", any(m["slug"] == "_smoke" for m in j["meetings"]))
+smoke_item = next((m for m in j["meetings"] if m["slug"] == "_smoke"), {})
+check("会议列表含可读标题与人数元数据",
+      smoke_item.get("title") == "smoke" and smoke_item.get("speaker_count") == 2)
 
 # 2. bundle
 s, _, j = req("GET", "/api/meetings/_smoke/bundle")
@@ -112,6 +115,8 @@ check("bundle 结构数量",
       f"topics={len(j.get('topics', []))} samples={len(j.get('samples', []))}")
 check("bundle 带逐字稿/纪要 revision",
       bool(j.get("transcript_revision")) and bool(j.get("minutes_revision")))
+check("bundle 含可读会议身份元数据",
+      j.get("title") == "smoke" and j.get("speaker_count") == 2)
 check("bundle minutes_html 图片已改写为 file 路由",
       f'/api/meetings/_smoke/file?path=slides/' in j.get("minutes_html", ""))
 
@@ -270,7 +275,8 @@ stale = dict(chat_body, transcript_revision="stale-revision")
 s, _, _ = req("POST", "/api/meetings/_smoke/assistant/chat", stale)
 check("assistant/chat 拒绝过期逐字稿引用", s == 409)
 
-# 17. 纪要修改必须 preview → revision 校验 → apply，并生成历史版本
+# 17. 纪要修改必须 preview → revision 校验 → apply → 可安全撤销，并生成历史版本
+minutes_before_edit = (SMOKE / "minutes.md").read_text()
 edit_body = {
     "message": "根据引用补充总体摘要",
     "turn_indexes": [0, 1],
@@ -290,6 +296,16 @@ check("assistant/edit/apply → 写入 + 自动版本备份", s == 200 and appli
 s, _, _ = req("POST", "/api/meetings/_smoke/assistant/edit/apply",
               {"proposal_id": preview.get("proposal_id")})
 check("同一修改提案不能重复应用", s == 409)
+s, _, undone = req("POST", "/api/meetings/_smoke/assistant/edit/undo",
+                   {"proposal_id": preview.get("proposal_id")})
+history_files = list((SMOKE / ".history" / "minutes").glob("*.md"))
+check("assistant/edit/undo → 恢复原纪要并保留修改后版本",
+      s == 200 and undone.get("ok") is True
+      and (SMOKE / "minutes.md").read_text() == minutes_before_edit
+      and len(history_files) == 2)
+s, _, _ = req("POST", "/api/meetings/_smoke/assistant/edit/undo",
+              {"proposal_id": preview.get("proposal_id")})
+check("同一修改只能撤销一次", s == 409)
 
 # 18. 删除只作用于隔离数据根，并清理声纹来源引用
 s, _, deleted = req("POST", "/api/meetings/_smoke/delete")
