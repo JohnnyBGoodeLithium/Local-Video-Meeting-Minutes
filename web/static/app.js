@@ -10,6 +10,10 @@ const state = {
   bundle: null,
   speakers: null,   // /api/speakers 缓存
   poller: null,
+  assistantRefs: [],
+  assistantHistory: [],
+  assistantMessages: [],
+  assistantBusy: false,
 };
 
 /* ---------- 工具 ---------- */
@@ -96,6 +100,7 @@ async function deleteMeeting(ev, slug) {
     $("#timeline").innerHTML = "";
     $("#regen-btn").disabled = true;
     $("#refine-btn").disabled = true;
+    resetAssistant();
   }
   loadMeetings();
 }
@@ -105,7 +110,12 @@ async function deleteMeeting(ev, slug) {
 function player() { return $("#player-holder video") || $("#player-holder audio"); }
 
 async function loadMeeting(slug) {
+  const changed = state.slug !== slug;
   state.slug = slug;
+  if (changed) {
+    resetAssistant();
+    switchRightView("minutes");
+  }
   renderMeetingList();
   const b = await jget(`/api/meetings/${encodeURIComponent(slug)}/bundle`);
   state.bundle = b;
@@ -260,13 +270,19 @@ function renderTranscript() {
     const div = document.createElement("div");
     div.className = "turn";
     div.id = `turn-${i}`;
+    div.dataset.index = i;
     const chipCls = t.voice ? "chip" : "chip disabled";
     div.innerHTML =
       `<span class="tc" title="点击跳转">[${fmt(t.start)}]</span>` +
       `<span class="${chipCls}" title="${t.voice ? "点击绑定说话人" : "无对应声纹"}">${esc(t.speaker)}</span>` +
-      `<span class="txt">${esc(t.text)}</span>`;
+      `<span class="txt">${esc(t.text)}</span>` +
+      `<button type="button" class="quote-turn" title="引用这一轮到会议助手">引用</button>`;
     $(".tc", div).onclick = () => seek(t.start);
     if (t.voice) $(".chip", div).onclick = () => openBind(t.voice, t.speaker);
+    $(".quote-turn", div).onclick = ev => {
+      ev.stopPropagation();
+      addReferenceRange(i, i);
+    };
     box.appendChild(div);
   });
   if (!state.bundle.transcript.length)
@@ -278,6 +294,246 @@ function renderTranscript() {
 function renderMinutes() {
   const box = $("#minutes");
   box.innerHTML = state.bundle.minutes_html || '<p class="placeholder">暂无纪要</p>';
+}
+
+/* ---------- 本地会议助手：结构化逐字稿引用 ---------- */
+
+function switchRightView(view) {
+  const assistant = view === "assistant";
+  $("#minutes").classList.toggle("hidden", assistant);
+  $("#assistant-panel").classList.toggle("hidden", !assistant);
+  $("#tab-minutes").classList.toggle("active", !assistant);
+  $("#tab-assistant").classList.toggle("active", assistant);
+  $(".min-btns").classList.toggle("hidden", assistant);
+}
+
+function resetAssistant() {
+  state.assistantRefs = [];
+  state.assistantHistory = [];
+  state.assistantMessages = [];
+  state.assistantBusy = false;
+  if ($("#assistant-refs")) renderAssistantRefs();
+  if ($("#assistant-messages")) renderAssistantMessages();
+}
+
+function referenceGroups() {
+  const indexes = [...new Set(state.assistantRefs)].sort((a, b) => a - b);
+  const groups = [];
+  for (const idx of indexes) {
+    if (!groups.length || idx !== groups[groups.length - 1].at(-1) + 1) groups.push([idx]);
+    else groups[groups.length - 1].push(idx);
+  }
+  return groups;
+}
+
+function addReferenceRange(start, end) {
+  if (!state.bundle) return;
+  const lo = Math.max(0, Math.min(start, end));
+  const hi = Math.min(state.bundle.transcript.length - 1, Math.max(start, end));
+  for (let i = lo; i <= hi; i++) state.assistantRefs.push(i);
+  state.assistantRefs = [...new Set(state.assistantRefs)].sort((a, b) => a - b).slice(0, 30);
+  renderAssistantRefs();
+  switchRightView("assistant");
+  $("#assistant-input").focus();
+}
+
+function renderAssistantRefs() {
+  const box = $("#assistant-refs");
+  if (!box) return;
+  box.innerHTML = "";
+  if (!state.bundle || !state.assistantRefs.length) return;
+  for (const group of referenceGroups()) {
+    const turns = group.map(i => state.bundle.transcript[i]).filter(Boolean);
+    if (!turns.length) continue;
+    const card = document.createElement("div");
+    card.className = "assistant-ref";
+    const speakers = [...new Set(turns.map(t => t.speaker))];
+    const excerpt = turns.map(t => t.text).join(" ").slice(0, 120);
+    card.innerHTML =
+      `<button type="button" class="ref-remove" title="移除引用">×</button>` +
+      `<b>逐字稿 ${fmt(turns[0].start)}–${fmt(turns.at(-1).end)}</b>` +
+      `<span class="dim">${esc(speakers.join("、"))} · ${turns.length}轮</span>` +
+      `<span class="ref-excerpt">${esc(excerpt)}${excerpt.length >= 120 ? "…" : ""}</span>`;
+    $(".ref-remove", card).onclick = () => {
+      const removing = new Set(group);
+      state.assistantRefs = state.assistantRefs.filter(i => !removing.has(i));
+      renderAssistantRefs();
+    };
+    card.onclick = ev => {
+      if (ev.target.closest(".ref-remove")) return;
+      highlightTurns(group);
+      seek(turns[0].start);
+    };
+    box.appendChild(card);
+  }
+}
+
+function highlightTurns(indexes) {
+  $$(".turn.referenced").forEach(el => el.classList.remove("referenced"));
+  for (const i of indexes) $(`#turn-${i}`)?.classList.add("referenced");
+  $(`#turn-${indexes[0]}`)?.scrollIntoView({ block: "center", behavior: "smooth" });
+}
+
+function addAssistantMessage(message) {
+  state.assistantMessages.push(message);
+  renderAssistantMessages();
+}
+
+function citedText(text, sources) {
+  const ids = new Set((sources || []).map(s => s.id));
+  return esc(text).replace(/【(T\d+)】/g, (all, id) =>
+    ids.has(id) ? `<button type="button" class="source-link" data-source="${id}">${all}</button>` : all);
+}
+
+function renderAssistantMessages() {
+  const box = $("#assistant-messages");
+  if (!box) return;
+  if (!state.assistantMessages.length) {
+    box.innerHTML = '<p class="placeholder">在中间逐字稿点击“引用”，然后输入问题或修改要求。</p>';
+    return;
+  }
+  box.innerHTML = "";
+  for (const msg of state.assistantMessages) {
+    const el = document.createElement("div");
+    el.className = `assistant-msg ${msg.role}`;
+    el.innerHTML = `<div class="msg-role">${msg.role === "user" ? "你" : "助手"}</div>` +
+      `<div class="msg-body">${citedText(msg.content, msg.sources)}</div>`;
+    if (msg.proposal) {
+      const p = msg.proposal;
+      el.innerHTML +=
+        `<div class="edit-card">` +
+        `<div><b>修改目标：</b>${esc(p.target_heading)}</div>` +
+        `<div class="dim">${esc(p.summary || "")}</div>` +
+        `<details><summary>查看修改差异</summary><pre>${esc(p.diff || "")}</pre></details>` +
+        `<div class="edit-actions">` +
+        `<button type="button" class="apply-edit primary" data-id="${esc(p.proposal_id)}">应用修改</button>` +
+        `<button type="button" class="dismiss-edit">取消</button>` +
+        `</div></div>`;
+    }
+    $$(".source-link", el).forEach(btn => {
+      btn.onclick = () => {
+        const src = (msg.sources || []).find(s => s.id === btn.dataset.source);
+        if (!src) return;
+        highlightTurns(src.turn_indexes || []);
+        seek(src.start || 0);
+      };
+    });
+    const apply = $(".apply-edit", el);
+    if (apply) apply.onclick = () => applyAssistantEdit(apply.dataset.id, apply);
+    const dismiss = $(".dismiss-edit", el);
+    if (dismiss) dismiss.onclick = () => {
+      $(".edit-card", el).innerHTML = '<span class="dim">修改已取消</span>';
+    };
+    box.appendChild(el);
+  }
+  box.scrollTop = box.scrollHeight;
+}
+
+function assistantError(detail) {
+  if (typeof detail === "string") return detail;
+  if (detail && typeof detail.detail === "string") return detail.detail;
+  return "请求失败";
+}
+
+async function sendAssistant() {
+  if (!state.slug || state.assistantBusy) return;
+  const input = $("#assistant-input");
+  const message = input.value.trim();
+  if (!message) return;
+  const intent = $("#assistant-intent").value;
+  const common = {
+    message,
+    turn_indexes: state.assistantRefs,
+    transcript_revision: state.bundle.transcript_revision,
+  };
+  const path = intent === "edit"
+    ? `/api/meetings/${encodeURIComponent(state.slug)}/assistant/edit/preview`
+    : `/api/meetings/${encodeURIComponent(state.slug)}/assistant/chat`;
+  const body = intent === "edit"
+    ? { ...common, minutes_revision: state.bundle.minutes_revision }
+    : { ...common, history: state.assistantHistory.slice(-8) };
+  addAssistantMessage({ role: "user", content: message, sources: [] });
+  input.value = "";
+  state.assistantBusy = true;
+  $("#assistant-send").disabled = true;
+  $("#assistant-state").textContent = intent === "edit" ? "正在生成修改预览…" : "正在查找证据并回答…";
+  try {
+    const r = await api(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(assistantError(j.detail));
+    if (intent === "edit") {
+      addAssistantMessage({
+        role: "assistant",
+        content: "已生成纪要修改预览。确认差异后才能写入。",
+        sources: j.sources || [],
+        proposal: j,
+      });
+    } else {
+      addAssistantMessage({ role: "assistant", content: j.answer, sources: j.sources || [] });
+      state.assistantHistory.push({ role: "user", content: message });
+      state.assistantHistory.push({ role: "assistant", content: j.answer });
+      state.assistantHistory = state.assistantHistory.slice(-8);
+    }
+  } catch (e) {
+    addAssistantMessage({ role: "assistant", content: `无法完成：${e.message}`, sources: [] });
+  } finally {
+    state.assistantBusy = false;
+    $("#assistant-send").disabled = false;
+    $("#assistant-state").textContent = "";
+  }
+}
+
+async function applyAssistantEdit(proposalId, button) {
+  if (!confirm("应用这项纪要修改？原文件会自动保存到本地历史版本。")) return;
+  button.disabled = true;
+  const r = await api(`/api/meetings/${encodeURIComponent(state.slug)}/assistant/edit/apply`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ proposal_id: proposalId }),
+  });
+  const j = await r.json();
+  if (!r.ok) {
+    button.disabled = false;
+    addAssistantMessage({ role: "assistant", content: `应用失败：${assistantError(j.detail)}`, sources: [] });
+    return;
+  }
+  state.bundle = await jget(`/api/meetings/${encodeURIComponent(state.slug)}/bundle`);
+  renderMinutes();
+  button.closest(".edit-card").innerHTML = `<span class="applied">已应用 · 备份 ${esc(j.backup)}</span>`;
+}
+
+function setupTranscriptSelection() {
+  $("#transcript").addEventListener("mouseup", () => {
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed || !selection.rangeCount) return;
+    const range = selection.getRangeAt(0);
+    const startEl = (range.startContainer.nodeType === 1
+      ? range.startContainer : range.startContainer.parentElement)?.closest?.(".turn");
+    const endEl = (range.endContainer.nodeType === 1
+      ? range.endContainer : range.endContainer.parentElement)?.closest?.(".turn");
+    if (!startEl || !endEl) return;
+    const rect = range.getBoundingClientRect();
+    const pop = $("#quote-pop");
+    pop.dataset.start = startEl.dataset.index;
+    pop.dataset.end = endEl.dataset.index;
+    pop.style.left = `${Math.min(window.innerWidth - 130, rect.right + 8)}px`;
+    pop.style.top = `${Math.max(8, rect.top - 36)}px`;
+    pop.classList.remove("hidden");
+  });
+  $("#quote-pop").onclick = () => {
+    const pop = $("#quote-pop");
+    addReferenceRange(Number(pop.dataset.start), Number(pop.dataset.end));
+    pop.classList.add("hidden");
+    window.getSelection()?.removeAllRanges();
+  };
+  document.addEventListener("mousedown", ev => {
+    if (!ev.target.closest("#quote-pop") && !ev.target.closest("#transcript"))
+      $("#quote-pop").classList.add("hidden");
+  });
 }
 
 async function regenMinutes(refineModel) {
@@ -354,6 +610,7 @@ async function doBind(voice, create) {
   if (!r.ok) { toast(`绑定失败: ${j.detail || r.status}`); return; }
   closeBind();
   state.speakers = null;  // 库已变，刷新缓存
+  resetAssistant();       // 逐字稿 revision 已变化，旧引用作废
   toast(`已绑定为 ${j.name}（${j.turns} 轮）`);
   await loadMeeting(state.slug);  // 逐字稿立即更新
 }
@@ -441,6 +698,24 @@ function init() {
   };
   $("#bind-cancel").onclick = closeBind;
   $("#bind-mask").addEventListener("click", e => { if (e.target.id === "bind-mask") closeBind(); });
+
+  $("#tab-minutes").onclick = () => switchRightView("minutes");
+  $("#tab-assistant").onclick = () => switchRightView("assistant");
+  $("#assistant-clear-refs").onclick = () => {
+    state.assistantRefs = [];
+    renderAssistantRefs();
+    $$(".turn.referenced").forEach(el => el.classList.remove("referenced"));
+  };
+  $("#assistant-send").onclick = sendAssistant;
+  $("#assistant-input").addEventListener("keydown", e => {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) sendAssistant();
+  });
+  $("#assistant-intent").onchange = e => {
+    $("#assistant-input").placeholder = e.target.value === "edit"
+      ? "例如：根据引用，把这个决定补充到纪要第 8 页"
+      : "例如：这里最终决定了什么？";
+  };
+  setupTranscriptSelection();
 
   const dz = $("#dropzone");
   dz.addEventListener("dragover", e => { e.preventDefault(); dz.classList.add("over"); });

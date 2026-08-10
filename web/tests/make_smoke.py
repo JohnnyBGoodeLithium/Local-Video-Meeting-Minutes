@@ -8,6 +8,7 @@
 - samples/Alice.wav Bob.wav; source.json 指向本目录 wav(无 mp4 → has_video False)
 """
 import json
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -16,7 +17,7 @@ import numpy as np
 import soundfile as sf
 from PIL import Image
 
-ROOT = Path("/home/johnny-tcx_ultra/meeting-minutes")
+ROOT = Path(os.environ.get("MM_TEST_ROOT", "/home/johnny-tcx_ultra/meeting-minutes")).resolve()
 mdir = ROOT / "meetings" / "_smoke"
 SR = 16000
 

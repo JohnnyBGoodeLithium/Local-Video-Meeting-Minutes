@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""造临时假声纹库 /tmp/mm_fake_bank（全虚构，不碰真实 speaker_bank/）。
+"""造临时假声纹库（全虚构，不碰真实 speaker_bank/）。
 
 配合 web/tests/smoke_test.py 的断言：
 - persons 只有 Alice Example（aliases 必须为空，否则 "Alicia" 会被模糊命中而非 409）
@@ -7,12 +7,13 @@
 - orgchart 两条（Alice Example / Dave Example，aliases 空）
 """
 import json
+import os
 import shutil
 from pathlib import Path
 
 import numpy as np
 
-BANK = Path("/tmp/mm_fake_bank")
+BANK = Path(os.environ.get("MM_TEST_BANK", "/tmp/mm_fake_bank")).resolve()
 if BANK.exists():
     shutil.rmtree(BANK)
 (BANK / "emb").mkdir(parents=True)

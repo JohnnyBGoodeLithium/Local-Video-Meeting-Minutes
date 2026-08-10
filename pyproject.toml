@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "local-meeting-minutes"
+version = "0.1.0"
+description = "Local-only meeting transcription, diarization, slide analysis, and minutes Web UI"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "aiofiles>=23",
+  "fastapi>=0.110",
+  "markdown-it-py>=3",
+  "python-multipart>=0.0.9",
+  "uvicorn>=0.29",
+]
+
+[project.optional-dependencies]
+pipeline = [
+  "numpy>=1.26",
+  "Pillow>=10",
+  "pyannote.audio>=4",
+  "qwen-asr",
+  "soundfile>=0.12",
+]
+
+[tool.setuptools]
+packages = []
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+

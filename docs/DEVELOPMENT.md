@@ -1,0 +1,61 @@
+# 开发与验证
+
+## 环境
+
+项目使用 Python 3.11+。现有机器为保留 ROCm/系统包兼容性，虚拟环境使用 `--system-site-packages`；不要在未核对 GPU 版本时重新安装 PyTorch。
+
+```bash
+python3 -m venv --system-site-packages .venv
+.venv/bin/pip install -e .
+# 管线依赖仅在确认不会覆盖现有 ROCm torch 后安装：
+.venv/bin/pip install -e '.[pipeline]'
+```
+
+## 常用命令
+
+```bash
+make doctor   # 检查模块、二进制、模型路径和本机路由
+make check    # Python/JavaScript 语法与 diff whitespace
+make smoke    # 一次性数据根 + 假声纹库 + dry-run Web 全链路
+make assistant-live  # 仅用虚构文本验证真实本地 LLM 问答/编辑协议
+make run      # 127.0.0.1:8899
+```
+
+`make smoke` 使用 `tempfile.TemporaryDirectory`。服务、上传、会议、声纹、作业 JSON 全在该目录内，结束后自动清理；它不会枚举或修改真实 `meetings/`。
+
+## 运行配置
+
+| 变量 | 默认值 | 用途 |
+|---|---|---|
+| `MEETING_DATA_ROOT` | 仓库根 | 私有 `recordings/meetings` 数据根 |
+| `MEETING_WEB_BANK` | `<data>/speaker_bank` | 声纹与组织架构目录 |
+| `MEETING_WEB_JOBS` | `web/jobs` | 作业状态目录 |
+| `MEETING_WEB_PORT` | `8899` | 本机监听端口 |
+| `MEETING_PYTHON` | `.venv/bin/python` | 管线子进程解释器 |
+| `MEETING_LLM_API` | `http://127.0.0.1:11435/v1` | 本机 OpenAI-compatible API |
+| `MEETING_LLM_MODEL` | `qwen3.6-35b-a3b-operator` | 助手模型 |
+| `MEETING_ALLOW_REMOTE_LLM` | 未设置 | 只有明确授权远程处理时才可设为 `1` |
+| `MEETING_WEB_DRYRUN` | 未设置 | 测试时管线只执行 `--help` |
+
+旧变量 `MEETING_MINUTES_ROOT` 仍兼容，但新部署应使用 `MEETING_DATA_ROOT`。
+
+## Git 与私有数据
+
+`.gitignore` 排除了录音、会议、声纹/人员数据、组织架构、虚拟环境、缓存和作业状态。提交前仍需运行：
+
+```bash
+git status --short
+git diff --cached --name-only
+```
+
+不得用 `git add -f` 绕过私有目录规则。
+
+## 回归要求
+
+任何 Web API 或交互改动至少需要：
+
+- `make check`；
+- `make smoke`；
+- 新增写操作时验证 revision 冲突、备份或可恢复性；
+- 新增文件入口时验证扩展名、路径穿越与失败清理；
+- 新增 LLM 功能时验证 dry-run、不连云、输出不能直接写文件。

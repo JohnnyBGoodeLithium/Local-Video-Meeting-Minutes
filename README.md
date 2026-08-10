@@ -2,6 +2,8 @@
 
 目标：把录音笔/会议录音变成**带时间戳的逐字稿 + 结构化会议纪要**，全流程在本机完成，音频和文字不出机器。
 
+工程文档：[系统架构](docs/ARCHITECTURE.md) · [产品与交互](docs/PRODUCT_UX.md) · [开发与验证](docs/DEVELOPMENT.md) · [工程走查](docs/ENGINEERING_REVIEW.md) · [模型矩阵](docs/MODELS.md)
+
 ## 为什么做这个
 
 钉钉"闪记"这类功能好用，但录音和纪要都要上云。本项目的约束（来自 `~/agent-memory/PROFILE.md`）：录音、公司信息、未公开内容**优先本地处理**，云端模型需要每次显式授权。所以搭一条等价的本地管线。
@@ -34,17 +36,22 @@ meeting-minutes/
 ```bash
 # 首次：建环境(已建好可跳过)
 python3 -m venv --system-site-packages .venv
-.venv/bin/pip install -U qwen-asr "pyannote.audio>=4" -i https://mirrors.aliyun.com/pypi/simple/
+.venv/bin/pip install -e .
+# 确认不会覆盖现有 ROCm torch 后，才安装管线依赖：
+.venv/bin/pip install -e '.[pipeline]'
 ```
 
 ### Web 界面(仿飞书妙计)
 
 ```bash
 .venv/bin/python web/server.py
+# 或 make run
 # http://127.0.0.1:8899/       会议列表 + 详情(转写/播放/页段时间轴/纪要/说话人绑定)
 # http://127.0.0.1:8899/admin  声纹库 + org chart 树编辑 + 参考文件(PDF 渲图)
 ```
 左栏拖入 视频(可带同名 .vtt) 或 音频 即自动处理。详见 [web/README.md](web/README.md)。
+
+会议详情的“助手”页签支持引用一轮或多轮逐字稿进行本地问答；回答带可点击时间来源。切换到“更新纪要”时，系统先生成章节 diff，只有用户确认后才写入，并自动保存历史版本。
 
 ### 录音笔 WAV：一条命令
 
@@ -90,23 +97,16 @@ python3 -m venv --system-site-packages .venv
 # 转写走 Qwen3-ASR; 说话人是匿名"说话人K"(声纹入库但不建 person), 之后在网页/CLI 绑定
 ```
 
-### Web 界面(仿飞书妙计)
-
-```bash
-.venv/bin/python web/server.py        # 然后浏览器开 http://127.0.0.1:8899/
-```
-
-- 左侧拖入视频/音频(可带同名 .vtt)即自动走对应管线(视频+vtt→teams_minutes / 裸视频→video_minutes / 音频→run_all)
-- 详情页：转写区(时间码点击跳转播放、说话人 chip 点击弹绑定框, 一次绑定该声音全部语句, 可试听) +
-  播放区(视频/音频 + 按幻灯片页分段的时间轴, hover 出页缩略图, 议题时间点打标) + 纪要区(手动"重新生成"按钮)
-- `/admin`：声纹库管理(绑定/别名/合并/解绑) + org chart 树状编辑(按 leader 层级) + 参考文件上传查看(PDF 自动渲页图)
-- 只监听 127.0.0.1; `meetings/_smoke/` 是合成测试夹具(假人名假内容), 可删
-
 ### 维护/修复
 
 ```bash
 # 老会议逐字稿修复(空格回填+分离段平滑+重放合并+voice回填, 不重跑模型):
 .venv/bin/python bin/repair_transcript.py meetings/<某会议>/
+
+# 工程自检与隔离回归（不会读真实会议目录）
+make doctor
+make check
+make smoke
 ```
 
 ### 声纹绑定(谁是谁)
@@ -155,5 +155,7 @@ org chart 也可以走 `/admin` 网页：上传架构 PDF → "提取草稿"（V
 - [x] 录音笔管线（转写/时间戳/分离/纪要，一条命令 `bin/run_all.py`）
 - [x] Teams 管线（VTT 姓名对齐 + 房间声纹拆分 + 截图纪要，见 `bin/teams_minutes.py`）
 - [x] 声纹库 v2 + 绑定工具（`bin/voice_tool.py`：试听/绑定/别名/合并；跨会议认人）
+- [x] 本地会议助手（逐字稿引用问答 + 来源跳转 + 纪要 diff/确认/版本备份）
+- [x] 隔离测试数据根、环境 doctor、Git 私有数据边界与工程文档
 - [ ] 与 Whisper 的对照评估
 - [ ] 房间声音完成命名后的首轮跨会议验证

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>会议纪要</title>
-<link rel="stylesheet" href="/static/style.css?v=20260810">
+<link rel="stylesheet" href="/static/style.css?v=20260810b">
 </head>
 <body class="page-index">
 <header class="topbar">
@@ -48,16 +48,43 @@
     </div>
     <div class="minutes-box">
       <div class="col-header">
-        <span>纪要</span>
+        <span class="view-tabs">
+          <button id="tab-minutes" class="view-tab active" type="button">纪要</button>
+          <button id="tab-assistant" class="view-tab" type="button">助手</button>
+        </span>
         <span class="min-btns">
           <button id="regen-btn" type="button" disabled>重新生成纪要</button>
           <button id="refine-btn" type="button" disabled title="用 122B 大模型整体重写(首次需加载数分钟)">大模型精修</button>
         </span>
       </div>
       <div id="minutes" class="minutes"><p class="placeholder">纪要内容</p></div>
+      <div id="assistant-panel" class="assistant-panel hidden">
+        <div class="assistant-note">本地会议助手 · 引用逐字稿提问，或先预览再修改纪要</div>
+        <div id="assistant-refs" class="assistant-refs"></div>
+        <div id="assistant-messages" class="assistant-messages">
+          <p class="placeholder">在中间逐字稿点击“引用”，然后输入问题或修改要求。</p>
+        </div>
+        <div class="assistant-compose">
+          <div class="assistant-compose-row">
+            <select id="assistant-intent" aria-label="操作类型">
+              <option value="ask">询问</option>
+              <option value="edit">更新纪要</option>
+            </select>
+            <span id="assistant-state" class="dim"></span>
+          </div>
+          <textarea id="assistant-input" rows="3" maxlength="8000"
+                    placeholder="例如：这里最终决定了什么？"></textarea>
+          <div class="assistant-actions">
+            <button id="assistant-clear-refs" type="button">清空引用</button>
+            <button id="assistant-send" class="primary" type="button">发送</button>
+          </div>
+        </div>
+      </div>
     </div>
   </section>
 </main>
+
+<button id="quote-pop" class="quote-pop hidden" type="button">引用到助手</button>
 
 <!-- 说话人绑定弹框 -->
 <div id="bind-mask" class="mask hidden">
@@ -75,6 +102,6 @@
   </div>
 </div>
 
-<script src="/static/app.js?v=20260810"></script>
+<script src="/static/app.js?v=20260810b"></script>
 </body>
 </html>

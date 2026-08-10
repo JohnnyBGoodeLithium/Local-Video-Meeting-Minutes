@@ -5,8 +5,9 @@
     .venv/bin/python web/server.py
 
 环境变量（一般不用动）：
-    MEETING_MINUTES_ROOT   项目根（默认 web/ 的上一级）
-    MEETING_WEB_BANK       声纹库目录（默认 ROOT/speaker_bank；测试可指向临时假库）
+    MEETING_DATA_ROOT      私有数据根（默认项目根；测试可指向一次性目录）
+    MEETING_WEB_BANK       声纹库目录（默认 DATA_ROOT/speaker_bank）
+    MEETING_WEB_JOBS       作业 JSON 目录（默认 web/jobs）
     MEETING_WEB_DRYRUN=1   作业干跑模式：管线只执行 `<脚本> --help` 校验调用链，
                            regen 直接标记完成（供冒烟测试，不碰 GPU 模型）
 
@@ -31,22 +32,31 @@ import aiofiles
 from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 WEB_DIR = Path(__file__).resolve().parent
-ROOT = Path(os.environ.get("MEETING_MINUTES_ROOT", WEB_DIR.parent)).resolve()
-BANK_DIR = Path(os.environ.get("MEETING_WEB_BANK", ROOT / "speaker_bank")).resolve()
-MEETINGS = ROOT / "meetings"
-INBOX = ROOT / "recordings" / "inbox"
+PROJECT_ROOT = WEB_DIR.parent.resolve()
+# 代码与私有数据默认放在同一项目目录；测试/部署可只重定向数据根，
+# 避免复制 bin/web 代码，更不会碰真实 meetings/recordings。
+DATA_ROOT = Path(os.environ.get(
+    "MEETING_DATA_ROOT",
+    os.environ.get("MEETING_MINUTES_ROOT", PROJECT_ROOT),  # 兼容旧变量
+)).resolve()
+ROOT = PROJECT_ROOT  # 保留现有代码路径调用的名字
+BANK_DIR = Path(os.environ.get("MEETING_WEB_BANK", DATA_ROOT / "speaker_bank")).resolve()
+MEETINGS = DATA_ROOT / "meetings"
+INBOX = DATA_ROOT / "recordings" / "inbox"
 ORG_FILES = BANK_DIR / "orgchart_files"
-JOBS_DIR = WEB_DIR / "jobs"
+JOBS_DIR = Path(os.environ.get("MEETING_WEB_JOBS", WEB_DIR / "jobs")).resolve()
 STATIC = WEB_DIR / "static"
-PY = ROOT / ".venv" / "bin" / "python"
+PY = Path(os.environ.get("MEETING_PYTHON", PROJECT_ROOT / ".venv" / "bin" / "python")).resolve()
 DRY_RUN = os.environ.get("MEETING_WEB_DRYRUN") == "1"
+DRY_RUN_DELAY = float(os.environ.get("MEETING_WEB_DRYRUN_DELAY", "0") or 0)
 
 sys.path.insert(0, str(ROOT / "bin"))
 import voice_bank as vb  # noqa: E402
 import meeting_dir as md_util  # noqa: E402
+import assistant_service as assistant  # noqa: E402
 
 from markdown_it import MarkdownIt  # noqa: E402
 
@@ -66,6 +76,20 @@ app = FastAPI(title="meeting-minutes web", docs_url=None, redoc_url=None)
 
 
 # ---------------------------------------------------------------- 工具
+
+@app.get("/api/health")
+def health():
+    """不读取会议正文的轻量健康信息，供 UI、doctor 与自动化检查使用。"""
+    active = sum(1 for j in JOBS.values() if j.get("status") in ("queued", "running"))
+    return {
+        "ok": True,
+        "dry_run": DRY_RUN,
+        "data_root_ready": DATA_ROOT.is_dir(),
+        "meetings_ready": MEETINGS.is_dir(),
+        "python_ready": PY.is_file(),
+        "active_jobs": active,
+        "assistant": {"model": assistant.LLM_MODEL, "local_only": not assistant.ALLOW_REMOTE},
+    }
 
 def _now() -> float:
     return time.time()
@@ -186,6 +210,10 @@ def _run_pipeline(job: dict):
     actual = [cmd[0], cmd[1], "--help"] if DRY_RUN else cmd
     if DRY_RUN:
         job["log"].append("[meta] dry-run 模式：仅执行 --help 校验脚本调用，未真正跑管线")
+        if DRY_RUN_DELAY > 0:
+            time.sleep(DRY_RUN_DELAY)
+            if job.get("cancel_requested"):
+                return
     try:
         proc = subprocess.Popen(
             actual, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -201,14 +229,16 @@ def _run_pipeline(job: dict):
         PROCS.pop(job["id"], None)
     meta = [l for l in out.splitlines() if l.lstrip().startswith("[")]
     job["log"].extend(meta)
-    if proc.returncode != 0 and err and not job.get("cancel_requested"):
-        job["log"].extend(err.splitlines()[-20:])
+    if proc.returncode != 0 and not job.get("cancel_requested"):
+        # 作业 JSON 是可由 API 读取的元数据，不落模型输入/输出或任意 stderr 正文。
+        job["log"].append(f"[error] 子进程失败 (rc={proc.returncode})")
     job["log"] = job["log"][-300:]
     if job.get("cancel_requested"):
         _set_status(job, "cancelled", finished=_now(), rc=proc.returncode)
     else:
         _set_status(job, "done" if proc.returncode == 0 else "failed",
-                    finished=_now(), rc=proc.returncode)
+                    finished=_now(), rc=proc.returncode,
+                    result={"dry_run": True} if DRY_RUN and proc.returncode == 0 else None)
 
 
 # ---------------------------------------------------------------- 会议与媒体
@@ -293,7 +323,84 @@ def get_bundle(slug: str):
         "has_audio": (mdir / "audio.wav").is_file(),
         "has_video": bool(src.get("mp4") and Path(src["mp4"]).is_file()),
         "duration": max((t.get("end", 0) for t in transcript), default=0),
+        "transcript_revision": assistant.revision(mdir / "transcript.spk.json"),
+        "minutes_revision": assistant.revision(_minutes_file(mdir)) if _minutes_file(mdir) else None,
     }
+
+
+# ---------------------------------------------------------------- 本地会议助手
+
+class AssistantChatReq(BaseModel):
+    message: str
+    turn_indexes: list[int] = Field(default_factory=list)
+    transcript_revision: str | None = None
+    history: list[dict] = Field(default_factory=list)
+
+
+class AssistantEditReq(BaseModel):
+    message: str
+    turn_indexes: list[int] = Field(default_factory=list)
+    transcript_revision: str | None = None
+    minutes_revision: str | None = None
+    target_heading: str | None = None
+
+
+class AssistantApplyReq(BaseModel):
+    proposal_id: str
+
+
+def _assistant_message(text: str) -> str:
+    value = text.strip()
+    if not value:
+        raise HTTPException(400, "请输入问题或修改要求")
+    if len(value) > 8000:
+        raise HTTPException(400, "单次输入不能超过 8000 个字符")
+    return value
+
+
+def _assistant_http_error(exc: assistant.AssistantError):
+    raise HTTPException(exc.status, str(exc)) from exc
+
+
+@app.post("/api/meetings/{slug}/assistant/chat")
+def assistant_chat(slug: str, req: AssistantChatReq):
+    mdir = _mdir(slug)
+    transcript = mdir / "transcript.spk.json"
+    if not transcript.is_file():
+        raise HTTPException(400, "没有逐字稿，无法进行会议问答")
+    try:
+        return assistant.answer_question(
+            transcript, _assistant_message(req.message), req.turn_indexes,
+            req.transcript_revision, req.history, DRY_RUN)
+    except assistant.AssistantError as exc:
+        _assistant_http_error(exc)
+
+
+@app.post("/api/meetings/{slug}/assistant/edit/preview")
+def assistant_edit_preview(slug: str, req: AssistantEditReq):
+    mdir = _mdir(slug)
+    transcript = mdir / "transcript.spk.json"
+    minutes = _minutes_file(mdir)
+    if not transcript.is_file() or minutes is None:
+        raise HTTPException(400, "需要逐字稿和纪要才能生成修改预览")
+    try:
+        return assistant.preview_minutes_edit(
+            minutes, transcript, _assistant_message(req.message), req.turn_indexes,
+            req.transcript_revision, req.minutes_revision, req.target_heading, DRY_RUN)
+    except assistant.AssistantError as exc:
+        _assistant_http_error(exc)
+
+
+@app.post("/api/meetings/{slug}/assistant/edit/apply")
+def assistant_edit_apply(slug: str, req: AssistantApplyReq):
+    mdir = _mdir(slug)
+    minutes = _minutes_file(mdir)
+    if minutes is None:
+        raise HTTPException(400, "没有可修改的纪要")
+    try:
+        return assistant.apply_minutes_edit(minutes, req.proposal_id)
+    except assistant.AssistantError as exc:
+        _assistant_http_error(exc)
 
 
 @app.get("/api/meetings/{slug}/media/audio")
@@ -637,10 +744,10 @@ def orgchart_draft():
 
 def _predict_meeting(route: str, primary: Path, vtt: Path | None) -> str:
     if route == "audio":
-        return md_util.for_recording(ROOT, primary.stem, None).name
+        return md_util.for_recording(DATA_ROOT, primary.stem, None).name
     date_m = re.search(r"(\d{8})", primary.name)
     stem = vtt.stem if (route == "teams" and vtt is not None) else primary.stem
-    return md_util.for_teams(ROOT, _slugify(stem),
+    return md_util.for_teams(DATA_ROOT, _slugify(stem),
                              date_m.group(1) if date_m else "").name
 
 
@@ -653,40 +760,47 @@ async def upload(files: list[UploadFile] = File(...), no_vl: str = Form("")):
     dest_dir = INBOX / jid
     dest_dir.mkdir(parents=True, exist_ok=True)
     saved = []
-    for f in files:
-        ext = Path(f.filename or "").suffix.lower()
-        if ext not in VIDEO_EXT | AUDIO_EXT | VTT_EXT:
-            raise HTTPException(400, f"不支持的文件类型: {ext or f.filename}")
-        dest = dest_dir / (_safe(Path(f.filename).stem) + ext)
-        async with aiofiles.open(dest, "wb") as out:
-            while chunk := await f.read(1 << 20):
-                await out.write(chunk)
-        saved.append(dest)
+    try:
+        for f in files:
+            ext = Path(f.filename or "").suffix.lower()
+            if ext not in VIDEO_EXT | AUDIO_EXT | VTT_EXT:
+                raise HTTPException(400, f"不支持的文件类型: {ext or f.filename}")
+            dest = dest_dir / (_safe(Path(f.filename).stem) + ext)
+            async with aiofiles.open(dest, "wb") as out:
+                while chunk := await f.read(1 << 20):
+                    await out.write(chunk)
+            saved.append(dest)
 
-    videos = [p for p in saved if p.suffix.lower() in VIDEO_EXT]
-    vtts = [p for p in saved if p.suffix.lower() in VTT_EXT]
-    audios = [p for p in saved if p.suffix.lower() in AUDIO_EXT]
+        videos = [p for p in saved if p.suffix.lower() in VIDEO_EXT]
+        vtts = [p for p in saved if p.suffix.lower() in VTT_EXT]
+        audios = [p for p in saved if p.suffix.lower() in AUDIO_EXT]
 
-    if len(videos) == 1:
-        vtt = next((v for v in vtts if v.stem == videos[0].stem),
-                   vtts[0] if len(vtts) == 1 else None)
-        if vtt is not None:
-            route, script, args = "teams", "teams_minutes.py", [str(videos[0]), str(vtt)]
+        if len(videos) == 1 and not audios:
+            vtt = next((v for v in vtts if v.stem == videos[0].stem),
+                       vtts[0] if len(vtts) == 1 else None)
+            if len(vtts) > 1 and vtt is None:
+                raise HTTPException(400, "多个 VTT 无法确定与视频的配对关系")
+            if vtt is not None:
+                route, script, args = "teams", "teams_minutes.py", [str(videos[0]), str(vtt)]
+            else:
+                route, script, args = "video", "video_minutes.py", [str(videos[0])]
+            if skip_vl:
+                args.append("--no-vl")
+            primary = videos[0]
+        elif not videos and len(audios) == 1 and not vtts:
+            route, script, args = "audio", "run_all.py", [str(audios[0])]
+            primary, vtt = audios[0], None
         else:
-            route, script, args = "video", "video_minutes.py", [str(videos[0])]
-        if skip_vl:
-            args.append("--no-vl")
-        primary = videos[0]
-    elif not videos and audios:
-        route, script, args = "audio", "run_all.py", [str(audios[0])]
-        primary, vtt = audios[0], None
-    else:
-        raise HTTPException(400, "一次只支持一个视频(可配同名 vtt)或一个音频")
+            raise HTTPException(400, "一次只支持一个视频(可配一个 vtt)或一个音频")
+    except Exception:
+        # 校验中途失败不留下半上传目录。
+        shutil.rmtree(dest_dir, ignore_errors=True)
+        raise
 
     cmd = [str(PY), str(ROOT / "bin" / script), *args]
     job = _new_job("upload", route=route, cmd=cmd,
                    files=[p.name for p in saved],
-                   inbox=str(dest_dir.relative_to(ROOT)),
+                   inbox=str(dest_dir.relative_to(DATA_ROOT)),
                    meeting=_predict_meeting(route, primary, vtt))
     resp = dict(job)  # 快照：避免 worker 线程抢在响应序列化前改状态
     EXEC.submit(_run_pipeline, job)

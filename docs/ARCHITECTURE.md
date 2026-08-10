@@ -1,0 +1,81 @@
+# 系统架构
+
+## 目标与边界
+
+本项目把本地录音、普通录屏和 Teams 录制转换为可检索逐字稿、说话人信息、幻灯片页和会议纪要。默认情况下，会议正文、录音、声纹和组织架构不离开本机。
+
+不在当前范围内：多人账号、远程部署、公网访问、云端模型自动回退、跨会议全局语义搜索。
+
+## 组件关系
+
+```mermaid
+flowchart LR
+    UI[三栏 Web UI] --> API[FastAPI web/server.py]
+    API --> JOBS[串行作业执行器]
+    JOBS --> AUDIO[录音管线 run_all.py]
+    JOBS --> VIDEO[普通视频 video_minutes.py]
+    JOBS --> TEAMS[Teams teams_minutes.py]
+    AUDIO --> DATA[(私有会议目录)]
+    VIDEO --> DATA
+    TEAMS --> DATA
+    API --> BANK[(私有声纹与组织架构)]
+    API --> ASSIST[assistant_service.py]
+    ASSIST --> ROUTER[本机 llama-router :11435]
+    ASSIST --> DATA
+```
+
+## 目录职责
+
+| 目录 | 职责 | Git |
+|---|---|---|
+| `bin/` | ASR、分离、抽页、纪要、声纹等批处理脚本 | 跟踪 |
+| `web/` | FastAPI 服务、无构建前端、隔离测试 | 跟踪 |
+| `docs/`、`prompts/` | 架构、运维、模型与提示词规范 | 跟踪 |
+| `recordings/` | 原始输入与上传 inbox | 永不跟踪 |
+| `meetings/` | 每场会议的全部派生文件和本地历史版本 | 永不跟踪 |
+| `speaker_bank/` | 声纹、人员、组织架构与参考材料 | 仅跟踪虚构模板 |
+| `web/jobs/` | 本地作业状态 JSON | 仅跟踪 `.gitkeep` |
+
+代码根固定为仓库目录；数据根默认与代码根相同，也可通过 `MEETING_DATA_ROOT` 指到独立磁盘或一次性测试目录。管线脚本始终来自代码根，会议、上传和声纹数据来自数据根。
+
+## 数据流
+
+### 录音
+
+`run_all.py` 并行执行 ASR 与说话人分离，再合并轮次并调用本机文本模型生成纪要。
+
+### 普通录屏
+
+`video_minutes.py` 抽取音轨，并行执行 ASR/分离，随后入库匿名声纹、抽取逻辑页、进行 VL 页面理解并生成按页纪要。
+
+### Teams 录制
+
+`teams_minutes.py` 使用 VTT 的姓名线索与本地分离结果对齐；会议室混合通道继续按声纹拆分，然后进入抽页和按页纪要流程。
+
+## Web 作业模型
+
+- GPU/重模型管线统一进入单 worker `ThreadPoolExecutor`，避免互相争抢模型资源。
+- 每个外部管线运行在独立进程组，取消时先发 `SIGTERM`，5 秒后仍未退出则 `SIGKILL`。
+- 作业 JSON 只保存状态和以 `[` 开头的元数据行，不保存任意 stderr 或会议正文。
+- 服务重启时，遗留的 `queued/running` 作业会标为失败；当前不自动恢复。
+
+## 会议助手
+
+助手采用“模型提议、代码执行”的边界：
+
+1. 浏览器提交逐字稿轮次索引与文档 revision，不提交任意文件路径。
+2. 服务端从正式逐字稿解析引用，并补充相邻语境或执行轻量本地检索。
+3. 问答调用本机 OpenAI-compatible API，返回可点击来源编号。
+4. 修改纪要时，模型只能选择候选 Markdown 章节并返回替换建议。
+5. 服务端生成 diff；用户确认后再次校验 revision，保存历史版本，再原子替换文件。
+
+默认只允许 `localhost/127.0.0.1/::1` 模型地址。远程模型必须在一次明确授权后设置 `MEETING_ALLOW_REMOTE_LLM=1`。
+
+## 必须保持的工程约束
+
+- 任何测试不得使用默认真实数据根或真实 `speaker_bank`。
+- 前端传来的路径、会议 slug、引用索引和修改 proposal 都必须由服务端重新校验。
+- LLM 输出不能直接成为文件操作、shell 命令或未确认的写入。
+- 逐字稿 JSON 与 Markdown 的同步修改必须走同一个确定性函数。
+- 会议正文不得进入 Git、作业元数据日志或云端诊断上下文。
+

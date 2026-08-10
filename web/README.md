@@ -21,6 +21,8 @@ cd ~/meeting-minutes
   （`POST /api/jobs/{id}/cancel`：排队直接作废；运行中整进程组 SIGTERM，5s 不死再 SIGKILL）。
 - 详情页：转写（时间码点击跳转、跟随高亮）、播放器（自绘时间轴：页区间分段/刻度/议题标记/缩略图预览）、
   纪要（服务端渲染 markdown）、"重新生成纪要"按钮（后台跑 `minutes_by_page.py`，分钟级）。
+- “助手”页签：逐轮点击或跨轮选中文字后引用到助手；本地 Qwen3.6 问答带时间来源。
+  “更新纪要”只生成章节 diff，用户确认后才写入，并在会议 `.history/minutes/` 保存旧版本。
 - 说话人 chip → 绑定弹框（可试听该声音片段）→ 一次绑定该声纹在本会议的全部语句
   （同时改写 transcript.spk.json / transcript.spk.md；纪要需手动点"重新生成"）。
   **名字不要求在 org chart/声纹库里**：未命中时返回候选 + `can_create`，前端给"新建「名字」"按钮
@@ -31,25 +33,22 @@ cd ~/meeting-minutes
 ## 环境变量（测试用）
 
 - `MEETING_WEB_BANK`：声纹库目录（默认 `speaker_bank/`）。测试时指向临时假库，不碰真实 bank.json。
-- `MEETING_MINUTES_ROOT`：项目根（默认 `web/` 的上一级）。
+- `MEETING_DATA_ROOT`：私有数据根（默认项目根）；测试时指向一次性目录。
+- `MEETING_WEB_JOBS`：作业 JSON 目录（默认 `web/jobs/`）。
 - `MEETING_WEB_PORT`：端口（默认 8899；与其他实例冲突时可改，如测试用 8898）。
 - `MEETING_WEB_DRYRUN=1`：作业干跑——管线只执行 `<脚本> --help` 校验调用链，regen 直接标记完成。
+- `MEETING_LLM_API` / `MEETING_LLM_MODEL`：助手使用的本机 OpenAI-compatible API 与模型。
+
+`MEETING_MINUTES_ROOT` 仅作为旧版兼容变量保留。
 
 ## 冒烟测试
 
 ```bash
-.venv/bin/python web/tests/make_fake_bank.py   # 重置假声纹库 /tmp/mm_fake_bank
-.venv/bin/python web/tests/make_smoke.py       # 重建合成夹具 meetings/_smoke(整目录重建)
-MEETING_WEB_BANK=/tmp/mm_fake_bank MEETING_WEB_DRYRUN=1 MEETING_WEB_PORT=8898 \
-    .venv/bin/python web/server.py &           # 测试实例(假库+干跑+独立端口)
-MM_TEST_BASE=http://127.0.0.1:8898 .venv/bin/python web/tests/smoke_test.py
-# 39 项断言全过即通过; 全程只碰合成数据
+make smoke
+# 自动创建一次性数据根、假声纹库和独立端口；全部断言通过后自动清理
 ```
 
 ## 测试夹具
 
-`meetings/_smoke/` 是**合成测试会议**（10s 静音 wav + 虚构的 Alice/Bob 两轮对话 +
-2 页假 slides + 假 minutes.md），仅用于接口冒烟测试，不含任何真实数据。
-重建：` .venv/bin/python web/tests/make_smoke.py `（幂等，会先清空再生成）。
-声纹相关接口的回归验证需配合临时假声纹库（`MEETING_WEB_BANK` 指向临时目录），
-不要对真实 `speaker_bank/bank.json` 跑绑定类测试。
+合成夹具包含 10 秒静音、虚构 Alice/Bob 对话、2 页假 slides 和假 minutes.md。
+`web/tests/run_smoke.py` 每次在独立 `tempfile` 根目录中生成并销毁它；不得把测试服务指向真实数据根。
