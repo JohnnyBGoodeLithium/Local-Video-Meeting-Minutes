@@ -10,6 +10,7 @@ doctor:
 
 check:
 	$(PY) -c 'import ast,pathlib; files=list(pathlib.Path("bin").glob("*.py"))+list(pathlib.Path("web").glob("*.py"))+list(pathlib.Path("web/tests").glob("*.py")); [ast.parse(p.read_text(encoding="utf-8"), filename=str(p)) for p in files]; print(f"Python syntax: {len(files)} files OK")'
+	$(PY) web/tests/orgchart_extract_test.py
 	@if command -v node >/dev/null 2>&1; then node --check web/static/app.js && node --check web/static/admin.js; else echo "Node unavailable: skipped JS syntax check"; fi
 	git diff --check
 

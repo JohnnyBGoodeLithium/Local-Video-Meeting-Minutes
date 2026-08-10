@@ -10,6 +10,8 @@
 **不直接写 orgchart.json**——草稿在 /admin 页面里由人工检查后再保存。
 提取 prompt 读取自 prompts/orgchart_extract.md(其他团队复用同一份)。
 stdout 只打印元数据(页数/条数), 不打印任何人名。
+逐页原始模型输出保存在 speaker_bank/orgchart_extract_raw/<参考文件名>/，
+便于本机排错；该目录属于私有数据，不进入 Git/作业 stdout。
 
 用法: bin/orgchart_extract.py <参考文件名, 如 Notes_Organization>
 """
@@ -33,6 +35,7 @@ PROMPT = (
     "规则：\n"
     "- 上级根据连线或缩进层级判断；判断不出上级就留空（行末的 | 保留）\n"
     "- 只输出上述格式的行，不要标题、不要解释、不要 markdown\n"
+    "- 不要输出思考过程，不要输出 <think>、</think> 或分析说明\n"
     "- 看不清的名字不要猜，跳过该行\n"
     "- 没有人员的页面输出空\n"
     "- 姓名以页面上的完整写法为准，不要翻译、转拼音、缩写、补全或合并；\n"
@@ -53,18 +56,52 @@ def norm(s: str) -> str:
     return re.sub(r"\s+", " ", str(s).strip().lower())
 
 
+REASONING_TAG_RE = re.compile(r"</?(?:think|analysis)>", re.I)
+META_NAME_RE = re.compile(
+    r"(?:用户|请|需要|首先|然后|现在|格式|整理|提取|输出|每行|组织架构图|"
+    r"看不清|注意|这里只|上级关系|姓名\s*[|｜]\s*职务)", re.I)
+SENTENCE_PUNCT_RE = re.compile(r"[，。！？；：]")
+
+
+def strip_reasoning(text: str) -> str:
+    """移除模型偶尔泄漏的 thinking/analysis 块，只保留结构化答案。"""
+    matches = list(re.finditer(r"</(?:think|analysis)>", text, re.I))
+    if matches:
+        after = text[matches[-1].end():]
+        if "|" in after or "｜" in after:
+            text = after
+    text = re.sub(r"<(?:think|analysis)>.*?</(?:think|analysis)>", "", text,
+                  flags=re.I | re.S)
+    return REASONING_TAG_RE.sub("", text)
+
+
+def clean_field(value: str) -> str:
+    return REASONING_TAG_RE.sub("", str(value)).strip().strip("*` ")
+
+
+def invalid_name(name: str, title: str, leader: str) -> bool:
+    key = norm(name)
+    if not name or len(name) > 40 or key in {"姓名", "name", "人员", "person"}:
+        return True
+    if META_NAME_RE.search(name) or SENTENCE_PUNCT_RE.search(name):
+        return True
+    if norm(title) in {"职务", "职位", "title"} and norm(leader).startswith(("上级", "leader")):
+        return True
+    return False
+
+
 def parse_lines(text: str):
     """松散解析 '姓名 | 职务 | 上级' 行。返回 [(name, title, leader)]。"""
     out = []
-    for ln in text.splitlines():
+    for ln in strip_reasoning(text).splitlines():
         ln = ln.strip().strip("|").strip()
         if "|" not in ln:
             continue
-        parts = [p.strip().strip("*` ") for p in ln.split("|")]
+        parts = [clean_field(p) for p in ln.replace("｜", "|").split("|")]
         parts += [""] * (3 - len(parts))
         name, title, leader = parts[0], parts[1], parts[2]
         name = re.sub(r"^[0-9]+[.、)]\s*", "", name)     # 去列表序号
-        if not name or len(name) > 40 or name.lower() in ("姓名", "name"):
+        if invalid_name(name, title, leader):
             continue
         out.append((name, title, leader))
     return out
@@ -120,6 +157,11 @@ def main() -> int:
 
     prompt = load_prompt()
     entries = {}
+    raw_dir = BANK / "orgchart_extract_raw" / name
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    for old in raw_dir.glob("page-*.txt"):
+        old.unlink()
+    (raw_dir / "prompt.txt").write_text(prompt, encoding="utf-8")
     t0 = time.time()
     for i, png in enumerate(pages, 1):
         try:
@@ -127,6 +169,7 @@ def main() -> int:
         except Exception as e:
             print(f"[meta] 第{i}页失败: {type(e).__name__}", flush=True)
             continue
+        (raw_dir / f"page-{i:02d}.txt").write_text(raw, encoding="utf-8")
         for nm, title, leader in parse_lines(raw):
             add_entry(entries, nm, title, leader, i)
         if i % 5 == 0 or i == len(pages):
