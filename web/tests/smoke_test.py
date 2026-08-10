@@ -156,6 +156,8 @@ check("GET /api/speakers → 200",
 check("人员 API 提供首选显示名和类型化名称",
       j["persons"][0].get("display_name") == "Alice Example"
       and bool(j["persons"][0].get("names")))
+backup_bank = json.loads((FAKE_BANK / "bank.pre-v3.backup.json").read_text())
+check("声纹库 v2→v3 迁移保留一次性原始备份", backup_bank.get("schema") == 2)
 
 # 7. bind 候选路径（模糊名 → 409 + 候选，且不写库）
 s, _, j = req("POST", "/api/meetings/_smoke/bind", {"voice": "v_9002", "name": "Alicia"})

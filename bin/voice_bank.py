@@ -67,8 +67,11 @@ def load_bank(bank_dir: Path) -> dict:
     path = Path(bank_dir) / "bank.json"
     if not path.is_file():
         return {"schema": SCHEMA, "persons": [], "voices": []}
-    bank = json.loads(path.read_text(encoding="utf-8"))
+    raw_text = path.read_text(encoding="utf-8")
+    bank = json.loads(raw_text)
     schema = bank.get("schema", 1)
+    if isinstance(schema, int) and schema > SCHEMA:
+        raise ValueError(f"不支持更新的声纹库 schema: {schema}")
     if schema == 1:  # v1: voices 带 name 字段, 无 persons
         persons, voices = [], []
         for v in bank.get("voices", []):
@@ -89,6 +92,10 @@ def load_bank(bank_dir: Path) -> dict:
         changed = changed or before != json.dumps(person, ensure_ascii=False, sort_keys=True)
     bank["schema"] = SCHEMA
     if changed:
+        if schema != SCHEMA:
+            backup = Path(bank_dir) / "bank.pre-v3.backup.json"
+            if not backup.exists():
+                backup.write_text(raw_text, encoding="utf-8")
         save_bank(Path(bank_dir), bank)
     return bank
 
