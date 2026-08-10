@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>声纹库 / 架构管理</title>
+<link rel="stylesheet" href="/static/style.css?v=20260810">
+</head>
+<body class="page-admin">
+<header class="topbar">
+  <span class="brand">🛠 声纹库 / 架构管理</span>
+  <span id="admin-status" class="job-status"></span>
+  <a class="toplink" href="/">← 返回会议</a>
+</header>
+
+<main class="admin-layout">
+  <!-- 声纹库 -->
+  <section class="admin-col">
+    <h2>声纹库</h2>
+    <input id="voice-filter" type="search" placeholder="按来源会议过滤声纹…">
+    <h3>人（<span id="n-persons">0</span>）</h3>
+    <table class="tbl" id="persons-tbl">
+      <thead><tr><th>姓名</th><th>别名</th><th>声纹</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <h3>声纹（<span id="n-voices">0</span>）</h3>
+    <table class="tbl" id="voices-tbl">
+      <thead><tr><th>ID</th><th>绑定人</th><th>提示名</th><th>来源</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <!-- Org chart 树编辑 -->
+  <section class="admin-col">
+    <h2>Org Chart</h2>
+    <div class="row">
+      <button id="org-add-root" type="button">＋根节点</button>
+      <button id="org-save" type="button">保存（整体回写）</button>
+      <button id="org-reload" type="button">放弃改动重载</button>
+      <button id="org-draft" type="button" title="把 VL 从参考文件提取的草稿(orgchart_draft.json)载入编辑器">载入提取草稿</button>
+    </div>
+    <div id="org-tree" class="org-tree"></div>
+  </section>
+
+  <!-- 参考文件 -->
+  <section class="admin-col">
+    <h2>参考文件</h2>
+    <div class="row">
+      <input type="file" id="org-file-input" accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.svg" hidden>
+      <button id="org-upload-btn" type="button">上传 PDF / 图片</button>
+    </div>
+    <ul id="org-files"></ul>
+    <div id="org-file-view" class="org-file-view"></div>
+  </section>
+</main>
+
+<script src="/static/admin.js?v=20260810"></script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+# Private meeting data (never commit)
+/recordings/
+/meetings/
+
+# Voiceprints, identities, and organization data are private.
+/speaker_bank/*
+!/speaker_bank/orgchart.template.json
+
+# Local Python/runtime state
+/.venv/
+/.cache/
+__pycache__/
+*.py[cod]
+*.so
+
+# Runtime job metadata; keep only the directory placeholder.
+/web/jobs/*
+!/web/jobs/.gitkeep
+
+# Local configuration and editor noise
+.env
+.env.*
+!.env.example
+.DS_Store
+.idea/
+.vscode/
+*.log

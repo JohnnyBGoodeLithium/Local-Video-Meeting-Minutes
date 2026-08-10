@@ -1,0 +1,16 @@
+[
+  {
+    "name": "Zhang San",
+    "aliases": ["张三", "Zhang, San", "San"],
+    "title": "Senior Manager",
+    "team": "BU-X/Team-Y",
+    "note": "示例条目：name 用 org chart 正式名，aliases 放常用叫法(中英文/昵称/倒装)。复制本文件为 orgchart.json 后换成真实数据。"
+  },
+  {
+    "name": "Alex Example",
+    "aliases": ["Alex", "小艾"],
+    "title": "PM",
+    "team": "BU-X/Team-Z",
+    "note": "voice_tool bind 时按 精确→别名→包含→近似 的顺序模糊匹配这些字段。"
+  }
+]
