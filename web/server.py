@@ -64,6 +64,7 @@ import assistant_service as assistant  # noqa: E402
 import meeting_artifact as artifact  # noqa: E402
 import export_meeting as meeting_export  # noqa: E402
 import evaluation_service as evaluation  # noqa: E402
+import translation_service as translation  # noqa: E402
 
 from markdown_it import MarkdownIt  # noqa: E402
 
@@ -475,6 +476,90 @@ def put_quality_review(slug: str, claim_id: str, req: QualityReviewReq):
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     return _quality_payload(slug, mdir)
+
+
+# ---------------------------------------------------------------- 逐字稿翻译
+
+def _translation_payload(slug: str, mdir: Path, target: str) -> dict:
+    ident = _meeting_identity(slug)
+    return translation.translation_payload(
+        mdir, ident["title"], _current_evidence(mdir), target=target)
+
+
+def _run_translation(job: dict, mdir: Path, title: str, target: str) -> None:
+    """同一串行 worker 内执行本地翻译；作业日志只记录进度数字。"""
+    if job.get("cancel_requested"):
+        return
+    _set_status(job, "running", started=_now(), progress={"done": 0, "total": 0})
+
+    def cancelled() -> bool:
+        return bool(job.get("cancel_requested"))
+
+    def progress(done: int, total: int) -> None:
+        if cancelled():
+            return
+        with BANK_LOCK:
+            job["progress"] = {"done": done, "total": total}
+            job["log"] = [line for line in job.get("log", [])
+                          if not line.startswith("[meta] 翻译进度")]
+            job["log"].append(f"[meta] 翻译进度 {done}/{total}")
+            _save_job(job)
+
+    try:
+        document = translation.translate_transcript(
+            mdir, title, _current_evidence(mdir), dry_run=DRY_RUN,
+            on_progress=progress, should_cancel=cancelled, target=target)
+    except translation.TranslationCancelled:
+        if job.get("status") != "cancelled":
+            _set_status(job, "cancelled", finished=_now(), rc=None)
+        return
+    except (translation.TranslationError, assistant.AssistantError) as exc:
+        if cancelled():
+            if job.get("status") != "cancelled":
+                _set_status(job, "cancelled", finished=_now(), rc=None)
+        else:
+            job.setdefault("log", []).append(f"[error] 翻译失败 ({type(exc).__name__})")
+            _set_status(job, "failed", finished=_now(), rc=None)
+        return
+    if cancelled():
+        if job.get("status") != "cancelled":
+            _set_status(job, "cancelled", finished=_now(), rc=None)
+        return
+    _set_status(
+        job, "done", finished=_now(), rc=0,
+        result={"target_language": target, "translated": len(document.get("turns", [])),
+                "total": document.get("total", 0), "dry_run": DRY_RUN})
+
+
+@app.get("/api/meetings/{slug}/translations/transcript")
+def get_transcript_translation(
+        slug: str, target: str = Query("zh-CN", pattern="^zh-CN$")):
+    mdir = _mdir(slug)
+    return _translation_payload(slug, mdir, target)
+
+
+@app.post("/api/meetings/{slug}/translations/transcript")
+def create_transcript_translation(
+        slug: str, target: str = Query("zh-CN", pattern="^zh-CN$"), force: bool = False):
+    mdir = _mdir(slug)
+    if not (mdir / "transcript.spk.json").is_file():
+        raise HTTPException(400, "没有逐字稿，无法翻译")
+    current = _translation_payload(slug, mdir, target)
+    if current["state"] == "ready" and not force:
+        return {"id": None, "kind": "translation", "status": "done", "cached": True,
+                "meeting": slug, "target_language": target,
+                "result": {"translated": current["translated"], "total": current["total"]}}
+    existing = next((job for job in JOBS.values()
+                     if job.get("kind") == "translation" and job.get("meeting") == slug
+                     and job.get("target_language") == target
+                     and job.get("status") in {"queued", "running"}), None)
+    if existing:
+        return dict(existing)
+    job = _new_job("translation", meeting=slug, target_language=target,
+                   progress={"done": 0, "total": len(_read_json(mdir / "transcript.spk.json", []))})
+    response = dict(job)
+    EXEC.submit(_run_translation, job, mdir, _meeting_identity(slug)["title"], target)
+    return response
 
 
 @app.get("/api/meetings/{slug}/export")

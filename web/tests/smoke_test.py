@@ -101,7 +101,7 @@ cache_control = next((value for key, value in headers.items()
                       if key.lower() == "cache-control"), "")
 check("首页显式展示质量验收入口且禁止缓存旧壳",
       s == 200 and b'quality-entry-btn' in page and b'quality-tab' in page
-      and "no-store" in cache_control)
+      and b'data-transcript-mode="bilingual"' in page and "no-store" in cache_control)
 s, _, j = req("GET", "/api/meetings")
 n = len(j.get("meetings", []))
 check("GET /api/meetings → 200 且只见隔离夹具", s == 200 and n == 1, f"会议数={n}")
@@ -167,7 +167,32 @@ check("本地评测文件只存指纹/标签，不复制 claim 正文",
       evaluation_disk.get("schema") == "meeting-minutes-evaluation/v1"
       and len(events) == 2 and all("text" not in event for event in events))
 
-# 2b. MeetingPack 默认不带媒体，解压后 viewer.html 可直接 file:// 打开
+# 2b. 上下文翻译 sidecar：异步生成，不覆盖原始逐字稿
+transcript_before_translation = (SMOKE / "transcript.spk.json").read_text()
+s, _, translation_before = req(
+    "GET", "/api/meetings/_smoke/translations/transcript?target=zh-CN")
+check("逐字稿中文翻译初始为 missing", s == 200 and translation_before.get("state") == "missing")
+s, _, translation_job = req(
+    "POST", "/api/meetings/_smoke/translations/transcript?target=zh-CN")
+translation_done = poll_job(translation_job.get("id")) if translation_job.get("id") else translation_job
+s, _, translated = req(
+    "GET", "/api/meetings/_smoke/translations/transcript?target=zh-CN")
+translated_turns = translated.get("turns", [])
+check("逐字稿中文翻译后台作业完成并覆盖全部 T ID",
+      translation_done.get("status") == "done" and s == 200
+      and translated.get("state") == "ready" and len(translated_turns) == 3
+      and [item.get("id") for item in translated_turns] == ["T000001", "T000002", "T000003"])
+check("翻译识别英文/中英混合轮次且不覆盖原文",
+      translated_turns[1].get("source_language") == "en"
+      and translated_turns[2].get("source_language") == "mixed"
+      and (SMOKE / "transcript.spk.json").read_text() == transcript_before_translation)
+translation_disk = json.loads((SMOKE / "transcript.translation.zh-CN.json").read_text())
+check("翻译 sidecar 绑定逐字稿与会议语境 revision",
+      translation_disk.get("schema") == "meeting-transcript-translation/v1"
+      and translation_disk.get("source_revision")
+      and translation_disk.get("context_revision"))
+
+# 2c. MeetingPack 默认不带媒体，解压后 viewer.html 可直接 file:// 打开
 s, h, pack_bytes = req("GET", "/api/meetings/_smoke/export?media=none", raw=True)
 pack = zipfile.ZipFile(io.BytesIO(pack_bytes)) if s == 200 else None
 names = set(pack.namelist()) if pack else set()
@@ -274,6 +299,11 @@ s, _, quality_after_bind = req("GET", "/api/meetings/_smoke/quality")
 check("相关逐字稿/身份变化后旧验收自动过期",
       s == 200 and quality_after_bind.get("summary", {}).get("stale") == 2
       and quality_after_bind.get("summary", {}).get("reviewed") == 0)
+s, _, translation_after_bind = req(
+    "GET", "/api/meetings/_smoke/translations/transcript?target=zh-CN")
+check("逐字稿或身份变化后旧译文自动过期",
+      s == 200 and translation_after_bind.get("state") == "stale"
+      and not translation_after_bind.get("turns"))
 md_lines = (SMOKE / "transcript.spk.md").read_text().splitlines()
 n_md = sum(1 for l in md_lines if "Alice Example" in l)
 check("transcript.spk.md 同步改名（计数）", n_md == 2, f"md行数={n_md}")

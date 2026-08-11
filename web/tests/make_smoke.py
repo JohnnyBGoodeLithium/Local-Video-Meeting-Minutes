@@ -36,9 +36,9 @@ turns = [
     {"speaker": "Alice", "voice": "v_9001", "start": 0.5, "end": 3.0,
      "text": "大家好，我们开始评审。"},
     {"speaker": "Bob", "voice": "v_9002", "start": 3.5, "end": 6.0,
-     "text": "这是假数据，第一轮发言。"},
+     "text": "This is synthetic data for the first review."},
     {"speaker": "Alice", "voice": "v_9001", "start": 6.5, "end": 10.0,
-     "text": "假数据，第二轮发言，结束。"},
+     "text": "假数据，the second review round结束。"},
 ]
 (mdir / "transcript.spk.json").write_text(
     json.dumps(turns, ensure_ascii=False, indent=1), encoding="utf-8")

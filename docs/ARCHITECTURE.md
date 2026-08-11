@@ -22,6 +22,9 @@ flowchart LR
     API --> ASSIST[assistant_service.py]
     ASSIST --> ROUTER[本机 llama-router :11435]
     ASSIST --> DATA
+    API --> TRANS[translation_service.py]
+    TRANS --> ROUTER
+    TRANS --> DATA
     API --> EVAL[(本地 evaluations)]
     DATA --> EXPORT[MeetingPack 导出器]
     EXPORT --> VIEWER[静态 viewer.html]
@@ -66,6 +69,12 @@ flowchart LR
 ### 人工质量验收
 
 `evaluation_service.py` 将当前 evidence claim 与本机追加式验收事件合并。事件只落 claim ID、标签、备注和来源结构指纹；指纹在内存中覆盖结论及其引用的逐字稿/页面内容，但不把来源正文复制到评测文件。浏览器提交 claim 指纹作为乐观锁，服务端重新计算后才接受写入。相关来源发生变化时只让对应判断失效，验收动作不会修改 `minutes.md`。删除会议时同步删除该会议的验收文件。
+
+### 上下文感知翻译
+
+`translation_service.py` 读取原始逐字稿并生成会议目录内的 `transcript.translation.zh-CN.json`。翻译按连续十轮分批，每批附带前后两轮、已确认人员名称、当前页面和直接关联的 evidence claims；系统提示将 conclusions 定义为低信任消歧材料，禁止补入当前发言未表达的事实。中文轮次由代码直接复用，英文和中英混合轮次调用与会议助手相同的本机 LLM。
+
+sidecar 保存 T ID、源语言、译文、数字核对警告、逐字稿 revision 和会议语境 revision，不修改原始转写。翻译通过串行 Web 作业运行并逐批原子落盘；取消、失败和服务重启不会产生一份伪装成完整结果的译文。当前为整场缓存与整场语境失效，后续如引入逐字稿局部修订，再细化为按 T ID 选择性重译。
 
 ## Web 作业模型
 
