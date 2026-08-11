@@ -2,7 +2,7 @@
 
 目标：把录音笔/会议录音变成**带时间戳的逐字稿 + 结构化会议纪要**，全流程在本机完成，音频和文字不出机器。
 
-工程文档：[系统架构](docs/ARCHITECTURE.md) · [产品与交互](docs/PRODUCT_UX.md) · [开发与验证](docs/DEVELOPMENT.md) · [工程走查](docs/ENGINEERING_REVIEW.md) · [模型矩阵](docs/MODELS.md) · [结论/导出/RAG 规范](docs/EXPORT_AND_RAG.md)
+工程文档：[系统架构](docs/ARCHITECTURE.md) · [产品与交互](docs/PRODUCT_UX.md) · [UX 走查/同类参考](docs/UX_REVIEW_AND_REFERENCES.md) · [开发与验证](docs/DEVELOPMENT.md) · [工程走查](docs/ENGINEERING_REVIEW.md) · [模型矩阵](docs/MODELS.md) · [结论/导出/RAG 规范](docs/EXPORT_AND_RAG.md)
 
 ## 为什么做这个
 
