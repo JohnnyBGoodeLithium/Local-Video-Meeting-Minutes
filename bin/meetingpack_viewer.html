@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>__TITLE__ · MeetingPack</title>
+<style>
+:root{color-scheme:light;--bg:#f4f5f7;--panel:#fff;--text:#1f2329;--dim:#667085;--line:#e2e6ec;--blue:#315efb;--blue-soft:#eef2ff;--warn:#9a5b00;--warn-bg:#fff7e6;--good:#067647;--good-bg:#ecfdf3}
+*{box-sizing:border-box}html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);font:14px/1.58 system-ui,-apple-system,"Segoe UI","PingFang SC",sans-serif}button,input{font:inherit}
+.top{height:62px;padding:0 20px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--line);background:#fff;position:sticky;top:0;z-index:20}.top b{font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.meta{color:var(--dim);white-space:nowrap}.badge{margin-left:auto;padding:3px 9px;border-radius:12px;font-size:12px}.badge.ready{color:var(--good);background:var(--good-bg)}.badge.partial{color:var(--warn);background:var(--warn-bg)}
+.app{display:grid;grid-template-columns:370px minmax(520px,900px) 330px;justify-content:center;min-height:calc(100vh - 62px)}aside,.main{min-width:0;background:#fff}.left{position:sticky;top:62px;height:calc(100vh - 62px);display:flex;flex-direction:column;border-right:1px solid var(--line);background:#fafbfc}.main{padding:0 38px 80px}.right{position:sticky;top:62px;height:calc(100vh - 62px);overflow:auto;padding:18px;border-left:1px solid var(--line);background:#fafbfc}
+.player{padding:15px;border-bottom:1px solid var(--line);background:#fff}.player audio,.player video{width:100%;max-height:220px;display:block}.no-media{padding:12px;border:1px dashed var(--line);border-radius:8px;color:var(--dim);background:#fafafa}.timeline{display:grid;grid-template-columns:42px 1fr 42px;align-items:center;gap:8px;margin-top:9px;color:var(--dim);font-size:12px}.timeline input{width:100%;accent-color:var(--blue)}.media-error{margin-top:7px;color:#b42318;font-size:12px}
+.searchbox{padding:12px 14px 8px}.searchbox input{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:#fff}.search-results{max-height:220px;overflow:auto;padding:0 8px}.result{display:block;width:100%;padding:7px 8px;border:0;border-radius:7px;text-align:left;background:transparent;color:var(--text);cursor:pointer}.result:hover{background:var(--blue-soft)}.result small{display:block;color:var(--dim)}
+.pane-title{display:flex;align-items:center;justify-content:space-between;padding:8px 15px;color:var(--dim);font-size:12px;font-weight:700;letter-spacing:.04em}.transcript{overflow:auto;padding:0 8px 40px;scroll-behavior:smooth}.turn{padding:9px 9px 10px;border-radius:8px;border:1px solid transparent}.turn:hover{background:#fff;border-color:var(--line)}.turn.active{background:var(--blue-soft);border-color:#c7d2fe}.turn-head{display:flex;gap:7px;align-items:center;margin-bottom:3px}.turn-head b{font-size:12px}.time{border:0;background:transparent;color:var(--blue);padding:0;cursor:pointer;font-variant-numeric:tabular-nums}.turn p{margin:0;color:#344054}
+.viewbar{position:sticky;top:62px;z-index:10;margin:0 -38px;padding:14px 38px 11px;border-bottom:1px solid var(--line);background:#fffc}.viewtabs{display:flex;gap:6px;flex-wrap:wrap}.viewtabs button{border:1px solid var(--line);border-radius:16px;padding:5px 10px;background:#fff;color:#475467;cursor:pointer}.viewtabs button.active{color:#fff;border-color:var(--blue);background:var(--blue)}.view-desc{margin-top:6px;color:var(--dim);font-size:12px}
+.warning{margin:20px 0 0;padding:11px 13px;border:1px solid #fedf89;border-radius:9px;background:var(--warn-bg);color:#854a0e}.content{padding-top:8px}.content h1{font-size:25px}.content h2{margin-top:32px;padding-bottom:7px;border-bottom:1px solid var(--line)}.content h3{margin-top:25px}.content img{max-width:100%;border:1px solid var(--line);border-radius:8px}.content table{border-collapse:collapse;max-width:100%}.content th,.content td{border:1px solid var(--line);padding:6px 9px}.content a[href^="#mm-"]{font-size:11px;color:var(--dim);text-decoration:none;border:1px solid var(--line);border-radius:10px;padding:1px 6px;white-space:nowrap}.content a[href^="#mm-"]:hover{color:var(--blue);border-color:var(--blue)}
+.group{margin-top:27px}.group h2{display:flex;align-items:center;gap:8px;margin:0 0 10px;border:0;font-size:17px}.count{font-size:11px;color:var(--dim);font-weight:400}.claim-card{display:block;width:100%;margin:8px 0;padding:12px 13px;border:1px solid var(--line);border-radius:10px;background:#fff;text-align:left;color:var(--text);cursor:pointer}.claim-card:hover{border-color:#a5b4fc;box-shadow:0 2px 8px #1018280b}.claim-card p{margin:6px 0 0}.claim-meta,.tags{display:flex;gap:6px;flex-wrap:wrap;align-items:center;color:var(--dim);font-size:11px}.tag{padding:1px 6px;border:1px solid var(--line);border-radius:10px;background:#fafafa}.empty{color:var(--dim)}
+.graph{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin-top:20px;align-items:start}.topic{padding:13px;border:1px solid var(--line);border-radius:11px;background:#fafbfc}.topic h3{margin:0 0 9px;font-size:14px}.node{display:block;width:100%;margin:7px 0;padding:9px;border:1px solid var(--line);border-radius:8px;background:#fff;text-align:left;cursor:pointer}.node:hover{border-color:var(--blue)}
+.right-title{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}.right-title b{font-size:14px}.source{margin:10px 0;padding:10px;border:1px solid var(--line);border-radius:8px;background:#fff}.source-head{display:flex;justify-content:space-between;gap:8px;color:var(--dim);font-size:12px}.source img{max-width:100%;margin-top:8px;border-radius:6px}.evidence-claim{padding:11px;border-radius:9px;background:var(--blue-soft)}.evidence-claim p{margin:5px 0 0}.mobile-close{display:none}.toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);padding:8px 12px;border-radius:8px;background:#101828;color:#fff;z-index:40;box-shadow:0 5px 20px #0003}
+@media(max-width:1180px){.app{grid-template-columns:340px minmax(0,1fr)}.right{position:fixed;right:0;top:62px;width:min(360px,94vw);z-index:30;box-shadow:-8px 0 24px #0002;transform:translateX(105%);transition:.18s}.right.open{transform:none}.mobile-close{display:block;border:0;background:transparent;color:var(--blue);cursor:pointer}}
+@media(max-width:760px){.top .meta{display:none}.app{display:block}.left{position:relative;top:0;height:52vh;border-bottom:1px solid var(--line)}.main{padding:0 18px 60px}.viewbar{top:62px;margin:0 -18px;padding:11px 18px}.right{top:62px}.player video{max-height:150px}}
+</style>
+</head>
+<body>
+<header class="top"><b id="title"></b><span class="meta" id="meta"></span><span class="badge" id="integrity"></span></header>
+<div class="app">
+  <aside class="left">
+    <section class="player" id="player"></section>
+    <div class="searchbox"><input id="search" type="search" placeholder="搜索结论、逐字稿、页面…"></div>
+    <div class="search-results" id="search-results"></div>
+    <div class="pane-title"><span>完整逐字稿</span><span id="turn-count"></span></div>
+    <div class="transcript" id="transcript"></div>
+  </aside>
+  <main class="main">
+    <div class="viewbar"><div class="viewtabs" id="viewtabs"></div><div class="view-desc" id="view-desc"></div></div>
+    <div id="warning"></div><article class="content" id="content"></article>
+  </main>
+  <aside class="right" id="evidence-panel">
+    <div class="right-title"><b>原始依据</b><button class="mobile-close" id="close-evidence">关闭</button></div>
+    <div id="evidence"><p class="empty">点击纪要结论、知识图节点或逐字稿，查看关联依据。</p></div>
+  </aside>
+</div>
+<div class="toast" id="toast" hidden></div>
+<script id="meeting-data" type="application/json">__DATA__</script>
+<script>
+const data=JSON.parse(document.getElementById('meeting-data').textContent),ev=data.evidence,viewData=data.views;
+const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)],esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt=n=>{n=Math.max(0,Math.floor(Number(n)||0));const h=Math.floor(n/3600),m=Math.floor(n%3600/60),s=n%60;return(h?`${h}:`:'')+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0')};
+const turns=ev.sources.transcript||[],pages=ev.sources.pages||[],claims=ev.claims||[],turnMap=new Map(turns.map(x=>[x.id,x])),pageMap=new Map(pages.map(x=>[x.id,x])),claimMap=new Map(claims.map(x=>[x.id,x]));
+const statusName={confirmed:'已确认',working_alignment:'方向共识',proposal:'提议',open:'未决',informational:'背景'};
+let currentMode='exec_quick',activeTurn=-1,mediaEl=null;
+function toast(message){const el=$('#toast');el.textContent=message;el.hidden=false;clearTimeout(toast.timer);toast.timer=setTimeout(()=>el.hidden=true,2200)}
+$('#title').textContent=data.title;$('#meta').textContent=[data.date,data.duration?fmt(data.duration):'',turns.length+' 段逐字稿',data.media_path?'含媒体':'未含媒体'].filter(Boolean).join(' · ');
+const integrity=viewData.integrity||{state:'partial',warnings:['未提供证据完整性信息。']};$('#integrity').textContent=integrity.state==='ready'?`证据完整 · ${integrity.claims}条`:`证据待完善 · ${integrity.claims||0}条`;$('#integrity').className='badge '+integrity.state;
+if(integrity.warnings?.length)$('#warning').innerHTML=integrity.warnings.map(x=>`<div class="warning">${esc(x)}</div>`).join('');
+
+function renderPlayer(){const box=$('#player');if(!data.media_path){box.innerHTML='<div class="no-media"><b>本包未包含音视频</b><br>逐字稿时间仍可用于回到原系统定位。</div>';return}const tag=data.media_kind==='video'?'video':'audio';box.innerHTML=`<${tag} id="media" controls preload="metadata" src="${esc(data.media_path)}"></${tag}><div class="timeline"><span id="now">00:00</span><input id="scrub" type="range" min="0" max="${Number(data.duration)||0}" step="0.1" value="0"><span>${fmt(data.duration)}</span></div><div class="media-error" id="media-error"></div>`;mediaEl=$('#media');mediaEl.addEventListener('timeupdate',()=>{const t=mediaEl.currentTime||0;$('#now').textContent=fmt(t);$('#scrub').value=t;activateTurn(t)});mediaEl.addEventListener('loadedmetadata',()=>{$('#scrub').max=mediaEl.duration||data.duration||0});mediaEl.addEventListener('error',()=>{$('#media-error').textContent='媒体无法读取。请确认已经解压整个 MeetingPack，而不是直接从压缩软件预览 viewer.html。'});$('#scrub').oninput=e=>seek(Number(e.target.value),false);$('#scrub').onchange=e=>seek(Number(e.target.value),true)}
+function seek(t,play=true){if(!mediaEl){toast('这个离线包没有包含媒体文件');return}const go=()=>{try{mediaEl.currentTime=Math.max(0,Number(t)||0);if(play)mediaEl.play().catch(()=>{})}catch(_){toast('媒体尚未准备好，请稍后重试')}};if(mediaEl.readyState===0)mediaEl.addEventListener('loadedmetadata',go,{once:true});else go()}
+
+function renderTranscript(){const box=$('#transcript');$('#turn-count').textContent=turns.length+' 段';box.innerHTML=turns.map((t,i)=>`<section class="turn" id="turn-${i}" data-index="${i}"><div class="turn-head"><button class="time" data-time="${Number(t.start)||0}">${fmt(t.start)}</button><b>${esc(t.speaker)}</b></div><p>${esc(t.text)}</p></section>`).join('');$$('.turn .time').forEach(b=>b.onclick=e=>{e.stopPropagation();seek(Number(b.dataset.time))});$$('.turn').forEach(el=>el.onclick=()=>showTurn(turns[Number(el.dataset.index)]))}
+function activateTurn(time){let index=-1;for(let i=0;i<turns.length;i++){if(Number(turns[i].start)<=time)index=i;else break}if(index===activeTurn)return;$(`#turn-${activeTurn}`)?.classList.remove('active');activeTurn=index;const el=$(`#turn-${index}`);el?.classList.add('active');if(el&&document.activeElement?.tagName!=='INPUT')el.scrollIntoView({block:'nearest'})}
+
+function claimCard(id,cls='claim-card'){const c=claimMap.get(id);if(!c)return'';return`<button class="${cls}" data-claim="${esc(id)}"><div class="claim-meta"><span class="tag">${esc(statusName[c.status]||c.status)}</span><span>${esc(c.section||'')}</span>${c.start!=null?`<span>${fmt(c.start)}</span>`:''}</div><p>${esc(c.text)}</p></button>`}
+function wireClaims(){$$('[data-claim]').forEach(el=>el.onclick=()=>showClaim(el.dataset.claim))}
+function renderView(id){currentMode=id;$$('#viewtabs button').forEach(b=>b.classList.toggle('active',b.dataset.mode===id));const view=viewData.views.find(x=>x.id===id);if(!view)return;$('#view-desc').textContent=view.description||'';if(!claims.length){$('#content').innerHTML='<h1>'+esc(view.title)+'</h1><p class="empty">旧纪要没有结论级证据结构。本视图不会从无证据文本中重新猜测决定；请使用“完整纪要”和左侧逐字稿阅读，或在主应用重新生成纪要后再导出。</p>';return}$('#content').innerHTML=`<h1>${esc(view.title)}</h1>`+view.groups.map(g=>`<section class="group"><h2>${esc(g.title)} <span class="count">${g.claim_ids.length}</span></h2>${g.claim_ids.length?g.claim_ids.map(id=>claimCard(id)).join(''):`<p class="empty">${esc(g.empty)}</p>`}</section>`).join('');wireClaims()}
+function renderMinutes(){currentMode='minutes';$$('#viewtabs button').forEach(b=>b.classList.toggle('active',b.dataset.mode==='minutes'));$('#view-desc').textContent='原始可读纪要；“依据”链接来自导出时冻结的 canonical evidence。';$('#content').innerHTML=data.minutes_html;$$('#content a[href^="#mm-"]').forEach(a=>a.onclick=e=>{e.preventDefault();showClaim(a.getAttribute('href').slice(4))})}
+function renderGraph(){currentMode='graph';$$('#viewtabs button').forEach(b=>b.classList.toggle('active',b.dataset.mode==='graph'));$('#view-desc').textContent=viewData.graph.description||'';const topics=viewData.graph.topics||[];$('#content').innerHTML=`<h1>${esc(viewData.graph.title)}</h1>`+(topics.length?`<div class="graph">${topics.map(t=>`<section class="topic"><h3>${esc(t.title)}</h3>${t.claim_ids.map(id=>claimCard(id,'node')).join('')}</section>`).join('')}</div>`:'<p class="empty">没有可构建知识图的结论级数据。</p>');wireClaims()}
+function setupTabs(){const tabs=[...viewData.views.map(v=>({id:v.id,title:v.title})),{id:'graph',title:'会议理解图'},{id:'minutes',title:'完整纪要'}];$('#viewtabs').innerHTML=tabs.map(t=>`<button data-mode="${t.id}">${esc(t.title)}</button>`).join('');$$('#viewtabs button').forEach(b=>b.onclick=()=>b.dataset.mode==='graph'?renderGraph():b.dataset.mode==='minutes'?renderMinutes():renderView(b.dataset.mode))}
+
+function openEvidence(html){$('#evidence').innerHTML=html;$('#evidence-panel').classList.add('open');$$('#evidence .time').forEach(b=>b.onclick=()=>seek(Number(b.dataset.time)))}
+function turnSource(t){return`<div class="source"><div class="source-head"><b>${esc(t.id)} · ${esc(t.speaker)}</b><button class="time" data-time="${Number(t.start)||0}">${fmt(t.start)}</button></div><div>${esc(t.text)}</div></div>`}
+function pageSource(p){return`<div class="source"><div class="source-head"><b>${esc(p.id)} · 第${p.number}页</b><button class="time" data-time="${Number(p.first)||0}">${fmt(p.first)}</button></div>${p.image?`<img src="${esc(p.image)}">`:''}<div>${esc(p.visual_description||'没有页面文字说明')}</div></div>`}
+function showClaim(id){const c=claimMap.get(id);if(!c)return;let html=`<div class="evidence-claim"><div class="tags"><span class="tag">${esc(statusName[c.status]||c.status)}</span><span class="tag">${esc(c.kind)}</span><span class="tag">置信度 ${esc(c.confidence)}</span></div><p>${esc(c.text)}</p></div>`;for(const tid of c.turn_ids||[]){const t=turnMap.get(tid);if(t)html+=turnSource(t)}for(const pid of c.page_ids||[]){const p=pageMap.get(pid);if(p)html+=pageSource(p)}if(!(c.turn_ids||[]).length&&!(c.page_ids||[]).length)html+='<p class="empty">这条内容没有关联原始依据。</p>';openEvidence(html)}
+function showTurn(t){if(!t)return;const page=t.page_id&&pageMap.get(t.page_id);openEvidence(turnSource(t)+(page?pageSource(page):''));$(`#turn-${t.index}`)?.scrollIntoView({block:'center'})}
+function showPage(p){if(p)openEvidence(pageSource(p))}
+$('#close-evidence').onclick=()=>$('#evidence-panel').classList.remove('open');
+
+const searchRecords=[...claims.map(x=>({type:'结论',id:x.id,text:x.text,sub:x.section})),...turns.map(x=>({type:'逐字稿',id:x.id,text:x.text,sub:`${fmt(x.start)} · ${x.speaker}`})),...pages.filter(x=>x.visual_description).map(x=>({type:'页面',id:x.id,text:x.visual_description,sub:`第${x.number}页`}))];
+$('#search').oninput=e=>{const q=e.target.value.trim().toLowerCase(),box=$('#search-results');if(!q){box.innerHTML='';return}const hit=searchRecords.filter(x=>(x.text+' '+x.sub).toLowerCase().includes(q)).slice(0,30);box.innerHTML=hit.map(x=>`<button class="result" data-id="${esc(x.id)}"><b>${esc(x.type)}</b> ${esc(x.text.slice(0,90))}<small>${esc(x.sub)}</small></button>`).join('')||'<p class="empty">没有匹配结果</p>';$$('.result').forEach(el=>el.onclick=()=>{const id=el.dataset.id;if(id.startsWith('C'))showClaim(id);else if(id.startsWith('T')){const t=turnMap.get(id);showTurn(t);$(`#turn-${t.index}`)?.scrollIntoView({block:'center'})}else showPage(pageMap.get(id))})};
+
+renderPlayer();renderTranscript();setupTabs();renderView(currentMode);
+</script>
+</body>
+</html>

@@ -98,7 +98,8 @@ def health():
         "python_ready": PY.is_file(),
         "active_jobs": active,
         "assistant": {"model": assistant.LLM_MODEL, "local_only": not assistant.ALLOW_REMOTE,
-                      "rag": assistant.rag_service.RAG_VERSION},
+                      "rag": assistant.rag_service.RAG_VERSION,
+                      "retrieval_models": assistant.rag_service.retrieval_models.status()},
     }
 
 def _now() -> float:

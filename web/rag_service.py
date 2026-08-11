@@ -14,6 +14,8 @@ import re
 from collections import Counter
 from pathlib import Path
 
+import retrieval_models
+
 
 RAG_VERSION = "meeting-rag/evidence-hybrid-v1"
 MAX_RESULTS = 18
@@ -68,15 +70,18 @@ def _minutes_sections(minutes: str) -> list[dict]:
                 break
         text = _clean_markdown(minutes[heading.end():end])
         if text:
-            records.append({
-                "source_id": f"S{len(records) + 1:04d}",
-                "type": "minutes_section",
-                "text": text,
-                "section": heading.group(2).strip(),
-                "level": level,
-                "evidence_ids": [],
-                "turn_indexes": [],
-            })
+            chunks = [text[start:start + 1400] for start in range(0, len(text), 1240)]
+            section_number = pos + 1
+            for chunk_number, chunk in enumerate(chunks, 1):
+                records.append({
+                    "source_id": f"S{section_number:04d}-{chunk_number:02d}",
+                    "type": "minutes_section",
+                    "text": chunk,
+                    "section": heading.group(2).strip(),
+                    "level": level,
+                    "evidence_ids": [],
+                    "turn_indexes": [],
+                })
     return records
 
 
@@ -229,6 +234,33 @@ def _rank(records: list[dict], query: str) -> list[dict]:
     return sorted(ranked, key=lambda item: item["_score"], reverse=True)
 
 
+def _hybrid_candidates(mdir: Path, records: list[dict], query: str) -> tuple[list[dict], str]:
+    lexical = _rank(records, query)
+    dense = retrieval_models.dense_rank(mdir, records, query)
+    if not dense:
+        return lexical, "lexical"
+    by_key = {f"{record['type']}:{record['source_id']}": record for record in records}
+    fused: dict[str, float] = {}
+    channels: dict[str, list[str]] = {}
+    channel_scores: dict[str, dict[str, float]] = {}
+    for channel, ranked, weight in (("lexical", lexical[:80], 1.0), ("dense", dense[:80], 1.0)):
+        for rank, record in enumerate(ranked, 1):
+            key = f"{record['type']}:{record['source_id']}"
+            fused[key] = fused.get(key, 0.0) + weight / (60 + rank)
+            channels.setdefault(key, []).append(channel)
+            channel_scores.setdefault(key, {})[channel] = float(
+                record.get("_score" if channel == "lexical" else "_dense_score", 0))
+    candidates = []
+    for key, score in sorted(fused.items(), key=lambda item: item[1], reverse=True)[:36]:
+        candidates.append({**by_key[key], "_fusion_score": score,
+                           "_lexical_score": channel_scores.get(key, {}).get("lexical"),
+                           "_dense_score": channel_scores.get(key, {}).get("dense"),
+                           "_channels": channels.get(key, [])})
+    reranked = retrieval_models.rerank(query, candidates, limit=28)
+    mode = "hybrid_reranked" if any("_rerank_score" in row for row in reranked) else "hybrid"
+    return reranked, mode
+
+
 def retrieve(mdir: Path, query: str, explicit_turn_indexes: list[int] | None = None,
              limit: int = MAX_RESULTS) -> dict:
     records, meta = meeting_records(mdir)
@@ -265,7 +297,8 @@ def retrieve(mdir: Path, query: str, explicit_turn_indexes: list[int] | None = N
 
     caps = {"claim": 5, "transcript": 10, "slide": 4, "minutes_section": 3}
     counts = Counter(record["type"] for record in chosen)
-    for record in _rank(records, query):
+    ranked, retrieval_mode = _hybrid_candidates(Path(mdir), records, query)
+    for record in ranked:
         if len(chosen) >= max(1, min(limit, MAX_RESULTS)):
             break
         if counts[record["type"]] >= caps.get(record["type"], 3):
@@ -319,6 +352,13 @@ def retrieve(mdir: Path, query: str, explicit_turn_indexes: list[int] | None = N
             "id": citation_id,
             "label": names.get(record["type"], "资料"),
             "excerpt": str(record["text"])[:360],
+            "retrieval": {
+                "channels": record.get("_channels", ["lexical"]),
+                "lexical_score": record.get("_lexical_score", record.get("_score")),
+                "dense_score": record.get("_dense_score"),
+                "fusion_score": record.get("_fusion_score"),
+                "rerank_score": record.get("_rerank_score"),
+            },
         })
         sources.append(source)
         detail = []
@@ -334,5 +374,6 @@ def retrieve(mdir: Path, query: str, explicit_turn_indexes: list[int] | None = N
             detail.append(str(record["status"]))
         blocks.append(f"【{citation_id}｜{names.get(record['type'], '资料')}"
                       f"{'｜' + '｜'.join(detail) if detail else ''}】\n{record['text']}")
-    return {**meta, "records": len(records), "sources": sources,
+    return {**meta, "retrieval_mode": retrieval_mode,
+            "models": retrieval_models.status(), "records": len(records), "sources": sources,
             "context": "\n\n".join(blocks)}

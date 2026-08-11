@@ -1,6 +1,6 @@
 PY := .venv/bin/python
 
-.PHONY: run doctor check smoke assistant-live
+.PHONY: run doctor check smoke assistant-live retrieval-live rag-index
 
 run:
 	$(PY) web/server.py
@@ -22,3 +22,9 @@ smoke:
 
 assistant-live:
 	$(PY) web/tests/live_assistant_test.py
+
+retrieval-live:
+	$(PY) web/tests/live_retrieval_test.py
+
+rag-index:
+	$(PY) bin/build_rag_indexes.py

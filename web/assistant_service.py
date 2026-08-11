@@ -216,7 +216,8 @@ def answer_question(meeting_path: Path, message: str, turn_indexes: list[int],
     return {"answer": answer, "sources": sources,
             "transcript_revision": current_revision, "model": LLM_MODEL,
             "retrieval": {key: retrieval[key] for key in
-                          ("version", "evidence_state", "claim_count", "records")}}
+                          ("version", "evidence_state", "claim_count", "records",
+                           "retrieval_mode", "models")}}
 
 
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.M)

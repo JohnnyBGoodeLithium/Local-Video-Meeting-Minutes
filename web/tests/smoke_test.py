@@ -6,6 +6,7 @@
 import io
 import json
 import os
+import re
 import time
 import urllib.request
 import urllib.error
@@ -96,7 +97,8 @@ s, _, health = req("GET", "/api/health")
 check("GET /api/health → 200 + dry-run + local assistant",
       s == 200 and health.get("ok") is True and health.get("dry_run") is True
       and health.get("assistant", {}).get("local_only") is True
-      and health.get("assistant", {}).get("rag") == "meeting-rag/evidence-hybrid-v1")
+      and health.get("assistant", {}).get("rag") == "meeting-rag/evidence-hybrid-v1"
+      and health.get("assistant", {}).get("retrieval_models", {}).get("mode") == "lexical")
 s, headers, page = req("GET", "/", raw=True)
 cache_control = next((value for key, value in headers.items()
                       if key.lower() == "cache-control"), "")
@@ -195,11 +197,13 @@ check("翻译 sidecar 绑定逐字稿与会议语境 revision",
       and translation_disk.get("context_revision"))
 
 # 2c. MeetingPack 默认不带媒体，解压后 viewer.html 可直接 file:// 打开
+evidence_before_export = (SMOKE / "minutes.evidence.json").read_bytes()
 s, h, pack_bytes = req("GET", "/api/meetings/_smoke/export?media=none", raw=True)
 pack = zipfile.ZipFile(io.BytesIO(pack_bytes)) if s == 200 else None
 names = set(pack.namelist()) if pack else set()
-required = {"viewer.html", "minutes.md", "evidence.json", "rag/records.jsonl",
-            "manifest.json", "README.txt", "slides/page1.png", "slides/page2.png"}
+required = {"viewer.html", "minutes.md", "transcript.json", "transcript.md", "views.json",
+            "evidence.json", "rag/records.jsonl", "manifest.json", "README.txt",
+            "slides/page1.png", "slides/page2.png"}
 check("导出 MeetingPack → 标准文件齐全且默认无音视频",
       s == 200 and required <= names and not any(n.startswith("media/") for n in names))
 if pack:
@@ -209,14 +213,31 @@ if pack:
     rag = [json.loads(line) for line in pack.read("rag/records.jsonl").decode("utf-8").splitlines()]
 else:
     manifest, evidence, viewer, rag = {}, {}, "", []
-check("MeetingPack manifest/evidence/RAG 共享稳定 linkage",
-      manifest.get("schema") == "meetingpack/v1"
+check("MeetingPack v2 manifest/evidence/RAG/视图共享稳定 linkage",
+      manifest.get("schema") == "meetingpack/v2"
       and evidence.get("schema") == "meeting-minutes-evidence/v1"
       and evidence.get("claims", [{}])[0].get("turn_ids") == ["T000001", "T000002"]
-      and any(r.get("record_type") == "claim" and r.get("evidence_ids") for r in rag))
-check("viewer 为无外链、自包含数据的静态页面",
+      and any(r.get("record_type") == "claim" and r.get("evidence_ids") for r in rag)
+      and manifest.get("evidence", {}).get("state") == "ready")
+check("viewer 为无外链、自包含且可浏览逐字稿/媒体/图谱的静态页面",
       'id="meeting-data"' in viewer and "fetch(" not in viewer
-      and "http://" not in viewer and "https://" not in viewer)
+      and "http://" not in viewer and "https://" not in viewer
+      and 'id="transcript"' in viewer and 'id="scrub"' in viewer and "会议理解图" in viewer)
+check("导出是只读操作，不重写会议 canonical evidence",
+      (SMOKE / "minutes.evidence.json").read_bytes() == evidence_before_export)
+minutes_before_legacy_export = (SMOKE / "minutes.md").read_text()
+(SMOKE / "minutes.md").write_text(
+    re.sub(r"<!--\s*mm:evidence\s+.*?-->", "", minutes_before_legacy_export))
+try:
+    sl, _, legacy_pack_bytes = req("GET", "/api/meetings/_smoke/export?media=none", raw=True)
+    legacy_pack = zipfile.ZipFile(io.BytesIO(legacy_pack_bytes)) if sl == 200 else None
+    legacy_manifest = json.loads(legacy_pack.read("manifest.json")) if legacy_pack else {}
+    check("旧纪要无 marker → 仍打包完整逐字稿但显式标记 partial",
+          sl == 200 and legacy_manifest.get("evidence", {}).get("state") == "partial"
+          and legacy_manifest.get("counts", {}).get("turns") == 3
+          and {"transcript.json", "transcript.md"} <= set(legacy_pack.namelist()))
+finally:
+    (SMOKE / "minutes.md").write_text(minutes_before_legacy_export)
 s, _, audio_pack_bytes = req("GET", "/api/meetings/_smoke/export?media=audio", raw=True)
 audio_names = set(zipfile.ZipFile(io.BytesIO(audio_pack_bytes)).namelist()) if s == 200 else set()
 check("MeetingPack 可选包含音频", s == 200 and "media/audio.wav" in audio_names)
@@ -446,6 +467,7 @@ retrieved_types = {source.get("type") for source in retrieved.get("sources", [])
 check("meeting RAG → 统一召回结论/逐字稿/页面并返回可跳转来源",
       rs == 200 and retrieved.get("version") == "meeting-rag/evidence-hybrid-v1"
       and retrieved.get("evidence_state") == "ready"
+      and retrieved.get("retrieval_mode") == "lexical"
       and {"claim", "transcript", "slide"} <= retrieved_types
       and any(source.get("turn_indexes") for source in retrieved.get("sources", [])))
 chat_body = {

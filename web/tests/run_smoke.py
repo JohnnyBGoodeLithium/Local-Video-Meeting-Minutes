@@ -65,6 +65,7 @@ def main() -> int:
             "MEETING_WEB_PORT": str(port),
             "MEETING_WEB_DRYRUN": "1",
             "MEETING_WEB_DRYRUN_DELAY": "0.15",
+            "MEETING_RAG_MODE": "lexical",
             "PYTHONUNBUFFERED": "1",
         }
         subprocess.run([str(PY), str(PROJECT / "web/tests/make_fake_bank.py")],

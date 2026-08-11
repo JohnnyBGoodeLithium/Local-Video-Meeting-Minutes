@@ -25,10 +25,12 @@ from meeting_artifact import (
     markdown_with_evidence_links,
     rag_records,
 )
+from meeting_views import build_views
 
 
-PACK_SCHEMA = "meetingpack/v1"
+PACK_SCHEMA = "meetingpack/v2"
 MD = MarkdownIt("default", {"html": False, "linkify": True})
+VIEWER_TEMPLATE_PATH = Path(__file__).with_name("meetingpack_viewer.html")
 
 
 def _read_json(path: Path, default):
@@ -93,11 +95,14 @@ def _readme(media_mode: str) -> str:
 1. 解压整个 zip；不要只从压缩软件预览单个文件。
 2. 双击 viewer.html。它不需要安装服务，也不会调用 LLM 或联网。
 3. 纪要中的“依据”可打开对应逐字稿与页面证据。
+4. 左侧始终提供完整逐字稿；含媒体的包可点击任意时间码跳转播放。
 
 内容
 - viewer.html：开箱即用的静态查看器（数据已内嵌，file:// 可用）
 - minutes.md：适合继续编辑的可读纪要，含不可见的 mm:evidence 标记
+- transcript.json / transcript.md：完整逐字稿与可读时间码版本
 - evidence.json：结论、逐字稿、页面和人员身份的规范化关联
+- views.json：管理层/执行层、快速/精细视图与会议理解图
 - rag/records.jsonl：可直接送入后续向量/全文索引的记录
 - slides/：纪要与页面证据使用的页面图
 - manifest.json：格式版本、内容清单、哈希和媒体策略
@@ -154,7 +159,7 @@ $('#search').oninput=e=>{let q=e.target.value.trim().toLowerCase(),box=$('#resul
 </script></body></html>'''
 
 
-def _viewer_html(title: str, date: str, minutes_html: str, evidence: dict,
+def _viewer_html(title: str, date: str, minutes_html: str, evidence: dict, views: dict,
                  media_path: str | None, media_kind: str | None) -> bytes:
     duration = max((float(t.get("end", 0)) for t in evidence["sources"]["transcript"]), default=0)
     payload = {
@@ -163,12 +168,27 @@ def _viewer_html(title: str, date: str, minutes_html: str, evidence: dict,
         "duration": duration,
         "minutes_html": minutes_html,
         "evidence": evidence,
+        "views": views,
         "media_path": media_path,
         "media_kind": media_kind,
     }
-    page = _VIEWER_TEMPLATE.replace("__TITLE__", html.escape(title)).replace(
+    page = VIEWER_TEMPLATE_PATH.read_text(encoding="utf-8").replace(
+        "__TITLE__", html.escape(title)).replace(
         "__DATA__", _safe_json_script(payload))
     return page.encode("utf-8")
+
+
+def _transcript_markdown(turns: list[dict]) -> str:
+    def stamp(value: float) -> str:
+        seconds = max(0, int(value or 0))
+        if seconds >= 3600:
+            return f"{seconds // 3600:02d}:{seconds % 3600 // 60:02d}:{seconds % 60:02d}"
+        return f"{seconds // 60:02d}:{seconds % 60:02d}"
+    lines = ["# 完整逐字稿", ""]
+    for turn in turns:
+        lines.extend([f"[{stamp(float(turn.get('start', 0)))}] **{turn.get('speaker', '未知')}**: "
+                      f"{turn.get('text', '')}", ""])
+    return "\n".join(lines).rstrip() + "\n"
 
 
 def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
@@ -190,8 +210,8 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
     evidence = build_evidence_document(mdir, minutes, turns, pages, descs, profiles,
                                        generation={"export_rebuilt": True})
     evidence_bytes = json.dumps(evidence, ensure_ascii=False, indent=2).encode("utf-8")
-    # 会议目录保留同一份 canonical sidecar，Web 与导出/RAG 不各自猜关联。
-    (mdir / "minutes.evidence.json").write_bytes(evidence_bytes)
+    views = build_views(evidence)
+    views_bytes = json.dumps(views, ensure_ascii=False, indent=2).encode("utf-8")
 
     inferred_title, inferred_date = _identity(mdir.name)
     title, date = title or inferred_title, inferred_date if date is None else date
@@ -218,9 +238,13 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
             raise ValueError("会议没有可用的源视频；可改用 --media audio 或 none")
 
     small_files = {
-        "viewer.html": _viewer_html(title, date, minutes_html, evidence, media_arc, media_kind),
+        "viewer.html": _viewer_html(title, date, minutes_html, evidence, views,
+                                    media_arc, media_kind),
         "minutes.md": minutes.encode("utf-8"),
+        "transcript.json": json.dumps(turns, ensure_ascii=False, indent=2).encode("utf-8"),
+        "transcript.md": _transcript_markdown(turns).encode("utf-8"),
         "evidence.json": evidence_bytes,
+        "views.json": views_bytes,
         "rag/records.jsonl": rag_bytes,
         "README.txt": _readme(media_mode).encode("utf-8"),
     }
@@ -249,6 +273,7 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
         "date": date,
         "source_slug": mdir.name,
         "media": {"mode": media_mode, "included": bool(media_file), "path": media_arc},
+        "evidence": views["integrity"],
         "counts": {"turns": len(turns), "pages": len(pages), "claims": len(evidence["claims"]),
                    "rag_records": len(records)},
         "files": sorted(manifest_files, key=lambda x: x["path"]),

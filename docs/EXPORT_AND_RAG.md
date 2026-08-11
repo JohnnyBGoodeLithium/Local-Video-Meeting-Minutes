@@ -116,17 +116,20 @@ Web 和查看器把它显示成很轻的“依据”链接；原始 Markdown 仍
 
 Web 只在 sidecar 的逐字稿和纪要 revision 与当前文件一致时展示“依据”，避免编辑后误指向旧内容。说话人绑定、首选显示名变更、纪要应用或撤销后，由确定性代码刷新 sidecar，不调用模型。
 
-## 4. MeetingPack v1
+## 4. MeetingPack v2
 
 分享格式是普通 ZIP，文件名后缀为 `.meetingpack.zip`。收件人解压后双击 `viewer.html`，不需要安装本项目、不需要运行服务，也不需要 LLM。查看器没有 CDN、外部字体或 `fetch` 依赖，使用 `file://` 即可。
 
 ```text
 <meeting>.meetingpack.zip
 ├── viewer.html             # CSS/JS/数据内嵌的静态查看器
-├── manifest.json           # meetingpack/v1、文件哈希、数量、媒体策略
+├── manifest.json           # meetingpack/v2、文件哈希、证据状态、媒体策略
 ├── README.txt
 ├── minutes.md              # 可继续编辑的纪要 + 隐藏 marker
+├── transcript.md           # 带可读时间码的完整逐字稿
+├── transcript.json         # 结构化完整逐字稿
 ├── evidence.json           # canonical 证据关系
+├── views.json              # 四种阅读视图与会议理解图
 ├── rag/
 │   └── records.jsonl       # meeting-minutes-rag/v1
 ├── slides/
@@ -135,6 +138,10 @@ Web 只在 sidecar 的逐字稿和纪要 revision 与当前文件一致时展示
     ├── audio.wav           # --media audio 时
     └── source.mp4          # --media video 时
 ```
+
+Viewer 左侧常驻媒体、时间轴和完整逐字稿，中间提供管理层/执行层 × 快速/精细四种确定性视图、会议理解图和完整纪要，右侧展示原始证据。所有逐字稿时间码、claim 和图节点都可以跳到媒体进度；全文搜索覆盖结论、逐字稿和页面。必须解压整个 ZIP 后再打开，不能只在压缩软件里预览单个 HTML。
+
+四种视图只选择和重组 canonical claim，不再次调用 LLM，也不会补造负责人、截止日期或决定。旧会议没有有效 evidence marker 时，包仍包含完整逐字稿、媒体与纪要，但 `manifest.evidence.state=partial`，Viewer 显式提醒“结论不可逐条核验”，不会把 `claims=0` 伪装成完整导出。导出过程只读会议目录，不会为方便打包而重写 `minutes.evidence.json`。
 
 ### 4.1 是否需要传源视频
 
@@ -179,6 +186,22 @@ Web“更多”菜单提供三种导出；命令行等价用法：
 Web 的会议助手使用 `meeting-rag/evidence-hybrid-v1`：在一场会议内统一召回 claim、逐字稿、VL 页面和纪要章节，再把受控上下文交给本机 LLM。命中 claim 或讨论过的页面时会补入少量原始逐字稿，避免回答只引用二次归纳。显式选择的逐字稿及其相邻语境始终优先。
 
 `POST /api/meetings/{slug}/rag/search` 只返回召回来源，不调用 LLM，可用于检查为什么命中这些证据；`assistant/chat` 在其上完成生成式回答。旧会议没有 `mm:evidence` marker 时标记为 `partial`，仍能检索逐字稿和纪要章节，但不能伪装成已建立 claim linkage。
+
+当前本机检索顺序为：
+
+1. 对 claim、逐字稿、页面和分块后的纪要章节同时执行词法 BM25 风格检索与 Qwen3-Embedding-0.6B 稠密检索；
+2. 用 Reciprocal Rank Fusion 合并两路结果，避免某一路分数尺度支配排序；
+3. 把前 36 个候选交给 Qwen3-Reranker-0.6B，保留前 28 个进入类型配额和证据扩展；
+4. 命中 claim 或页面后按稳定 T/P ID 精确补回原始逐字稿，而不是再用向量猜证据；
+5. embedding 或 reranker 服务不可用时自动降级，最差仍保留词法检索和显式引用。
+
+每场会议的向量索引保存在私有会议目录 `.rag/`：JSON manifest 只含模型名、记录 ID、revision 和维度，`.f32` 文件只含向量，不复制逐字稿正文。逐字稿或纪要变化会让 `record_revision` 改变并自动重建该会议。部署后可以主动预热：
+
+```bash
+make rag-index
+```
+
+两个 0.6B 模型分别由 loopback systemd user service 常驻在 `127.0.0.1:11437` 和 `127.0.0.1:11438`。服务使用单并发、4K context、关闭额外 prompt cache，并设置 `MemoryHigh=3G`、`MemoryMax=5G`；Web 健康接口公开模型状态但不公开会议正文。测试中 `retrieval_mode` 会明确返回 `hybrid_reranked`、`hybrid` 或 `lexical`，便于排查是否发生降级。
 
 MeetingPack 中的 `rag/records.jsonl` 是可移植的索引原料，不等于一个可运行的 RAG 服务。纯 `file://` Viewer 可以离线全文搜索，但若要生成回答，必须满足以下之一：
 

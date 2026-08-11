@@ -22,6 +22,8 @@ flowchart LR
     API --> ASSIST[assistant_service.py]
     ASSIST --> MRAG[rag_service.py\n证据型会议检索]
     MRAG --> DATA
+    MRAG --> EMBED[Qwen3 Embedding 0.6B\nloopback :11437]
+    MRAG --> RERANK[Qwen3 Reranker 0.6B\nloopback :11438]
     ASSIST --> ROUTER[本机 llama-router :11435]
     ASSIST --> DATA
     API --> TRANS[translation_service.py]
@@ -66,7 +68,7 @@ flowchart LR
 
 ### 纪要证据与导出
 
-`minutes_by_page.py` 和 `summarize.py` 使用 `meeting-minutes-prompt/v1` 结构化输入，并在可读 Markdown 中留下隐藏的 T/P 证据 marker。`meeting_artifact.py` 将其规范化为 `minutes.evidence.json`；Web、`export_meeting.py` 和后续 RAG 都消费同一 sidecar。导出器生成 `.meetingpack.zip`，其中 `viewer.html` 不依赖服务、LLM、CDN 或网络请求。完整规范见 `docs/EXPORT_AND_RAG.md`。
+`minutes_by_page.py` 和 `summarize.py` 使用 `meeting-minutes-prompt/v1` 结构化输入，并在可读 Markdown 中留下隐藏的 T/P 证据 marker。`meeting_artifact.py` 将其规范化为 `minutes.evidence.json`；Web、`export_meeting.py` 和后续 RAG 都消费同一 sidecar。导出器生成 `meetingpack/v2`：完整逐字稿、媒体时间跳转、证据状态、四种阅读视图和会议理解图都进入同一个无需服务、LLM、CDN 或网络请求的 Viewer。导出是只读操作，不反写 canonical sidecar。完整规范见 `docs/EXPORT_AND_RAG.md`。
 
 ### 人工质量验收
 
@@ -90,14 +92,14 @@ sidecar 保存 T ID、源语言、译文、数字核对警告、逐字稿 revisi
 助手采用“模型提议、代码执行”的边界：
 
 1. 浏览器提交逐字稿轮次索引与文档 revision，不提交任意文件路径。
-2. `rag_service.py` 在当前会议内统一检索 claim、逐字稿、VL 页面和纪要章节；显式引用优先，claim/页面命中时同时补回原始逐字稿。
+2. `rag_service.py` 在当前会议内对 claim、逐字稿、VL 页面和纪要章节执行词法 + Qwen3 embedding 混合召回、RRF 融合与 Qwen3 reranker 重排；显式引用优先，claim/页面命中时按稳定 ID 补回原始逐字稿。
 3. 问答调用本机 OpenAI-compatible API，返回可点击的统一 `R` 来源编号；检索可通过 `/api/meetings/{slug}/rag/search` 独立检查而不调用模型。
 4. 修改纪要时，模型只能选择候选 Markdown 章节并返回替换建议。
 5. 服务端生成结构化预览；用户确认后再次校验 revision，保存历史版本，再原子替换文件。
 6. 用户可撤销刚应用的修改；服务端只在当前 revision 仍与该提案一致时恢复历史版本，并留存撤销前副本。
 
 默认只允许 `localhost/127.0.0.1/::1` 模型地址。远程模型必须在一次明确授权后设置 `MEETING_ALLOW_REMOTE_LLM=1`。
-当前 RAG 是无额外依赖的会议内证据型词法检索，不是跨会议 embedding 索引。Web 服务仍只监听回环地址且没有多用户鉴权；在补齐 LAN/VPN 可达性、身份和会议权限之前，不得直接对同事网络开放。
+向量索引按会议持久化到私有 `.rag/`，manifest 不保存正文并与记录 revision 绑定；模型服务失败时自动降级为词法检索。当前仍是单会议检索，不是跨会议搜索。Web 和两个检索模型服务都只监听回环地址且没有多用户鉴权；在补齐 LAN/VPN 可达性、身份和会议权限之前，不得直接对同事网络开放。
 
 ## 人员身份、声纹与组织架构
 

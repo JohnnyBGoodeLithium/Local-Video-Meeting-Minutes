@@ -16,7 +16,7 @@
 | 纪要精修（重写） | Qwen3.5-122B-A10B Q4_K_M / gpt-oss-120b Q4 | 72G / 59G | 仅 A 档；路由器按模型名自动加载 ✅ |
 | VL 画面解读 | MiMo-VL-Miloco-7B Q4_0 + mmproj | 5.5G | ✅ |
 | VL 备选 | Qwen3-VL-8B Q8_0 | 8.9G | ✅ 质量略高、更慢更贵 |
-| 记忆检索 | Qwen3-Embedding/Reranker-0.6B | 0.6G×2 | ✅ |
+| 会议检索 | Qwen3-Embedding-0.6B Q8_0 + Qwen3-Reranker-0.6B Q8_0 | GGUF 各 0.64G | 多语言混合召回与重排 ✅ |
 
 ## 2. 档位矩阵
 
@@ -55,6 +55,7 @@
 | 按页纪要 | ✅ 35B | 📐 14B 或卸载 35B | 📐 8B | 📐 8B 慢 |
 | 122B 精修重写 | ✅ | ✘ | ✘ | ✘ |
 | Web 界面 | ✅ | ✅ | ✅ | ✅ |
+| 本地 embedding + reranker | ✅ 常驻 | ✅ 可常驻/按需 | 建议按需或仅 embedding | 可用但应评估时延 |
 
 ### 升降级路径
 - D→C（加 8G 卡）：GPU 转写/分离，纪要上 8B GPU，体验从"能用"到"顺手"。
@@ -66,3 +67,4 @@
 - 量化选择：文本 Q4_K_M 为甜点；VL 读小字建议不低于 Q4_0/Q8_0（Miloco Q4_0 与 Qwen3-VL Q8_0 实测均可，后者略准）。
 - 122B/120B 由 llama-router 按请求里的模型名自动加载（--models-max 2，会挤掉最久未用的常驻模型；首次加载 1-4 分钟，之后恢复）。
 - MoE 模型的"内存卸载"只在大统一内存或宽裕系统内存时有意义；8/16G 独显直放 dense 中小杯体验更好。
+- 本机检索模型不进入大模型 router 的两模型 LRU，而是分别监听 `127.0.0.1:11437/11438`。两者均为单并发、4K context、`--cache-ram 0`，systemd cgroup 使用 3G soft / 5G hard 内存限制；预热 2545 条真实记录后的常驻占用约 1.6G + 1.0G。小内存机器可只常驻 embedding、让 reranker 按需启动，或把 `MEETING_RAG_MODE=lexical` 作为确定性降级。
