@@ -89,6 +89,25 @@ body.page-index { overflow: hidden; }
   border-bottom: 1px solid var(--border);
   font-weight: 600;
 }
+.minutes-mode-tabs { justify-content: flex-start; gap: 5px; }
+.mode-tab {
+  border-color: transparent;
+  background: transparent;
+  color: var(--dim);
+  font-weight: 600;
+}
+.mode-tab.active { color: var(--text); background: var(--panel2); border-color: var(--border); }
+.quality-badge {
+  display: inline-block;
+  min-width: 17px;
+  margin-left: 3px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: #e2a13c;
+  color: #17191e;
+  font-size: 10px;
+  line-height: 17px;
+}
 .follow { font-weight: 400; font-size: 12px; color: var(--dim); }
 
 .meeting-head {
@@ -353,6 +372,67 @@ body.page-index { overflow: hidden; }
 .minutes table { border-collapse: collapse; }
 .minutes th, .minutes td { border: 1px solid var(--border); padding: 4px 8px; }
 .minutes code { background: var(--panel2); border-radius: 4px; padding: 0 4px; }
+
+/* 纪要质量验收 */
+.quality-view { min-height: 0; flex: 1; overflow-y: auto; padding: 14px 18px 60px; }
+.quality-summary {
+  position: sticky;
+  top: -14px;
+  z-index: 6;
+  margin: -14px -18px 12px;
+  padding: 13px 18px 10px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(28, 31, 38, .97);
+  backdrop-filter: blur(8px);
+}
+.quality-summary-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.quality-summary-head p { margin: 2px 0 0; color: var(--dim); font-size: 11px; }
+.quality-summary-head strong { color: var(--accent); font-size: 19px; }
+.quality-progress { height: 5px; margin: 9px 0 6px; overflow: hidden; border-radius: 3px; background: var(--panel2); }
+.quality-progress i { display: block; height: 100%; border-radius: inherit; background: var(--success); }
+.quality-metrics { display: flex; flex-wrap: wrap; gap: 5px 13px; color: var(--dim); font-size: 11px; }
+.quality-metrics .issue { color: #ff9b79; }
+.quality-filters { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
+.quality-filters button { padding: 2px 9px; font-size: 11px; }
+.quality-filters button.active { border-color: var(--accent); color: var(--accent); background: rgba(79, 124, 255, .1); }
+.quality-card {
+  margin-bottom: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.quality-card.reviewed { border-left: 3px solid var(--accent); }
+.quality-card.label-correct { border-left-color: var(--success); }
+.quality-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.quality-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.quality-tags span {
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--dim);
+  font-size: 10px;
+}
+.quality-tags .has-evidence { color: #76d5aa; }
+.quality-tags .missing-evidence { color: #ff9b79; border-color: rgba(194, 80, 80, .55); }
+.quality-evidence { flex: 0 0 auto; color: var(--accent); padding: 2px 8px; font-size: 11px; }
+.quality-claim-text { margin: 10px 0 5px; font-size: 14px; line-height: 1.65; }
+.quality-speakers { color: var(--dim); font-size: 11px; }
+.quality-stale { margin-top: 8px; padding: 6px 8px; border-radius: 6px; background: rgba(226, 161, 60, .12); color: #e2a13c; font-size: 11px; }
+.quality-labels { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
+.quality-labels button { padding: 3px 8px; font-size: 11px; }
+.quality-labels button.selected { border-color: var(--accent); background: rgba(79, 124, 255, .17); color: #fff; }
+.quality-labels button:first-child.selected { border-color: var(--success); background: rgba(34, 160, 107, .17); }
+.quality-labels kbd { margin-right: 4px; color: var(--dim); font: 9px ui-monospace, monospace; }
+.quality-note { margin-top: 9px; color: var(--dim); font-size: 11px; }
+.quality-note summary { cursor: pointer; }
+.quality-note textarea { margin-top: 6px; resize: vertical; font-size: 12px; }
+.quality-note button { margin-top: 5px; }
+.quality-note > span { display: block; margin-top: 3px; }
+.quality-result { margin-top: 8px; color: var(--dim); font-size: 11px; }
+.quality-empty { max-width: 520px; margin: 50px auto; padding: 20px; border: 1px dashed var(--border); border-radius: 10px; text-align: center; }
+.quality-empty h3 { margin: 0 0 5px; font-size: 15px; }
+.quality-empty p { margin: 3px 0; }
 .minutes a[href^="#mm-"] {
   display: inline-block;
   margin-left: 3px;

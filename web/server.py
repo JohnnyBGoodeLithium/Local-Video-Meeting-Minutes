@@ -51,6 +51,7 @@ MEETINGS = DATA_ROOT / "meetings"
 INBOX = DATA_ROOT / "recordings" / "inbox"
 ORG_FILES = BANK_DIR / "orgchart_files"
 JOBS_DIR = Path(os.environ.get("MEETING_WEB_JOBS", WEB_DIR / "jobs")).resolve()
+EVALUATIONS_DIR = DATA_ROOT / "evaluations"
 STATIC = WEB_DIR / "static"
 PY = Path(os.environ.get("MEETING_PYTHON", PROJECT_ROOT / ".venv" / "bin" / "python")).resolve()
 DRY_RUN = os.environ.get("MEETING_WEB_DRYRUN") == "1"
@@ -62,12 +63,14 @@ import meeting_dir as md_util  # noqa: E402
 import assistant_service as assistant  # noqa: E402
 import meeting_artifact as artifact  # noqa: E402
 import export_meeting as meeting_export  # noqa: E402
+import evaluation_service as evaluation  # noqa: E402
 
 from markdown_it import MarkdownIt  # noqa: E402
 
 MD = MarkdownIt("default", {"html": False})
 
 BANK_LOCK = threading.Lock()      # bank.json / orgchart.json 写操作串行化
+EVALUATION_LOCK = threading.Lock()  # 本地人工验收事件串行化
 EXEC = ThreadPoolExecutor(max_workers=1)  # 管线/重生成作业单 worker 串行（GPU 资源互斥）
 JOBS: dict[str, dict] = {}
 PROCS: dict[str, subprocess.Popen] = {}   # 运行中作业的子进程(取消用, 不序列化)
@@ -368,6 +371,11 @@ def delete_meeting(slug: str):
     """删除整个会议目录, 并清掉声纹库 sources 里对它的引用。"""
     mdir = _mdir(slug)
     shutil.rmtree(mdir)
+    evaluation_removed = False
+    evaluation_path = EVALUATIONS_DIR / f"{slug}.json"
+    if evaluation_path.is_file():
+        evaluation_path.unlink()
+        evaluation_removed = True
     removed = 0
     with BANK_LOCK:
         bank = vb.load_bank(BANK_DIR)
@@ -378,7 +386,8 @@ def delete_meeting(slug: str):
                 removed += 1
         if removed:
             vb.save_bank(BANK_DIR, bank)
-    return {"ok": True, "bank_refs_removed": removed}
+    return {"ok": True, "bank_refs_removed": removed,
+            "evaluation_removed": evaluation_removed}
 
 
 @app.get("/api/meetings/{slug}/bundle")
@@ -413,6 +422,59 @@ def get_bundle(slug: str):
             "linkage": evidence.get("linkage", {}),
         },
     }
+
+
+# ---------------------------------------------------------------- 纪要质量验收
+
+class QualityReviewReq(BaseModel):
+    label: str
+    note: str = Field(default="", max_length=1000)
+    claim_fingerprint: str
+
+
+def _evaluation_path(slug: str) -> Path:
+    # slug 已由 _mdir 校验为 MEETINGS 的直接子目录名。
+    return EVALUATIONS_DIR / f"{slug}.json"
+
+
+def _quality_payload(slug: str, mdir: Path) -> dict:
+    evidence = _current_evidence(mdir)
+    if evidence:
+        evidence_state = "ready"
+    elif (mdir / "minutes.evidence.json").is_file():
+        evidence_state = "stale"
+    else:
+        evidence_state = "missing"
+    store = evaluation.load_store(_evaluation_path(slug), slug)
+    return evaluation.build_payload(slug, evidence, store, evidence_state)
+
+
+@app.get("/api/meetings/{slug}/quality")
+def get_quality_review(slug: str):
+    """返回当前结论与本机人工验收；不运行模型，也不修改正式纪要。"""
+    mdir = _mdir(slug)
+    return _quality_payload(slug, mdir)
+
+
+@app.put("/api/meetings/{slug}/quality/claims/{claim_id}")
+def put_quality_review(slug: str, claim_id: str, req: QualityReviewReq):
+    mdir = _mdir(slug)
+    evidence = _current_evidence(mdir)
+    if not evidence:
+        raise HTTPException(409, "纪要依据缺失或已过期，请先重新生成纪要")
+    claim = next((item for item in evidence.get("claims", []) if item.get("id") == claim_id), None)
+    if claim is None:
+        raise HTTPException(404, "结论不存在")
+    current_fingerprint = evaluation.claim_fingerprint(claim, evidence)
+    if req.claim_fingerprint != current_fingerprint:
+        raise HTTPException(409, "结论或依据已变化，请刷新后重新判断")
+    try:
+        with EVALUATION_LOCK:
+            evaluation.save_review(
+                _evaluation_path(slug), slug, evidence, claim, req.label, req.note)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return _quality_payload(slug, mdir)
 
 
 @app.get("/api/meetings/{slug}/export")

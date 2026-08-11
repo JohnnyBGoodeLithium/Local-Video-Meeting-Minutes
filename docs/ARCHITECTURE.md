@@ -22,6 +22,7 @@ flowchart LR
     API --> ASSIST[assistant_service.py]
     ASSIST --> ROUTER[本机 llama-router :11435]
     ASSIST --> DATA
+    API --> EVAL[(本地 evaluations)]
     DATA --> EXPORT[MeetingPack 导出器]
     EXPORT --> VIEWER[静态 viewer.html]
     EXPORT --> RAG[证据 JSON + RAG JSONL]
@@ -37,6 +38,7 @@ flowchart LR
 | `recordings/` | 原始输入与上传 inbox | 永不跟踪 |
 | `meetings/` | 每场会议的全部派生文件和本地历史版本 | 永不跟踪 |
 | `speaker_bank/` | 声纹、人员、组织架构与参考材料 | 仅跟踪虚构模板 |
+| `evaluations/` | 人工验收事件、claim 指纹和标签；不复制会议正文 | 永不跟踪 |
 | `web/jobs/` | 本地作业状态 JSON | 仅跟踪 `.gitkeep` |
 
 代码根固定为仓库目录；数据根默认与代码根相同，也可通过 `MEETING_DATA_ROOT` 指到独立磁盘或一次性测试目录。管线脚本始终来自代码根，会议、上传和声纹数据来自数据根。
@@ -60,6 +62,10 @@ flowchart LR
 ### 纪要证据与导出
 
 `minutes_by_page.py` 和 `summarize.py` 使用 `meeting-minutes-prompt/v1` 结构化输入，并在可读 Markdown 中留下隐藏的 T/P 证据 marker。`meeting_artifact.py` 将其规范化为 `minutes.evidence.json`；Web、`export_meeting.py` 和后续 RAG 都消费同一 sidecar。导出器生成 `.meetingpack.zip`，其中 `viewer.html` 不依赖服务、LLM、CDN 或网络请求。完整规范见 `docs/EXPORT_AND_RAG.md`。
+
+### 人工质量验收
+
+`evaluation_service.py` 将当前 evidence claim 与本机追加式验收事件合并。事件只落 claim ID、标签、备注和来源结构指纹；指纹在内存中覆盖结论及其引用的逐字稿/页面内容，但不把来源正文复制到评测文件。浏览器提交 claim 指纹作为乐观锁，服务端重新计算后才接受写入。相关来源发生变化时只让对应判断失效，验收动作不会修改 `minutes.md`。删除会议时同步删除该会议的验收文件。
 
 ## Web 作业模型
 

@@ -1,6 +1,7 @@
 # Private meeting data (never commit)
 /recordings/
 /meetings/
+/evaluations/
 
 # Voiceprints, identities, and organization data are private.
 /speaker_bank/*

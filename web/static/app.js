@@ -15,6 +15,9 @@ const state = {
   assistantMessages: [],
   assistantBusy: false,
   assistantNextIntent: null,
+  quality: null,
+  qualityFilter: "pending",
+  viewMode: "minutes",
 };
 
 /* ---------- 工具 ---------- */
@@ -106,6 +109,9 @@ async function deleteMeeting(ev, slug) {
     $("#export-btn").disabled = true;
     $("#export-audio-btn").disabled = true;
     $("#export-video-btn").disabled = true;
+    $("#quality-tab").disabled = true;
+    state.quality = null;
+    setReviewMode("minutes");
     $("#evidence-card").classList.add("hidden");
     resetAssistant();
   }
@@ -123,6 +129,7 @@ async function loadMeeting(slug) {
   renderMeetingList();
   const b = await jget(`/api/meetings/${encodeURIComponent(slug)}/bundle`);
   state.bundle = b;
+  state.quality = null;
   $("#meeting-title").textContent = b.title || slug;
   $("#meeting-meta").textContent = [
     b.date,
@@ -138,6 +145,8 @@ async function loadMeeting(slug) {
   $("#export-btn").disabled = false;
   $("#export-audio-btn").disabled = !b.has_audio;
   $("#export-video-btn").disabled = !b.has_video;
+  $("#quality-tab").disabled = false;
+  await loadQualityReview();
 }
 
 function renderPlayer() {
@@ -318,6 +327,15 @@ function renderMinutes() {
   });
 }
 
+function setReviewMode(mode) {
+  state.viewMode = mode === "quality" ? "quality" : "minutes";
+  $("#minutes").classList.toggle("hidden", state.viewMode !== "minutes");
+  $("#quality").classList.toggle("hidden", state.viewMode !== "quality");
+  $("#minutes-tab").classList.toggle("active", state.viewMode === "minutes");
+  $("#quality-tab").classList.toggle("active", state.viewMode === "quality");
+  if (state.viewMode === "quality") renderQualityReview();
+}
+
 function showMinutesEvidence(claimId) {
   const claim = (state.bundle?.evidence?.claims || []).find(c => c.id === claimId);
   if (!claim) return;
@@ -348,6 +366,174 @@ function showMinutesEvidence(claimId) {
   });
   $$(".evidence-page-seek", $("#evidence-body")).forEach(btn =>
     btn.onclick = () => seek(Number(btn.dataset.time || 0)));
+}
+
+/* ---------- 纪要质量验收 ---------- */
+
+const qualityStatusNames = {
+  confirmed: "已确认决定",
+  working_alignment: "方向共识",
+  proposal: "提议",
+  open: "待解决",
+  informational: "信息记录",
+};
+
+const qualityKindNames = {
+  decision: "决定",
+  alignment: "共识",
+  proposal: "提议",
+  action: "行动项",
+  discussion: "讨论",
+  purpose: "主旨",
+  open_question: "待决问题",
+};
+
+function qualityLabelName(id) {
+  return state.quality?.labels?.find(item => item.id === id)?.label || id || "";
+}
+
+async function loadQualityReview() {
+  if (!state.slug) return;
+  try {
+    state.quality = await jget(`/api/meetings/${encodeURIComponent(state.slug)}/quality`);
+    const pending = state.quality.summary?.pending || 0;
+    const badge = $("#quality-badge");
+    badge.textContent = pending;
+    badge.classList.toggle("hidden", pending === 0);
+    renderQualityReview();
+  } catch (e) {
+    state.quality = null;
+    $("#quality").innerHTML = '<p class="placeholder">无法读取本地验收记录</p>';
+  }
+}
+
+function qualityClaimVisible(claim) {
+  const filter = state.qualityFilter;
+  if (filter === "pending") return !claim.review;
+  if (filter === "issues") {
+    const label = claim.review?.label;
+    return label && !["correct", "cannot_judge"].includes(label);
+  }
+  if (filter === "passed") return claim.review?.label === "correct";
+  return true;
+}
+
+function renderQualityReview() {
+  const box = $("#quality");
+  const quality = state.quality;
+  if (!box || !quality) return;
+  if (quality.evidence_state !== "ready") {
+    const reason = quality.evidence_state === "stale"
+      ? "纪要或逐字稿已经变化，现有依据已过期。"
+      : "这场会议还没有结构化的结论依据。";
+    box.innerHTML = `<div class="quality-empty"><h3>暂时无法验收</h3><p>${esc(reason)}</p>` +
+      `<p class="dim">请先重新生成纪要；验收界面不会调用模型，也不会修改正式纪要。</p></div>`;
+    return;
+  }
+  const s = quality.summary || {};
+  const pct = s.total ? Math.round((s.reviewed / s.total) * 100) : 0;
+  const filters = [
+    ["pending", `待判断 ${s.pending || 0}`],
+    ["issues", `有问题 ${s.issues || 0}`],
+    ["passed", `正确 ${s.passed || 0}`],
+    ["all", `全部 ${s.total || 0}`],
+  ];
+  let html = `<section class="quality-summary">` +
+    `<div class="quality-summary-head"><div><b>纪要质量验收</b>` +
+    `<p>只保存人工判断，不改写正式纪要。点击依据可回到左侧原文和录音。</p></div>` +
+    `<strong>${s.reviewed || 0}/${s.total || 0}</strong></div>` +
+    `<div class="quality-progress"><i style="width:${pct}%"></i></div>` +
+    `<div class="quality-metrics"><span>完成 ${pct}%</span><span class="issue">问题 ${s.issues || 0}</span>` +
+    `<span>待定 ${s.uncertain || 0}</span><span>过期 ${s.stale || 0}</span>` +
+    `<span>逐字稿依据 ${s.with_transcript_evidence || 0}/${s.total || 0}</span></div>` +
+    `<div class="quality-filters">${filters.map(([id, label]) =>
+      `<button type="button" data-quality-filter="${id}" class="${state.qualityFilter === id ? "active" : ""}">${label}</button>`
+    ).join("")}</div></section>`;
+
+  const claims = quality.claims.filter(qualityClaimVisible);
+  if (!claims.length) {
+    html += `<div class="quality-empty"><h3>${state.qualityFilter === "pending" ? "这一轮已经验收完成" : "此筛选下没有条目"}</h3>` +
+      `<p class="dim">可以切换上方筛选查看已经记录的判断。</p></div>`;
+  }
+  for (const claim of claims) {
+    const review = claim.review;
+    const stale = claim.previous_review;
+    const status = qualityStatusNames[claim.status] || claim.status;
+    const kind = qualityKindNames[claim.kind] || claim.kind;
+    html += `<article class="quality-card ${review ? `reviewed label-${esc(review.label)}` : ""}" data-quality-claim="${esc(claim.id)}">` +
+      `<div class="quality-card-head"><div class="quality-tags"><span>${esc(status)}</span><span>${esc(kind)}</span>` +
+      `<span class="${claim.has_transcript_evidence ? "has-evidence" : "missing-evidence"}">` +
+      `${claim.turn_ids?.length || 0} 段原文</span><span>${claim.page_ids?.length || 0} 页画面</span></div>` +
+      `<button type="button" class="quality-evidence">核对依据</button></div>` +
+      `<div class="quality-claim-text">${esc(claim.text)}</div>` +
+      (claim.speakers?.length ? `<div class="quality-speakers">发言：${esc(claim.speakers.join("、"))}</div>` : "") +
+      (stale ? `<div class="quality-stale">相关内容有变化，原判断“${esc(qualityLabelName(stale.label))}”已失效，请重新核对。</div>` : "") +
+      `<div class="quality-labels">${quality.labels.map(item =>
+        `<button type="button" data-quality-label="${esc(item.id)}" title="快捷键 ${esc(item.shortcut)}" ` +
+        `class="${review?.label === item.id ? "selected" : ""}"><kbd>${esc(item.shortcut)}</kbd>${esc(item.label)}</button>`
+      ).join("")}</div>` +
+      `<details class="quality-note" ${review?.note ? "open" : ""}><summary>补充说明（可选）</summary>` +
+      `<textarea maxlength="1000" rows="2" placeholder="例如：原文是建议语气，尚未确认…">${esc(review?.note || "")}</textarea>` +
+      (review ? `<button type="button" class="quality-save-note">保存说明</button>` : `<span class="dim">选择判断时会一并保存</span>`) +
+      `</details>` +
+      (review ? `<div class="quality-result">已记录：${esc(qualityLabelName(review.label))}</div>` : "") +
+      `</article>`;
+  }
+  box.innerHTML = html;
+  $$('[data-quality-filter]', box).forEach(button => {
+    button.onclick = () => {
+      state.qualityFilter = button.dataset.qualityFilter;
+      renderQualityReview();
+    };
+  });
+  $$(".quality-card", box).forEach(card => {
+    const claim = quality.claims.find(item => item.id === card.dataset.qualityClaim);
+    if (!claim) return;
+    $(".quality-evidence", card).onclick = () => showMinutesEvidence(claim.id);
+    $$('[data-quality-label]', card).forEach(button => {
+      button.onclick = () => saveQualityReview(
+        claim, button.dataset.qualityLabel, $("textarea", card)?.value || "", button);
+    });
+    const saveNote = $(".quality-save-note", card);
+    if (saveNote) saveNote.onclick = () => saveQualityReview(
+      claim, claim.review.label, $("textarea", card)?.value || "", saveNote);
+  });
+}
+
+async function saveQualityReview(claim, label, note, button) {
+  if (!state.slug || !claim) return;
+  button.disabled = true;
+  try {
+    const r = await api(`/api/meetings/${encodeURIComponent(state.slug)}/quality/claims/${encodeURIComponent(claim.id)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ label, note, claim_fingerprint: claim.fingerprint }),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || r.status);
+    state.quality = data;
+    const pending = data.summary?.pending || 0;
+    $("#quality-badge").textContent = pending;
+    $("#quality-badge").classList.toggle("hidden", pending === 0);
+    renderQualityReview();
+    toast(`已记录：${qualityLabelName(label)}`);
+  } catch (e) {
+    button.disabled = false;
+    toast(`验收记录失败：${e.message}`);
+  }
+}
+
+function qualityShortcut(event) {
+  if (state.viewMode !== "quality" || !state.quality || event.ctrlKey || event.metaKey || event.altKey) return;
+  if (event.target.closest("input, textarea, select, button")) return;
+  const label = state.quality.labels.find(item => item.shortcut === event.key);
+  const card = $("#quality .quality-card");
+  if (!label || !card) return;
+  const claim = state.quality.claims.find(item => item.id === card.dataset.qualityClaim);
+  if (!claim) return;
+  event.preventDefault();
+  const trigger = $(`[data-quality-label="${label.id}"]`, card);
+  saveQualityReview(claim, label.id, $("textarea", card)?.value || "", trigger);
 }
 
 function exportMeeting(media = "none") {
@@ -841,6 +1027,9 @@ function init() {
   $("#export-btn").onclick = () => exportMeeting("none");
   $("#export-audio-btn").onclick = () => exportMeeting("audio");
   $("#export-video-btn").onclick = () => exportMeeting("video");
+  $("#minutes-tab").onclick = () => setReviewMode("minutes");
+  $("#quality-tab").onclick = () => setReviewMode("quality");
+  document.addEventListener("keydown", qualityShortcut);
   $("#evidence-close").onclick = () => $("#evidence-card").classList.add("hidden");
   $("#bind-cancel").onclick = closeBind;
   $("#bind-mask").addEventListener("click", e => { if (e.target.id === "bind-mask") closeBind(); });

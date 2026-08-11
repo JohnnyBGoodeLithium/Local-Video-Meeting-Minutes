@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>会议纪要</title>
-<link rel="stylesheet" href="/static/style.css?v=20260810f">
+<link rel="stylesheet" href="/static/style.css?v=20260811q">
 </head>
 <body class="page-index">
 <header class="topbar">
@@ -69,8 +69,16 @@
       </section>
 
       <section class="minutes-pane">
-        <div class="col-header"><span>会议纪要</span></div>
+        <div class="col-header minutes-mode-tabs">
+          <button id="minutes-tab" class="mode-tab active" type="button">会议纪要</button>
+          <button id="quality-tab" class="mode-tab" type="button" disabled>
+            质量验收 <span id="quality-badge" class="quality-badge hidden"></span>
+          </button>
+        </div>
         <div id="minutes" class="minutes"><p class="placeholder">纪要内容</p></div>
+        <div id="quality" class="quality-view hidden">
+          <p class="placeholder">选择会议后可核对结论质量</p>
+        </div>
       </section>
     </div>
 
@@ -124,6 +132,6 @@
   </div>
 </div>
 
-<script src="/static/app.js?v=20260810f"></script>
+<script src="/static/app.js?v=20260811q"></script>
 </body>
 </html>
