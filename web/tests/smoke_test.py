@@ -173,13 +173,14 @@ s, _, translation_before = req(
     "GET", "/api/meetings/_smoke/translations/transcript?target=zh-CN")
 check("逐字稿中文翻译初始为 missing", s == 200 and translation_before.get("state") == "missing")
 s, _, translation_job = req(
-    "POST", "/api/meetings/_smoke/translations/transcript?target=zh-CN")
+    "POST", "/api/meetings/_smoke/translations/transcript?target=zh-CN&focus=2")
 translation_done = poll_job(translation_job.get("id")) if translation_job.get("id") else translation_job
 s, _, translated = req(
     "GET", "/api/meetings/_smoke/translations/transcript?target=zh-CN")
 translated_turns = translated.get("turns", [])
 check("逐字稿中文翻译后台作业完成并覆盖全部 T ID",
-      translation_done.get("status") == "done" and s == 200
+      translation_job.get("focus_turn_indexes") == [2]
+      and translation_done.get("status") == "done" and s == 200
       and translated.get("state") == "ready" and len(translated_turns) == 3
       and [item.get("id") for item in translated_turns] == ["T000001", "T000002", "T000003"])
 check("翻译识别英文/中英混合轮次且不覆盖原文",

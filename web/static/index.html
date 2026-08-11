@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>会议纪要</title>
-<link rel="stylesheet" href="/static/style.css?v=20260811t">
+<link rel="stylesheet" href="/static/style.css?v=20260811u">
 </head>
 <body class="page-index">
 <header class="topbar">
@@ -70,7 +70,11 @@
               <button type="button" data-transcript-mode="zh" disabled>中文阅读</button>
               <button type="button" data-transcript-mode="bilingual" disabled>双语</button>
             </div>
-            <span id="translation-state" class="translation-state"></span>
+            <span class="translation-progress-wrap" title="逐字稿翻译进度">
+              <span id="translation-state" class="translation-state"></span>
+              <span class="translation-progress"><i id="translation-progress-bar"></i></span>
+            </span>
+            <button id="translation-control" class="translation-control hidden" type="button"></button>
             <label class="follow"><input type="checkbox" id="follow" checked> 跟随</label>
           </div>
         </div>
@@ -141,6 +145,6 @@
   </div>
 </div>
 
-<script src="/static/app.js?v=20260811t"></script>
+<script src="/static/app.js?v=20260811u"></script>
 </body>
 </html>

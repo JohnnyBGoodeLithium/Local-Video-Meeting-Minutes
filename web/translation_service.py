@@ -86,6 +86,9 @@ def _read(path: Path) -> dict:
 def translation_payload(mdir: Path, title: str, evidence: dict,
                         target: str = TARGET) -> dict:
     transcript_path = mdir / "transcript.spk.json"
+    source_turns = _read(transcript_path)
+    if not isinstance(source_turns, list):
+        source_turns = []
     source_revision = assistant.revision(transcript_path)
     context_revision = _context_revision(title, evidence)
     document = _read(sidecar_path(mdir, target))
@@ -99,7 +102,8 @@ def translation_payload(mdir: Path, title: str, evidence: dict,
         state = "ready"
     else:
         state = document.get("status", "partial")
-    turns = document.get("turns", []) if state in {"ready", "translating", "partial"} else []
+    turns = document.get("turns", []) if state in {
+        "ready", "translating", "partial", "failed", "cancelled"} else []
     return {
         "schema": SCHEMA,
         "target_language": target,
@@ -108,8 +112,13 @@ def translation_payload(mdir: Path, title: str, evidence: dict,
         "context_revision": context_revision,
         "model": document.get("model"),
         "translated": len(turns),
-        "total": document.get("total", 0),
+        "total": document.get("total", len(source_turns)),
         "turns": turns,
+        "source_languages": [
+            {"id": f"T{i + 1:06d}", "index": i,
+             "source_language": detect_language(str(turn.get("text", "")))}
+            for i, turn in enumerate(source_turns)
+        ],
         "updated_at": document.get("updated_at"),
     }
 
@@ -158,8 +167,11 @@ def _relevant_context(indexes: list[int], turns: list[dict], evidence: dict) -> 
 
 
 def _translate_batch(indexes: list[int], turns: list[dict], title: str,
-                     evidence: dict, dry_run: bool) -> dict[int, dict]:
-    targets = [i for i in indexes if detect_language(str(turns[i].get("text", ""))) != "zh"]
+                     evidence: dict, dry_run: bool,
+                     target_indexes: list[int] | None = None) -> dict[int, dict]:
+    selected = target_indexes if target_indexes is not None else indexes
+    targets = [i for i in selected
+               if detect_language(str(turns[i].get("text", ""))) != "zh"]
     if not targets:
         return {}
     if dry_run:
@@ -227,6 +239,7 @@ def _translate_batch(indexes: list[int], turns: list[dict], title: str,
 
 def translate_transcript(mdir: Path, title: str, evidence: dict, *, dry_run: bool = False,
                          on_progress=None, should_cancel=None,
+                         priority_indexes=None,
                          target: str = TARGET) -> dict:
     transcript_path = mdir / "transcript.spk.json"
     turns = _read(transcript_path)
@@ -256,9 +269,17 @@ def translate_transcript(mdir: Path, title: str, evidence: dict, *, dry_run: boo
     }
 
     try:
-        for start in range(0, len(turns), BATCH_SIZE):
+        if on_progress:
+            on_progress(len(entries), len(turns))
+        pending_starts = list(range(0, len(turns), BATCH_SIZE))
+        while pending_starts:
             if should_cancel and should_cancel():
                 raise TranslationCancelled("翻译已取消")
+            priorities = set(priority_indexes() if priority_indexes else [])
+            priority_starts = [start for start in pending_starts
+                               if any(start <= index < start + BATCH_SIZE for index in priorities)]
+            start = priority_starts[0] if priority_starts else pending_starts[0]
+            pending_starts.remove(start)
             indexes = list(range(start, min(len(turns), start + BATCH_SIZE)))
             for i in indexes:
                 if i not in entries and detect_language(str(turns[i].get("text", ""))) == "zh":
@@ -268,7 +289,8 @@ def translate_transcript(mdir: Path, title: str, evidence: dict, *, dry_run: boo
                     }
             missing = [i for i in indexes if i not in entries]
             if missing:
-                translated = _translate_batch(indexes, turns, title, evidence, dry_run)
+                translated = _translate_batch(
+                    indexes, turns, title, evidence, dry_run, target_indexes=missing)
                 if should_cancel and should_cancel():
                     raise TranslationCancelled("翻译已取消")
                 entries.update(translated)

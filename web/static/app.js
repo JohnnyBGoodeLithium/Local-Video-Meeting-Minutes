@@ -22,6 +22,9 @@ const state = {
   translation: null,
   translationJob: null,
   translationPoller: null,
+  translationProgress: { done: 0, total: 0 },
+  lastTranslationFocus: null,
+  lastTranslationFocusAt: 0,
   expandedOriginals: new Set(),
   evidenceBilingual: new Set(),
 };
@@ -120,6 +123,7 @@ async function deleteMeeting(ev, slug) {
     $("#quality-entry-btn").textContent = "开始质量验收";
     $$('[data-transcript-mode]').forEach(button => button.disabled = true);
     state.translation = null;
+    state.translationProgress = { done: 0, total: 0 };
     state.expandedOriginals.clear();
     state.evidenceBilingual.clear();
     updateTranslationState();
@@ -159,7 +163,7 @@ async function loadMeeting(slug) {
     b.transcript?.length ? `${b.transcript.length} 段逐字稿` : null,
   ].filter(Boolean).join(" · ") || "会议记录";
   renderPlayer();
-  renderTranscript();
+  renderTranscript(false);
   renderMinutes();
   $("#regen-btn").disabled = false;
   $("#refine-btn").disabled = false;
@@ -307,15 +311,33 @@ function onTimeUpdate() {
       el.classList.add("playing");
       if ($("#follow").checked) el.scrollIntoView({ block: "nearest", behavior: "smooth" });
     }
+    if (state.translationJob && cur !== state.lastTranslationFocus
+        && Date.now() - state.lastTranslationFocusAt > 2500) {
+      const translated = (state.translation?.turns || []).some(item => item.index === cur);
+      if (!translated) {
+        state.lastTranslationFocus = cur;
+        state.lastTranslationFocusAt = Date.now();
+        startTranscriptTranslation([cur]);
+      }
+    }
   }
 }
 
 /* ---------- 转写区 ---------- */
 
-function renderTranscript() {
+function transcriptScrollAnchor(box) {
+  const bounds = box.getBoundingClientRect();
+  const turn = $$(".turn", box).find(item => item.getBoundingClientRect().bottom > bounds.top + 2);
+  return turn ? { id: turn.id, offset: turn.getBoundingClientRect().top - bounds.top } : null;
+}
+
+function renderTranscript(preserveScroll = true) {
   const box = $("#transcript");
+  const anchor = preserveScroll ? transcriptScrollAnchor(box) : null;
   box.innerHTML = "";
   const translations = new Map((state.translation?.turns || []).map(item => [item.index, item]));
+  const sourceLanguages = new Map((state.translation?.source_languages || [])
+    .map(item => [item.index, item.source_language]));
   state.bundle.transcript.forEach((t, i) => {
     const div = document.createElement("div");
     div.className = "turn";
@@ -323,6 +345,7 @@ function renderTranscript() {
     div.dataset.index = i;
     const chipCls = t.voice ? "chip" : "chip disabled";
     const translated = translations.get(i);
+    const sourceLanguage = sourceLanguages.get(i);
     const forcedBilingual = state.evidenceBilingual.has(i);
     const mode = forcedBilingual ? "bilingual" : state.transcriptMode;
     const canTranslate = translated && translated.source_language !== "zh";
@@ -341,6 +364,10 @@ function renderTranscript() {
         textHtml += `<button type="button" class="toggle-turn-original" data-index="${i}">` +
           `${state.expandedOriginals.has(i) ? "收起原文" : `${esc(String(translated.source_language).toUpperCase())} 原文`}</button>`;
       }
+    } else if (mode !== "original" && sourceLanguage && sourceLanguage !== "zh") {
+      const priority = state.evidenceBilingual.has(i) ? " priority" : "";
+      textHtml += `<span class="turn-translation-pending${priority}">` +
+        `${priority ? "优先翻译中" : (state.translationJob ? "等待翻译" : "等待继续翻译")}</span>`;
     }
     textHtml += "</span>";
     div.innerHTML =
@@ -366,6 +393,15 @@ function renderTranscript() {
   });
   if (!state.bundle.transcript.length)
     box.innerHTML = '<p class="placeholder">无逐字稿</p>';
+  if (anchor) {
+    const restored = document.getElementById(anchor.id);
+    if (restored) {
+      const bounds = box.getBoundingClientRect();
+      box.scrollTop += restored.getBoundingClientRect().top - bounds.top - anchor.offset;
+    }
+  } else if (!preserveScroll) {
+    box.scrollTop = 0;
+  }
 }
 
 function updateTranscriptModeButtons() {
@@ -376,16 +412,38 @@ function updateTranscriptModeButtons() {
 function updateTranslationState(message = null) {
   const el = $("#translation-state");
   if (!el) return;
+  const wrap = $(".translation-progress-wrap");
+  const control = $("#translation-control");
+  const progressBar = $("#translation-progress-bar");
+  const done = state.translationProgress.done || state.translation?.translated || 0;
+  const total = state.translationProgress.total || state.translation?.total || 0;
+  const visible = Boolean(state.slug && (state.translationJob || state.transcriptMode !== "original"
+    || state.evidenceBilingual.size));
+  wrap.classList.toggle("hidden", !visible);
+  const pct = total ? Math.min(100, Math.round(done / total * 100)) : 0;
+  progressBar.style.width = `${pct}%`;
   if (message !== null) {
     el.textContent = message;
-    return;
+  } else {
+    const translation = state.translation;
+    if (!state.slug || !visible) el.textContent = "";
+    else if (state.translationJob) el.textContent = total ? `翻译中 ${done}/${total}` : "准备语境…";
+    else if (!translation || translation.state === "missing") el.textContent = "尚未生成";
+    else if (["stale", "context_stale"].includes(translation.state)) el.textContent = "译文需更新";
+    else if (translation.state === "ready") el.textContent = `已翻译 ${translation.translated}/${translation.total}`;
+    else if (translation.state === "cancelled") el.textContent = `已停止 ${done}/${total}`;
+    else if (translation.state === "failed") el.textContent = `失败 ${done}/${total}`;
+    else el.textContent = total ? `翻译中 ${done}/${total}` : "翻译中";
   }
-  const translation = state.translation;
-  if (!state.slug || state.transcriptMode === "original") el.textContent = "";
-  else if (!translation || translation.state === "missing") el.textContent = "尚未生成";
-  else if (["stale", "context_stale"].includes(translation.state)) el.textContent = "译文需更新";
-  else if (translation.state === "ready") el.textContent = `已翻译 ${translation.translated}/${translation.total}`;
-  else el.textContent = translation.state === "failed" ? "翻译失败" : "翻译中";
+  if (state.translationJob) {
+    control.textContent = "停止";
+    control.classList.remove("hidden");
+  } else if (visible && state.translation?.state !== "ready") {
+    control.textContent = done ? "继续" : "生成";
+    control.classList.remove("hidden");
+  } else {
+    control.classList.add("hidden");
+  }
 }
 
 async function loadTranscriptTranslation() {
@@ -393,10 +451,15 @@ async function loadTranscriptTranslation() {
   try {
     state.translation = await jget(
       `/api/meetings/${encodeURIComponent(state.slug)}/translations/transcript?target=zh-CN`);
+    state.translationProgress = {
+      done: state.translation.translated || 0,
+      total: state.translation.total || 0,
+    };
     updateTranslationState();
     updateTranscriptModeButtons();
     renderTranscript();
-    if (state.transcriptMode !== "original" && state.translation.state !== "ready")
+    if (state.transcriptMode !== "original"
+        && ["missing", "stale", "context_stale"].includes(state.translation.state))
       startTranscriptTranslation();
   } catch (e) {
     state.translation = null;
@@ -414,12 +477,15 @@ function setTranscriptMode(mode) {
     startTranscriptTranslation();
 }
 
-async function startTranscriptTranslation() {
-  if (!state.slug || state.translationJob) return;
+async function startTranscriptTranslation(focusIndexes = []) {
+  if (!state.slug) return;
+  const focus = [...new Set(focusIndexes)].filter(Number.isInteger).slice(0, 30);
+  if (state.translationJob && !focus.length) return;
   updateTranslationState("正在准备中文译文…");
   try {
+    const focusQuery = focus.length ? `&focus=${encodeURIComponent(focus.join(","))}` : "";
     const r = await api(
-      `/api/meetings/${encodeURIComponent(state.slug)}/translations/transcript?target=zh-CN`,
+      `/api/meetings/${encodeURIComponent(state.slug)}/translations/transcript?target=zh-CN${focusQuery}`,
       { method: "POST" });
     const job = await r.json();
     if (!r.ok) throw new Error(job.detail || r.status);
@@ -428,11 +494,38 @@ async function startTranscriptTranslation() {
       return;
     }
     state.translationJob = job.id;
+    state.translationProgress = job.progress || state.translationProgress;
     pollTranslationJob(job.id);
   } catch (e) {
     state.translationJob = null;
     updateTranslationState(`翻译失败：${e.message}`);
   }
+}
+
+async function stopTranscriptTranslation() {
+  if (!state.translationJob) return;
+  const jobId = state.translationJob;
+  const r = await api(`/api/jobs/${encodeURIComponent(jobId)}/cancel`, { method: "POST" });
+  if (!r.ok) {
+    updateTranslationState("停止失败");
+    return;
+  }
+  updateTranslationState("正在停止…");
+}
+
+async function refreshTranscriptTranslationPartial() {
+  if (!state.slug) return;
+  const latest = await jget(
+    `/api/meetings/${encodeURIComponent(state.slug)}/translations/transcript?target=zh-CN`);
+  const changed = latest.translated !== state.translation?.translated
+    || latest.state !== state.translation?.state;
+  state.translation = latest;
+  state.translationProgress = {
+    done: latest.translated || state.translationProgress.done || 0,
+    total: latest.total || state.translationProgress.total || 0,
+  };
+  if (changed) renderTranscript();
+  updateTranslationState();
 }
 
 function pollTranslationJob(jobId) {
@@ -441,14 +534,18 @@ function pollTranslationJob(jobId) {
     try {
       const job = await jget(`/api/jobs/${jobId}`);
       const progress = job.progress || {};
-      updateTranslationState(progress.total
-        ? `翻译中 ${progress.done || 0}/${progress.total}` : "翻译中…");
+      state.translationProgress = {
+        done: progress.done || 0,
+        total: progress.total || state.translation?.total || 0,
+      };
+      await refreshTranscriptTranslationPartial();
       if (["done", "failed", "cancelled"].includes(job.status)) {
         clearInterval(state.translationPoller);
         state.translationPoller = null;
         state.translationJob = null;
-        if (job.status === "done") await loadTranscriptTranslation();
-        else updateTranslationState(job.status === "cancelled" ? "翻译已取消" : "翻译失败，可切换中文重试");
+        await refreshTranscriptTranslationPartial();
+        if (job.status !== "done")
+          updateTranslationState(job.status === "cancelled" ? "翻译已停止，可继续" : "批次失败，可继续重试");
       }
     } catch (e) { /* 短暂网络错误留到下一轮 */ }
   };
@@ -458,14 +555,17 @@ function pollTranslationJob(jobId) {
 
 function expandEvidenceBilingual(indexes) {
   if (!state.bundle) return;
+  const priorities = [];
   for (const index of indexes) {
     for (const nearby of [index - 1, index, index + 1]) {
-      if (nearby >= 0 && nearby < state.bundle.transcript.length)
+      if (nearby >= 0 && nearby < state.bundle.transcript.length) {
         state.evidenceBilingual.add(nearby);
+        priorities.push(nearby);
+      }
     }
   }
   renderTranscript();
-  if (state.translation?.state !== "ready") startTranscriptTranslation();
+  if (state.translation?.state !== "ready") startTranscriptTranslation(priorities);
 }
 
 /* ---------- 纪要区 ---------- */
@@ -1195,6 +1295,10 @@ function init() {
   $("#minutes-tab").onclick = () => setReviewMode("minutes");
   $("#quality-tab").onclick = () => setReviewMode("quality");
   $("#quality-entry-btn").onclick = () => setReviewMode("quality");
+  $("#translation-control").onclick = () => {
+    if (state.translationJob) stopTranscriptTranslation();
+    else startTranscriptTranslation([...state.evidenceBilingual]);
+  };
   $$('[data-transcript-mode]').forEach(button => {
     button.onclick = () => setTranscriptMode(button.dataset.transcriptMode);
   });

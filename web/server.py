@@ -505,10 +505,14 @@ def _run_translation(job: dict, mdir: Path, title: str, target: str) -> None:
             job["log"].append(f"[meta] 翻译进度 {done}/{total}")
             _save_job(job)
 
+    def priority_indexes() -> list[int]:
+        return list(job.get("focus_turn_indexes", []))
+
     try:
         document = translation.translate_transcript(
             mdir, title, _current_evidence(mdir), dry_run=DRY_RUN,
-            on_progress=progress, should_cancel=cancelled, target=target)
+            on_progress=progress, should_cancel=cancelled,
+            priority_indexes=priority_indexes, target=target)
     except translation.TranslationCancelled:
         if job.get("status") != "cancelled":
             _set_status(job, "cancelled", finished=_now(), rc=None)
@@ -540,10 +544,21 @@ def get_transcript_translation(
 
 @app.post("/api/meetings/{slug}/translations/transcript")
 def create_transcript_translation(
-        slug: str, target: str = Query("zh-CN", pattern="^zh-CN$"), force: bool = False):
+        slug: str, target: str = Query("zh-CN", pattern="^zh-CN$"), force: bool = False,
+        focus: str = ""):
     mdir = _mdir(slug)
     if not (mdir / "transcript.spk.json").is_file():
         raise HTTPException(400, "没有逐字稿，无法翻译")
+    total_turns = len(_read_json(mdir / "transcript.spk.json", []))
+    focus_indexes = []
+    if focus.strip():
+        try:
+            focus_indexes = sorted({int(value) for value in focus.split(",") if value.strip()})
+        except ValueError as exc:
+            raise HTTPException(400, "翻译优先轮次格式错误") from exc
+        if len(focus_indexes) > 30 or any(index < 0 or index >= total_turns
+                                          for index in focus_indexes):
+            raise HTTPException(400, "翻译优先轮次已经失效")
     current = _translation_payload(slug, mdir, target)
     if current["state"] == "ready" and not force:
         return {"id": None, "kind": "translation", "status": "done", "cached": True,
@@ -554,9 +569,15 @@ def create_transcript_translation(
                      and job.get("target_language") == target
                      and job.get("status") in {"queued", "running"}), None)
     if existing:
+        if focus_indexes:
+            with BANK_LOCK:
+                combined = existing.get("focus_turn_indexes", []) + focus_indexes
+                existing["focus_turn_indexes"] = list(dict.fromkeys(combined))[-30:]
+                _save_job(existing)
         return dict(existing)
     job = _new_job("translation", meeting=slug, target_language=target,
-                   progress={"done": 0, "total": len(_read_json(mdir / "transcript.spk.json", []))})
+                   focus_turn_indexes=focus_indexes,
+                   progress={"done": len(current.get("turns", [])), "total": total_turns})
     response = dict(job)
     EXEC.submit(_run_translation, job, mdir, _meeting_identity(slug)["title"], target)
     return response

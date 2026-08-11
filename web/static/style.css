@@ -113,7 +113,11 @@ body.page-index { overflow: hidden; }
 .transcript-language { display: flex; padding: 2px; border: 1px solid var(--border); border-radius: 7px; background: var(--panel2); }
 .transcript-language button { padding: 1px 6px; border-color: transparent; background: transparent; color: var(--dim); font-size: 10px; }
 .transcript-language button.active { color: var(--text); border-color: var(--border); background: var(--panel); }
-.translation-state { max-width: 105px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--dim); font-size: 10px; }
+.translation-progress-wrap { display: grid; width: 96px; gap: 2px; }
+.translation-state { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--dim); font-size: 10px; line-height: 12px; }
+.translation-progress { display: block; height: 3px; overflow: hidden; border-radius: 2px; background: var(--panel2); }
+.translation-progress i { display: block; width: 0; height: 100%; border-radius: inherit; background: var(--accent); transition: width .2s ease; }
+.translation-control { padding: 0 5px; color: var(--accent); font-size: 10px; }
 
 .meeting-head {
   display: flex;
@@ -283,6 +287,8 @@ body.page-index { overflow: hidden; }
 .source-text + .translated-text { padding-top: 3px; border-top: 1px solid rgba(255, 255, 255, .06); }
 .toggle-turn-original { justify-self: start; padding: 0; border: none; background: transparent; color: var(--accent); font-size: 10px; }
 .translation-warning { color: #e2a13c; font-size: 10px; }
+.turn-translation-pending { color: var(--dim); font-size: 10px; }
+.turn-translation-pending.priority { color: #e2a13c; }
 .quote-turn {
   opacity: 0;
   padding: 0 7px;
