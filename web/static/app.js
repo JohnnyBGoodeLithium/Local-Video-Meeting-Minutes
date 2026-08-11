@@ -431,6 +431,12 @@ function renderQualityReview() {
     return;
   }
   const s = quality.summary || {};
+  if (!s.total) {
+    box.innerHTML = `<div class="quality-empty"><h3>还没有可验收的结构化结论</h3>` +
+      `<p>这份旧纪要没有 claim 级依据标记，需要重新生成一次带依据的纪要。</p>` +
+      `<p class="dim">打开验收页不会运行模型，也不会改变现有纪要。</p></div>`;
+    return;
+  }
   const pct = s.total ? Math.round((s.reviewed / s.total) * 100) : 0;
   const filters = [
     ["pending", `待判断 ${s.pending || 0}`],
