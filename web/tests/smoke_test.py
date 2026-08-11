@@ -95,7 +95,8 @@ def poll_job(jid, timeout=60):
 s, _, health = req("GET", "/api/health")
 check("GET /api/health → 200 + dry-run + local assistant",
       s == 200 and health.get("ok") is True and health.get("dry_run") is True
-      and health.get("assistant", {}).get("local_only") is True)
+      and health.get("assistant", {}).get("local_only") is True
+      and health.get("assistant", {}).get("rag") == "meeting-rag/evidence-hybrid-v1")
 s, headers, page = req("GET", "/", raw=True)
 cache_control = next((value for key, value in headers.items()
                       if key.lower() == "cache-control"), "")
@@ -437,6 +438,16 @@ poll_job(j1.get("id"))
 
 # 16. 结构化逐字稿引用问答（dry-run 不调用真实模型）
 s, _, bundle = req("GET", "/api/meetings/_smoke/bundle")
+rs, _, retrieved = req("POST", "/api/meetings/_smoke/rag/search", {
+    "query": "评审的结论和页面是什么？",
+    "turn_indexes": [],
+})
+retrieved_types = {source.get("type") for source in retrieved.get("sources", [])}
+check("meeting RAG → 统一召回结论/逐字稿/页面并返回可跳转来源",
+      rs == 200 and retrieved.get("version") == "meeting-rag/evidence-hybrid-v1"
+      and retrieved.get("evidence_state") == "ready"
+      and {"claim", "transcript", "slide"} <= retrieved_types
+      and any(source.get("turn_indexes") for source in retrieved.get("sources", [])))
 chat_body = {
     "message": "这里做了什么决定？",
     "turn_indexes": [0, 1],
@@ -444,8 +455,9 @@ chat_body = {
     "history": [],
 }
 s, _, chat = req("POST", "/api/meetings/_smoke/assistant/chat", chat_body)
-check("assistant/chat → 回答 + 可点击来源", s == 200 and "【T1】" in chat.get("answer", "")
-      and bool(chat.get("sources")) and chat["sources"][0].get("turn_indexes"))
+check("assistant/chat → RAG 回答 + 可点击来源", s == 200 and "【R1】" in chat.get("answer", "")
+      and bool(chat.get("sources")) and chat["sources"][0].get("turn_indexes")
+      and chat.get("retrieval", {}).get("version") == "meeting-rag/evidence-hybrid-v1")
 stale = dict(chat_body, transcript_revision="stale-revision")
 s, _, _ = req("POST", "/api/meetings/_smoke/assistant/chat", stale)
 check("assistant/chat 拒绝过期逐字稿引用", s == 409)

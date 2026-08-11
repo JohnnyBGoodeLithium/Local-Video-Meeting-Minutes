@@ -892,6 +892,7 @@ function renderAssistantRefs() {
 
 function highlightTurns(indexes) {
   $$(".turn.referenced").forEach(el => el.classList.remove("referenced"));
+  if (!indexes?.length) return;
   for (const i of indexes) $(`#turn-${i}`)?.classList.add("referenced");
   $(`#turn-${indexes[0]}`)?.scrollIntoView({ block: "center", behavior: "smooth" });
 }
@@ -903,7 +904,7 @@ function addAssistantMessage(message) {
 
 function citedText(text, sources) {
   const ids = new Set((sources || []).map(s => s.id));
-  return esc(text).replace(/【(T\d+)】/g, (all, id) =>
+  return esc(text).replace(/【([RT]\d+)】/g, (all, id) =>
     ids.has(id) ? `<button type="button" class="source-link" data-source="${id}">${all}</button>` : all);
 }
 
@@ -951,8 +952,9 @@ function renderAssistantMessages() {
       btn.onclick = () => {
         const src = (msg.sources || []).find(s => s.id === btn.dataset.source);
         if (!src) return;
-        highlightTurns(src.turn_indexes || []);
-        seek(src.start || 0);
+        const indexes = src.turn_indexes || [];
+        highlightTurns(indexes);
+        if (src.start != null) seek(src.start);
       };
     });
     const apply = $(".apply-edit", el);

@@ -97,7 +97,8 @@ def health():
         "meetings_ready": MEETINGS.is_dir(),
         "python_ready": PY.is_file(),
         "active_jobs": active,
-        "assistant": {"model": assistant.LLM_MODEL, "local_only": not assistant.ALLOW_REMOTE},
+        "assistant": {"model": assistant.LLM_MODEL, "local_only": not assistant.ALLOW_REMOTE,
+                      "rag": assistant.rag_service.RAG_VERSION},
     }
 
 def _now() -> float:
@@ -625,6 +626,11 @@ class AssistantApplyReq(BaseModel):
     proposal_id: str
 
 
+class RagSearchReq(BaseModel):
+    query: str = Field(min_length=1, max_length=8000)
+    turn_indexes: list[int] = Field(default_factory=list, max_length=30)
+
+
 def _assistant_message(text: str) -> str:
     value = text.strip()
     if not value:
@@ -646,10 +652,24 @@ def assistant_chat(slug: str, req: AssistantChatReq):
         raise HTTPException(400, "没有逐字稿，无法进行会议问答")
     try:
         return assistant.answer_question(
-            transcript, _assistant_message(req.message), req.turn_indexes,
+            mdir, _assistant_message(req.message), req.turn_indexes,
             req.transcript_revision, req.history, DRY_RUN)
     except assistant.AssistantError as exc:
         _assistant_http_error(exc)
+
+
+@app.post("/api/meetings/{slug}/rag/search")
+def rag_search(slug: str, req: RagSearchReq):
+    """只运行检索、不调用 LLM；用于检查召回来源和后续轻量 Viewer 接入。"""
+    mdir = _mdir(slug)
+    if not (mdir / "transcript.spk.json").is_file():
+        raise HTTPException(400, "没有逐字稿，无法检索")
+    try:
+        result = assistant.rag_service.retrieve(mdir, req.query.strip(), req.turn_indexes)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    result.pop("context", None)
+    return result
 
 
 @app.post("/api/meetings/{slug}/assistant/edit/preview")

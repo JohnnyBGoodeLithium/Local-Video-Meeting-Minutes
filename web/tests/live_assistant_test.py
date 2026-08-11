@@ -31,8 +31,8 @@ def main() -> int:
 
         tr_rev = assistant.revision(transcript)
         result = assistant.answer_question(
-            transcript, "虚构会议决定什么时候完成什么？", [0, 1], tr_rev, [], False)
-        if not result.get("answer") or "【T" not in result["answer"] or not result.get("sources"):
+            root, "虚构会议决定什么时候完成什么？", [0, 1], tr_rev, [], False)
+        if not result.get("answer") or "【R" not in result["answer"] or not result.get("sources"):
             print("[error] 问答未满足来源协议", file=sys.stderr)
             return 1
         proposal = assistant.preview_minutes_edit(

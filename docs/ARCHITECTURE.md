@@ -20,6 +20,8 @@ flowchart LR
     TEAMS --> DATA
     API --> BANK[(私有声纹与组织架构)]
     API --> ASSIST[assistant_service.py]
+    ASSIST --> MRAG[rag_service.py\n证据型会议检索]
+    MRAG --> DATA
     ASSIST --> ROUTER[本机 llama-router :11435]
     ASSIST --> DATA
     API --> TRANS[translation_service.py]
@@ -88,13 +90,14 @@ sidecar 保存 T ID、源语言、译文、数字核对警告、逐字稿 revisi
 助手采用“模型提议、代码执行”的边界：
 
 1. 浏览器提交逐字稿轮次索引与文档 revision，不提交任意文件路径。
-2. 服务端从正式逐字稿解析引用，并补充相邻语境或执行轻量本地检索。
-3. 问答调用本机 OpenAI-compatible API，返回可点击来源编号。
+2. `rag_service.py` 在当前会议内统一检索 claim、逐字稿、VL 页面和纪要章节；显式引用优先，claim/页面命中时同时补回原始逐字稿。
+3. 问答调用本机 OpenAI-compatible API，返回可点击的统一 `R` 来源编号；检索可通过 `/api/meetings/{slug}/rag/search` 独立检查而不调用模型。
 4. 修改纪要时，模型只能选择候选 Markdown 章节并返回替换建议。
 5. 服务端生成结构化预览；用户确认后再次校验 revision，保存历史版本，再原子替换文件。
 6. 用户可撤销刚应用的修改；服务端只在当前 revision 仍与该提案一致时恢复历史版本，并留存撤销前副本。
 
 默认只允许 `localhost/127.0.0.1/::1` 模型地址。远程模型必须在一次明确授权后设置 `MEETING_ALLOW_REMOTE_LLM=1`。
+当前 RAG 是无额外依赖的会议内证据型词法检索，不是跨会议 embedding 索引。Web 服务仍只监听回环地址且没有多用户鉴权；在补齐 LAN/VPN 可达性、身份和会议权限之前，不得直接对同事网络开放。
 
 ## 人员身份、声纹与组织架构
 
