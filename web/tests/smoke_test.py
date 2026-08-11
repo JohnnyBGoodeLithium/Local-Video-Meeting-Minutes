@@ -96,6 +96,12 @@ s, _, health = req("GET", "/api/health")
 check("GET /api/health → 200 + dry-run + local assistant",
       s == 200 and health.get("ok") is True and health.get("dry_run") is True
       and health.get("assistant", {}).get("local_only") is True)
+s, headers, page = req("GET", "/", raw=True)
+cache_control = next((value for key, value in headers.items()
+                      if key.lower() == "cache-control"), "")
+check("首页显式展示质量验收入口且禁止缓存旧壳",
+      s == 200 and b'quality-entry-btn' in page and b'quality-tab' in page
+      and "no-store" in cache_control)
 s, _, j = req("GET", "/api/meetings")
 n = len(j.get("meetings", []))
 check("GET /api/meetings → 200 且只见隔离夹具", s == 200 and n == 1, f"会议数={n}")

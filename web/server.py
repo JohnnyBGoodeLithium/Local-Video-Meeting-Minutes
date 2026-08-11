@@ -1214,12 +1214,12 @@ def cancel_job(jid: str):
 
 @app.get("/")
 def index():
-    return FileResponse(STATIC / "index.html")
+    return FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-store"})
 
 
 @app.get("/admin")
 def admin():
-    return FileResponse(STATIC / "admin.html")
+    return FileResponse(STATIC / "admin.html", headers={"Cache-Control": "no-store"})
 
 
 app.mount("/static", StaticFiles(directory=STATIC), name="static")

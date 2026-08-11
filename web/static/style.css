@@ -122,6 +122,13 @@ body.page-index { overflow: hidden; }
 .meeting-head h1 { margin: 0; font-size: 19px; line-height: 1.35; }
 .meeting-meta { color: var(--dim); font-size: 12px; margin-top: 2px; }
 .meeting-head-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+.quality-entry {
+  border-color: rgba(79, 124, 255, .8);
+  background: rgba(79, 124, 255, .16);
+  color: #dce5ff;
+  font-weight: 600;
+}
+.quality-entry:not(:disabled)::before { content: "✓ "; color: #76d5aa; }
 .more-menu { position: relative; }
 .more-menu > summary {
   list-style: none;

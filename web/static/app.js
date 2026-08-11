@@ -110,6 +110,8 @@ async function deleteMeeting(ev, slug) {
     $("#export-audio-btn").disabled = true;
     $("#export-video-btn").disabled = true;
     $("#quality-tab").disabled = true;
+    $("#quality-entry-btn").disabled = true;
+    $("#quality-entry-btn").textContent = "开始质量验收";
     state.quality = null;
     setReviewMode("minutes");
     $("#evidence-card").classList.add("hidden");
@@ -146,6 +148,7 @@ async function loadMeeting(slug) {
   $("#export-audio-btn").disabled = !b.has_audio;
   $("#export-video-btn").disabled = !b.has_video;
   $("#quality-tab").disabled = false;
+  $("#quality-entry-btn").disabled = false;
   await loadQualityReview();
 }
 
@@ -392,14 +395,20 @@ function qualityLabelName(id) {
   return state.quality?.labels?.find(item => item.id === id)?.label || id || "";
 }
 
+function updateQualityIndicators() {
+  const pending = state.quality?.summary?.pending || 0;
+  const total = state.quality?.summary?.total || 0;
+  $("#quality-badge").textContent = pending;
+  $("#quality-badge").classList.toggle("hidden", pending === 0);
+  $("#quality-entry-btn").textContent = pending
+    ? `开始质量验收 · ${pending}` : (total ? "查看验收结果" : "质量验收");
+}
+
 async function loadQualityReview() {
   if (!state.slug) return;
   try {
     state.quality = await jget(`/api/meetings/${encodeURIComponent(state.slug)}/quality`);
-    const pending = state.quality.summary?.pending || 0;
-    const badge = $("#quality-badge");
-    badge.textContent = pending;
-    badge.classList.toggle("hidden", pending === 0);
+    updateQualityIndicators();
     renderQualityReview();
   } catch (e) {
     state.quality = null;
@@ -518,9 +527,7 @@ async function saveQualityReview(claim, label, note, button) {
     const data = await r.json();
     if (!r.ok) throw new Error(data.detail || r.status);
     state.quality = data;
-    const pending = data.summary?.pending || 0;
-    $("#quality-badge").textContent = pending;
-    $("#quality-badge").classList.toggle("hidden", pending === 0);
+    updateQualityIndicators();
     renderQualityReview();
     toast(`已记录：${qualityLabelName(label)}`);
   } catch (e) {
@@ -1035,6 +1042,7 @@ function init() {
   $("#export-video-btn").onclick = () => exportMeeting("video");
   $("#minutes-tab").onclick = () => setReviewMode("minutes");
   $("#quality-tab").onclick = () => setReviewMode("quality");
+  $("#quality-entry-btn").onclick = () => setReviewMode("quality");
   document.addEventListener("keydown", qualityShortcut);
   $("#evidence-close").onclick = () => $("#evidence-card").classList.add("hidden");
   $("#bind-cancel").onclick = closeBind;
