@@ -162,6 +162,23 @@ check("media/audio 无 Range → 200", s2 == 200)
 s3, _, _ = req("GET", "/api/meetings/_smoke/media/video", raw=True)
 check("media/video 无源视频 → 404", s3 == 404)
 
+# 3a. 兼容旧录音会议：本地 audio.wav 缺失时回退到 source.json
+audio_path = SMOKE / "audio.wav"
+legacy_path = SMOKE / "legacy-source.wav"
+source_before = (SMOKE / "source.json").read_text()
+audio_path.replace(legacy_path)
+(SMOKE / "source.json").write_text(json.dumps({"wav": str(legacy_path)}))
+try:
+    sb, _, legacy_bundle = req("GET", "/api/meetings/_smoke/bundle")
+    sa, _, legacy_bytes = req("GET", "/api/meetings/_smoke/media/audio",
+                              headers={"Range": "bytes=0-127"}, raw=True)
+    check("旧录音缺 audio.wav 时回退 source.json 并支持 Range",
+          sb == 200 and legacy_bundle.get("has_audio") is True
+          and sa == 206 and len(legacy_bytes) == 128)
+finally:
+    legacy_path.replace(audio_path)
+    (SMOKE / "source.json").write_text(source_before)
+
 # 4. file 白名单（../_smoke/ 归一化后仍在会议目录内 → 200 是正确行为）
 s, _, _ = req("GET", "/api/meetings/_smoke/file?path=slides/page1.png", raw=True)
 check("file slides/page1.png → 200", s == 200)

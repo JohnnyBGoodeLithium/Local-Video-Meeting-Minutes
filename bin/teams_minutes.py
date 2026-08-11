@@ -37,7 +37,7 @@ from pathlib import Path
 
 warnings.filterwarnings("ignore")
 
-from meeting_dir import for_teams
+from meeting_dir import for_teams, materialize_source
 from slide_pages import extract_pages
 from minutes_by_page import generate as generate_minutes
 import voice_bank as vb
@@ -209,12 +209,15 @@ def main() -> int:
     title_slug = args.slug or slugify(args.vtt.stem)
     mdir = for_teams(ROOT, title_slug, date_m.group(1) if date_m else "")
     mdir.mkdir(parents=True, exist_ok=True)
+    original_mp4, original_vtt = args.mp4.resolve(), args.vtt.resolve()
+    source_mp4 = materialize_source(original_mp4, mdir / f"source_video{args.mp4.suffix.lower()}")
+    source_vtt = materialize_source(original_vtt, mdir / "source.vtt")
     slug = mdir.name
     t_all = time.time()
 
     print(f"[1/6] 抽音轨 → {mdir}", flush=True)
     wav = mdir / "audio.wav"
-    extract_audio(args.mp4, wav)
+    extract_audio(source_mp4, wav)
 
     print("[2/6] 本地说话人分离 ...", flush=True)
     t0 = time.time()
@@ -222,7 +225,7 @@ def main() -> int:
     print(f"[meta] 分离 {time.time()-t0:.1f}s | 声纹聚类 {len(centroids)} 个", flush=True)
 
     print("[3/6] 解析 VTT 并对齐姓名 ...", flush=True)
-    cues = parse_vtt(args.vtt)
+    cues = parse_vtt(source_vtt)
     final_cues, stats, lab2final = align(cues, dia_turns)
     turns = merge_same(final_cues, "name")
 
@@ -239,7 +242,8 @@ def main() -> int:
     print(f"[meta] 声纹库: 新入库 {new} | 跨会议命中 {linked}", flush=True)
 
     (mdir / "source.json").write_text(json.dumps(
-        {"mp4": str(args.mp4.resolve()), "vtt": str(args.vtt.resolve())},
+        {"mp4": str(source_mp4), "vtt": str(source_vtt),
+         "original_mp4": str(original_mp4), "original_vtt": str(original_vtt)},
         ensure_ascii=False, indent=1), encoding="utf-8")
     (mdir / "transcript.spk.json").write_text(json.dumps(
         [{"speaker": t["name"], "voice": voice_by_display.get(t["name"]),
@@ -255,11 +259,11 @@ def main() -> int:
 
     print("[5/6] 抽屏幕共享逻辑页 ...", flush=True)
     t0 = time.time()
-    pages = extract_pages(args.mp4, mdir / "slides", mdir / "slides.json")
+    pages = extract_pages(source_mp4, mdir / "slides", mdir / "slides.json")
     print(f"[meta] 逻辑页 {len(pages)} 页 | 抽页耗时 {time.time()-t0:.1f}s", flush=True)
 
     print("[6/6] 生成按页纪要(VL画面内容+总体摘要+议题板块+逐页详情) ...", flush=True)
-    out_path, mstats = generate_minutes(mdir, video=args.mp4, vl=not args.no_vl)
+    out_path, mstats = generate_minutes(mdir, video=source_mp4, vl=not args.no_vl)
 
     speakers = sorted({t["name"] for t in turns})
     print(f"[meta] 总耗时 {time.time()-t_all:.1f}s | 说话人标签 {len(speakers)} 个"

@@ -16,6 +16,7 @@ meeting-minutes/
   meetings/                   # 每场会议一个自包含文件夹(可随便改名)
     2026-08-06_FY28-Gate-B-Pre-review-2nd-Round-Portfolio-Framework/
       audio.wav               # 16k 单声道音轨
+      source_video.mp4        # 视频源的会议内硬链接/副本（视频会议；不再依赖 inbox）
       transcript.spk.md/json  # 具名/分说话人逐字稿
       minutes.md              # 纪要(Teams 场: 总体摘要+议题板块+逐页详情, 每页内嵌截图)
       minutes.evidence.json   # 纪要 claim ↔ 逐字稿 T ID / 页面 P ID 的 canonical sidecar
@@ -51,6 +52,8 @@ python3 -m venv --system-site-packages .venv
 # http://127.0.0.1:8899/admin  人员身份 + 声纹试听/确认 + 图形化 org chart + 参考文件
 ```
 左栏拖入 视频(可带同名 .vtt) 或 音频 即自动处理。详见 [web/README.md](web/README.md)。
+
+导入媒体会先固化进会议目录：同一文件系统优先使用硬链接，因此不会额外占用一份大文件空间；跨文件系统才复制。删除原 inbox/下载路径后，会议中的媒体仍可回放。旧录音若只有 `source.json` 外部路径，Web 也会兼容回退播放。
 
 会议详情左侧是常驻的播放证据栏：播放器、带页区间/议题标记的时间轴和逐字稿在同一列；右侧阅读纪要。底部助手可引用一轮或多轮逐字稿进行本地问答，回答带可点击时间来源。直接输入修改要求时，系统先展示可读的章节修改预览，只有用户确认后才写入，并支持立即撤销。
 

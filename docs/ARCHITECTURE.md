@@ -45,7 +45,7 @@ flowchart LR
 
 ### 录音
 
-`run_all.py` 并行执行 ASR 与说话人分离，再合并轮次并调用本机文本模型生成纪要。
+`run_all.py` 先把输入固化为会议目录内的 `audio.wav`，再并行执行 ASR 与说话人分离，随后合并轮次并调用本机文本模型生成纪要。
 
 ### 普通录屏
 
@@ -54,6 +54,8 @@ flowchart LR
 ### Teams 录制
 
 `teams_minutes.py` 使用 VTT 的姓名线索与本地分离结果对齐；会议室混合通道继续按声纹拆分，然后进入抽页和按页纪要流程。
+
+音视频导入后通过 `meeting_dir.materialize_source` 固化到会议目录。同一文件系统优先创建硬链接，跨文件系统才复制；`source.json` 的主媒体路径指向会议内文件，同时保留 `original_*` 作为来源记录。Web 对旧会议继续支持外部 `source.json` 回退，避免迁移前录音因缺少 `audio.wav` 而无法播放。
 
 ### 纪要证据与导出
 

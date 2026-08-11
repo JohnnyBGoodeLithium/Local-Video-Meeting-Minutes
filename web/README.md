@@ -17,6 +17,8 @@ cd ~/meeting-minutes
 - 左栏“导入会议”可选择或拖入视频（可带同名 .vtt）或音频 → 自动路由：
   视频+vtt → `bin/teams_minutes.py`；裸视频 → `bin/video_minutes.py`；音频 → `bin/run_all.py`。
   上传存 `recordings/inbox/<jobid>/`，作业状态在 `web/jobs/<id>.json`（只存元数据行）。
+  管线启动后会把媒体硬链接/复制到会议目录，会议不再依赖 inbox 路径；旧会议缺少本地 `audio.wav`
+  时，播放接口会回退到 `source.json` 中仍有效的音频路径。
   有活动作业时，左栏自动出现“正在处理”面板（4s 轮询）；排队/运行中的作业有**取消按钮**
   （`POST /api/jobs/{id}/cancel`：排队直接作废；运行中整进程组 SIGTERM，5s 不死再 SIGKILL）。
 - 详情页：左侧常驻播放器、时间轴和逐字稿证据栏，右侧阅读纪要；时间轴支持页区间、议题标记和缩略图预览。

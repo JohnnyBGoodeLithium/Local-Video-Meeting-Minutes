@@ -16,6 +16,7 @@
 """
 
 import json
+import mimetypes
 import os
 import re
 import shutil
@@ -137,6 +138,34 @@ def _source(mdir: Path) -> dict:
         except Exception:
             pass
     return {}
+
+
+def _source_path(mdir: Path, *keys: str) -> Path | None:
+    source = _source(mdir)
+    for key in keys:
+        raw = source.get(key)
+        if not raw:
+            continue
+        path = Path(str(raw))
+        path = path if path.is_absolute() else mdir / path
+        if path.is_file():
+            return path.resolve()
+    return None
+
+
+def _audio_path(mdir: Path) -> Path | None:
+    local = mdir / "audio.wav"
+    if local.is_file():
+        return local
+    candidates = sorted(mdir.glob("source_audio.*"))
+    return next((p for p in candidates if p.is_file()), None) or _source_path(
+        mdir, "audio", "wav", "original_audio")
+
+
+def _video_path(mdir: Path) -> Path | None:
+    candidates = sorted(mdir.glob("source_video.*"))
+    return next((p for p in candidates if p.is_file()), None) or _source_path(
+        mdir, "mp4", "video", "original_mp4")
 
 
 def _read_json(path: Path, default):
@@ -310,8 +339,7 @@ def list_meetings():
             slides = _read_json(d / "slides.json", [])
             item["pages"] = sum(1 for p in slides if p.get("kind") == "slide") or len(slides)
             item["has_minutes"] = _minutes_file(d) is not None
-            src = _source(d)
-            item["has_video"] = bool(src.get("mp4") and Path(src["mp4"]).is_file())
+            item["has_video"] = _video_path(d) is not None
             out.append(item)
     return {"meetings": out}
 
@@ -373,8 +401,8 @@ def get_bundle(slug: str):
         "topics": topics,
         "samples": samples,
         "source": {k: bool(v) for k, v in src.items()},  # 不把原始路径暴露给前端逻辑判断以外
-        "has_audio": (mdir / "audio.wav").is_file(),
-        "has_video": bool(src.get("mp4") and Path(src["mp4"]).is_file()),
+        "has_audio": _audio_path(mdir) is not None,
+        "has_video": _video_path(mdir) is not None,
         "duration": max((t.get("end", 0) for t in transcript), default=0),
         "speaker_count": len({t.get("speaker") for t in transcript if t.get("speaker")}),
         "transcript_revision": assistant.revision(mdir / "transcript.spk.json"),
@@ -501,19 +529,20 @@ def assistant_edit_undo(slug: str, req: AssistantApplyReq):
 
 @app.get("/api/meetings/{slug}/media/audio")
 def media_audio(slug: str):
-    p = _mdir(slug) / "audio.wav"
-    if not p.is_file():
+    p = _audio_path(_mdir(slug))
+    if p is None:
         raise HTTPException(404, "没有音频")
-    return FileResponse(p, media_type="audio/wav")
+    media_type = mimetypes.guess_type(p.name)[0] or "audio/wav"
+    return FileResponse(p, media_type=media_type)
 
 
 @app.get("/api/meetings/{slug}/media/video")
 def media_video(slug: str):
-    src = _source(_mdir(slug))
-    mp4 = src.get("mp4")
-    if not mp4 or not Path(mp4).is_file():
+    p = _video_path(_mdir(slug))
+    if p is None:
         raise HTTPException(404, "没有源视频")
-    return FileResponse(mp4, media_type="video/mp4")
+    media_type = mimetypes.guess_type(p.name)[0] or "video/mp4"
+    return FileResponse(p, media_type=media_type)
 
 
 @app.get("/api/meetings/{slug}/file")

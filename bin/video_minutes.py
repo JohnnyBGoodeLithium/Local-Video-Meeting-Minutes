@@ -26,7 +26,7 @@ import sys
 import time
 from pathlib import Path
 
-from meeting_dir import for_teams
+from meeting_dir import for_teams, materialize_source
 import voice_bank as vb
 from diarize import smooth_dia
 from teams_minutes import extract_audio, diarize, slugify, mmss
@@ -75,13 +75,15 @@ def main() -> int:
     date_m = re.search(r"(\d{8})", args.mp4.name)
     mdir = for_teams(ROOT, args.slug or slugify(args.mp4.stem), date_m.group(1) if date_m else "")
     mdir.mkdir(parents=True, exist_ok=True)
+    original_mp4 = args.mp4.resolve()
+    source_mp4 = materialize_source(original_mp4, mdir / f"source_video{args.mp4.suffix.lower()}")
     slug = mdir.name
     t_all = time.time()
     env = dict(os.environ, HF_HUB_OFFLINE="1")
 
     print(f"[1/5] 抽音轨 → {mdir}", flush=True)
     wav = mdir / "audio.wav"
-    extract_audio(args.mp4, wav)
+    extract_audio(source_mp4, wav)
 
     print("[2/5] 转写 ∥ 说话人分离 ...", flush=True)
     tr_cmd = [str(PY), str(BIN / "transcribe.py"), str(wav), "--out", str(mdir)]
@@ -121,18 +123,19 @@ def main() -> int:
     md += [f"[{mmss(t['start'])}] **{t['speaker']}**: {t['text']}\n" for t in turns]
     (mdir / "transcript.spk.md").write_text("\n".join(md), encoding="utf-8")
     (mdir / "source.json").write_text(json.dumps(
-        {"mp4": str(args.mp4.resolve())}, ensure_ascii=False, indent=1), encoding="utf-8")
+        {"mp4": str(source_mp4), "original_mp4": str(original_mp4)},
+        ensure_ascii=False, indent=1), encoding="utf-8")
     print(f"[meta] 声纹库: 新入库 {new} | 跨会议命中 {linked}", flush=True)
     subprocess.run([sys.executable, str(BIN / "voice_tool.py"), "sample", str(mdir)],
                    check=False, capture_output=True)
 
     print("[4/5] 抽屏幕共享逻辑页 ...", flush=True)
     t0 = time.time()
-    pages = extract_pages(args.mp4, mdir / "slides", mdir / "slides.json")
+    pages = extract_pages(source_mp4, mdir / "slides", mdir / "slides.json")
     print(f"[meta] 逻辑页 {len(pages)} 页 | 抽页耗时 {time.time()-t0:.1f}s", flush=True)
 
     print("[5/5] 生成按页纪要(VL画面内容+总体摘要+议题板块+逐页详情) ...", flush=True)
-    out_path, mstats = generate_minutes(mdir, video=args.mp4, vl=not args.no_vl)
+    out_path, mstats = generate_minutes(mdir, video=source_mp4, vl=not args.no_vl)
     print(f"[meta] 总耗时 {time.time()-t_all:.1f}s | 纪要 {mstats['chars']} 字"
           f" | 页块 {mstats['page_blocks']}/{mstats['pages']} | VL页数 {mstats['vl_pages']}",
           flush=True)

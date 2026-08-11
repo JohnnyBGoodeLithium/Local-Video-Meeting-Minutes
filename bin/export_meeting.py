@@ -38,6 +38,26 @@ def _read_json(path: Path, default):
         return default
 
 
+def _media_source(mdir: Path, kind: str) -> Path | None:
+    local_pattern = "source_video.*" if kind == "video" else "source_audio.*"
+    if kind == "audio" and (mdir / "audio.wav").is_file():
+        return mdir / "audio.wav"
+    local = next((p for p in sorted(mdir.glob(local_pattern)) if p.is_file()), None)
+    if local:
+        return local
+    source = _read_json(mdir / "source.json", {})
+    keys = (("mp4", "video", "original_mp4") if kind == "video"
+            else ("audio", "wav", "original_audio"))
+    for key in keys:
+        if not source.get(key):
+            continue
+        candidate = Path(str(source[key]))
+        candidate = candidate if candidate.is_absolute() else mdir / candidate
+        if candidate.is_file():
+            return candidate.resolve()
+    return None
+
+
 def _sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -184,13 +204,14 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
     media_file = None
     media_arc = media_kind = None
     if media_mode == "audio":
-        if not (mdir / "audio.wav").is_file():
+        candidate = _media_source(mdir, "audio")
+        if candidate is None:
             raise ValueError("会议没有可用的 audio.wav；可改用 --media none")
-        media_file, media_arc, media_kind = mdir / "audio.wav", "media/audio.wav", "audio"
+        suffix = candidate.suffix.lower() or ".wav"
+        media_file, media_arc, media_kind = candidate, f"media/audio{suffix}", "audio"
     elif media_mode == "video":
-        source = _read_json(mdir / "source.json", {})
-        candidate = Path(str(source.get("mp4", ""))) if source.get("mp4") else None
-        if candidate and candidate.is_file():
+        candidate = _media_source(mdir, "video")
+        if candidate is not None:
             suffix = candidate.suffix.lower() or ".mp4"
             media_file, media_arc, media_kind = candidate, f"media/source{suffix}", "video"
         else:

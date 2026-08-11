@@ -23,7 +23,7 @@ import sys
 import time
 from pathlib import Path
 
-from meeting_dir import for_recording
+from meeting_dir import for_recording, materialize_audio
 
 ROOT = Path(__file__).resolve().parent.parent
 BIN = ROOT / "bin"
@@ -40,11 +40,13 @@ def main() -> int:
                     help="分离用 cpu/cuda(默认自动，与转写共享 GPU)")
     args = ap.parse_args()
 
-    wav = args.wav.resolve()
-    if not wav.is_file():
-        print(f"找不到输入文件: {wav}", file=sys.stderr)
+    original = args.wav.resolve()
+    if not original.is_file():
+        print(f"找不到输入文件: {original}", file=sys.stderr)
         return 1
-    folder = for_recording(ROOT, wav.stem, args.title)
+    folder = for_recording(ROOT, original.stem, args.title)
+    folder.mkdir(parents=True, exist_ok=True)
+    wav = materialize_audio(original, folder / "audio.wav")
     t_start = time.time()
     env = dict(os.environ, HF_HUB_OFFLINE="1")
 
@@ -65,7 +67,8 @@ def main() -> int:
         print(f"失败：transcribe rc={rc_tr} diarize rc={rc_dz}", file=sys.stderr)
         return 1
     (folder / "source.json").write_text(json.dumps(
-        {"wav": str(wav)}, ensure_ascii=False, indent=1), encoding="utf-8")
+        {"wav": str(wav), "original_audio": str(original)},
+        ensure_ascii=False, indent=1), encoding="utf-8")
 
     print("[2/3] 合并说话人轮次 ...", flush=True)
     rc = subprocess.run([str(PY), str(BIN / "diarize.py"), str(wav),
