@@ -14,6 +14,9 @@ function readWorkspaceState() {
 }
 
 const workspaceState = readWorkspaceState();
+const savedTranscriptMode = ({ zh: "translated", bilingual: "comparison" })[
+  workspaceState.transcriptMode] || workspaceState.transcriptMode;
+const TRANSLATION_TARGETS = new Set(["zh-CN", "en"]);
 
 const state = {
   meetings: [],
@@ -29,8 +32,10 @@ const state = {
   quality: null,
   qualityFilter: "pending",
   viewMode: "minutes",
-  transcriptMode: ["original", "zh", "bilingual"].includes(workspaceState.transcriptMode)
-    ? workspaceState.transcriptMode : "original",
+  transcriptMode: ["original", "translated", "comparison"].includes(savedTranscriptMode)
+    ? savedTranscriptMode : "original",
+  translationTarget: TRANSLATION_TARGETS.has(workspaceState.translationTarget)
+    ? workspaceState.translationTarget : "zh-CN",
   translation: null,
   translationJob: null,
   translationPoller: null,
@@ -45,6 +50,9 @@ const state = {
     utilityOpen: !!workspaceState.utilityOpen,
     utilityTab: workspaceState.utilityTab === "evidence" ? "evidence" : "assistant",
     videoExpanded: !!workspaceState.videoExpanded,
+    translationTargets: workspaceState.translationTargets
+      && typeof workspaceState.translationTargets === "object"
+      ? workspaceState.translationTargets : {},
     anchors: workspaceState.anchors && typeof workspaceState.anchors === "object"
       ? workspaceState.anchors : {},
   },
@@ -64,6 +72,32 @@ function fmt(sec) {
   const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
   const mm = String(m).padStart(2, "0"), ss = String(s).padStart(2, "0");
   return h ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
+function detectTurnLanguage(text) {
+  const value = String(text || "");
+  const cjk = (value.match(/[\u3400-\u9fff]/g) || []).length;
+  const latin = (value.match(/[A-Za-z]/g) || []).length;
+  if (cjk && latin >= 4) return "mixed";
+  if (cjk) return "zh";
+  if (latin) return "en";
+  return "unknown";
+}
+
+function recommendedTranslationTarget(turns) {
+  const languages = (turns || []).map(turn => detectTurnLanguage(turn.text))
+    .filter(language => language !== "unknown");
+  if (languages.length && languages.every(language => language === "zh")) return "en";
+  if (languages.length && languages.every(language => language === "en")) return "zh-CN";
+  return TRANSLATION_TARGETS.has(state.translationTarget) ? state.translationTarget : "zh-CN";
+}
+
+function translationTargetLabel(target = state.translationTarget) {
+  return target === "en" ? "英语" : "中文";
+}
+
+function sourceNeedsTranslation(sourceLanguage, target = state.translationTarget) {
+  return target === "en" ? sourceLanguage !== "en" : sourceLanguage !== "zh";
 }
 
 async function api(path, opts) {
@@ -89,10 +123,12 @@ function saveWorkspaceState() {
       localStorage.setItem(WORKSPACE_KEY, JSON.stringify({
         lastSlug: state.workspace.lastSlug,
         transcriptMode: state.transcriptMode,
+        translationTarget: state.translationTarget,
         paneRatio: state.workspace.paneRatio,
         utilityOpen: state.workspace.utilityOpen,
         utilityTab: state.workspace.utilityTab,
         videoExpanded: state.workspace.videoExpanded,
+        translationTargets: state.workspace.translationTargets,
         anchors: state.workspace.anchors,
       }));
     } catch (_) { /* 私密浏览或存储已满时不阻断阅读 */ }
@@ -216,6 +252,7 @@ async function deleteMeeting(ev, slug) {
     $("#quality-entry-btn").disabled = true;
     $("#quality-entry-btn").textContent = "开始质量验收";
     $$('[data-transcript-mode]').forEach(button => button.disabled = true);
+    $("#translation-target").disabled = true;
     state.translation = null;
     state.translationProgress = { done: 0, total: 0 };
     state.expandedOriginals.clear();
@@ -275,6 +312,9 @@ async function loadMeeting(slug) {
   renderMeetingList();
   const b = await jget(`/api/meetings/${encodeURIComponent(slug)}/bundle`);
   state.bundle = b;
+  const savedTarget = state.workspace.translationTargets[slug];
+  state.translationTarget = TRANSLATION_TARGETS.has(savedTarget)
+    ? savedTarget : recommendedTranslationTarget(b.transcript);
   state.workspace.lastSlug = slug;
   saveWorkspaceState();
   state.quality = null;
@@ -301,6 +341,8 @@ async function loadMeeting(slug) {
   $("#quality-tab").disabled = false;
   $("#quality-entry-btn").disabled = false;
   $$('[data-transcript-mode]').forEach(button => button.disabled = false);
+  $("#translation-target").disabled = false;
+  $("#translation-target").value = state.translationTarget;
   updateTranscriptModeButtons();
   restoreReadingPosition();
   await loadTranscriptTranslation();
@@ -494,10 +536,11 @@ function renderTranscript(preserveScroll = true) {
     const chipCls = t.voice ? "chip" : "chip disabled";
     const translated = translations.get(i);
     const sourceLanguage = sourceLanguages.get(i);
-    const forcedBilingual = state.evidenceBilingual.has(i);
-    const mode = forcedBilingual ? "bilingual" : state.transcriptMode;
-    const canTranslate = translated && translated.source_language !== "zh";
-    const showOriginal = mode === "original" || !canTranslate || mode === "bilingual"
+    const forcedComparison = state.evidenceBilingual.has(i);
+    const mode = forcedComparison ? "comparison" : state.transcriptMode;
+    const canTranslate = translated
+      && sourceNeedsTranslation(translated.source_language, state.translationTarget);
+    const showOriginal = mode === "original" || !canTranslate || mode === "comparison"
       || state.expandedOriginals.has(i);
     const showTranslation = canTranslate && mode !== "original";
     let textHtml = '<span class="turn-text">';
@@ -505,14 +548,15 @@ function renderTranscript(preserveScroll = true) {
       textHtml += `<span class="txt source-text">${esc(t.text)}</span>`;
     }
     if (showTranslation) {
-      textHtml += `<span class="txt translated-text ${mode === "zh" ? "primary" : ""}">${esc(translated.translated_text)}</span>`;
+      textHtml += `<span class="txt translated-text ${mode === "translated" ? "primary" : ""}">${esc(translated.translated_text)}</span>`;
       if (translated.warnings?.includes("number_mismatch"))
         textHtml += '<span class="translation-warning">数字可能需要核对</span>';
-      if (mode === "zh") {
+      if (mode === "translated") {
         textHtml += `<button type="button" class="toggle-turn-original" data-index="${i}">` +
           `${state.expandedOriginals.has(i) ? "收起原文" : `${esc(String(translated.source_language).toUpperCase())} 原文`}</button>`;
       }
-    } else if (mode !== "original" && sourceLanguage && sourceLanguage !== "zh") {
+    } else if (mode !== "original" && sourceLanguage
+        && sourceNeedsTranslation(sourceLanguage, state.translationTarget)) {
       const priority = state.evidenceBilingual.has(i) ? " priority" : "";
       textHtml += `<span class="turn-translation-pending${priority}">` +
         `${priority ? "优先翻译中" : (state.translationJob ? "等待翻译" : "等待继续翻译")}</span>`;
@@ -520,7 +564,8 @@ function renderTranscript(preserveScroll = true) {
     textHtml += "</span>";
     div.innerHTML =
       `<span class="tc" title="点击跳转">[${fmt(t.start)}]</span>` +
-      `<span class="${chipCls}" title="${t.voice ? "点击绑定说话人" : "无对应声纹"}">${esc(t.speaker)}</span>` +
+      `<span class="${chipCls}" title="${esc(t.speaker)} · ${t.voice ? "点击绑定说话人" : "无对应声纹"}" ` +
+      `aria-label="说话人：${esc(t.speaker)}">${esc(t.speaker)}</span>` +
       textHtml +
       `<button type="button" class="quote-turn" title="引用这一轮到会议助手">引用</button>`;
     $(".tc", div).onclick = () => seek(t.start);
@@ -557,6 +602,13 @@ function updateTranscriptModeButtons() {
     button.classList.toggle("active", button.dataset.transcriptMode === state.transcriptMode));
 }
 
+function updateTranslationTargetControl() {
+  const control = $("#translation-target");
+  if (!control) return;
+  control.value = state.translationTarget;
+  control.disabled = !state.slug || Boolean(state.translationJob);
+}
+
 function updateTranslationState(message = null) {
   const el = $("#translation-state");
   if (!el) return;
@@ -575,10 +627,12 @@ function updateTranslationState(message = null) {
   } else {
     const translation = state.translation;
     if (!state.slug || !visible) el.textContent = "";
-    else if (state.translationJob) el.textContent = total ? `翻译中 ${done}/${total}` : "准备语境…";
+    else if (state.translationJob) el.textContent = total
+      ? `${translationTargetLabel()}翻译 ${done}/${total}` : "准备语境…";
     else if (!translation || translation.state === "missing") el.textContent = "尚未生成";
     else if (["stale", "context_stale"].includes(translation.state)) el.textContent = "译文需更新";
-    else if (translation.state === "ready") el.textContent = `已翻译 ${translation.translated}/${translation.total}`;
+    else if (translation.state === "ready") el.textContent =
+      `${translationTargetLabel()}译文 ${translation.translated}/${translation.total}`;
     else if (translation.state === "cancelled") el.textContent = `已停止 ${done}/${total}`;
     else if (translation.state === "failed") el.textContent = `失败 ${done}/${total}`;
     else el.textContent = total ? `翻译中 ${done}/${total}` : "翻译中";
@@ -592,13 +646,14 @@ function updateTranslationState(message = null) {
   } else {
     control.classList.add("hidden");
   }
+  updateTranslationTargetControl();
 }
 
 async function loadTranscriptTranslation() {
   if (!state.slug) return;
   try {
     state.translation = await jget(
-      `/api/meetings/${encodeURIComponent(state.slug)}/translations/transcript?target=zh-CN`);
+      `/api/meetings/${encodeURIComponent(state.slug)}/translations/transcript?target=${encodeURIComponent(state.translationTarget)}`);
     state.translationProgress = {
       done: state.translation.translated || 0,
       total: state.translation.total || 0,
@@ -616,7 +671,7 @@ async function loadTranscriptTranslation() {
 }
 
 function setTranscriptMode(mode) {
-  if (!["original", "zh", "bilingual"].includes(mode)) return;
+  if (!["original", "translated", "comparison"].includes(mode)) return;
   state.transcriptMode = mode;
   saveWorkspaceState();
   updateTranscriptModeButtons();
@@ -626,15 +681,30 @@ function setTranscriptMode(mode) {
     startTranscriptTranslation();
 }
 
+async function setTranslationTarget(target) {
+  if (!TRANSLATION_TARGETS.has(target) || target === state.translationTarget
+      || state.translationJob) return;
+  state.translationTarget = target;
+  if (state.slug) state.workspace.translationTargets[state.slug] = target;
+  state.translation = null;
+  state.translationProgress = { done: 0, total: 0 };
+  state.expandedOriginals.clear();
+  saveWorkspaceState();
+  updateTranslationTargetControl();
+  updateTranslationState();
+  renderTranscript();
+  await loadTranscriptTranslation();
+}
+
 async function startTranscriptTranslation(focusIndexes = []) {
   if (!state.slug) return;
   const focus = [...new Set(focusIndexes)].filter(Number.isInteger).slice(0, 30);
   if (state.translationJob && !focus.length) return;
-  updateTranslationState("正在准备中文译文…");
+  updateTranslationState(`正在准备${translationTargetLabel()}译文…`);
   try {
     const focusQuery = focus.length ? `&focus=${encodeURIComponent(focus.join(","))}` : "";
     const r = await api(
-      `/api/meetings/${encodeURIComponent(state.slug)}/translations/transcript?target=zh-CN${focusQuery}`,
+      `/api/meetings/${encodeURIComponent(state.slug)}/translations/transcript?target=${encodeURIComponent(state.translationTarget)}${focusQuery}`,
       { method: "POST" });
     const job = await r.json();
     if (!r.ok) throw new Error(job.detail || r.status);
@@ -644,6 +714,7 @@ async function startTranscriptTranslation(focusIndexes = []) {
     }
     state.translationJob = job.id;
     state.translationProgress = job.progress || state.translationProgress;
+    updateTranslationState();
     pollTranslationJob(job.id);
   } catch (e) {
     state.translationJob = null;
@@ -665,7 +736,7 @@ async function stopTranscriptTranslation() {
 async function refreshTranscriptTranslationPartial() {
   if (!state.slug) return;
   const latest = await jget(
-    `/api/meetings/${encodeURIComponent(state.slug)}/translations/transcript?target=zh-CN`);
+    `/api/meetings/${encodeURIComponent(state.slug)}/translations/transcript?target=${encodeURIComponent(state.translationTarget)}`);
   const changed = latest.translated !== state.translation?.translated
     || latest.state !== state.translation?.state;
   state.translation = latest;
@@ -1550,7 +1621,7 @@ function renderJobs(jobs) {
     const active = j.status === "queued" || j.status === "running";
     const meeting = state.meetings.find(item => item.slug === j.meeting);
     const name = meeting?.title || j.meeting || "会议处理";
-    const kindLabel = j.kind === "translation" ? "中文翻译"
+    const kindLabel = j.kind === "translation" ? `${translationTargetLabel(j.target_language)}翻译`
       : j.kind === "regen" ? "生成纪要" : j.kind === "upload" ? "会议处理" : "";
     const progress = j.progress?.total
       ? ` ${j.progress.done || 0}/${j.progress.total}` : "";
@@ -1659,6 +1730,7 @@ function init() {
   $$('[data-transcript-mode]').forEach(button => {
     button.onclick = () => setTranscriptMode(button.dataset.transcriptMode);
   });
+  $("#translation-target").onchange = event => setTranslationTarget(event.target.value);
   document.addEventListener("keydown", qualityShortcut);
   $("#bind-cancel").onclick = closeBind;
   $("#bind-mask").addEventListener("click", e => { if (e.target.id === "bind-mask") closeBind(); });

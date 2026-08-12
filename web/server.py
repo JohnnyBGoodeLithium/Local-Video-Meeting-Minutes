@@ -388,7 +388,7 @@ def _minutes_html(mdir: Path, slug: str):
     mf = _minutes_file(mdir)
     if mf is None:
         return "", []
-    text = mf.read_text(encoding="utf-8")
+    text = artifact.normalize_minutes_markdown(mf.read_text(encoding="utf-8"))
     text = artifact.markdown_with_evidence_links(text, _current_evidence(mdir))
     html = MD.render(text)
     # 纪要里的 slides/ 相对图片 → 本服务 file 路由
@@ -455,6 +455,8 @@ def get_bundle(slug: str):
             "schema": evidence.get("schema"),
             "state": _evidence_state(mdir, evidence),
             "claims": evidence.get("claims", []),
+            "actions": evidence.get("actions") or artifact.action_items_from_claims(
+                evidence.get("claims", [])),
             "linkage": evidence.get("linkage", {}),
         },
     }
@@ -525,7 +527,8 @@ def _run_translation(job: dict, mdir: Path, title: str, target: str) -> None:
     """同一串行 worker 内执行本地翻译；作业日志只记录进度数字。"""
     if job.get("cancel_requested"):
         return
-    _set_status(job, "running", started=_now(), stage="生成中文译文",
+    target_label = translation.TARGETS[target]["label"]
+    _set_status(job, "running", started=_now(), stage=f"生成{target_label}译文",
                 progress={"done": 0, "total": 0})
 
     def cancelled() -> bool:
@@ -573,14 +576,14 @@ def _run_translation(job: dict, mdir: Path, title: str, target: str) -> None:
 
 @app.get("/api/meetings/{slug}/translations/transcript")
 def get_transcript_translation(
-        slug: str, target: str = Query("zh-CN", pattern="^zh-CN$")):
+        slug: str, target: str = Query("zh-CN", pattern="^(zh-CN|en)$")):
     mdir = _mdir(slug)
     return _translation_payload(slug, mdir, target)
 
 
 @app.post("/api/meetings/{slug}/translations/transcript")
 def create_transcript_translation(
-        slug: str, target: str = Query("zh-CN", pattern="^zh-CN$"), force: bool = False,
+        slug: str, target: str = Query("zh-CN", pattern="^(zh-CN|en)$"), force: bool = False,
         focus: str = ""):
     mdir = _mdir(slug)
     if not (mdir / "transcript.spk.json").is_file():

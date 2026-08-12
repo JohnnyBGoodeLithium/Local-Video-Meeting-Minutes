@@ -36,6 +36,7 @@ from meeting_artifact import (
     MARKER_RE,
     build_prompt_context,
     load_speaker_profiles,
+    normalize_minutes_markdown,
     write_evidence_document,
 )
 
@@ -56,7 +57,7 @@ EVIDENCE_RULES = """
 4. 结论状态严格区分：confirmed=明确决定/批准且权限或多人确认成立；
    working_alignment=方向共识但仍需最终确认；proposal=建议/方案；open=未决；
    informational=汇报或页面展示，不是决定。
-5. 行动项必须有明确动作；负责人/期限没说就写“不明”，不能根据职级猜。
+5. 行动项必须有明确动作；负责人/期限没说就写“待确认”，不能根据职级猜。
 6. 每个事实性条目末尾必须原样附一个机器标记（Markdown 阅读时会隐藏）：
    `<!-- mm:evidence kind=decision status=confirmed confidence=high turns=T000001,T000003 pages=P0002 -->`
    turns/pages 只能写输入中真实存在的 ID；没有页面依据时省略 pages，没有逐字稿依据的页面事实只能用
@@ -69,8 +70,18 @@ SUM_PROMPT = """你是一名严谨的会议纪要编辑。你收到的是 `meeti
 ## 总体摘要
 - **主旨**：一段话说明会议目的，并附证据标记
 - **关键结论**：按重要性列出；若只有方向/提议要明确标注状态；没有就写“未形成已确认结论”
-- **待办事项**：用表格（事项 / 负责人 / 期限 / 状态）；每个事项所在单元格或紧随该行附证据标记
-- **风险/待确认**：分条列出
+### 待办事项
+
+必须使用下列 Markdown 表头：标题与表头之间保留空行，表头与分隔行必须紧邻；没有行动项时写“未形成明确待办”，不要输出空表：
+
+| 事项 | 负责人 | 期限 | 状态 |
+| --- | --- | --- | --- |
+
+每个事项独占一行，并在“事项”单元格末尾附证据标记；负责人/期限未明确时写“待确认”
+
+### 风险/待确认
+
+分条列出
 
 ## 议题板块
 把连续页面按议题归并；优先使用页面读出的 agenda/章节标题，但概括必须有逐字稿依据。
@@ -252,7 +263,8 @@ REFINE_PROMPT = """你是一名资深会议纪要编辑。下面是一份按页�
 - 讨论要点/结论只来自发言内容；页面截图的视觉解读仅用于锚定议题结构和核对术语，
   不要把画面描述写进正文（它们会单独进附录）
 - 岗位/职级只能提供决策权限语境；不能把建议或单人观点自动升级为结论
-- **总体摘要**：主旨凝练；关键结论/待办/风险去重合并；待办汇总成表（事项/负责人/期限）
+- **总体摘要**：主旨凝练；关键结论/待办/风险去重合并；待办保持独立标题与表格，
+  列固定为事项/负责人/期限/状态，标题后留空行，表头和分隔行紧邻
 - **议题板块**：校准板块划分与命名（可合并或拆分；页码范围必须使用原文出现过的页码）
 - **逐页详情**：润色语句、统一术语、去掉跨页重复；"本页结论"与总体摘要的关键结论保持一致
 - **严禁**新增原文没有的事实、数字、人名；保留所有 [mm:ss] 时间戳 与 `### 第N页` 标题结构
@@ -411,7 +423,7 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
         else:
             reason = "页块缺失" if not structure_ok else "证据标记变化"
             print(f"[meta] 精修稿{reason}, 保留原稿", flush=True)
-    md = insert_images(body, pages, descs)
+    md = normalize_minutes_markdown(insert_images(body, pages, descs))
     md += appendix_md(pages, descs, per_page)
     out = Path(out) if out else mdir / "minutes.md"
     if out.exists():

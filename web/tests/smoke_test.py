@@ -104,7 +104,8 @@ cache_control = next((value for key, value in headers.items()
                       if key.lower() == "cache-control"), "")
 check("首页显式展示质量验收入口且禁止缓存旧壳",
       s == 200 and b'quality-entry-btn' in page and b'quality-tab' in page
-      and b'data-transcript-mode="bilingual"' in page
+      and b'data-transcript-mode="comparison"' in page
+      and b'id="translation-target"' in page
       and b'utility-panel' in page and b'pane-resizer' in page
       and b'export-preflight' in page and b'href="/static/product.html"' in page
       and "no-store" in cache_control)
@@ -209,6 +210,19 @@ check("翻译 sidecar 绑定逐字稿与会议语境 revision",
       translation_disk.get("schema") == "meeting-transcript-translation/v1"
       and translation_disk.get("source_revision")
       and translation_disk.get("context_revision"))
+s, _, english_before = req(
+    "GET", "/api/meetings/_smoke/translations/transcript?target=en")
+s2, _, english_job = req(
+    "POST", "/api/meetings/_smoke/translations/transcript?target=en")
+english_done = poll_job(english_job.get("id")) if english_job.get("id") else english_job
+s3, _, english = req(
+    "GET", "/api/meetings/_smoke/translations/transcript?target=en")
+check("逐字稿支持独立的英语目标语言 sidecar",
+      s == 200 and english_before.get("state") == "missing"
+      and s2 == 200 and english_done.get("status") == "done" and s3 == 200
+      and english.get("state") == "ready" and english.get("target_language") == "en"
+      and len(english.get("turns", [])) == 3
+      and (SMOKE / "transcript.translation.en.json").is_file())
 
 # 2c. MeetingPack 默认不带媒体，解压后 viewer.html 可直接 file:// 打开
 evidence_before_export = (SMOKE / "minutes.evidence.json").read_bytes()

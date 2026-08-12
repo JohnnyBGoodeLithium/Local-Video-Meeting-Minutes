@@ -63,4 +63,15 @@ with tempfile.TemporaryDirectory(prefix="translation-service-test-") as tmp:
     assert len(completed["turns"]) == 25
     assert translation.translation_payload(mdir, "Synthetic Meeting", {})["state"] == "ready"
 
-print("Transcript translation: priority, partial cancel, and resume passed")
+    english = translation.translate_transcript(
+        mdir, "Synthetic Meeting", {}, dry_run=True, target="en")
+    assert english["target_language"] == "en"
+    assert len(english["turns"]) == 25
+    assert english["turns"][0]["source_language"] == "zh"
+    assert "英语译文" in english["turns"][0]["translated_text"]
+    assert english["turns"][1]["translated_text"] == turns[1]["text"]
+    assert translation.sidecar_path(mdir, "en").name == "transcript.translation.en.json"
+    assert translation.translation_payload(
+        mdir, "Synthetic Meeting", {}, target="en")["state"] == "ready"
+
+print("Transcript translation: zh/en targets, priority, cancel, and resume passed")

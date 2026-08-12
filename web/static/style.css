@@ -116,6 +116,9 @@ body.page-index { overflow: hidden; }
 .transcript-language { display: flex; padding: 2px; border: 1px solid var(--border); border-radius: 7px; background: var(--panel2); }
 .transcript-language button { padding: 1px 6px; border-color: transparent; background: transparent; color: var(--dim); font-size: 10px; }
 .transcript-language button.active { color: var(--text); border-color: var(--border); background: var(--panel); }
+.translation-target-label { display: flex; align-items: center; gap: 3px; color: var(--dim); font-size: 10px; font-weight: 400; white-space: nowrap; }
+.translation-target-label select { max-width: 76px; height: 24px; padding: 0 4px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel2); color: var(--text); font-size: 10px; }
+.translation-target-label select:disabled { opacity: .55; }
 .translation-progress-wrap { display: grid; width: 96px; gap: 2px; }
 .translation-state { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--dim); font-size: 10px; line-height: 12px; }
 .translation-progress { display: block; height: 3px; overflow: hidden; border-radius: 2px; background: var(--panel2); }
@@ -282,9 +285,11 @@ body.page-index { overflow: hidden; }
 body.resizing-panes { cursor: col-resize; user-select: none; }
 .transcript { overflow-y: auto; padding: 8px 10px 48px; }
 .turn {
+  position: relative;
   padding: 6px;
   border-radius: 6px;
-  display: flex;
+  display: grid;
+  grid-template-columns: 60px 104px minmax(0, 1fr);
   gap: 8px;
   align-items: flex-start;
 }
@@ -294,9 +299,9 @@ body.resizing-panes { cursor: col-resize; user-select: none; }
 .tc {
   color: var(--dim);
   font-family: ui-monospace, monospace;
-  font-size: 12px;
+  font-size: 11px;
   cursor: pointer;
-  flex: 0 0 auto;
+  white-space: nowrap;
 }
 .tc:hover { color: var(--accent); }
 .chip {
@@ -306,14 +311,19 @@ body.resizing-panes { cursor: col-resize; user-select: none; }
   padding: 0 8px;
   font-size: 12px;
   cursor: pointer;
-  flex: 0 0 auto;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  box-sizing: border-box;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 .chip:hover { border-color: var(--accent); }
 .chip.disabled { opacity: .5; cursor: not-allowed; }
 .chip.sm { padding: 0 6px; cursor: default; }
 .txt { flex: 1; }
-.turn-text { display: grid; flex: 1; min-width: 0; gap: 3px; }
+.turn-text { display: grid; min-width: 0; gap: 3px; }
 .turn-text .txt { display: block; min-width: 0; }
 .translated-text { color: #cbd6f3; }
 .translated-text.primary { color: var(--text); }
@@ -323,11 +333,14 @@ body.resizing-panes { cursor: col-resize; user-select: none; }
 .turn-translation-pending { color: var(--dim); font-size: 10px; }
 .turn-translation-pending.priority { color: #e2a13c; }
 .quote-turn {
+  position: absolute;
+  top: 5px;
+  right: 5px;
   opacity: 0;
   padding: 0 7px;
   font-size: 11px;
   color: var(--dim);
-  flex: 0 0 auto;
+  background: var(--panel);
 }
 .turn:hover .quote-turn, .quote-turn:focus { opacity: 1; }
 .quote-pop {
@@ -441,7 +454,7 @@ body.resizing-panes { cursor: col-resize; user-select: none; }
 .minutes h1 { font-size: 20px; }
 .minutes h2 { font-size: 17px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
 .minutes h3 { font-size: 15px; }
-.minutes table { border-collapse: collapse; }
+.minutes table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
 .minutes th, .minutes td { border: 1px solid var(--border); padding: 4px 8px; }
 .minutes code { background: var(--panel2); border-radius: 4px; padding: 0 4px; }
 
@@ -716,8 +729,11 @@ body.resizing-panes { cursor: col-resize; user-select: none; }
   .col-header { padding: 0 8px; }
   .transcript-head-tools { gap: 3px; }
   .transcript-language button { padding-left: 4px; padding-right: 4px; }
+  .translation-target-label span { display: none; }
+  .translation-target-label select { max-width: 68px; }
   .translation-progress-wrap { display: none; }
   .follow { display: none; }
+  .turn { grid-template-columns: 56px 84px minmax(0, 1fr); gap: 6px; }
   .minutes { padding: 10px 12px 56px; }
   .utility-panel { inset: 0; width: 100%; border-left: none; }
   .assistant-launcher { right: 10px; bottom: 10px; }

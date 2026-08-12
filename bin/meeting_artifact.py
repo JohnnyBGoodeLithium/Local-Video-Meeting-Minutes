@@ -19,6 +19,7 @@ EVIDENCE_SCHEMA = "meeting-minutes-evidence/v1"
 RAG_SCHEMA = "meeting-minutes-rag/v1"
 MARKER_RE = re.compile(r"<!--\s*mm:evidence\s+([^<>]*?)\s*-->")
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.M)
+TABLE_SEPARATOR_CELL_RE = re.compile(r"^:?-{3,}:?$")
 
 CONCLUSION_POLICY = {
     "version": "conclusion-policy/v1",
@@ -242,6 +243,100 @@ def _clean_markdown_text(value: str) -> str:
     return " ".join(value.split()).strip()
 
 
+def _table_cells(line: str) -> list[str]:
+    """读取模型常见的简单 Markdown 表格行；不尝试解释单元格内的复杂 Markdown。"""
+    value = MARKER_RE.sub("", str(line or "")).strip().replace("｜", "|")
+    if value.startswith("|"):
+        value = value[1:]
+    if value.endswith("|"):
+        value = value[:-1]
+    return [cell.strip() for cell in value.split("|")] if "|" in value else []
+
+
+def _is_table_separator(line: str) -> bool:
+    cells = _table_cells(line)
+    return bool(cells) and all(TABLE_SEPARATOR_CELL_RE.fullmatch(cell.replace(" ", ""))
+                               for cell in cells)
+
+
+def normalize_minutes_markdown(minutes: str) -> str:
+    """只修复确定可判定的 Markdown 表格语法，不改写纪要事实。
+
+    小模型常把 `- **待办事项**：` 与下一行表格直接相连，Markdown 会把整张表
+    当作列表正文。本函数在真正的表头+分隔行前补空行，并兼容全角竖线；旧纪要
+    因而无需重新调用模型。
+    """
+    trailing_newline = str(minutes or "").endswith("\n")
+    lines = str(minutes or "").splitlines()
+    normalized = list(lines)
+    for index in range(len(normalized) - 1):
+        current = normalized[index]
+        following = normalized[index + 1]
+        # 只有下一行确实是表格分隔行时，才把整个连续表格块的全角竖线归一化。
+        if len(_table_cells(current)) < 2 or not _is_table_separator(following):
+            continue
+        normalized[index] = current.replace("｜", "|")
+        normalized[index + 1] = following.replace("｜", "|")
+        cursor = index + 2
+        while cursor < len(normalized) and normalized[cursor].strip():
+            if len(_table_cells(normalized[cursor])) < 2:
+                break
+            normalized[cursor] = normalized[cursor].replace("｜", "|")
+            cursor += 1
+    out: list[str] = []
+    for index, line in enumerate(normalized):
+        is_header = (index + 1 < len(normalized)
+                     and len(_table_cells(line)) >= 2
+                     and _is_table_separator(normalized[index + 1]))
+        if is_header and out and out[-1].strip():
+            out.append("")
+        out.append(line)
+    result = "\n".join(out)
+    return result + "\n" if trailing_newline else result
+
+
+def _action_fields(value: str) -> dict:
+    cells = [_clean_markdown_text(cell) for cell in _table_cells(value)]
+    cells = [cell for cell in cells if cell]
+    if len(cells) >= 4:
+        # 事项中偶尔出现未转义的竖线；负责人/期限/状态从尾部稳定取值。
+        return {
+            "text": " | ".join(cells[:-3]),
+            "owner": cells[-3],
+            "deadline": cells[-2],
+            "status": cells[-1],
+        }
+    return {
+        "text": _clean_markdown_text(value),
+        "owner": None,
+        "deadline": None,
+        "status": None,
+    }
+
+
+def action_items_from_claims(claims: list[dict]) -> list[dict]:
+    """把有证据的 action claim 投影为稳定字段，供 Web、导出和 RAG 共用。"""
+    actions = []
+    for claim in claims:
+        if claim.get("kind") != "action":
+            continue
+        fields = dict(claim.get("action") or _action_fields(str(claim.get("text", ""))))
+        if not fields.get("text"):
+            fields["text"] = str(claim.get("text") or "").strip()
+        actions.append({
+            "id": f"A{len(actions) + 1:05d}",
+            "claim_id": claim.get("id"),
+            **fields,
+            "claim_status": claim.get("status"),
+            "confidence": claim.get("confidence"),
+            "turn_ids": list(claim.get("turn_ids", [])),
+            "page_ids": list(claim.get("page_ids", [])),
+            "evidence_ids": list(claim.get("evidence_ids", [])),
+            "start": claim.get("start"),
+        })
+    return actions
+
+
 def parse_claims(minutes: str, valid_turns: set[str], valid_pages: set[str]) -> list[dict]:
     claims, heading, previous_line = [], "", ""
     lines = minutes.splitlines()
@@ -260,7 +355,7 @@ def parse_claims(minutes: str, valid_turns: set[str], valid_pages: set[str]) -> 
             text = _clean_markdown_text(raw_text)
             if not text:
                 continue
-            claims.append({
+            claim = {
                 "id": f"C{len(claims) + 1:05d}",
                 "text": text,
                 "section": heading,
@@ -272,7 +367,12 @@ def parse_claims(minutes: str, valid_turns: set[str], valid_pages: set[str]) -> 
                 "evidence_ids": turns + pages,
                 "line": line_number,
                 "marker": match.group(0),
-            })
+            }
+            if claim["kind"] == "action":
+                # marker 可能位于事项单元格中间，也可能单独跟在整行后面；解析完整行。
+                action_line = MARKER_RE.sub("", line).strip() or previous_line
+                claim["action"] = _action_fields(action_line)
+            claims.append(claim)
         if line.strip() and not matches:
             previous_line = line.strip()
     return claims
@@ -338,6 +438,7 @@ def build_evidence_document(mdir: Path, minutes: str, turns: list[dict], pages: 
         claim["end"] = max((t["end"] for t in linked), default=None)
         claim["speakers"] = list(dict.fromkeys(t["speaker"] for t in linked))
         claim["person_ids"] = list(dict.fromkeys(t["person_id"] for t in linked if t.get("person_id")))
+    actions = action_items_from_claims(claims)
     return {
         "schema": EVIDENCE_SCHEMA,
         "meeting_id": meeting_uid,
@@ -354,6 +455,7 @@ def build_evidence_document(mdir: Path, minutes: str, turns: list[dict], pages: 
         "speaker_profiles": profiles,
         "sources": {"transcript": turn_sources, "pages": page_sources},
         "claims": claims,
+        "actions": actions,
         "linkage": {
             "claim_count": len(claims),
             "claims_with_transcript": sum(bool(c["turn_ids"]) for c in claims),
@@ -412,7 +514,7 @@ def rag_records(evidence: dict, minutes: str) -> list[dict]:
               "meeting_slug": evidence["slug"]}
     records = []
     for claim in evidence.get("claims", []):
-        records.append({
+        record = {
             **common,
             "id": f"{artifact_id}:claim:{claim['id']}",
             "record_type": "claim",
@@ -429,7 +531,10 @@ def rag_records(evidence: dict, minutes: str) -> list[dict]:
             "turn_ids": claim["turn_ids"],
             "page_ids": claim["page_ids"],
             "retrieval_priority": 1.0 if claim["kind"] in {"decision", "action"} else 0.8,
-        })
+        }
+        if claim["kind"] == "action":
+            record["action"] = claim.get("action") or _action_fields(claim.get("text", ""))
+        records.append(record)
     for turn in evidence.get("sources", {}).get("transcript", []):
         records.append({
             **common,

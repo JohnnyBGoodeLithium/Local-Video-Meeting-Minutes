@@ -22,6 +22,7 @@ from meeting_artifact import (
     CONCLUSION_POLICY,
     build_prompt_context,
     load_speaker_profiles,
+    normalize_minutes_markdown,
     write_evidence_document,
 )
 
@@ -51,7 +52,8 @@ STRUCTURED_PROMPT = """你是一名严谨的会议纪要编辑。输入是 `meet
 - 主旨
 - 关键结论（区分 已确认 / 方向共识 / 提议 / 未决）
 ## 待办事项
-- 动作 + 负责人（未提到写“不明”）+ 期限（未提到写“不明”）
+使用 Markdown 表格，列固定为“事项 / 负责人 / 期限 / 状态”；标题与表格之间保留空行。
+每个事项独占一行并附 evidence marker；负责人或期限未明确时写“待确认”。
 ## 风险/待确认
 ## 议题详情
 
@@ -138,7 +140,7 @@ def main() -> int:
     elapsed = time.time() - t0
 
     msg = data["choices"][0]["message"]
-    minutes = (msg.get("content") or "").strip()
+    minutes = normalize_minutes_markdown((msg.get("content") or "").strip())
     if not minutes:
         print("模型返回为空(可能 token 全耗在推理上)", file=sys.stderr)
         return 3
