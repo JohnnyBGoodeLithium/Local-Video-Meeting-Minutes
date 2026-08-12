@@ -104,7 +104,9 @@ cache_control = next((value for key, value in headers.items()
                       if key.lower() == "cache-control"), "")
 check("首页显式展示质量验收入口且禁止缓存旧壳",
       s == 200 and b'quality-entry-btn' in page and b'quality-tab' in page
-      and b'data-transcript-mode="bilingual"' in page and "no-store" in cache_control)
+      and b'data-transcript-mode="bilingual"' in page
+      and b'utility-panel' in page and b'pane-resizer' in page
+      and b'export-preflight' in page and "no-store" in cache_control)
 s, _, j = req("GET", "/api/meetings")
 n = len(j.get("meetings", []))
 check("GET /api/meetings → 200 且只见隔离夹具", s == 200 and n == 1, f"会议数={n}")
@@ -131,6 +133,8 @@ check("bundle minutes_html 图片已改写为 file 路由",
       f'/api/meetings/_smoke/file?path=slides/' in j.get("minutes_html", ""))
 check("bundle 提供可点击纪要依据且 HTML 不泄露机器标记",
       len(j.get("evidence", {}).get("claims", [])) == 3
+      and j.get("document_state") == "ready"
+      and j.get("evidence", {}).get("state") == "ready"
       and '#mm-C00001' in j.get("minutes_html", "")
       and 'mm:evidence' not in j.get("minutes_html", ""))
 
@@ -198,6 +202,16 @@ check("翻译 sidecar 绑定逐字稿与会议语境 revision",
 
 # 2c. MeetingPack 默认不带媒体，解压后 viewer.html 可直接 file:// 打开
 evidence_before_export = (SMOKE / "minutes.evidence.json").read_bytes()
+s, _, preflight = req("GET", "/api/meetings/_smoke/export/preflight")
+check("导出预检只返回内容状态、数量、媒体和预计体积",
+      s == 200 and preflight.get("evidence", {}).get("state") == "ready"
+      and preflight.get("evidence", {}).get("claims") == 3
+      and preflight.get("content", {}).get("transcript_turns") == 3
+      and preflight.get("media", {}).get("audio", {}).get("available") is True
+      and preflight.get("media", {}).get("video", {}).get("available") is False
+      and preflight.get("estimated_bytes", {}).get("audio", 0)
+      > preflight.get("estimated_bytes", {}).get("none", 0)
+      and "transcript" not in preflight and "path" not in str(preflight))
 s, h, pack_bytes = req("GET", "/api/meetings/_smoke/export?media=none", raw=True)
 pack = zipfile.ZipFile(io.BytesIO(pack_bytes)) if s == 200 else None
 names = set(pack.namelist()) if pack else set()

@@ -3,6 +3,17 @@
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+const WORKSPACE_KEY = "meeting-minutes:workspace:v1";
+
+function readWorkspaceState() {
+  try {
+    return JSON.parse(localStorage.getItem(WORKSPACE_KEY) || "{}") || {};
+  } catch (_) {
+    return {};
+  }
+}
+
+const workspaceState = readWorkspaceState();
 
 const state = {
   meetings: [],
@@ -18,7 +29,8 @@ const state = {
   quality: null,
   qualityFilter: "pending",
   viewMode: "minutes",
-  transcriptMode: "original",
+  transcriptMode: ["original", "zh", "bilingual"].includes(workspaceState.transcriptMode)
+    ? workspaceState.transcriptMode : "original",
   translation: null,
   translationJob: null,
   translationPoller: null,
@@ -27,6 +39,17 @@ const state = {
   lastTranslationFocusAt: 0,
   expandedOriginals: new Set(),
   evidenceBilingual: new Set(),
+  workspace: {
+    lastSlug: workspaceState.lastSlug || null,
+    paneRatio: Math.min(68, Math.max(32, Number(workspaceState.paneRatio) || 44)),
+    utilityOpen: !!workspaceState.utilityOpen,
+    utilityTab: workspaceState.utilityTab === "evidence" ? "evidence" : "assistant",
+    videoExpanded: !!workspaceState.videoExpanded,
+    anchors: workspaceState.anchors && typeof workspaceState.anchors === "object"
+      ? workspaceState.anchors : {},
+  },
+  activeJobs: [],
+  exportPreflight: null,
 };
 
 /* ---------- 工具 ---------- */
@@ -58,12 +81,82 @@ function toast(msg) {
   $("#job-status").textContent = msg;
 }
 
+let workspaceSaveTimer = null;
+function saveWorkspaceState() {
+  clearTimeout(workspaceSaveTimer);
+  workspaceSaveTimer = setTimeout(() => {
+    try {
+      localStorage.setItem(WORKSPACE_KEY, JSON.stringify({
+        lastSlug: state.workspace.lastSlug,
+        transcriptMode: state.transcriptMode,
+        paneRatio: state.workspace.paneRatio,
+        utilityOpen: state.workspace.utilityOpen,
+        utilityTab: state.workspace.utilityTab,
+        videoExpanded: state.workspace.videoExpanded,
+        anchors: state.workspace.anchors,
+      }));
+    } catch (_) { /* 私密浏览或存储已满时不阻断阅读 */ }
+  }, 120);
+}
+
+function meetingAnchor() {
+  if (!state.slug) return null;
+  if (!state.workspace.anchors[state.slug]) state.workspace.anchors[state.slug] = {};
+  return state.workspace.anchors[state.slug];
+}
+
+function rememberReadingPosition() {
+  if (!state.bundle) return;
+  const anchor = meetingAnchor();
+  const transcriptBox = $("#transcript");
+  const transcriptTurn = transcriptScrollAnchor(transcriptBox);
+  if (transcriptTurn) {
+    anchor.transcript = {
+      index: Number(transcriptTurn.id.replace("turn-", "")),
+      revision: state.bundle.transcript_revision,
+    };
+  }
+  const minutesBox = $("#minutes");
+  const bounds = minutesBox.getBoundingClientRect();
+  const heading = $$("[data-reading-heading]", minutesBox)
+    .find(item => item.getBoundingClientRect().bottom > bounds.top + 2);
+  anchor.minutes = {
+    heading: heading?.id || null,
+    scrollTop: heading ? null : Math.round(minutesBox.scrollTop),
+    revision: state.bundle.minutes_revision,
+  };
+  saveWorkspaceState();
+}
+
+function restoreReadingPosition() {
+  const anchor = state.workspace.anchors[state.slug] || {};
+  requestAnimationFrame(() => {
+    if (anchor.transcript?.revision === state.bundle?.transcript_revision) {
+      $("#turn-" + Number(anchor.transcript.index))?.scrollIntoView({ block: "start" });
+    } else {
+      $("#transcript").scrollTop = 0;
+    }
+    const minutesBox = $("#minutes");
+    if (anchor.minutes?.revision === state.bundle?.minutes_revision) {
+      const heading = anchor.minutes.heading && document.getElementById(anchor.minutes.heading);
+      if (heading) heading.scrollIntoView({ block: "start" });
+      else minutesBox.scrollTop = Number(anchor.minutes.scrollTop) || 0;
+    } else {
+      minutesBox.scrollTop = 0;
+    }
+  });
+}
+
 /* ---------- 会议列表 ---------- */
 
 async function loadMeetings() {
   const d = await jget("/api/meetings");
   state.meetings = d.meetings;
   renderMeetingList();
+  if (!state.slug && state.meetings.length) {
+    const remembered = state.meetings.find(m => m.slug === state.workspace.lastSlug);
+    await loadMeeting((remembered || state.meetings[0]).slug);
+  }
 }
 
 function renderMeetingList() {
@@ -90,7 +183,10 @@ function renderMeetingList() {
     del.title = "删除会议";
     del.onclick = ev => deleteMeeting(ev, m.slug);
     li.appendChild(del);
-    li.onclick = () => loadMeeting(m.slug);
+    li.onclick = () => {
+      loadMeeting(m.slug);
+      closeMeetingLibrary();
+    };
     ul.appendChild(li);
   }
 }
@@ -116,8 +212,6 @@ async function deleteMeeting(ev, slug) {
     $("#regen-btn").disabled = true;
     $("#refine-btn").disabled = true;
     $("#export-btn").disabled = true;
-    $("#export-audio-btn").disabled = true;
-    $("#export-video-btn").disabled = true;
     $("#quality-tab").disabled = true;
     $("#quality-entry-btn").disabled = true;
     $("#quality-entry-btn").textContent = "开始质量验收";
@@ -129,7 +223,9 @@ async function deleteMeeting(ev, slug) {
     updateTranslationState();
     state.quality = null;
     setReviewMode("minutes");
-    $("#evidence-card").classList.add("hidden");
+    $("#meeting-statuses").innerHTML = "";
+    $("#assistant-launcher").disabled = true;
+    closeUtility();
     resetAssistant();
   }
   loadMeetings();
@@ -138,6 +234,34 @@ async function deleteMeeting(ev, slug) {
 /* ---------- 会议详情 ---------- */
 
 function player() { return $("#player-holder video") || $("#player-holder audio"); }
+
+function statusChip(label, value, tone = "neutral", title = "") {
+  return `<span class="meeting-status tone-${tone}"${title ? ` title="${esc(title)}"` : ""}>` +
+    `<b>${esc(label)}</b>${esc(value)}</span>`;
+}
+
+function renderMeetingStatuses() {
+  const box = $("#meeting-statuses");
+  const b = state.bundle;
+  if (!box || !b) return;
+  const active = state.activeJobs.find(job => job.meeting === state.slug
+    && ["queued", "running"].includes(job.status));
+  const documentReady = b.document_state === "ready";
+  const evidenceState = b.evidence?.state || "partial";
+  const evidenceLabel = evidenceState === "ready" ? "可核证"
+    : evidenceState === "stale" ? "已过期" : "部分证据";
+  const evidenceTone = evidenceState === "ready" ? "good"
+    : evidenceState === "stale" ? "warn" : "neutral";
+  const shareReady = documentReady && Boolean(b.transcript?.length);
+  box.innerHTML = [
+    statusChip("资料", active ? (active.stage || "处理中") : (documentReady ? "可阅读" : "处理中"),
+      active ? "working" : (documentReady ? "good" : "neutral")),
+    statusChip("证据", evidenceLabel, evidenceTone,
+      evidenceState === "ready" ? "结论可回到逐字稿或共享画面核对" : "重新生成纪要后可补齐结构化依据"),
+    statusChip("分享", shareReady ? "可导出" : "待补齐", shareReady ? "good" : "neutral",
+      b.has_video || b.has_audio ? "可选择是否随包包含媒体" : "当前只能导出文字与画面资料"),
+  ].join("");
+}
 
 async function loadMeeting(slug) {
   const changed = state.slug !== slug;
@@ -151,6 +275,8 @@ async function loadMeeting(slug) {
   renderMeetingList();
   const b = await jget(`/api/meetings/${encodeURIComponent(slug)}/bundle`);
   state.bundle = b;
+  state.workspace.lastSlug = slug;
+  saveWorkspaceState();
   state.quality = null;
   state.translation = null;
   state.expandedOriginals.clear();
@@ -165,14 +291,18 @@ async function loadMeeting(slug) {
   renderPlayer();
   renderTranscript(false);
   renderMinutes();
+  renderMeetingStatuses();
+  renderAssistantSuggestions();
   $("#regen-btn").disabled = false;
   $("#refine-btn").disabled = false;
   $("#export-btn").disabled = false;
-  $("#export-audio-btn").disabled = !b.has_audio;
-  $("#export-video-btn").disabled = !b.has_video;
+  $("#assistant-launcher").disabled = false;
+  if (state.workspace.utilityOpen) openUtility(state.workspace.utilityTab);
   $("#quality-tab").disabled = false;
   $("#quality-entry-btn").disabled = false;
   $$('[data-transcript-mode]').forEach(button => button.disabled = false);
+  updateTranscriptModeButtons();
+  restoreReadingPosition();
   await loadTranscriptTranslation();
   await loadQualityReview();
 }
@@ -193,9 +323,20 @@ function renderPlayer() {
   } else {
     holder.innerHTML = '<p class="placeholder">无媒体文件</p>';
     buildTimeline(0);
+    $("#playback-time").textContent = "00:00 / 00:00";
+    $("#player-toggle").classList.add("hidden");
     return;
   }
-  el.addEventListener("loadedmetadata", () => buildTimeline(el.duration));
+  const box = $("#player-box");
+  box.classList.toggle("compact", b.has_video && !state.workspace.videoExpanded);
+  const toggle = $("#player-toggle");
+  toggle.classList.toggle("hidden", !b.has_video);
+  toggle.textContent = state.workspace.videoExpanded ? "收起画面" : "展开画面";
+  toggle.setAttribute("aria-expanded", String(state.workspace.videoExpanded));
+  el.addEventListener("loadedmetadata", () => {
+    buildTimeline(el.duration);
+    $("#playback-time").textContent = `${fmt(el.currentTime)} / ${fmt(el.duration)}`;
+  });
   el.addEventListener("timeupdate", onTimeUpdate);
   holder.appendChild(el);
   buildTimeline(b.duration || 0);
@@ -211,6 +352,10 @@ function buildTimeline(duration) {
   tl.innerHTML = "";
   if (!duration) duration = b.duration || 1;
   tl.dataset.dur = duration;
+
+  const played = document.createElement("div");
+  played.className = "tl-played";
+  tl.appendChild(played);
 
   // 页/相机区间分段
   for (const p of b.slides) {
@@ -298,6 +443,9 @@ function onTimeUpdate() {
   const dur = parseFloat(tl.dataset.dur || 0);
   const head = $(".tl-head", tl);
   if (head && dur) head.style.left = (t / dur * 100) + "%";
+  const played = $(".tl-played", tl);
+  if (played && dur) played.style.width = (t / dur * 100) + "%";
+  $("#playback-time").textContent = `${fmt(t)} / ${fmt(p.duration || dur)}`;
   // 高亮当前轮
   const turns = state.bundle.transcript;
   let cur = -1;
@@ -470,6 +618,7 @@ async function loadTranscriptTranslation() {
 function setTranscriptMode(mode) {
   if (!["original", "zh", "bilingual"].includes(mode)) return;
   state.transcriptMode = mode;
+  saveWorkspaceState();
   updateTranscriptModeButtons();
   updateTranslationState();
   renderTranscript();
@@ -573,6 +722,10 @@ function expandEvidenceBilingual(indexes) {
 function renderMinutes() {
   const box = $("#minutes");
   box.innerHTML = state.bundle.minutes_html || '<p class="placeholder">暂无纪要</p>';
+  $$("h1, h2, h3", box).forEach((heading, index) => {
+    heading.id = `minutes-heading-${index}`;
+    heading.dataset.readingHeading = "1";
+  });
   $$('a[href^="#mm-"]', box).forEach(link => {
     link.onclick = ev => {
       ev.preventDefault();
@@ -613,7 +766,7 @@ function showMinutesEvidence(claimId) {
       (image ? `<img src="${image}" alt="第${p.page}页">` : "") + `</div>`;
   }
   $("#evidence-body").innerHTML = html;
-  $("#evidence-card").classList.remove("hidden");
+  openUtility("evidence");
   $$(".evidence-seek", $("#evidence-body")).forEach(btn => btn.onclick = () => {
     const index = Number(btn.dataset.index);
     highlightTurns([index]);
@@ -650,9 +803,12 @@ function qualityLabelName(id) {
 function updateQualityIndicators() {
   const pending = state.quality?.summary?.pending || 0;
   const total = state.quality?.summary?.total || 0;
+  const evidenceReady = state.quality?.evidence_state === "ready";
   $("#quality-badge").textContent = pending;
   $("#quality-badge").classList.toggle("hidden", pending === 0);
-  $("#quality-entry-btn").textContent = pending
+  $("#quality-entry-btn").classList.toggle("evidence-missing", !evidenceReady);
+  $("#quality-entry-btn").textContent = !evidenceReady ? "证据需补全" : !total
+    ? "暂无可验收结论" : pending
     ? `开始质量验收 · ${pending}` : (total ? "查看验收结果" : "质量验收");
 }
 
@@ -801,8 +957,60 @@ function qualityShortcut(event) {
   saveQualityReview(claim, label.id, $("textarea", card)?.value || "", trigger);
 }
 
+function formatBytes(bytes) {
+  const value = Number(bytes) || 0;
+  if (value < 1024 * 1024) return `${Math.max(1, Math.round(value / 1024))} KB`;
+  if (value < 1024 * 1024 * 1024) return `${(value / 1024 / 1024).toFixed(value > 100 * 1024 * 1024 ? 0 : 1)} MB`;
+  return `${(value / 1024 / 1024 / 1024).toFixed(1)} GB`;
+}
+
+async function openExportDialog() {
+  if (!state.slug) return;
+  $(".more-menu")?.removeAttribute("open");
+  $("#export-mask").classList.remove("hidden");
+  $("#export-confirm").disabled = true;
+  $("#export-preflight").innerHTML = '<p class="placeholder">正在检查证据、页面与媒体…</p>';
+  try {
+    state.exportPreflight = await jget(
+      `/api/meetings/${encodeURIComponent(state.slug)}/export/preflight`);
+    renderExportPreflight();
+  } catch (error) {
+    $("#export-preflight").innerHTML = `<div class="export-warning">无法检查导出内容（${esc(error.message)}）</div>`;
+  }
+}
+
+function closeExportDialog() {
+  $("#export-mask").classList.add("hidden");
+}
+
+function renderExportPreflight() {
+  const data = state.exportPreflight;
+  if (!data) return;
+  const evidenceNames = { ready: "可核证", stale: "依据已过期", partial: "部分证据" };
+  const options = [
+    ["none", "轻量包", "纪要、逐字稿、页面与证据", true],
+    ["audio", "包含音频", "可离线播放并按证据跳转", data.media.audio.available],
+    ["video", "包含源视频", "可离线回看共享画面", data.media.video.available],
+  ];
+  const html = `<div class="export-facts">` +
+    `<span><b>${esc(evidenceNames[data.evidence.state] || "部分证据")}</b>${data.evidence.linked_claims}/${data.evidence.claims} 条结论有链接</span>` +
+    `<span><b>${data.content.transcript_turns}</b>段逐字稿</span>` +
+    `<span><b>${data.content.pages}</b>页共享画面</span></div>` +
+    `<div class="export-options">${options.map(([id, title, detail, available], index) =>
+      `<label class="export-option ${available ? "" : "disabled"}">` +
+      `<input type="radio" name="export-media" value="${id}" ${index === 0 ? "checked" : ""} ${available ? "" : "disabled"}>` +
+      `<span><b>${title}</b><small>${detail}</small></span>` +
+      `<strong>约 ${formatBytes(data.estimated_bytes[id])}</strong></label>`).join("")}</div>` +
+    (data.evidence.state === "ready" ? "" :
+      '<div class="export-warning">当前包仍可阅读，但部分结论不能回到原文核对。建议重新生成纪要后再正式分享。</div>') +
+    '<p class="export-note">收件人无需模型或服务：解压 ZIP 后双击 <code>viewer.html</code>。不要直接在压缩包内打开。</p>';
+  $("#export-preflight").innerHTML = html;
+  $("#export-confirm").disabled = false;
+}
+
 function exportMeeting(media = "none") {
   if (!state.slug) return;
+  closeExportDialog();
   const a = document.createElement("a");
   a.href = `/api/meetings/${encodeURIComponent(state.slug)}/export?media=${encodeURIComponent(media)}`;
   a.download = "";
@@ -812,10 +1020,57 @@ function exportMeeting(media = "none") {
   toast(media === "none" ? "正在生成离线查看包（默认不含音视频）…" : `正在生成含${media === "video" ? "视频" : "音频"}的查看包…`);
 }
 
-/* ---------- 本地会议助手：结构化逐字稿引用 ---------- */
+/* ---------- 本地会议助手：右侧智能栏 + 结构化逐字稿引用 ---------- */
+
+function openUtility(tab = "assistant") {
+  const selected = tab === "evidence" ? "evidence" : "assistant";
+  state.workspace.utilityOpen = true;
+  state.workspace.utilityTab = selected;
+  $("#utility-panel").classList.remove("hidden");
+  $("#content-shell").classList.add("utility-open");
+  $("#assistant-pane").classList.toggle("hidden", selected !== "assistant");
+  $("#evidence-pane").classList.toggle("hidden", selected !== "evidence");
+  $$('[data-utility-tab]').forEach(button => {
+    const active = button.dataset.utilityTab === selected;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
+  });
+  if (selected === "assistant") renderAssistantSuggestions();
+  saveWorkspaceState();
+}
+
+function closeUtility() {
+  state.workspace.utilityOpen = false;
+  $("#utility-panel")?.classList.add("hidden");
+  $("#content-shell")?.classList.remove("utility-open");
+  saveWorkspaceState();
+}
 
 function setAssistantThread(open) {
-  $("#assistant-thread")?.classList.toggle("hidden", !open);
+  if (open) openUtility("assistant");
+  else closeUtility();
+}
+
+function renderAssistantSuggestions() {
+  const box = $("#assistant-suggestions");
+  if (!box) return;
+  if (!state.bundle) {
+    box.innerHTML = "";
+    return;
+  }
+  const hasClaims = Boolean(state.bundle.evidence?.claims?.length);
+  const suggestions = hasClaims
+    ? ["这次确认了什么？", "有哪些行动项和负责人？", "还有哪些问题没有解决？"]
+    : ["按原文梳理这场会议的讨论主题"];
+  box.innerHTML = suggestions.map(item =>
+    `<button type="button" data-assistant-suggestion="${esc(item)}">${esc(item)}</button>`).join("");
+  $$('[data-assistant-suggestion]', box).forEach(button => {
+    button.onclick = () => {
+      openUtility("assistant");
+      $("#assistant-input").value = button.dataset.assistantSuggestion;
+      $("#assistant-input").focus();
+    };
+  });
 }
 
 function resetAssistant() {
@@ -826,11 +1081,11 @@ function resetAssistant() {
   state.assistantNextIntent = null;
   if ($("#assistant-refs")) renderAssistantRefs();
   if ($("#assistant-messages")) renderAssistantMessages();
-  setAssistantThread(false);
   if ($("#assistant-input")) {
     $("#assistant-input").value = "";
     $("#assistant-input").placeholder = "问这场会议，或告诉我如何修改纪要…";
   }
+  renderAssistantSuggestions();
 }
 
 function referenceGroups() {
@@ -851,6 +1106,7 @@ function addReferenceRange(start, end, intent = null) {
   state.assistantRefs = [...new Set(state.assistantRefs)].sort((a, b) => a - b).slice(0, 30);
   state.assistantNextIntent = intent;
   renderAssistantRefs();
+  openUtility("assistant");
   if (intent === "edit") {
     $("#assistant-input").placeholder = "说明要怎样把这段内容更新到纪要…";
   } else if (intent === "ask") {
@@ -908,6 +1164,26 @@ function citedText(text, sources) {
     ids.has(id) ? `<button type="button" class="source-link" data-source="${id}">${all}</button>` : all);
 }
 
+function showAssistantSource(source) {
+  const indexes = source?.turn_indexes || [];
+  const turns = indexes.map(index => ({ index, turn: state.bundle?.transcript?.[index] }))
+    .filter(item => item.turn);
+  let html = `<div class="evidence-claim">${esc(source?.label || source?.id || "助手引用")}</div>`;
+  for (const { index, turn } of turns) {
+    html += `<div class="evidence-source"><div><b>${esc(turn.speaker)}</b>` +
+      `<button type="button" class="evidence-seek" data-index="${index}">${fmt(turn.start)}</button></div>` +
+      `<p>${esc(turn.text)}</p></div>`;
+  }
+  if (!turns.length) html += '<p class="placeholder">这条引用没有可定位的逐字稿片段。</p>';
+  $("#evidence-body").innerHTML = html;
+  $$(".evidence-seek", $("#evidence-body")).forEach(button => button.onclick = () => {
+    const index = Number(button.dataset.index);
+    highlightTurns([index]);
+    seek(state.bundle.transcript[index]?.start || 0);
+  });
+  openUtility("evidence");
+}
+
 function renderAssistantMessages() {
   const box = $("#assistant-messages");
   if (!box) return;
@@ -955,6 +1231,7 @@ function renderAssistantMessages() {
         const indexes = src.turn_indexes || [];
         highlightTurns(indexes);
         if (src.start != null) seek(src.start);
+        showAssistantSource(src);
       };
     });
     const apply = $(".apply-edit", el);
@@ -1250,7 +1527,7 @@ function pollJob(id, onUpdate) {
 async function pollJobs() {
   try {
     const d = await jget("/api/jobs");
-    renderJobs(d.jobs.slice(0, 8));
+    renderJobs(d.jobs);
   } catch (e) { /* 忽略 */ }
 }
 
@@ -1258,14 +1535,20 @@ function renderJobs(jobs) {
   const ul = $("#jobs-list");
   if (!ul) return;
   const activeJobs = jobs.filter(j => j.status === "queued" || j.status === "running");
+  state.activeJobs = activeJobs;
   $("#jobs-panel").classList.toggle("hidden", activeJobs.length === 0);
   ul.innerHTML = "";
-  for (const j of activeJobs) {
+  for (const j of activeJobs.slice(0, 8)) {
     const li = document.createElement("li");
     const active = j.status === "queued" || j.status === "running";
+    const meeting = state.meetings.find(item => item.slug === j.meeting);
+    const name = meeting?.title || (j.kind === "translation" ? "逐字稿翻译" : "会议处理");
+    const progress = j.progress?.total
+      ? ` ${j.progress.done || 0}/${j.progress.total}` : "";
+    const status = j.status === "queued" ? "等待处理" : `${j.stage || "处理中"}${progress}`;
     li.innerHTML =
-      `<span class="j-name" title="${esc(j.id)}">${esc(j.meeting || j.kind)}</span>` +
-      `<span class="j-st st-${esc(j.status)}">${esc(j.status)}</span>`;
+      `<span class="j-name" title="${esc(j.id)}">${esc(name)}</span>` +
+      `<span class="j-st st-${esc(j.status)}">${esc(status)}</span>`;
     if (active) {
       const btn = document.createElement("button");
       btn.type = "button";
@@ -1280,9 +1563,57 @@ function renderJobs(jobs) {
     li.title = (j.log || []).slice(-1)[0] || j.id;
     ul.appendChild(li);
   }
+  renderMeetingStatuses();
 }
 
 /* ---------- 事件 ---------- */
+
+function setPaneRatio(value) {
+  state.workspace.paneRatio = Math.min(68, Math.max(32, Number(value) || 44));
+  $("#review-grid").style.setProperty("--transcript-ratio", `${state.workspace.paneRatio}%`);
+  $("#pane-resizer").setAttribute("aria-valuenow", String(Math.round(state.workspace.paneRatio)));
+  saveWorkspaceState();
+}
+
+function setMeetingLibrary(open) {
+  document.body.classList.toggle("library-open", open);
+  $("#library-toggle").setAttribute("aria-expanded", String(open));
+  $("#library-scrim").classList.toggle("hidden", !open);
+}
+
+function closeMeetingLibrary() { setMeetingLibrary(false); }
+
+function setupPaneResizer() {
+  const handle = $("#pane-resizer");
+  const grid = $("#review-grid");
+  setPaneRatio(state.workspace.paneRatio);
+  let dragging = false;
+  handle.addEventListener("pointerdown", event => {
+    if (window.innerWidth <= 820) return;
+    dragging = true;
+    handle.setPointerCapture(event.pointerId);
+    document.body.classList.add("resizing-panes");
+    event.preventDefault();
+  });
+  handle.addEventListener("pointermove", event => {
+    if (!dragging) return;
+    const bounds = grid.getBoundingClientRect();
+    setPaneRatio((event.clientX - bounds.left) / bounds.width * 100);
+  });
+  const finish = event => {
+    if (!dragging) return;
+    dragging = false;
+    document.body.classList.remove("resizing-panes");
+    if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
+  };
+  handle.addEventListener("pointerup", finish);
+  handle.addEventListener("pointercancel", finish);
+  handle.addEventListener("keydown", event => {
+    if (!["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+    event.preventDefault();
+    setPaneRatio(state.workspace.paneRatio + (event.key === "ArrowRight" ? 2 : -2));
+  });
+}
 
 function init() {
   $("#search").addEventListener("input", renderMeetingList);
@@ -1291,9 +1622,7 @@ function init() {
     if (confirm("用 122B 大模型整体重写纪要？首次调用需加载模型(数分钟)，且会挤占常驻模型。"))
       regenMinutes("qwen3.5-122b-a10b-planner");
   };
-  $("#export-btn").onclick = () => exportMeeting("none");
-  $("#export-audio-btn").onclick = () => exportMeeting("audio");
-  $("#export-video-btn").onclick = () => exportMeeting("video");
+  $("#export-btn").onclick = openExportDialog;
   $("#minutes-tab").onclick = () => setReviewMode("minutes");
   $("#quality-tab").onclick = () => setReviewMode("quality");
   $("#quality-entry-btn").onclick = () => setReviewMode("quality");
@@ -1305,11 +1634,13 @@ function init() {
     button.onclick = () => setTranscriptMode(button.dataset.transcriptMode);
   });
   document.addEventListener("keydown", qualityShortcut);
-  $("#evidence-close").onclick = () => $("#evidence-card").classList.add("hidden");
   $("#bind-cancel").onclick = closeBind;
   $("#bind-mask").addEventListener("click", e => { if (e.target.id === "bind-mask") closeBind(); });
 
-  $("#assistant-thread-close").onclick = () => setAssistantThread(false);
+  $("#assistant-launcher").onclick = () => openUtility("assistant");
+  $("#utility-close").onclick = closeUtility;
+  $$('[data-utility-tab]').forEach(button =>
+    button.onclick = () => openUtility(button.dataset.utilityTab));
   $("#assistant-send").onclick = sendAssistant;
   $("#assistant-input").addEventListener("keydown", e => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -1318,6 +1649,29 @@ function init() {
     }
   });
   setupTranscriptSelection();
+  setupPaneResizer();
+  $("#library-toggle").onclick = () =>
+    setMeetingLibrary(!document.body.classList.contains("library-open"));
+  $("#library-scrim").onclick = closeMeetingLibrary;
+  $("#transcript").addEventListener("scroll", rememberReadingPosition, { passive: true });
+  $("#minutes").addEventListener("scroll", rememberReadingPosition, { passive: true });
+  $("#player-toggle").onclick = () => {
+    state.workspace.videoExpanded = !state.workspace.videoExpanded;
+    $("#player-box").classList.toggle("compact", !state.workspace.videoExpanded);
+    $("#player-toggle").textContent = state.workspace.videoExpanded ? "收起画面" : "展开画面";
+    $("#player-toggle").setAttribute("aria-expanded", String(state.workspace.videoExpanded));
+    saveWorkspaceState();
+  };
+
+  $("#export-close").onclick = closeExportDialog;
+  $("#export-cancel").onclick = closeExportDialog;
+  $("#export-confirm").onclick = () => {
+    const media = $('input[name="export-media"]:checked', $("#export-preflight"))?.value || "none";
+    exportMeeting(media);
+  };
+  $("#export-mask").addEventListener("click", event => {
+    if (event.target.id === "export-mask") closeExportDialog();
+  });
 
   const dz = $("#dropzone");
   dz.addEventListener("dragover", e => { e.preventDefault(); dz.classList.add("over"); });

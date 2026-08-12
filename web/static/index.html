@@ -4,11 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>会议纪要</title>
-<link rel="stylesheet" href="/static/style.css?v=20260811u">
+<link rel="stylesheet" href="/static/style.css?v=20260812p0">
 </head>
 <body class="page-index">
 <header class="topbar">
   <span class="brand">🎙 会议纪要</span>
+  <button id="library-toggle" class="library-toggle" type="button" aria-expanded="false">会议</button>
   <span id="job-status" class="job-status"></span>
   <a class="toplink" href="/admin">设置</a>
 </header>
@@ -38,6 +39,7 @@
       <div>
         <h1 id="meeting-title">选择一场会议</h1>
         <div id="meeting-meta" class="meeting-meta">阅读纪要、追问内容并修正记录</div>
+        <div id="meeting-statuses" class="meeting-statuses" aria-live="polite"></div>
       </div>
       <div class="meeting-head-actions">
         <button id="quality-entry-btn" class="quality-entry" type="button" disabled>开始质量验收</button>
@@ -46,22 +48,25 @@
           <div class="more-menu-pop">
             <button id="regen-btn" type="button" disabled>重新生成纪要</button>
             <button id="refine-btn" type="button" disabled title="使用更强的本地模型优化全文">优化全文</button>
-            <button id="export-btn" type="button" disabled title="无需模型，解压后双击 viewer.html">导出离线查看包</button>
-            <button id="export-audio-btn" type="button" disabled>导出并包含音频</button>
-            <button id="export-video-btn" type="button" disabled>导出并包含源视频</button>
+            <button id="export-btn" type="button" disabled title="导出前检查证据、媒体和预计大小">分享 / 导出…</button>
             <a href="/admin">人员与高级设置</a>
           </div>
         </details>
       </div>
     </header>
 
-    <div class="review-grid">
-      <section class="transcript-pane">
-        <div class="player-box">
-          <div id="player-holder"><p class="placeholder">选择会议后可回放</p></div>
-          <div id="timeline" class="timeline"></div>
-          <div id="tl-tip" class="tl-tip hidden"></div>
-        </div>
+    <div id="content-shell" class="content-shell">
+      <div id="review-grid" class="review-grid">
+        <section class="transcript-pane">
+          <div id="player-box" class="player-box compact">
+            <div class="player-box-head">
+              <span id="playback-time">00:00 / 00:00</span>
+              <button id="player-toggle" class="player-toggle hidden" type="button" aria-expanded="false">展开画面</button>
+            </div>
+            <div id="player-holder"><p class="placeholder">选择会议后可回放</p></div>
+            <div id="timeline" class="timeline"></div>
+            <div id="tl-tip" class="tl-tip hidden"></div>
+          </div>
         <div class="col-header">
           <span>逐字稿</span>
           <div class="transcript-head-tools">
@@ -79,55 +84,65 @@
           </div>
         </div>
         <div id="transcript" class="transcript"><p class="placeholder">← 选择一场会议</p></div>
-      </section>
+        </section>
 
-      <section class="minutes-pane">
-        <div class="col-header minutes-mode-tabs">
-          <button id="minutes-tab" class="mode-tab active" type="button">会议纪要</button>
-          <button id="quality-tab" class="mode-tab" type="button" disabled>
-            质量验收 <span id="quality-badge" class="quality-badge hidden"></span>
-          </button>
-        </div>
-        <div id="minutes" class="minutes"><p class="placeholder">纪要内容</p></div>
-        <div id="quality" class="quality-view hidden">
-          <p class="placeholder">选择会议后可核对结论质量</p>
-        </div>
-      </section>
+        <div id="pane-resizer" class="pane-resizer" role="separator" aria-label="调整逐字稿与纪要宽度" aria-orientation="vertical" tabindex="0"></div>
+
+        <section class="minutes-pane">
+          <div class="col-header minutes-mode-tabs">
+            <button id="minutes-tab" class="mode-tab active" type="button">会议纪要</button>
+            <button id="quality-tab" class="mode-tab" type="button" disabled>
+              质量验收 <span id="quality-badge" class="quality-badge hidden"></span>
+            </button>
+          </div>
+          <div id="minutes" class="minutes"><p class="placeholder">纪要内容</p></div>
+          <div id="quality" class="quality-view hidden">
+            <p class="placeholder">选择会议后可核对结论质量</p>
+          </div>
+        </section>
+      </div>
+
+      <aside id="utility-panel" class="utility-panel hidden" aria-label="会议智能栏">
+        <header class="utility-head">
+          <div class="utility-tabs" role="tablist">
+            <button type="button" data-utility-tab="assistant" class="active" role="tab">AI 对话</button>
+            <button type="button" data-utility-tab="evidence" role="tab">证据</button>
+          </div>
+          <button id="utility-close" class="utility-close" type="button" aria-label="关闭智能栏">×</button>
+        </header>
+        <section id="assistant-pane" class="utility-pane assistant-pane">
+          <div id="assistant-suggestions" class="assistant-suggestions"></div>
+          <div id="assistant-thread" class="assistant-thread">
+            <div id="assistant-messages" class="assistant-messages"></div>
+          </div>
+          <div id="assistant-refs" class="assistant-refs"></div>
+          <div class="assistant-compose">
+            <textarea id="assistant-input" rows="2" maxlength="8000"
+                      placeholder="问这场会议，或告诉我如何修改纪要…"></textarea>
+            <div class="assistant-compose-actions">
+              <span id="assistant-state" class="dim"></span>
+              <button id="assistant-send" class="primary" type="button">发送</button>
+            </div>
+          </div>
+        </section>
+        <section id="evidence-pane" class="utility-pane evidence-pane hidden" aria-live="polite">
+          <div id="evidence-body"><p class="placeholder">点击纪要中的依据标记，可在这里核对原文与画面。</p></div>
+        </section>
+      </aside>
     </div>
 
-    <section id="assistant-dock" class="assistant-dock">
-      <div id="assistant-thread" class="assistant-thread hidden">
-        <div class="assistant-thread-head">
-          <b>会议助手</b>
-          <button id="assistant-thread-close" type="button" aria-label="收起助手">收起</button>
-        </div>
-        <div id="assistant-messages" class="assistant-messages"></div>
-      </div>
-      <div id="assistant-refs" class="assistant-refs"></div>
-      <div class="assistant-compose">
-        <textarea id="assistant-input" rows="1" maxlength="8000"
-                  placeholder="问这场会议，或告诉我如何修改纪要…"></textarea>
-        <div class="assistant-compose-actions">
-          <span id="assistant-state" class="dim"></span>
-          <button id="assistant-send" class="primary" type="button">发送</button>
-        </div>
-      </div>
-    </section>
+    <button id="assistant-launcher" class="assistant-launcher" type="button" disabled>
+      <span>✦</span><span>问这场会议，或修改纪要…</span>
+    </button>
   </section>
 </main>
+
+<button id="library-scrim" class="library-scrim hidden" type="button" aria-label="关闭会议列表"></button>
 
 <div id="quote-pop" class="quote-pop hidden">
   <button type="button" data-intent="ask">问助手</button>
   <button type="button" data-intent="edit">用这段更新纪要</button>
 </div>
-
-<aside id="evidence-card" class="evidence-card hidden" aria-live="polite">
-  <div class="evidence-card-head">
-    <b>纪要依据</b>
-    <button id="evidence-close" type="button">关闭</button>
-  </div>
-  <div id="evidence-body"></div>
-</aside>
 
 <!-- 说话人绑定弹框 -->
 <div id="bind-mask" class="mask hidden">
@@ -145,6 +160,23 @@
   </div>
 </div>
 
-<script src="/static/app.js?v=20260811v"></script>
+<div id="export-mask" class="mask hidden">
+  <div class="dialog export-dialog" role="dialog" aria-modal="true" aria-labelledby="export-title">
+    <div class="export-dialog-head">
+      <div>
+        <h3 id="export-title">分享 / 导出会议</h3>
+        <p class="dim">先检查证据与媒体，再生成可离线打开的 MeetingPack。</p>
+      </div>
+      <button id="export-close" type="button" aria-label="关闭">×</button>
+    </div>
+    <div id="export-preflight" class="export-preflight"><p class="placeholder">正在检查导出内容…</p></div>
+    <div class="dialog-btns export-actions">
+      <button id="export-cancel" type="button">取消</button>
+      <button id="export-confirm" class="primary" type="button" disabled>生成离线查看包</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/app.js?v=20260812p0"></script>
 </body>
 </html>

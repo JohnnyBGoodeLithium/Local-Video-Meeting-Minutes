@@ -203,6 +203,14 @@ def _current_evidence(mdir: Path) -> dict:
     return evidence
 
 
+def _evidence_state(mdir: Path, evidence: dict | None = None) -> str:
+    """把 sidecar/revision 细节收敛成用户可理解的三态。"""
+    current = _current_evidence(mdir) if evidence is None else evidence
+    if current:
+        return "ready" if current.get("claims") else "partial"
+    return "stale" if (mdir / "minutes.evidence.json").is_file() else "partial"
+
+
 def _refresh_evidence(mdir: Path) -> dict:
     """在确定性编辑后重建 sidecar；不调用 LLM。"""
     minutes_path = _minutes_file(mdir)
@@ -284,11 +292,25 @@ def _load_jobs():
         JOBS[job["id"]] = job
 
 
+def _pipeline_stage(line: str, current: str = "处理中") -> str:
+    value = line.lower()
+    stages = [
+        (("asr", "transcrib", "转写", "字幕"), "语音转写"),
+        (("diar", "speaker", "发言人", "分离"), "区分发言人"),
+        (("slide", "extract", "抽页", "幻灯片"), "提取页面"),
+        (("vl", "vision", "画面理解", "页面理解"), "理解共享画面"),
+        (("minute", "summary", "纪要", "总结"), "生成纪要"),
+        (("rag", "index", "索引", "检索"), "建立索引"),
+    ]
+    return next((label for needles, label in stages if any(needle in value for needle in needles)),
+                current)
+
+
 def _run_pipeline(job: dict):
     """后台线程：subprocess 调 bin/ 管线脚本。stdout 只留元数据行。"""
     if job.get("cancel_requested"):   # 排队期间被取消
         return
-    _set_status(job, "running", started=_now())
+    _set_status(job, "running", started=_now(), stage="准备处理")
     cmd = job["cmd"]
     actual = [cmd[0], cmd[1], "--help"] if DRY_RUN else cmd
     if DRY_RUN:
@@ -299,19 +321,26 @@ def _run_pipeline(job: dict):
                 return
     try:
         proc = subprocess.Popen(
-            actual, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            actual, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, env={**os.environ, "HF_HUB_OFFLINE": "1"},
             start_new_session=True)   # 独立进程组: 取消时整组杀(含管线拉起的孙进程)
         PROCS[job["id"]] = proc
-        out, err = proc.communicate()
+        for raw in proc.stdout or []:
+            line = raw.rstrip()
+            if not line.lstrip().startswith("["):
+                continue
+            with BANK_LOCK:
+                job.setdefault("log", []).append(line)
+                job["log"] = job["log"][-300:]
+                job["stage"] = _pipeline_stage(line, job.get("stage", "处理中"))
+                _save_job(job)
+        proc.wait()
     except Exception as e:
         job["log"].append(f"[error] 启动失败: {type(e).__name__}: {e}")
         _set_status(job, "failed", finished=_now(), rc=-1)
         return
     finally:
         PROCS.pop(job["id"], None)
-    meta = [l for l in out.splitlines() if l.lstrip().startswith("[")]
-    job["log"].extend(meta)
     if proc.returncode != 0 and not job.get("cancel_requested"):
         # 作业 JSON 是可由 API 读取的元数据，不落模型输入/输出或任意 stderr 正文。
         job["log"].append(f"[error] 子进程失败 (rc={proc.returncode})")
@@ -419,8 +448,10 @@ def get_bundle(slug: str):
         "speaker_count": len({t.get("speaker") for t in transcript if t.get("speaker")}),
         "transcript_revision": assistant.revision(mdir / "transcript.spk.json"),
         "minutes_revision": assistant.revision(_minutes_file(mdir)) if _minutes_file(mdir) else None,
+        "document_state": "ready" if transcript and minutes_html else "processing",
         "evidence": {
             "schema": evidence.get("schema"),
+            "state": _evidence_state(mdir, evidence),
             "claims": evidence.get("claims", []),
             "linkage": evidence.get("linkage", {}),
         },
@@ -492,7 +523,8 @@ def _run_translation(job: dict, mdir: Path, title: str, target: str) -> None:
     """同一串行 worker 内执行本地翻译；作业日志只记录进度数字。"""
     if job.get("cancel_requested"):
         return
-    _set_status(job, "running", started=_now(), progress={"done": 0, "total": 0})
+    _set_status(job, "running", started=_now(), stage="生成中文译文",
+                progress={"done": 0, "total": 0})
 
     def cancelled() -> bool:
         return bool(job.get("cancel_requested"))
@@ -604,6 +636,59 @@ def export_meeting_pack(slug: str, media: str = Query("none", pattern="^(none|au
     return FileResponse(
         archive, media_type="application/zip", filename=filename,
         background=BackgroundTask(archive.unlink, missing_ok=True))
+
+
+@app.get("/api/meetings/{slug}/export/preflight")
+def export_meeting_preflight(slug: str):
+    """返回导出前所需的数量与体积元数据；不复制会议正文或本机路径。"""
+    mdir = _mdir(slug)
+    ident = _meeting_identity(slug)
+    transcript = _read_json(mdir / "transcript.spk.json", [])
+    slides = _read_json(mdir / "slides.json", [])
+    evidence = _current_evidence(mdir)
+    claims = evidence.get("claims", [])
+    linked_claims = sum(bool(claim.get("turn_ids") or claim.get("turn_indexes")
+                             or claim.get("page_ids")) for claim in claims)
+    base_paths = [
+        mdir / "transcript.spk.json",
+        mdir / "transcript.spk.md",
+        mdir / "minutes.evidence.json",
+        _minutes_file(mdir),
+    ]
+    base_bytes = 180_000  # viewer、manifest、README 与导出索引的保守开销
+    for path in base_paths:
+        if path and path.is_file():
+            base_bytes += path.stat().st_size
+    slides_dir = mdir / "slides"
+    if slides_dir.is_dir():
+        base_bytes += sum(path.stat().st_size for path in slides_dir.iterdir() if path.is_file())
+    audio = _audio_path(mdir)
+    video = _video_path(mdir)
+    audio_bytes = audio.stat().st_size if audio else 0
+    video_bytes = video.stat().st_size if video else 0
+    return {
+        **ident,
+        "document_state": "ready" if transcript and _minutes_file(mdir) else "processing",
+        "evidence": {
+            "state": _evidence_state(mdir, evidence),
+            "claims": len(claims),
+            "linked_claims": linked_claims,
+            "linkage_coverage": round(linked_claims / len(claims), 3) if claims else 0,
+        },
+        "content": {
+            "transcript_turns": len(transcript),
+            "pages": sum(1 for page in slides if page.get("kind") == "slide") or len(slides),
+        },
+        "media": {
+            "audio": {"available": bool(audio), "bytes": audio_bytes},
+            "video": {"available": bool(video), "bytes": video_bytes},
+        },
+        "estimated_bytes": {
+            "none": base_bytes,
+            "audio": base_bytes + audio_bytes,
+            "video": base_bytes + video_bytes,
+        },
+    }
 
 
 # ---------------------------------------------------------------- 本地会议助手
