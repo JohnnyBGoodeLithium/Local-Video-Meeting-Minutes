@@ -40,7 +40,10 @@ from meeting_artifact import (
     write_evidence_document,
 )
 from meeting_structure import clean_model_text
+from meeting_core.context_budget import ContextBudget
+from meeting_core.minutes_overview import generate as generate_overview
 import meeting_topic_map
+import meeting_generation
 
 ROUTER = "http://127.0.0.1:11435/v1/chat/completions"
 MODEL = "qwen3.6-35b-a3b-operator"
@@ -386,12 +389,26 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
           f" | 开场 {len(opening)} 轮 | VL解读 {len(descs)} 页", flush=True)
 
     t0 = time.time()
-    part1, u1 = chat(SUM_PROMPT.format(
+    summary_prompt = SUM_PROMPT.format(
         evidence_rules=EVIDENCE_RULES,
         policy=json.dumps(CONCLUSION_POLICY, ensure_ascii=False, indent=2),
         context=context_json,
-    ))
-    print(f"[meta] 总体摘要+板块 {len(part1)} 字 | tokens {u1.get('completion_tokens','?')}"
+    )
+    if ContextBudget(output_tokens=8192).fits(summary_prompt):
+        part1, u1 = chat(summary_prompt)
+        overview_mode, overview_chunks = "direct", 1
+    else:
+        overview = generate_overview(
+            summary_context, CONCLUSION_POLICY, EVIDENCE_RULES,
+            progress=lambda current, total: print(
+                f"[meta] 总体纪要长文本分段 {current}/{total}", flush=True),
+        )
+        part1 = clean_model_text(overview.content)
+        u1 = {"prompt_tokens": overview.prompt_tokens,
+              "completion_tokens": overview.completion_tokens}
+        overview_mode, overview_chunks = overview.mode, overview.chunks
+    print(f"[meta] 总体摘要+板块 {len(part1)} 字 | 模式 {overview_mode}"
+          f" ({overview_chunks} 段) | tokens {u1.get('completion_tokens','?')}"
           f" | {time.time()-t0:.0f}s", flush=True)
 
     def pages_context(group):
@@ -467,6 +484,8 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
             "vl_enabled": bool(vl),
             "vl_pages": len(descs),
             "generation_stage": "final",
+            "overview_mode": overview_mode,
+            "overview_chunks": overview_chunks,
             "refined": refined,
             "refine_model": refine_model if refined else None,
         })
@@ -484,13 +503,21 @@ def main() -> int:
                     help="原视频(给了则按 captured 时间戳重抓原生分辨率帧给 VL, 否则用 slides/ 图)")
     ap.add_argument("--refine-model", default=None,
                     help="大模型精修重写(如 qwen3.5-122b-a10b-planner; 首次调用需加载, 分钟级)")
+    ap.add_argument("--publish", action="store_true",
+                    help="成功后发布 ready 状态（Web 重生成/失败恢复使用）")
     args = ap.parse_args()
     if not (args.mdir / "transcript.spk.json").is_file() or not (args.mdir / "slides.json").is_file():
         print("会议目录缺 transcript.spk.json 或 slides.json", file=sys.stderr)
         return 1
     out, stats = generate(args.mdir, args.out, vl=not args.no_vl, video=args.video,
                           refine_model=args.refine_model)
+    if args.publish:
+        meeting_generation.finalize(
+            args.mdir, pages=stats["pages"], vl_pages=stats["vl_pages"])
     meeting_topic_map.generate_for_pipeline(args.mdir)
+    if args.publish:
+        print(f"[meta] 多模态终稿已发布 | VL {stats['vl_pages']}/{stats['pages']} 页",
+              flush=True)
     print(f"[meta] 纪要: {out} | {stats['chars']} 字 | VL页数 {stats['vl_pages']}"
           f"{' | 已精修' if stats['refined'] else ''}", flush=True)
     return 0

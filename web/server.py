@@ -1575,7 +1575,10 @@ def regen_minutes(slug: str, refine: str = Query("")):
         raise HTTPException(409, "语音草稿仍在补充屏幕资料，暂不能重新生成")
     if not (mdir / "transcript.spk.json").is_file():
         raise HTTPException(400, "没有逐字稿，无法重生成")
-    cmd = [str(PY), str(ROOT / "bin" / "minutes_by_page.py"), str(mdir)]
+    cmd = [str(PY), str(ROOT / "bin" / "minutes_by_page.py"), str(mdir), "--publish"]
+    video = _video_path(mdir)
+    if video is not None:
+        cmd += ["--video", str(video)]
     if refine:
         cmd += ["--refine-model", refine]
     job = _new_job("regen", meeting=slug, cmd=cmd)
