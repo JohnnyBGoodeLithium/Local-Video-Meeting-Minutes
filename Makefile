@@ -13,6 +13,7 @@ check:
 	$(PY) web/tests/orgchart_extract_test.py
 	$(PY) web/tests/minutes_policy_test.py
 	$(PY) web/tests/media_materialize_test.py
+	$(PY) web/tests/meeting_structure_test.py
 	$(PY) web/tests/translation_service_test.py
 	@if command -v node >/dev/null 2>&1; then node --check web/static/app.js && node --check web/static/admin.js; else echo "Node unavailable: skipped JS syntax check"; fi
 	git diff --check

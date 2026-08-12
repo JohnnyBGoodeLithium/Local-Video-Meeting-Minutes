@@ -64,6 +64,7 @@ import voice_bank as vb  # noqa: E402
 import meeting_dir as md_util  # noqa: E402
 import assistant_service as assistant  # noqa: E402
 import meeting_artifact as artifact  # noqa: E402
+import meeting_structure  # noqa: E402
 import export_meeting as meeting_export  # noqa: E402
 import evaluation_service as evaluation  # noqa: E402
 import translation_service as translation  # noqa: E402
@@ -434,6 +435,19 @@ def get_bundle(slug: str):
     samples_dir = mdir / "samples"
     samples = sorted(p.stem for p in samples_dir.glob("*.wav")) if samples_dir.is_dir() else []
     evidence = _current_evidence(mdir)
+    duration = max((turn.get("end", 0) for turn in transcript), default=0)
+    raw_desc = _read_json(mdir / "page_desc.json", {}).get("desc", {})
+    descriptions = {int(key): str(value) for key, value in raw_desc.items()
+                    if str(key).isdigit()}
+    minutes_path = _minutes_file(mdir)
+    structure = meeting_structure.build_structure(
+        minutes_path.read_text(encoding="utf-8") if minutes_path else "",
+        transcript, slides, descriptions, evidence, duration=duration)
+    # VL 结果本身通常是 Markdown；沿用纪要的安全渲染配置（禁用原始 HTML），
+    # 让画面资料页保持可读层级，而不是把标题/列表作为原始文本展示。
+    for visual in structure.get("visuals", []):
+        visual["description_html"] = MD.render(
+            visual.get("description") or "当前画面没有可用的 VL 详细解读。")
     return {
         "slug": slug,
         **_meeting_identity(slug),
@@ -446,11 +460,12 @@ def get_bundle(slug: str):
         "source": {k: bool(v) for k, v in src.items()},  # 不把原始路径暴露给前端逻辑判断以外
         "has_audio": _audio_path(mdir) is not None,
         "has_video": _video_path(mdir) is not None,
-        "duration": max((t.get("end", 0) for t in transcript), default=0),
+        "duration": duration,
         "speaker_count": len({t.get("speaker") for t in transcript if t.get("speaker")}),
         "transcript_revision": assistant.revision(mdir / "transcript.spk.json"),
         "minutes_revision": assistant.revision(_minutes_file(mdir)) if _minutes_file(mdir) else None,
         "document_state": "ready" if transcript and minutes_html else "processing",
+        "structure": structure,
         "evidence": {
             "schema": evidence.get("schema"),
             "state": _evidence_state(mdir, evidence),

@@ -29,6 +29,8 @@ flowchart LR
     API --> TRANS[translation_service.py]
     TRANS --> ROUTER
     TRANS --> DATA
+    API --> STRUCT[meeting_structure.py\n确定性阅读投影]
+    STRUCT --> DATA
     API --> EVAL[(本地 evaluations)]
     DATA --> EXPORT[MeetingPack 导出器]
     EXPORT --> VIEWER[静态 viewer.html]
@@ -79,6 +81,16 @@ flowchart LR
 `translation_service.py` 读取原始逐字稿，按目标语言分别生成 `transcript.translation.zh-CN.json` 和 `transcript.translation.en.json`。翻译按连续十轮分批，每批附带前后两轮、已确认人员名称、当前页面和直接关联的 evidence claims；系统提示将 conclusions 定义为低信任消歧材料，禁止补入当前发言未表达的事实。已经是目标语言的轮次由代码直接复用，其他语言及中英混合轮次调用与会议助手相同的本机 LLM，并整体整理成目标语言。批次顺序可在运行中由纪要依据和当前播放位置调整，但每批使用的原始语境不变。
 
 sidecar 保存 T ID、源语言、译文、数字核对警告、逐字稿 revision 和会议语境 revision，不修改原始转写。翻译通过串行 Web 作业运行并逐批原子落盘；前端轮询部分 sidecar，只在完整轮次落盘后更新。取消、失败和服务重启保留已完成轮次并以显式 partial 状态续跑，不会产生一份伪装成完整结果的译文。当前为整场缓存与整场语境失效，后续如引入逐字稿局部修订，再细化为按 T ID 选择性重译。
+
+### 在线阅读结构投影
+
+`meeting_structure.py` 在请求 bundle 时读取现有纪要议题、`slides.json`、`page_desc.json`、逐字稿和 evidence，生成 `meeting-structure/v1`。它不调用模型、不写会议文件，只提供三个稳定对象：
+
+- `Segment`：一个逻辑页面或摄像头画面的一次连续出现。同一页面的多个 range 必须展开成多个 Segment，避免返回旧页时所有跳转都落到第一次；
+- `Chapter`：一个连续讨论时间段。优先解析纪要“议题板块”的开始时间，缺失时按视觉 Segment 降级；章节关联 T/P 来源，并确定性分组 discussion/decision/action/open claim；
+- `Visual`：逻辑页面级资料，一页只保存一份完整 VL 描述和图片，同时列出全部出现 ranges、相关 Segment 与 claim。`display_status` 区分被讨论、仅展示和摄像头动态画面。
+
+前端时间线用 Chapter 作为上层、Segment 作为下层。章节和画面页面只是对 canonical evidence 的索引与重组；点击结论仍进入统一证据栏，VL 描述明确标注不能单独证明会议决定。未来 Topic/思维导图应建立在可跨章节的语义实体上，不能直接用页码或 Segment 冒充主题。
 
 ## Web 作业模型
 

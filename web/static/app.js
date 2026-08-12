@@ -14,6 +14,7 @@ function readWorkspaceState() {
 }
 
 const workspaceState = readWorkspaceState();
+const requestedView = new URLSearchParams(location.search).get("view");
 const savedTranscriptMode = ({ zh: "translated", bilingual: "comparison" })[
   workspaceState.transcriptMode] || workspaceState.transcriptMode;
 const TRANSLATION_TARGETS = new Set(["zh-CN", "en"]);
@@ -31,7 +32,10 @@ const state = {
   assistantNextIntent: null,
   quality: null,
   qualityFilter: "pending",
-  viewMode: "minutes",
+  viewMode: ["minutes", "chapters", "visuals", "quality"].includes(requestedView)
+    ? requestedView : "minutes",
+  selectedChapterId: null,
+  selectedVisualId: null,
   transcriptMode: ["original", "translated", "comparison"].includes(savedTranscriptMode)
     ? savedTranscriptMode : "original",
   translationTarget: TRANSLATION_TARGETS.has(workspaceState.translationTarget)
@@ -243,12 +247,17 @@ async function deleteMeeting(ev, slug) {
     $("#meeting-meta").textContent = "阅读纪要、追问内容并修正记录";
     $("#transcript").innerHTML = '<p class="placeholder">← 选择一场会议</p>';
     $("#minutes").innerHTML = '<p class="placeholder">纪要内容</p>';
+    $("#chapters").innerHTML = '<p class="placeholder">选择会议后可按章节回顾</p>';
+    $("#visuals").innerHTML = '<p class="placeholder">选择会议后可查看画面资料</p>';
     $("#player-holder").innerHTML = '<p class="placeholder">选择会议后可回放</p>';
     $("#timeline").innerHTML = "";
+    $("#current-chapter").classList.add("hidden");
     $("#regen-btn").disabled = true;
     $("#refine-btn").disabled = true;
     $("#export-btn").disabled = true;
     $("#quality-tab").disabled = true;
+    $("#chapters-tab").disabled = true;
+    $("#visuals-tab").disabled = true;
     $("#quality-entry-btn").disabled = true;
     $("#quality-entry-btn").textContent = "开始质量验收";
     $$('[data-transcript-mode]').forEach(button => button.disabled = true);
@@ -319,6 +328,8 @@ async function loadMeeting(slug) {
   saveWorkspaceState();
   state.quality = null;
   state.translation = null;
+  state.selectedChapterId = b.structure?.chapters?.[0]?.id || null;
+  state.selectedVisualId = b.structure?.visuals?.[0]?.id || null;
   state.expandedOriginals.clear();
   state.evidenceBilingual.clear();
   $("#meeting-title").textContent = b.title || slug;
@@ -331,6 +342,8 @@ async function loadMeeting(slug) {
   renderPlayer();
   renderTranscript(false);
   renderMinutes();
+  renderChapters();
+  renderVisuals();
   renderMeetingStatuses();
   renderAssistantSuggestions();
   $("#regen-btn").disabled = false;
@@ -339,11 +352,14 @@ async function loadMeeting(slug) {
   $("#assistant-launcher").disabled = false;
   if (state.workspace.utilityOpen) openUtility(state.workspace.utilityTab);
   $("#quality-tab").disabled = false;
+  $("#chapters-tab").disabled = !(b.structure?.chapters?.length);
+  $("#visuals-tab").disabled = !(b.structure?.visuals?.length);
   $("#quality-entry-btn").disabled = false;
   $$('[data-transcript-mode]').forEach(button => button.disabled = false);
   $("#translation-target").disabled = false;
   $("#translation-target").value = state.translationTarget;
   updateTranscriptModeButtons();
+  setReviewMode(state.viewMode);
   restoreReadingPosition();
   await loadTranscriptTranslation();
   await loadQualityReview();
@@ -399,7 +415,24 @@ function buildTimeline(duration) {
   played.className = "tl-played";
   tl.appendChild(played);
 
-  // 页/相机区间分段
+  // 上层：连续语义章节。点击进入章节回顾并从章节起点播放。
+  for (const chapter of b.structure?.chapters || []) {
+    if (chapter.end <= chapter.start) continue;
+    const block = document.createElement("div");
+    block.className = "tl-chapter";
+    block.dataset.chapterId = chapter.id;
+    block.style.left = (chapter.start / duration * 100) + "%";
+    block.style.width = Math.max(.8, (chapter.end - chapter.start) / duration * 100) + "%";
+    block.title = `${fmt(chapter.start)}–${fmt(chapter.end)} ${chapter.title}`;
+    block.innerHTML = `<span>${esc(chapter.title)}</span>`;
+    block.addEventListener("click", event => {
+      event.stopPropagation();
+      openChapter(chapter.id, true);
+    });
+    tl.appendChild(block);
+  }
+
+  // 下层：每次连续出现的页面/摄像头视觉片段。
   for (const p of b.slides) {
     const color = p.kind === "camera" ? "#666" : PAGE_COLORS[(p.page - 1) % PAGE_COLORS.length];
     for (const [s, e] of (p.ranges || [])) {
@@ -409,11 +442,18 @@ function buildTimeline(duration) {
       seg.style.width = Math.max(0.5, (e - s) / duration * 100) + "%";
       seg.style.background = color;
       seg.dataset.start = s;
+      const occurrence = (b.structure?.segments || []).find(item =>
+        item.kind === (p.kind || "slide") && item.page === (p.page ?? null)
+        && Math.abs(item.start - s) < .05 && Math.abs(item.end - e) < .05);
       const label = p.kind === "camera" ? "画面" : `第${p.page}页`;
-      seg.addEventListener("mouseenter", ev => showTip(ev, p, label));
+      seg.addEventListener("mouseenter", ev => showTip(ev, p, label, s));
       seg.addEventListener("mousemove", ev => moveTip(ev));
       seg.addEventListener("mouseleave", hideTip);
-      seg.addEventListener("click", () => seek(s));
+      seg.addEventListener("click", event => {
+        event.stopPropagation();
+        if (occurrence?.visual_id) openVisual(occurrence.visual_id, s);
+        else seek(s);
+      });
       tl.appendChild(seg);
     }
   }
@@ -429,19 +469,11 @@ function buildTimeline(duration) {
     tick.appendChild(lab);
     tl.appendChild(tick);
   }
-  // 议题/页标记点
-  for (const tp of b.topics || []) {
-    const mk = document.createElement("div");
-    mk.className = "tl-marker";
-    mk.style.left = (tp.start / duration * 100) + "%";
-    mk.title = `${fmt(tp.start)} ${tp.title}`;
-    mk.addEventListener("click", () => seek(tp.start));
-    tl.appendChild(mk);
-  }
   // 播放头
   const head = document.createElement("div");
   head.className = "tl-head";
   tl.appendChild(head);
+  updateActiveChapter(player()?.currentTime || 0);
   // 空白处点击 seek
   tl.addEventListener("click", ev => {
     if (ev.target !== tl) return;
@@ -450,9 +482,9 @@ function buildTimeline(duration) {
   });
 }
 
-function showTip(ev, page, label) {
+function showTip(ev, page, label, start = page.first) {
   const tip = $("#tl-tip");
-  let html = `<div class="tip-title">${esc(label)} · ${fmt(page.first)}</div>`;
+  let html = `<div class="tip-title">${esc(label)} · ${fmt(start)}</div>`;
   if (page.image) {
     html += `<img src="/api/meetings/${encodeURIComponent(state.slug)}/file?path=${encodeURIComponent("slides/" + page.image)}">`;
   }
@@ -488,6 +520,7 @@ function onTimeUpdate() {
   const played = $(".tl-played", tl);
   if (played && dur) played.style.width = (t / dur * 100) + "%";
   $("#playback-time").textContent = `${fmt(t)} / ${fmt(p.duration || dur)}`;
+  updateActiveChapter(t);
   // 高亮当前轮
   const turns = state.bundle.transcript;
   let cur = -1;
@@ -511,6 +544,18 @@ function onTimeUpdate() {
       }
     }
   }
+}
+
+function updateActiveChapter(time) {
+  const chapters = state.bundle?.structure?.chapters || [];
+  const current = chapters.find(chapter => chapter.start <= time && time < chapter.end)
+    || (time === state.bundle?.duration ? chapters.at(-1) : null);
+  $$(".tl-chapter.active").forEach(item => item.classList.remove("active"));
+  if (current) $(`.tl-chapter[data-chapter-id="${current.id}"]`)?.classList.add("active");
+  const label = $("#current-chapter");
+  label.classList.toggle("hidden", !current);
+  label.textContent = current ? current.title : "";
+  label.title = current ? `${fmt(current.start)}–${fmt(current.end)} ${current.title}` : "";
 }
 
 /* ---------- 转写区 ---------- */
@@ -805,12 +850,151 @@ function renderMinutes() {
   });
 }
 
+function structureClaimCard(id) {
+  const claim = (state.bundle?.evidence?.claims || []).find(item => item.id === id);
+  if (!claim) return "";
+  const status = qualityStatusNames[claim.status] || claim.status || "记录";
+  const kind = qualityKindNames[claim.kind] || claim.kind || "内容";
+  const action = claim.kind === "action" ? (claim.action ||
+    (state.bundle?.evidence?.actions || []).find(item => item.claim_id === claim.id)) : null;
+  return `<button type="button" class="structure-claim" data-structure-claim="${esc(id)}">` +
+    `<span class="structure-claim-meta"><i>${esc(kind)}</i><i>${esc(status)}</i>` +
+    `${claim.start != null ? `<i>${fmt(claim.start)}</i>` : ""}</span>` +
+    `<b>${esc(action?.text || claim.text)}</b>` +
+    (action ? `<small>负责人：${esc(action.owner || "待确认")} · 期限：${esc(action.deadline || "待确认")}` +
+      `${action.status ? ` · ${esc(action.status)}` : ""}</small>` : "") +
+    `</button>`;
+}
+
+function structureClaimGroup(title, ids, empty = "") {
+  const cards = (ids || []).map(structureClaimCard).filter(Boolean).join("");
+  if (!cards && !empty) return "";
+  return `<section class="structure-group"><h3>${esc(title)} <span>${ids?.length || 0}</span></h3>` +
+    (cards || `<p class="structure-empty">${esc(empty)}</p>`) + `</section>`;
+}
+
+function wireStructureClaims(box) {
+  $$('[data-structure-claim]', box).forEach(button =>
+    button.onclick = () => showMinutesEvidence(button.dataset.structureClaim));
+}
+
+function openChapter(chapterId, play = false) {
+  if (!chapterId) return;
+  state.selectedChapterId = chapterId;
+  setReviewMode("chapters");
+  renderChapters();
+  const chapter = state.bundle?.structure?.chapters?.find(item => item.id === chapterId);
+  if (play && chapter) seek(chapter.start);
+}
+
+function renderChapters() {
+  const box = $("#chapters");
+  const structure = state.bundle?.structure;
+  const chapters = structure?.chapters || [];
+  if (!chapters.length) {
+    box.innerHTML = '<div class="structure-empty-state"><h3>还没有章节结构</h3><p>完整纪要仍可正常阅读。</p></div>';
+    return;
+  }
+  let selected = chapters.find(item => item.id === state.selectedChapterId) || chapters[0];
+  state.selectedChapterId = selected.id;
+  const sourceLabel = structure.chapter_source === "minutes_topic" ? "基于纪要议题" : "基于视觉分段";
+  const pageMap = new Map((structure.visuals || []).map(item => [item.id, item]));
+  const pages = selected.page_ids.map(id => pageMap.get(id)).filter(Boolean);
+  box.innerHTML = `<div class="structure-layout"><nav class="structure-list" aria-label="会议章节">` +
+    `<div class="structure-list-head"><b>时间章节</b><span>${esc(sourceLabel)}</span></div>` +
+    chapters.map((chapter, index) =>
+      `<button type="button" class="structure-nav-item ${chapter.id === selected.id ? "active" : ""}" ` +
+      `data-chapter-id="${esc(chapter.id)}"><small>${String(index + 1).padStart(2, "0")} · ` +
+      `${fmt(chapter.start)}–${fmt(chapter.end)}</small><b>${esc(chapter.title)}</b>` +
+      `<span>${esc(chapter.summary)}</span></button>`).join("") +
+    `</nav><article class="structure-detail chapter-detail">` +
+    `<header class="structure-detail-head"><div><span>CHAPTER · ${fmt(selected.start)}–${fmt(selected.end)}</span>` +
+    `<h2>${esc(selected.title)}</h2></div><button type="button" class="chapter-play">▶ 从这里播放</button></header>` +
+    `<p class="chapter-summary">${esc(selected.summary)}</p>` +
+    (selected.speakers?.length ? `<div class="chapter-speakers">主要发言：${esc(selected.speakers.join("、"))}</div>` : "") +
+    (pages.length ? `<div class="chapter-pages">${pages.map(page => {
+      const src = page.image
+        ? `/api/meetings/${encodeURIComponent(state.slug)}/file?path=${encodeURIComponent(`slides/${page.image}`)}` : "";
+      return `<button type="button" data-visual-id="${esc(page.id)}" data-visual-time="${selected.start}">` +
+        (src ? `<img src="${src}" alt="${esc(page.title)}">` : "") +
+        `<span>${esc(page.title)}</span></button>`;
+    }).join("")}</div>` : "") +
+    structureClaimGroup("主要讨论", selected.discussion_claim_ids) +
+    structureClaimGroup("共识与决定", selected.decision_claim_ids, "这一章节未识别到已确认共识。") +
+    structureClaimGroup("行动项", selected.action_claim_ids, "这一章节未识别到明确行动项。") +
+    structureClaimGroup("提议与待确认", selected.open_claim_ids) +
+    `</article></div>`;
+  $$('.structure-nav-item', box).forEach(button => button.onclick = () => {
+    state.selectedChapterId = button.dataset.chapterId;
+    renderChapters();
+  });
+  $(".chapter-play", box).onclick = () => seek(selected.start);
+  $$('[data-visual-id]', box).forEach(button => button.onclick = () =>
+    openVisual(button.dataset.visualId, Number(button.dataset.visualTime)));
+  wireStructureClaims(box);
+}
+
+function openVisual(visualId, time = null) {
+  if (!visualId) return;
+  state.selectedVisualId = visualId;
+  setReviewMode("visuals");
+  renderVisuals();
+  if (Number.isFinite(time)) seek(time);
+}
+
+function renderVisuals() {
+  const box = $("#visuals");
+  const visuals = state.bundle?.structure?.visuals || [];
+  if (!visuals.length) {
+    box.innerHTML = '<div class="structure-empty-state"><h3>没有画面资料</h3><p>这场会议仍可通过完整纪要和逐字稿回顾。</p></div>';
+    return;
+  }
+  const selected = visuals.find(item => item.id === state.selectedVisualId) || visuals[0];
+  state.selectedVisualId = selected.id;
+  const status = selected.display_status === "discussed" ? "有对应讨论"
+    : selected.display_status === "display_only" ? "仅展示" : "动态画面";
+  const image = selected.image
+    ? `/api/meetings/${encodeURIComponent(state.slug)}/file?path=${encodeURIComponent(`slides/${selected.image}`)}` : "";
+  box.innerHTML = `<div class="structure-layout"><nav class="structure-list visual-list" aria-label="画面资料">` +
+    `<div class="structure-list-head"><b>画面资料</b><span>${visuals.length} 项</span></div>` +
+    visuals.map(visual => `<button type="button" class="structure-nav-item ${visual.id === selected.id ? "active" : ""}" ` +
+      `data-visual-id="${esc(visual.id)}"><small>${fmt(visual.first)} · ` +
+      `${visual.kind === "slide" ? `第${visual.page}页` : "摄像头"}</small>` +
+      `<b>${esc(visual.title)}</b><span>${visual.ranges?.length || 0} 个出现区间</span></button>`).join("") +
+    `</nav><article class="structure-detail visual-detail">` +
+    `<header class="structure-detail-head"><div><span>VISUAL · ${esc(status)}</span>` +
+    `<h2>${esc(selected.title)}</h2></div></header>` +
+    `<div class="visual-ranges">${(selected.ranges || []).map(([start, end]) =>
+      `<button type="button" data-visual-seek="${start}">${fmt(start)}–${fmt(end)}</button>`).join("")}</div>` +
+    (image ? `<img class="visual-hero" src="${image}" alt="${esc(selected.title)}">` :
+      `<div class="visual-no-image">该片段没有静态页面截图</div>`) +
+    `<section class="visual-description"><h3>视觉模型详细解读</h3>` +
+    `<p class="visual-boundary">仅说明画面展示内容，不代表会议作出了决定。</p>` +
+    `<div>${selected.description_html || esc(selected.description || "当前画面没有可用的 VL 详细解读。")}</div></section>` +
+    structureClaimGroup("相关会议内容", selected.claim_ids) +
+    `</article></div>`;
+  $$('.structure-nav-item', box).forEach(button => button.onclick = () => {
+    state.selectedVisualId = button.dataset.visualId;
+    renderVisuals();
+  });
+  $$('[data-visual-seek]', box).forEach(button =>
+    button.onclick = () => seek(Number(button.dataset.visualSeek)));
+  wireStructureClaims(box);
+}
+
 function setReviewMode(mode) {
-  state.viewMode = mode === "quality" ? "quality" : "minutes";
-  $("#minutes").classList.toggle("hidden", state.viewMode !== "minutes");
-  $("#quality").classList.toggle("hidden", state.viewMode !== "quality");
-  $("#minutes-tab").classList.toggle("active", state.viewMode === "minutes");
-  $("#quality-tab").classList.toggle("active", state.viewMode === "quality");
+  const allowed = new Set(["minutes", "chapters", "visuals", "quality"]);
+  state.viewMode = allowed.has(mode) ? mode : "minutes";
+  if (state.viewMode === "chapters" && !state.bundle?.structure?.chapters?.length)
+    state.viewMode = "minutes";
+  if (state.viewMode === "visuals" && !state.bundle?.structure?.visuals?.length)
+    state.viewMode = "minutes";
+  for (const id of ["minutes", "chapters", "visuals", "quality"])
+    $(`#${id}`).classList.toggle("hidden", state.viewMode !== id);
+  for (const id of ["minutes", "chapters", "visuals", "quality"])
+    $(`#${id}-tab`).classList.toggle("active", state.viewMode === id);
+  if (state.viewMode === "chapters") renderChapters();
+  if (state.viewMode === "visuals") renderVisuals();
   if (state.viewMode === "quality") renderQualityReview();
 }
 
@@ -1721,6 +1905,8 @@ function init() {
   };
   $("#export-btn").onclick = openExportDialog;
   $("#minutes-tab").onclick = () => setReviewMode("minutes");
+  $("#chapters-tab").onclick = () => setReviewMode("chapters");
+  $("#visuals-tab").onclick = () => setReviewMode("visuals");
   $("#quality-tab").onclick = () => setReviewMode("quality");
   $("#quality-entry-btn").onclick = () => setReviewMode("quality");
   $("#translation-control").onclick = () => {

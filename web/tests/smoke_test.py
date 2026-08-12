@@ -106,6 +106,7 @@ check("首页显式展示质量验收入口且禁止缓存旧壳",
       s == 200 and b'quality-entry-btn' in page and b'quality-tab' in page
       and b'data-transcript-mode="comparison"' in page
       and b'id="translation-target"' in page
+      and b'id="chapters-tab"' in page and b'id="visuals-tab"' in page
       and b'utility-panel' in page and b'pane-resizer' in page
       and b'export-preflight' in page and b'href="/static/product.html"' in page
       and "no-store" in cache_control)
@@ -140,6 +141,13 @@ check("bundle 带逐字稿/纪要 revision",
       bool(j.get("transcript_revision")) and bool(j.get("minutes_revision")))
 check("bundle 含可读会议身份元数据",
       j.get("title") == "smoke" and j.get("speaker_count") == 2)
+check("bundle 提供逻辑页、连续视觉片段和语义章节三层结构",
+      j.get("structure", {}).get("schema") == "meeting-structure/v1"
+      and len(j.get("structure", {}).get("segments", [])) == 2
+      and len(j.get("structure", {}).get("chapters", [])) == 1
+      and len(j.get("structure", {}).get("visuals", [])) == 2
+      and all(visual.get("description_html")
+              for visual in j.get("structure", {}).get("visuals", [])))
 check("bundle minutes_html 图片已改写为 file 路由",
       f'/api/meetings/_smoke/file?path=slides/' in j.get("minutes_html", ""))
 check("bundle 提供可点击纪要依据且 HTML 不泄露机器标记",
