@@ -15,6 +15,7 @@ function readWorkspaceState() {
 
 const workspaceState = readWorkspaceState();
 const requestedView = new URLSearchParams(location.search).get("view");
+const requestedViewExplicit = ["minutes", "chapters", "visuals", "quality"].includes(requestedView);
 const savedTranscriptMode = ({ zh: "translated", bilingual: "comparison" })[
   workspaceState.transcriptMode] || workspaceState.transcriptMode;
 const TRANSLATION_TARGETS = new Set(["zh-CN", "en"]);
@@ -38,6 +39,8 @@ const state = {
   selectedTopicId: null,
   selectedTopicNodeId: null,
   selectedVisualId: null,
+  focus: { mode: "overview", time: null, ranges: [], topicId: null, nodeId: null,
+    turnIds: [], claimIds: [], pageIds: [], source: "overview" },
   visualFilter: "useful",
   transcriptMode: ["original", "translated", "comparison"].includes(savedTranscriptMode)
     ? savedTranscriptMode : "original",
@@ -258,7 +261,7 @@ async function deleteMeeting(ev, slug) {
     $("#meeting-meta").textContent = "阅读纪要、追问内容并修正记录";
     $("#transcript").innerHTML = '<p class="placeholder">← 选择一场会议</p>';
     $("#minutes").innerHTML = '<p class="placeholder">纪要内容</p>';
-    $("#chapters").innerHTML = '<p class="placeholder">选择会议后可查看章节脉络</p>';
+    $("#chapters").innerHTML = '<p class="placeholder">选择会议后可查看会议脉络</p>';
     $("#visuals").innerHTML = '<p class="placeholder">选择会议后可查看屏幕内容</p>';
     $("#player-holder").innerHTML = '<p class="placeholder">选择会议后可回放</p>';
     $("#timeline").innerHTML = "";
@@ -347,9 +350,12 @@ async function loadMeeting(slug) {
   state.quality = null;
   state.translation = null;
   state.selectedChapterId = b.structure?.chapters?.[0]?.id || null;
-  state.selectedTopicId = b.topic_map?.topics?.[0]?.id || null;
-  state.selectedTopicNodeId = state.selectedTopicId;
+  state.selectedTopicId = null;
+  state.selectedTopicNodeId = null;
   state.selectedVisualId = b.structure?.visuals?.[0]?.id || null;
+  state.focus = { mode: "overview", time: null, ranges: [], topicId: null, nodeId: null,
+    turnIds: [], claimIds: [], pageIds: [], source: "overview" };
+  state.focusSignature = null;
   state.visualFilter = "useful";
   state.expandedOriginals.clear();
   state.evidenceBilingual.clear();
@@ -375,6 +381,9 @@ async function loadMeeting(slug) {
   $("#assistant-launcher").disabled = false;
   if (state.workspace.utilityOpen) openUtility(state.workspace.utilityTab);
   if (isDraft && state.viewMode === "quality") state.viewMode = "minutes";
+  const topicMapReady = b.topic_map?.state === "ready"
+    && (b.topic_map?.topics?.length || 0) >= 3 && b.topic_map.topics.length <= 8;
+  if (changed && !requestedViewExplicit) state.viewMode = topicMapReady ? "chapters" : "minutes";
   $("#quality-tab").disabled = isDraft;
   $("#chapters-tab").disabled = !(b.transcript?.length);
   $("#visuals-tab").disabled = !(b.structure?.visuals?.length);
@@ -399,6 +408,12 @@ function renderPlayer() {
   const holder = $("#player-holder");
   holder.innerHTML = "";
   let el;
+  const hasVisualStage = !b.has_video && (b.structure?.visuals || []).some(item => item.image);
+  if (hasVisualStage) {
+    holder.innerHTML = `<div id="content-stage" class="content-stage"><img id="content-stage-image" alt="">` +
+      `<div class="content-stage-caption"><span id="content-stage-kicker">当前屏幕</span>` +
+      `<b id="content-stage-title">正在定位屏幕内容</b></div></div>`;
+  }
   if (b.has_video) {
     el = document.createElement("video");
     el.src = `/api/meetings/${encodeURIComponent(state.slug)}/media/video`;
@@ -408,10 +423,11 @@ function renderPlayer() {
     el.src = `/api/meetings/${encodeURIComponent(state.slug)}/media/audio`;
     el.controls = true;
   } else {
-    holder.innerHTML = '<p class="placeholder">无媒体文件</p>';
+    if (!hasVisualStage) holder.innerHTML = '<p class="placeholder">无媒体文件，可通过时间轴定位逐字稿与纪要</p>';
     buildTimeline(0);
-    $("#playback-time").textContent = "00:00 / 00:00";
+    $("#playback-time").textContent = `00:00 / ${fmt(b.duration || 0)}`;
     $("#player-toggle").classList.add("hidden");
+    updateFocusPresentation(true);
     return;
   }
   const box = $("#player-box");
@@ -427,6 +443,7 @@ function renderPlayer() {
   el.addEventListener("timeupdate", onTimeUpdate);
   holder.appendChild(el);
   buildTimeline(b.duration || 0);
+  updateFocusPresentation(true);
 }
 
 /* ---------- 时间轴（页区间分段 + 刻度 + 议题标记） ---------- */
@@ -444,6 +461,178 @@ function visualImageUrl(visual) {
     : "";
 }
 
+function topicMapReady() {
+  const topics = state.bundle?.topic_map?.topics || [];
+  return state.bundle?.topic_map?.state === "ready" && topics.length >= 3 && topics.length <= 8;
+}
+
+function topicNode(topicId, nodeId = topicId) {
+  const topic = (state.bundle?.topic_map?.topics || []).find(item => item.id === topicId);
+  if (!topic) return [null, null];
+  return [topic, nodeId === topic.id ? topic : (topic.children || []).find(item => item.id === nodeId) || topic];
+}
+
+function visualForTime(time) {
+  return (state.bundle?.structure?.visuals || []).find(visual =>
+    (visual.ranges || []).some(([start, end]) => Number(start) <= time && time < Number(end))) || null;
+}
+
+function representativeVisual(pageIds = []) {
+  const order = { high: 0, medium: 1, unknown: 2, low: 3 };
+  return (pageIds || []).map(id => (state.bundle?.structure?.visuals || []).find(item => item.id === id))
+    .filter(item => item?.image).sort((a, b) => (order[a.information_value] ?? 2) -
+      (order[b.information_value] ?? 2) || Number(a.first || 0) - Number(b.first || 0))[0] || null;
+}
+
+function turnIndexesForIds(ids = []) {
+  const wanted = new Set(ids);
+  return (state.bundle?.evidence?.sources?.transcript || [])
+    .filter(item => wanted.has(item.id)).map(item => Number(item.index)).filter(Number.isInteger);
+}
+
+function currentTurnIndex(time) {
+  let index = -1;
+  for (let i = 0; i < (state.bundle?.transcript || []).length; i++) {
+    if (Number(state.bundle.transcript[i].start) <= time) index = i; else break;
+  }
+  return index;
+}
+
+function claimsForTurn(index) {
+  if (index < 0) return [];
+  return (state.bundle?.evidence?.claims || [])
+    .filter(claim => (claim.turn_indexes || []).includes(index)).map(claim => claim.id);
+}
+
+function setOverviewFocus() {
+  state.focus = { mode: "overview", time: null, ranges: [], topicId: null, nodeId: null,
+    turnIds: [], claimIds: [], pageIds: [], source: "overview" };
+  state.selectedTopicId = null;
+  state.selectedTopicNodeId = null;
+  state.focusSignature = null;
+  updateFocusPresentation(true);
+}
+
+function setTopicFocus(topic, node = topic) {
+  if (!topic || !node) return;
+  state.focus = { mode: "topic", time: null, ranges: node.ranges || topic.ranges || [],
+    topicId: topic.id, nodeId: node.id, turnIds: node.turn_ids || topic.turn_ids || [],
+    claimIds: node.claim_ids || topic.claim_ids || [], pageIds: node.page_ids || topic.page_ids || [],
+    source: "topic" };
+  state.selectedTopicId = topic.id;
+  state.selectedTopicNodeId = node.id;
+  state.focusSignature = null;
+  updateFocusPresentation(true);
+}
+
+function syncTimeFocus(time, explicit = false) {
+  const value = Math.max(0, Math.min(Number(state.bundle?.duration || time), Number(time) || 0));
+  const index = currentTurnIndex(value);
+  const visual = visualForTime(value);
+  const topic = topicMapReady() ? (state.bundle.topic_map.topics || []).find(item =>
+    (item.ranges || []).some(([start, end]) => Number(start) <= value && value < Number(end))) : null;
+  const range = (topic?.ranges || []).find(([start, end]) => Number(start) <= value && value < Number(end))
+    || (visual?.ranges || []).find(([start, end]) => Number(start) <= value && value < Number(end)) || [];
+  const turnSource = (state.bundle?.evidence?.sources?.transcript || []).find(item => item.index === index);
+  const signature = `${index}|${visual?.id || ""}|${topic?.id || ""}|${range.join("-")}`;
+  state.focus = { mode: "time", time: value, ranges: range.length ? [range] : [],
+    topicId: topic?.id || null, nodeId: topic?.id || null,
+    turnIds: turnSource ? [turnSource.id] : [], claimIds: claimsForTurn(index),
+    pageIds: visual?.id ? [visual.id] : [], source: explicit ? "jump" : "playback" };
+  if (signature !== state.focusSignature || explicit) {
+    state.focusSignature = signature;
+    updateFocusPresentation(explicit);
+  }
+}
+
+function updateContentStage(visual = null, semantic = false) {
+  const stage = $("#content-stage");
+  if (!stage) return;
+  const image = $("#content-stage-image");
+  const title = $("#content-stage-title");
+  const kicker = $("#content-stage-kicker");
+  const source = visual || (state.focus.mode === "topic"
+    ? representativeVisual(state.focus.pageIds) : visualForTime(state.focus.time || 0));
+  const url = visualImageUrl(source);
+  stage.classList.toggle("empty", !url);
+  if (image) image.src = url || "";
+  if (title) title.textContent = source?.title || "这一位置没有静态屏幕资料";
+  if (kicker) kicker.textContent = semantic ? "论点代表画面" : source
+    ? `${fmt(state.focus.time ?? source.first)} · ${source.kind === "slide" ? `第${source.page}页` : "动态画面"}`
+    : "当前屏幕";
+}
+
+function updateTimelineFocus() {
+  const tl = $("#timeline");
+  if (!tl) return;
+  $$(".tl-focus-range", tl).forEach(item => item.remove());
+  const duration = Number(tl.dataset.dur || state.bundle?.duration || 1);
+  for (const [start, end] of state.focus.ranges || []) {
+    if (Number(end) <= Number(start)) continue;
+    const range = document.createElement("div");
+    range.className = "tl-focus-range";
+    range.style.left = `${Number(start) / duration * 100}%`;
+    range.style.width = `${Math.max(.6, (Number(end) - Number(start)) / duration * 100)}%`;
+    tl.appendChild(range);
+  }
+}
+
+function updateFocusedTurns(explicit = false) {
+  const indexes = state.focus.mode === "time" ? [currentTurnIndex(state.focus.time || 0)]
+    : turnIndexesForIds(state.focus.turnIds);
+  $$(".turn.focus-related").forEach(item => item.classList.remove("focus-related"));
+  for (const index of indexes) $(`#turn-${index}`)?.classList.add("focus-related");
+  const target = indexes.find(index => index >= 0);
+  if (explicit && target != null) $(`#turn-${target}`)?.scrollIntoView({ block: "center", behavior: "smooth" });
+}
+
+function updateFocusedClaims() {
+  const wanted = new Set(state.focus.claimIds || []);
+  $$("#minutes .focus-related").forEach(item => item.classList.remove("focus-related"));
+  for (const link of $$('#minutes a[href^="#mm-"]')) {
+    const active = wanted.has(link.getAttribute("href").slice(4));
+    link.classList.toggle("focus-related", active);
+    if (active) link.closest("tr, li, p")?.classList.add("focus-related");
+  }
+}
+
+function updateFocusSummary() {
+  const box = $("#focus-summary");
+  if (!box || !state.bundle) return;
+  const focus = state.focus;
+  if (focus.mode === "overview") {
+    const topics = topicMapReady() ? state.bundle.topic_map.topics.length : 0;
+    box.innerHTML = `<span>整场概览</span><b>${topics ? `${topics} 个一级论点` : "按时间浏览会议"}</b>` +
+      `<small>选择论点聚焦内容；点击时间才会播放</small>`;
+  } else if (focus.mode === "topic") {
+    const [topic, node] = topicNode(focus.topicId, focus.nodeId);
+    box.innerHTML = `<span>语义聚焦</span><b>${esc(node?.title || topic?.title || "会议论点")}</b>` +
+      `<small>${(focus.ranges || []).length} 个时间范围 · ${focus.claimIds.length} 条相关结论</small>` +
+      (focus.claimIds.length ? `<button type="button" id="focus-show-claims">查看结论</button>` : "") +
+      `<button type="button" id="focus-clear">返回整场</button>`;
+  } else {
+    const visual = visualForTime(focus.time || 0);
+    box.innerHTML = `<span>已定位 ${fmt(focus.time)}</span><b>${esc(visual?.title || "逐字稿位置")}</b>` +
+      `<small>${focus.claimIds.length ? `关联 ${focus.claimIds.length} 条结论` : "当前没有直接关联结论"}</small>` +
+      (focus.claimIds.length ? `<button type="button" id="focus-show-claims">查看结论</button>` : "");
+  }
+  box.classList.remove("hidden");
+  $("#focus-clear")?.addEventListener("click", () => { setOverviewFocus(); renderChapters(); });
+  $("#focus-show-claims")?.addEventListener("click", () => {
+    setReviewMode("minutes");
+    requestAnimationFrame(() => $("#minutes .focus-related")?.scrollIntoView({ block: "center", behavior: "smooth" }));
+  });
+}
+
+function updateFocusPresentation(explicit = false) {
+  const semantic = state.focus.mode === "topic";
+  updateContentStage(null, semantic);
+  updateTimelineFocus();
+  updateFocusedTurns(explicit);
+  updateFocusedClaims();
+  updateFocusSummary();
+}
+
 function buildTimeline(duration) {
   const b = state.bundle || { slides: [], topics: [] };
   const tl = $("#timeline");
@@ -456,7 +645,7 @@ function buildTimeline(duration) {
   tl.appendChild(played);
 
   // 上层：LLM 归并后的语义论点出现区间。页面/参会人变化只留在下层视觉片段。
-  const topicReady = b.topic_map?.state === "ready" && b.topic_map?.topics?.length;
+  const topicReady = topicMapReady();
   const timelineTopics = topicReady
     ? b.topic_map.topics.flatMap((topic, index) => (topic.ranges || []).map(range => ({
         id: topic.id, title: topic.title, summary: topic.summary, index,
@@ -510,8 +699,7 @@ function buildTimeline(duration) {
       seg.addEventListener("mouseleave", hideTip);
       seg.addEventListener("click", event => {
         event.stopPropagation();
-        if (occurrence?.visual_id) openVisual(occurrence.visual_id, s);
-        else seek(s);
+        seek(s);
       });
       tl.appendChild(seg);
     }
@@ -533,6 +721,7 @@ function buildTimeline(duration) {
   head.className = "tl-head";
   tl.appendChild(head);
   updateActiveChapter(player()?.currentTime || 0);
+  updateTimelineFocus();
   // 空白处点击 seek
   tl.addEventListener("click", ev => {
     if (ev.target !== tl) return;
@@ -580,11 +769,12 @@ function moveTip(ev) {
 
 function hideTip() { $("#tl-tip").classList.add("hidden"); }
 
-function seek(t) {
+function seek(t, play = true) {
+  syncTimeFocus(t, true);
   const p = player();
   if (p) {
     p.currentTime = t;
-    p.play().catch(() => {});
+    if (play) p.play().catch(() => {});
   }
 }
 
@@ -600,6 +790,7 @@ function onTimeUpdate() {
   if (played && dur) played.style.width = (t / dur * 100) + "%";
   $("#playback-time").textContent = `${fmt(t)} / ${fmt(p.duration || dur)}`;
   updateActiveChapter(t);
+  syncTimeFocus(t, false);
   // 高亮当前轮
   const turns = state.bundle.transcript;
   let cur = -1;
@@ -626,8 +817,7 @@ function onTimeUpdate() {
 }
 
 function updateActiveChapter(time) {
-  const topics = state.bundle?.topic_map?.state === "ready"
-    ? state.bundle.topic_map.topics || [] : [];
+  const topics = topicMapReady() ? state.bundle.topic_map.topics || [] : [];
   const topic = topics.find(item => (item.ranges || []).some(([start, end]) =>
     Number(start) <= time && time < Number(end)));
   const chapters = (!topics.length && state.bundle?.structure?.chapter_source === "minutes_topic"
@@ -727,6 +917,7 @@ function renderTranscript(preserveScroll = true) {
   } else if (!preserveScroll) {
     box.scrollTop = 0;
   }
+  updateFocusedTurns(false);
 }
 
 function updateTranscriptModeButtons() {
@@ -961,6 +1152,7 @@ function renderMinutes() {
       showMinutesEvidence(link.getAttribute("href").slice(4));
     };
   });
+  updateFocusedClaims();
 }
 
 function structureClaimCard(id) {
@@ -1025,8 +1217,7 @@ function revealTopic(topicId, behavior = "smooth") {
 function openTopic(topicId, play = false, reveal = false, at = null) {
   const topic = state.bundle?.topic_map?.topics?.find(item => item.id === topicId);
   if (!topic) return;
-  state.selectedTopicId = topicId;
-  state.selectedTopicNodeId = topicId;
+  setTopicFocus(topic, topic);
   setReviewMode("chapters");
   if (reveal) revealTopic(topicId);
   if (play) seek(Number.isFinite(at) ? at : Number(topic.ranges?.[0]?.[0] || 0));
@@ -1041,17 +1232,26 @@ function topicRangeText(ranges) {
 
 function topicMapBranch(topic, index, selectedNodeId) {
   const selected = topic.id === state.selectedTopicId;
+  const counts = (topic.children || []).reduce((result, child) => {
+    result[child.type] = (result[child.type] || 0) + 1;
+    return result;
+  }, {});
+  const outcome = [counts.decision ? `${counts.decision} 决定` : "",
+    counts.action ? `${counts.action} 行动` : "",
+    (counts.risk || counts.open_question) ? `${(counts.risk || 0) + (counts.open_question || 0)} 未决/风险` : ""]
+    .filter(Boolean).join(" · ");
   return `<section class="topic-map-branch ${selected ? "selected" : ""}" ` +
     `data-topic-branch="${esc(topic.id)}"><button type="button" class="topic-map-topic-node ` +
     `${selectedNodeId === topic.id ? "active" : ""}" data-topic-select="${esc(topic.id)}">` +
-    `<small>论点 ${String(index + 1).padStart(2, "0")} · ${topic.children?.length || 0} 个结构节点</small>` +
+    `<small>论点 ${String(index + 1).padStart(2, "0")} · ${outcome || `${topic.children?.length || 0} 个结构节点`}</small>` +
     `<b>${esc(topic.title)}</b><span>${esc(topic.summary)}</span>` +
     `<em>${esc(topicRangeText(topic.ranges))}</em></button>` +
-    `<div class="topic-map-children">${(topic.children || []).map(child =>
+    (selected ? `<div class="topic-map-children">${(topic.children || []).map(child =>
       `<button type="button" class="topic-map-child ${esc(child.type)} ` +
       `${selectedNodeId === child.id ? "active" : ""}" data-topic-child="${esc(child.id)}" ` +
       `data-topic-parent="${esc(topic.id)}"><small>${esc(TOPIC_NODE_LABELS[child.type] || "讨论")}</small>` +
-      `<b>${esc(child.title)}</b><span>${esc(child.summary)}</span></button>`).join("")}</div></section>`;
+      `<b>${esc(child.title)}</b><span>${esc(child.summary)}</span></button>`).join("")}</div>` : "") +
+    `</section>`;
 }
 
 function topicDetailVisuals(node, pageMap) {
@@ -1117,48 +1317,62 @@ function renderChapters() {
       `Topic Map 会在终稿证据稳定后自动生成。</p></div>`;
     return;
   }
-  if (topicMap.state !== "ready" || !topics.length) {
+  if (!topicMapReady()) {
     const stale = topicMap.state === "stale";
+    const invalid = topicMap.state === "ready" && topics.length;
     box.innerHTML = `<div class="topic-map-empty"><span>AI 语义归纳</span>` +
-      `<h3>${stale ? "会议内容变化，需要更新脉络" : "还没有整场会议语义脉络"}</h3>` +
+      `<h3>${stale ? "会议内容变化，需要更新脉络" : invalid
+        ? `当前有 ${topics.length} 个一级论点，需要重新归纳` : "还没有整场会议语义脉络"}</h3>` +
       `<p>系统会读取逐字稿、说话人、结论依据和屏幕资料，先做大尺度内容归纳，再合并为 ` +
       `3–8 个一级论点。截图和参会人变化不会直接成为节点。</p>` +
-      `<button type="button" id="topic-map-generate" class="primary">${stale ? "更新会议脉络" : "生成会议脉络"}</button></div>`;
+      `<button type="button" id="topic-map-generate" class="primary">${stale || invalid
+        ? "更新会议脉络" : "生成会议脉络"}</button></div>`;
     $("#topic-map-generate", box).onclick = event => startTopicMapGeneration(event.currentTarget);
     return;
   }
-  const selectedTopic = topics.find(item => item.id === state.selectedTopicId) || topics[0];
-  state.selectedTopicId = selectedTopic.id;
-  const allNodes = [selectedTopic, ...(selectedTopic.children || [])];
+  const selectedTopic = topics.find(item => item.id === state.selectedTopicId) || null;
+  const allNodes = selectedTopic ? [selectedTopic, ...(selectedTopic.children || [])] : [];
   const selectedNode = allNodes.find(item => item.id === state.selectedTopicNodeId) || selectedTopic;
-  state.selectedTopicNodeId = selectedNode.id;
   const pageMap = new Map((state.bundle?.structure?.visuals || []).map(item => [item.id, item]));
+  const claims = state.bundle?.evidence?.claims || [];
+  const confirmed = claims.filter(item => item.status === "confirmed").length;
+  const actions = state.bundle?.evidence?.actions?.length || 0;
+  const unresolved = claims.filter(item => item.status === "open" || item.kind === "open_question").length;
   box.innerHTML = `<article class="topic-map-view"><header class="topic-map-head"><div>` +
     `<span>AI 全场语义归纳 · ${topics.length} 个一级论点</span><h2>${esc(state.bundle?.title || "会议脉络")}</h2>` +
     `<p>${esc(topicMap.meeting_summary || "按整场会议的论点、分歧、结论和行动组织；页面只作为证据。")}</p>` +
+    `<div class="topic-overview-stats"><button type="button" data-overview-target="minutes">` +
+    `<b>${confirmed}</b><span>已确认结论</span></button><button type="button" data-overview-target="minutes">` +
+    `<b>${actions}</b><span>可核验待办</span></button><button type="button" data-overview-target="minutes">` +
+    `<b>${unresolved}</b><span>未决问题</span></button></div>` +
     `</div><button type="button" id="topic-map-refresh">重新归纳</button></header>` +
-    `<div class="topic-map-canvas"><div class="topic-map-root-wrap"><div class="topic-map-root">` +
+    `<div class="topic-map-canvas"><div class="topic-map-root-wrap"><button type="button" class="topic-map-root" id="topic-map-overview">` +
     `<small>整场会议</small><b>${esc(state.bundle?.title || "会议")}</b>` +
-    `<span>${topics.length} 个论点 · ${topicMap.stats?.children || 0} 个结构节点</span></div></div>` +
+    `<span>${topics.length} 个论点 · ${topicMap.stats?.children || 0} 个结构节点</span></button></div>` +
     `<div class="topic-map-branches">${topics.map((topic, index) =>
-      topicMapBranch(topic, index, selectedNode.id)).join("")}</div></div>` +
-    topicMapDetail(selectedTopic, selectedNode, pageMap) + `</article>`;
+      topicMapBranch(topic, index, selectedNode?.id)).join("")}</div></div>` +
+    (selectedTopic && selectedNode ? topicMapDetail(selectedTopic, selectedNode, pageMap) :
+      `<div class="topic-overview-hint"><b>先看整场结构，再选择一个论点</b>` +
+      `<span>选择节点只聚焦相关逐字稿、画面和结论；不会自动播放。</span></div>`) + `</article>`;
   $$('[data-topic-select]', box).forEach(button => button.onclick = () => {
-    state.selectedTopicId = button.dataset.topicSelect;
-    state.selectedTopicNodeId = button.dataset.topicSelect;
+    const topic = topics.find(item => item.id === button.dataset.topicSelect);
+    setTopicFocus(topic, topic);
     renderChapters();
     revealTopic(state.selectedTopicId);
   });
   $$('[data-topic-child]', box).forEach(button => button.onclick = () => {
-    state.selectedTopicId = button.dataset.topicParent;
-    state.selectedTopicNodeId = button.dataset.topicChild;
+    const topic = topics.find(item => item.id === button.dataset.topicParent);
+    const child = (topic?.children || []).find(item => item.id === button.dataset.topicChild);
+    setTopicFocus(topic, child);
     renderChapters();
     revealTopic(state.selectedTopicId);
   });
+  $("#topic-map-overview", box).onclick = () => { setOverviewFocus(); renderChapters(); };
+  $$('[data-overview-target="minutes"]', box).forEach(button => button.onclick = () => setReviewMode("minutes"));
   $$('[data-topic-play]', box).forEach(button => button.onclick = () =>
     seek(Number(button.dataset.topicPlay)));
   $$('[data-visual-id]', box).forEach(button => button.onclick = () =>
-    openVisual(button.dataset.visualId, Number(button.dataset.visualTime)));
+    openVisual(button.dataset.visualId));
   $("#topic-map-refresh", box).onclick = event => startTopicMapGeneration(event.currentTarget);
   wireStructureClaims(box);
   $$(".tl-chapter.selected").forEach(item => item.classList.remove("selected"));

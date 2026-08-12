@@ -102,9 +102,9 @@ check("GET /api/health → 200 + dry-run + local assistant",
 s, headers, page = req("GET", "/", raw=True)
 cache_control = next((value for key, value in headers.items()
                       if key.lower() == "cache-control"), "")
-check("首页显式展示结论审计和章节脉络入口且禁止缓存旧壳",
+check("首页显式展示结论审计和会议脉络入口且禁止缓存旧壳",
       s == 200 and b'quality-entry-btn' in page and b'quality-tab' in page
-      and "结论审计".encode() in page and "章节脉络".encode() in page
+      and "结论审计".encode() in page and "会议脉络".encode() in page
       and "屏幕内容".encode() in page and "完整纪要".encode() not in page
       and b'data-transcript-mode="comparison"' in page
       and b'id="translation-target"' in page
@@ -118,6 +118,10 @@ check("渐进纪要失败时明确等待终稿，不把空纪要误报为草稿�
       and "草稿失败，生成终稿".encode() in app_js
       and b'(m.has_minutes ?' in app_js
       and "待核实候选".encode() in app_js)
+check("在线端以合格会议脉络为第一眼，并共享时间聚焦状态",
+      b'requestedViewExplicit' in app_js and b'setTopicFocus' in app_js
+      and b'id="focus-summary"' in page
+      and b'updateFocusPresentation' in app_js and b'content-stage' in app_js)
 s, product_headers, product_page = req("GET", "/product", raw=True)
 product_cache = next((value for key, value in product_headers.items()
                       if key.lower() == "cache-control"), "")
@@ -343,12 +347,16 @@ check("viewer 为无外链、自包含且可浏览逐字稿/媒体/脉络/屏幕
       'id="meeting-data"' in viewer and "fetch(" not in viewer
       and "http://" not in viewer and "https://" not in viewer
       and 'id="transcript"' in viewer and 'id="scrub"' in viewer
-      and "章节脉络" in viewer and "屏幕内容" in viewer
+      and "会议脉络" in viewer and "屏幕内容" in viewer
       and "candidatePanel" in viewer)
-check("Viewer 只保留三个阅读入口，纪要默认且层级最高",
+check("Viewer 只保留三个阅读入口，合格会议脉络默认且层级最高",
       "管理层 ·" not in viewer and "执行层 ·" not in viewer
-      and "const tabs=[{id:'minutes'" in viewer
-      and "primary-tab" in viewer and "renderMinutes();" in viewer)
+      and "{id:'topic_map',title:'会议脉络',primary:ready}" in viewer
+      and "function topicMapReady" in viewer and "if(topicReady)renderTopicMap();else renderMinutes();" in viewer)
+check("Viewer 无视频也用屏幕舞台联动时间、逐字稿和结论 Focus",
+      "media-stage" in viewer and "focusbar" in viewer and "focus-ranges" in viewer
+      and "function focusTime" in viewer and "function focusTopic" in viewer
+      and "applyClaimFocus" in viewer and "focus-show-claims" in viewer and "focus-pulse" in viewer)
 exported_pages = evidence.get("sources", {}).get("pages", [])
 all_export_text = viewer + json.dumps(evidence, ensure_ascii=False) + json.dumps(rag, ensure_ascii=False)
 check("导出层清理 VL 推理文本，并使用与在线端一致的屏幕标题",
