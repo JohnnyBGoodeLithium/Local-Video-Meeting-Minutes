@@ -30,7 +30,8 @@ import urllib.request
 from pathlib import Path
 
 from slide_pages import page_at
-from vl_page_test import DETAIL_PROMPT, grab_fullres, chat_with_image
+from vl_page_test import (DETAIL_PROMPT, PROMPT as COMPACT_PAGE_PROMPT,
+                          grab_fullres, chat_with_image, parse_json_loose)
 from meeting_artifact import (
     CONCLUSION_POLICY,
     MARKER_RE,
@@ -188,11 +189,19 @@ def describe_pages(mdir: Path, pages, api: str, video: Path = None):
             raw, usage = chat_with_image(api, mid, img, VL_MAXTOK, DETAIL_PROMPT)
             cleaned = clean_model_text(raw)
             if not cleaned:
-                print(f"[meta] VL 第{p['page']}页正文为空，重试 1/1", flush=True)
+                print(f"[meta] VL 第{p['page']}页详细正文为空，降级为紧凑读取", flush=True)
                 raw, retry_usage = chat_with_image(
-                    api, mid, img, VL_MAXTOK,
-                    DETAIL_PROMPT + "\n请直接从“## 标题”开始回答，必须给出可读正文。")
-                cleaned = clean_model_text(raw)
+                    api, mid, img, 512, COMPACT_PAGE_PROMPT)
+                compact = parse_json_loose(clean_model_text(raw))
+                if compact:
+                    title = str(compact.get("title") or "").strip()
+                    page_type = str(compact.get("type") or "其他").strip()
+                    summary = str(compact.get("summary") or "").strip()
+                    if title or summary:
+                        fallback_title = title or f"第{p['page']}页屏幕内容"
+                        cleaned = (f"## 标题\n{fallback_title}\n"
+                                   f"## 页面内容\n- 页面类型：{page_type}\n"
+                                   f"- {summary or '紧凑视觉读取未提供摘要。'}")
                 usage = {
                     "completion_tokens": int(usage.get("completion_tokens") or 0)
                     + int(retry_usage.get("completion_tokens") or 0)
