@@ -1562,7 +1562,7 @@ function renderJobs(jobs) {
       .map(line => String(line).match(/逻辑页\s+(\d+)\s+页/)).find(Boolean);
     const liveProgress = vlPage && vlTotal ? ` ${vlPage[1]}/${vlTotal[1]}` : (progress || step);
     const liveStage = /抽屏幕|逻辑页/.test(lastLog) ? "提取共享画面"
-      : /生成按页纪要|生成.*纪要/.test(lastLog) ? "生成会议纪要"
+      : /生成按页纪要|生成.*纪要|结构化输入|总体摘要|页块|分页详情/.test(lastLog) ? "生成会议纪要"
       : /声纹库|声纹/.test(lastLog) ? "确认人员身份"
       : /解析 VTT|对齐姓名/.test(lastLog) ? "对齐参会者"
       : j.stage;
