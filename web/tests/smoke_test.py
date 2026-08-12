@@ -106,7 +106,17 @@ check("首页显式展示质量验收入口且禁止缓存旧壳",
       s == 200 and b'quality-entry-btn' in page and b'quality-tab' in page
       and b'data-transcript-mode="bilingual"' in page
       and b'utility-panel' in page and b'pane-resizer' in page
-      and b'export-preflight' in page and "no-store" in cache_control)
+      and b'export-preflight' in page and b'href="/static/product.html"' in page
+      and "no-store" in cache_control)
+s, product_headers, product_page = req("GET", "/product", raw=True)
+product_cache = next((value for key, value in product_headers.items()
+                      if key.lower() == "cache-control"), "")
+check("产品介绍页突出人员身份核心、证据核心和技术架构",
+      s == 200 and b'Meeting Identity Core' in product_page
+      and '人员身份核心'.encode() in product_page
+      and '多模态证据核心'.encode() in product_page
+      and b'id="architecture"' in product_page
+      and b'href="/"' in product_page and "no-store" in product_cache)
 s, _, j = req("GET", "/api/meetings")
 n = len(j.get("meetings", []))
 check("GET /api/meetings → 200 且只见隔离夹具", s == 200 and n == 1, f"会议数={n}")

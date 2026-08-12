@@ -1434,6 +1434,11 @@ def admin():
     return FileResponse(STATIC / "admin.html", headers={"Cache-Control": "no-store"})
 
 
+@app.get("/product")
+def product():
+    return FileResponse(STATIC / "product.html", headers={"Cache-Control": "no-store"})
+
+
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
 _load_jobs()
