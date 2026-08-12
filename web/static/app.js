@@ -1535,7 +1535,9 @@ function renderJobs(jobs) {
   const ul = $("#jobs-list");
   if (!ul) return;
   const activeJobs = jobs.filter(j => j.status === "queued" || j.status === "running");
+  const activeMeetings = new Set(activeJobs.map(job => job.meeting).filter(Boolean));
   const recentFailures = jobs.filter(j => j.status === "failed"
+    && !activeMeetings.has(j.meeting)
     && Date.now() / 1000 - Number(j.finished || j.created || 0) < 60 * 60).slice(0, 2);
   const visibleJobs = [...activeJobs, ...recentFailures]
     .filter((job, index, all) => all.findIndex(item => item.id === job.id) === index);
@@ -1547,7 +1549,9 @@ function renderJobs(jobs) {
     const li = document.createElement("li");
     const active = j.status === "queued" || j.status === "running";
     const meeting = state.meetings.find(item => item.slug === j.meeting);
-    const name = meeting?.title || (j.kind === "translation" ? "逐字稿翻译" : "会议处理");
+    const name = meeting?.title || j.meeting || "会议处理";
+    const kindLabel = j.kind === "translation" ? "中文翻译"
+      : j.kind === "regen" ? "生成纪要" : j.kind === "upload" ? "会议处理" : "";
     const progress = j.progress?.total
       ? ` ${j.progress.done || 0}/${j.progress.total}` : "";
     const lastLog = String(j.log?.at(-1) || "");
@@ -1564,9 +1568,9 @@ function renderJobs(jobs) {
       : j.stage;
     const elapsed = j.status === "running" && j.started
       ? ` · 已运行 ${fmt(Date.now() / 1000 - j.started)}` : "";
-    const status = j.status === "queued" ? "等待处理"
+    const status = j.status === "queued" ? `${kindLabel ? `${kindLabel} · ` : ""}等待处理`
       : j.status === "failed" ? `失败 · ${liveStage || "处理阶段"}`
-      : `${liveStage || "处理中"}${liveProgress}${elapsed}`;
+      : `${kindLabel ? `${kindLabel} · ` : ""}${liveStage || "处理中"}${liveProgress}${elapsed}`;
     li.classList.toggle("job-failed", j.status === "failed");
     li.innerHTML =
       `<span class="j-name" title="${esc(j.id)}">${esc(name)}</span>` +
