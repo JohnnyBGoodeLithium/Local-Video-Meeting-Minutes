@@ -1535,17 +1535,39 @@ function renderJobs(jobs) {
   const ul = $("#jobs-list");
   if (!ul) return;
   const activeJobs = jobs.filter(j => j.status === "queued" || j.status === "running");
+  const recentFailures = jobs.filter(j => j.status === "failed"
+    && Date.now() / 1000 - Number(j.finished || j.created || 0) < 60 * 60).slice(0, 2);
+  const visibleJobs = [...activeJobs, ...recentFailures]
+    .filter((job, index, all) => all.findIndex(item => item.id === job.id) === index);
   state.activeJobs = activeJobs;
-  $("#jobs-panel").classList.toggle("hidden", activeJobs.length === 0);
+  $("#jobs-panel").classList.toggle("hidden", visibleJobs.length === 0);
+  $(".jobs-head").textContent = activeJobs.length ? "正在处理" : "最近处理失败";
   ul.innerHTML = "";
-  for (const j of activeJobs.slice(0, 8)) {
+  for (const j of visibleJobs.slice(0, 8)) {
     const li = document.createElement("li");
     const active = j.status === "queued" || j.status === "running";
     const meeting = state.meetings.find(item => item.slug === j.meeting);
     const name = meeting?.title || (j.kind === "translation" ? "逐字稿翻译" : "会议处理");
     const progress = j.progress?.total
       ? ` ${j.progress.done || 0}/${j.progress.total}` : "";
-    const status = j.status === "queued" ? "等待处理" : `${j.stage || "处理中"}${progress}`;
+    const lastLog = String(j.log?.at(-1) || "");
+    const stepMatch = lastLog.match(/^\[(\d+)\/(\d+)\]/);
+    const step = stepMatch ? ` ${stepMatch[1]}/${stepMatch[2]}` : "";
+    const vlPage = lastLog.match(/^\[meta\] VL 第(\d+)页/);
+    const vlTotal = [...(j.log || [])].reverse()
+      .map(line => String(line).match(/逻辑页\s+(\d+)\s+页/)).find(Boolean);
+    const liveProgress = vlPage && vlTotal ? ` ${vlPage[1]}/${vlTotal[1]}` : (progress || step);
+    const liveStage = /抽屏幕|逻辑页/.test(lastLog) ? "提取共享画面"
+      : /生成按页纪要|生成.*纪要/.test(lastLog) ? "生成会议纪要"
+      : /声纹库|声纹/.test(lastLog) ? "确认人员身份"
+      : /解析 VTT|对齐姓名/.test(lastLog) ? "对齐参会者"
+      : j.stage;
+    const elapsed = j.status === "running" && j.started
+      ? ` · 已运行 ${fmt(Date.now() / 1000 - j.started)}` : "";
+    const status = j.status === "queued" ? "等待处理"
+      : j.status === "failed" ? `失败 · ${liveStage || "处理阶段"}`
+      : `${liveStage || "处理中"}${liveProgress}${elapsed}`;
+    li.classList.toggle("job-failed", j.status === "failed");
     li.innerHTML =
       `<span class="j-name" title="${esc(j.id)}">${esc(name)}</span>` +
       `<span class="j-st st-${esc(j.status)}">${esc(status)}</span>`;

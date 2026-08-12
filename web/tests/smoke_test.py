@@ -440,6 +440,8 @@ check("作业状态流转 queued→…→done", jj["status"] == "done" and jj["r
       f"status={jj.get('status')} rc={jj.get('rc')}")
 check("作业调用了正确脚本 bin/run_all.py",
       jj.get("cmd", ["", ""])[1].endswith("bin/run_all.py") and jj.get("route") == "audio")
+check("后台作业保留虚拟环境 Python，不解析成系统解释器",
+      ".venv/bin/python" in jj.get("cmd", [""])[0])
 inbox = TEST_ROOT / jj.get("inbox", "")
 check("上传文件已存 recordings/inbox/<jobid>/",
       inbox.is_dir() and len(list(inbox.iterdir())) == 1)

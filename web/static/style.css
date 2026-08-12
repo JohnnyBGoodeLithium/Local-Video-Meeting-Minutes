@@ -219,6 +219,7 @@ body.page-index { overflow: hidden; }
   border-radius: 6px;
 }
 #jobs-list li:hover { background: var(--panel2); }
+#jobs-list li.job-failed { border: 1px solid rgba(194, 80, 80, .45); background: rgba(194, 80, 80, .08); }
 .j-name { flex: 1; word-break: break-all; }
 .j-st { color: var(--dim); flex: 0 0 auto; }
 .st-running { color: var(--accent); }

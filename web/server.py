@@ -53,7 +53,9 @@ ORG_FILES = BANK_DIR / "orgchart_files"
 JOBS_DIR = Path(os.environ.get("MEETING_WEB_JOBS", WEB_DIR / "jobs")).resolve()
 EVALUATIONS_DIR = DATA_ROOT / "evaluations"
 STATIC = WEB_DIR / "static"
-PY = Path(os.environ.get("MEETING_PYTHON", PROJECT_ROOT / ".venv" / "bin" / "python")).resolve()
+# 不要 resolve 虚拟环境的 python 符号链接；解析后会退化成 /usr/bin/python，
+# 导致后台管线看不到 venv 中的 pyannote/torch 等依赖。
+PY = Path(os.environ.get("MEETING_PYTHON", sys.executable))
 DRY_RUN = os.environ.get("MEETING_WEB_DRYRUN") == "1"
 DRY_RUN_DELAY = float(os.environ.get("MEETING_WEB_DRYRUN_DELAY", "0") or 0)
 
@@ -297,7 +299,7 @@ def _pipeline_stage(line: str, current: str = "处理中") -> str:
     stages = [
         (("asr", "transcrib", "转写", "字幕"), "语音转写"),
         (("diar", "speaker", "发言人", "分离"), "区分发言人"),
-        (("slide", "extract", "抽页", "幻灯片"), "提取页面"),
+        (("slide", "extract", "抽页", "抽屏幕", "逻辑页", "幻灯片"), "提取共享画面"),
         (("vl", "vision", "画面理解", "页面理解"), "理解共享画面"),
         (("minute", "summary", "纪要", "总结"), "生成纪要"),
         (("rag", "index", "索引", "检索"), "建立索引"),
