@@ -302,7 +302,76 @@ READING_DETAIL_SECTION_RE = re.compile(
 )
 
 
-def minutes_reading_markdown(minutes: str) -> str:
+def _markdown_cell(value) -> str:
+    """把结构化字段安全放回 Markdown 表格单元格。"""
+    text = " ".join(str(value or "").replace("\n", " ").split()).strip()
+    return text.replace("|", "\\|")
+
+
+def _grounded_actions_table(evidence: dict) -> str:
+    """只投影带逐字稿主证据的行动项，避免把建议伪装成正式待办。"""
+    status_names = {
+        "confirmed": "已确认",
+        "working_alignment": "方向共识",
+        "proposal": "提议",
+        "open": "待确认",
+        "informational": "记录",
+    }
+    rows, seen = [], set()
+    for action in evidence.get("actions", []):
+        claim_id = str(action.get("claim_id") or "").strip()
+        text = _markdown_cell(action.get("text"))
+        turn_ids = [str(value) for value in action.get("turn_ids", []) if str(value)]
+        if not (claim_id and text and turn_ids):
+            continue
+        owner = _markdown_cell(action.get("owner")) or "待确认"
+        deadline = _markdown_cell(action.get("deadline")) or "待确认"
+        status = (_markdown_cell(action.get("status"))
+                  or status_names.get(str(action.get("claim_status") or ""), "待确认"))
+        key = (text, owner, deadline, status)
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append(f"| {text} [依据](#mm-{claim_id}) | {owner} | {deadline} | {status} |")
+    if not rows:
+        return "未形成有逐字稿依据的明确待办。"
+    return "\n".join([
+        "| 事项 | 负责人 | 期限 | 状态 |",
+        "| --- | --- | --- | --- |",
+        *rows,
+    ])
+
+
+def _replace_section_body(markdown: str, title: str, replacement: str) -> str:
+    match = re.search(rf"^(?P<marks>#{{1,6}})\s+{re.escape(title)}\s*$", markdown, re.M)
+    if not match:
+        return markdown
+    level = len(match.group("marks"))
+    end = len(markdown)
+    for heading in HEADING_RE.finditer(markdown, match.end()):
+        if len(heading.group(1)) <= level:
+            end = heading.start()
+            break
+    before = markdown[:match.end()].rstrip()
+    after = markdown[end:].lstrip("\n")
+    return before + "\n\n" + replacement.strip() + "\n\n" + after
+
+
+def _remove_section(markdown: str, title: str) -> str:
+    match = re.search(rf"^(?P<marks>#{{1,6}})\s+{re.escape(title)}\s*$", markdown, re.M)
+    if not match:
+        return markdown
+    level = len(match.group("marks"))
+    end = len(markdown)
+    for heading in HEADING_RE.finditer(markdown, match.end()):
+        if len(heading.group(1)) <= level:
+            end = heading.start()
+            break
+    return (markdown[:match.start()].rstrip() + "\n\n" + markdown[end:].lstrip("\n")).rstrip() + "\n"
+
+
+def minutes_reading_markdown(minutes: str, evidence: dict | None = None, *,
+                             include_topic_section: bool = True) -> str:
     """投影面向阅读与分享的常规纪要，不丢弃 canonical 逐页事实。
 
     逐页详情仍保留在原始 ``minutes.md``，供 evidence、RAG 与屏幕内容视图使用；
@@ -311,9 +380,14 @@ def minutes_reading_markdown(minutes: str) -> str:
     """
     normalized = normalize_minutes_markdown(minutes)
     match = READING_DETAIL_SECTION_RE.search(normalized)
-    if not match:
-        return normalized
-    return normalized[:match.start()].rstrip() + "\n"
+    reading = normalized if not match else normalized[:match.start()].rstrip() + "\n"
+    if evidence is not None:
+        reading = _replace_section_body(
+            reading, "待办事项", _grounded_actions_table(evidence))
+    # 整场语义脉络已有独立视图；常规纪要不再重复铺一份容易失控的模型长列表。
+    if not include_topic_section:
+        reading = _remove_section(reading, "议题板块")
+    return reading
 
 
 def _action_fields(value: str) -> dict:

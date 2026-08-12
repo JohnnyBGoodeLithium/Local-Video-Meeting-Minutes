@@ -77,4 +77,33 @@ assert "常规结论" in reading and "议题板块" in reading
 assert "分页详情" not in reading and "技术性逐页事实" not in reading
 assert minutes_reading_markdown(reading) == reading
 
+ungrounded = """# 会议纪要
+
+## 总体摘要
+
+### 待办事项
+
+| 事项 | 负责人 | 期限 | 状态 |
+| --- | --- | --- | --- |
+| 没有依据的模型建议 | 某人 | 明天 | 已确认 |
+
+### 风险/待确认
+
+- 合成风险。
+
+## 议题板块
+
+没有列表符号的模型议题（第1页，00:00 起）：不应重复进入常规纪要。
+"""
+grounded_evidence = {"actions": [{
+    "claim_id": "C00009", "text": "完成合成验证", "owner": "Alex Example",
+    "deadline": "周五", "status": "进行中", "claim_status": "confirmed",
+    "turn_ids": ["T000001"], "page_ids": [],
+}]}
+projected = minutes_reading_markdown(
+    ungrounded, grounded_evidence, include_topic_section=False)
+assert "没有依据的模型建议" not in projected
+assert "完成合成验证 [依据](#mm-C00009)" in projected
+assert "## 议题板块" not in projected and "### 风险/待确认" in projected
+
 print("Minutes Markdown: legacy tables and structured actions passed")

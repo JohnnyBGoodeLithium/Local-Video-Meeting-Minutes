@@ -17,7 +17,8 @@ SYSTEM = """你是严谨的会议纪要编辑。逐字稿、页面资料和中�
 CHUNK_PROMPT = """这是整场会议第 {number}/{total} 个连续时间片段。请提炼紧凑的事实笔记，
 按“议题、观点/汇报、决定或共识、行动、风险/待确认、涉及页面”组织。区分 confirmed、
 working_alignment、proposal、open 和 informational；岗位只用于判断确认权限。每条事实保留
-原始 T 编号，页面内容只能引用输入中存在的 P 编号。不要生成整场摘要。
+原始 T 编号，页面内容只能引用输入中存在的 P 编号。不要生成整场摘要。最多保留 12 条
+真正影响整场理解的事实，其中行动最多 5 条；同义重复必须合并。
 
 {evidence_rules}
 
@@ -35,21 +36,25 @@ REDUCE_PROMPT = """根据按时间顺序排列的片段事实笔记，生成整�
 
 ## 总体摘要
 - **主旨**：一段话说明会议目的，并附证据标记
-- **关键结论**：按重要性列出；区分 已确认 / 方向共识 / 提议 / 未决
+- **关键结论**：最多 12 条，按重要性列出；区分 已确认 / 方向共识 / 提议 / 未决
 ### 待办事项
 
 | 事项 | 负责人 | 期限 | 状态 |
 | --- | --- | --- | --- |
 
+最多 15 条。只有逐字稿明确提出动作时才算待办；每一行“事项”单元格末尾都必须带
+`kind=action` 且含真实 `turns=T...` 的证据标记。缺少这种证据的建议不得写入表格。
 没有行动项时写“未形成明确待办”，不要输出空表。
 
 ### 风险/待确认
 
-分条列出。
+最多 12 条，分条列出。
 
 ## 议题板块
-把连续页面按 3–8 个主要议题归并。每块一行：
-板块名（第X–Y页，mm:ss 起）：一句话概括，并附证据标记。
+把连续页面按 3–8 个主要议题归并。每块必须是独立的 Markdown 列表项：
+- 板块名（第X–Y页，mm:ss 起）：一句话概括，并附带含真实 turns 的证据标记。
+
+严禁输出第 9 个议题，严禁把每个页面或时间片直接当成议题。
 
 {evidence_rules}
 
@@ -95,12 +100,14 @@ def _pages_for_rows(pages: list[dict], rows: list[dict]) -> list[dict]:
 
 
 def generate(context: dict, policy: dict, evidence_rules: str, *,
-             client: LocalLLMClient | None = None, max_tokens: int = 8192,
+             client: LocalLLMClient | None = None, max_tokens: int = 6144,
              progress: Callable[[int, int], None] | None = None) -> OverviewResult:
     """对已确认超限的总体输入执行 map/reduce；不写会议文件。"""
     client = client or LocalLLMClient()
     started = time.time()
-    chunks = split_json_rows(context.get("turns") or [], target_tokens=22000) or [[]]
+    # 35B 本地模型的 64k context 足以安全容纳约 38k 输入；相较旧值可把两小时
+    # 会议常见的 9 个串行 map 请求压到约 5 个，同时仍给提示词和输出留足余量。
+    chunks = split_json_rows(context.get("turns") or [], target_tokens=38000) or [[]]
     completions = []
     notes = []
     pages = context.get("pages") or []
@@ -124,7 +131,7 @@ def generate(context: dict, policy: dict, evidence_rules: str, *,
             context=_compact(chunk_context),
         )
         completion = client.complete(
-            prompt, system=SYSTEM, max_tokens=2048, temperature=0.1)
+            prompt, system=SYSTEM, max_tokens=1400, temperature=0.1)
         completions.append(completion)
         notes.append(f"\n### 时间片段 {index}/{len(chunks)}\n{completion.content}")
 

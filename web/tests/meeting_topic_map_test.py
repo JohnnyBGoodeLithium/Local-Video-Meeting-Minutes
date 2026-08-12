@@ -106,4 +106,36 @@ with tempfile.TemporaryDirectory(prefix="meeting-topic-map-repair-") as tmp:
     assert any("严格的 JSON 格式修复器" in prompt for prompt in repair_calls)
     assert not (mdir / ".topic-map-work.json").exists()
 
+with tempfile.TemporaryDirectory(prefix="meeting-topic-chunk-repair-") as tmp:
+    mdir = Path(tmp) / "synthetic"
+    mdir.mkdir()
+    (mdir / "transcript.spk.json").write_text(json.dumps([
+        {"speaker": "Alex", "start": 0, "end": 12, "text": "虚构讨论。"}
+    ], ensure_ascii=False), encoding="utf-8")
+    (mdir / "minutes.md").write_text(
+        "# 会议纪要\n\n- 虚构结论。 <!-- mm:evidence kind=decision status=confirmed "
+        "confidence=high turns=T000001 -->\n", encoding="utf-8")
+    (mdir / "slides.json").write_text("[]", encoding="utf-8")
+    chunk_calls = []
+
+    def malformed_chunk_then_repair(prompt: str, _max_tokens: int):
+        chunk_calls.append(prompt)
+        if "严格的 JSON 格式修复器" in prompt:
+            return {"summary": "虚构窗口", "candidate_topics": [{
+                "title": "虚构候选", "summary": "局部推进", "turn_ids": ["T000001"],
+                "claim_ids": ["C00001"], "page_ids": [],
+            }]}
+        if "meeting-topic-reduce-input/v1" in prompt:
+            return {"meeting_summary": "虚构推进。", "topics": [{
+                "title": "虚构论点", "summary": "形成结论。", "turn_ids": ["T000001"],
+                "claim_ids": ["C00001"], "page_ids": [], "children": [],
+            }]}
+        return '{"summary":"虚构窗口" "candidate_topics":[]}'
+
+    _, repaired_chunk = topic_map.generate_topic_map(
+        mdir, llm=malformed_chunk_then_repair, model="synthetic-chunk-repair",
+        chunk_seconds=300)
+    assert repaired_chunk["stats"]["topics"] == 1
+    assert any("严格的 JSON 格式修复器" in prompt for prompt in chunk_calls)
+
 print("Meeting Topic Map: map-reduce, evidence filtering, revisions, JSON repair passed")

@@ -59,7 +59,8 @@ assert len(client.calls) == result.chunks + 1
 assert "T000001" in client.calls[0][0]
 assert "T000620" in client.calls[-2][0]
 assert "P0001" in client.calls[0][0]
-assert client.calls[-1][1]["max_tokens"] == 8192
+assert client.calls[-1][1]["max_tokens"] == 6144
+assert all(call[1]["max_tokens"] == 1400 for call in client.calls[:-1])
 assert result.content.startswith("## 总体摘要")
 
 print(f"Minutes overview: long multimodal context split into {result.chunks} chunks")

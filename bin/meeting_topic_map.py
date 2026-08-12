@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """用本机 LLM 把逐字稿/evidence 归并为整场会议语义 Topic Map。
 
-页面变化只作为证据，不直接生成 Topic。长会议先按约 8 分钟处理窗口做局部归纳，
+页面变化只作为证据，不直接生成 Topic。长会议先按约 15 分钟处理窗口做局部归纳，
 再从全场视角归并成 3–8 个一级论点；每个节点必须携带可验证的 T/P/C ID。
 stdout 只输出窗口数、节点数、耗时等元数据，不打印会议正文或模型输出。
 """
@@ -130,6 +130,16 @@ def _model_json(value) -> dict:
     if not isinstance(parsed, dict):
         raise ValueError("Topic Map 输出必须是 JSON 对象")
     return parsed
+
+
+def _repair_model_json(call: Callable[[str, int], object], value, *,
+                       max_tokens: int = 7000) -> dict:
+    """只修 JSON 语法；局部 map 与最终 reduce 共用，避免单窗失败丢掉整场结果。"""
+    repair_prompt = (
+        "你是严格的 JSON 格式修复器。修复下面对象中的缺逗号、未转义引号、括号和尾逗号；"
+        "不得改写、增删或重新归纳任何字段值、T/P/C ID、topic、candidate_topic 或 child。"
+        "只输出一个合法 JSON 对象，不要 Markdown 或解释。待修复文本：\n" + str(value))
+    return _model_json(call(repair_prompt, max_tokens))
 
 
 def _turn_windows(turns: list[dict], chunk_seconds: float, max_chars: int = 16000) -> list[list[dict]]:
@@ -265,7 +275,7 @@ def _sanitize_map(raw: dict, evidence: dict, revisions: dict, *, model: str,
 
 
 def generate_topic_map(mdir: Path, *, llm: Callable[[str, int], object] | None = None,
-                       model: str = MODEL, chunk_seconds: float = 480.0) -> tuple[Path, dict]:
+                       model: str = MODEL, chunk_seconds: float = 900.0) -> tuple[Path, dict]:
     mdir = Path(mdir).resolve()
     minutes_path = _minutes_path(mdir)
     transcript_path = mdir / "transcript.spk.json"
@@ -324,7 +334,14 @@ def generate_topic_map(mdir: Path, *, llm: Callable[[str, int], object] | None =
         }
         prompt = CHUNK_PROMPT.format(context=json.dumps(payload, ensure_ascii=False,
                                                         separators=(",", ":")))
-        summaries.append(_model_json(call(prompt, 1400)))
+        chunk_text = call(prompt, 1400)
+        try:
+            chunk_result = _model_json(chunk_text)
+        except (json.JSONDecodeError, ValueError):
+            print(f"[meta] Topic Map 局部归纳 {index}/{len(windows)} JSON 无效，正在修复格式",
+                  flush=True)
+            chunk_result = _repair_model_json(call, chunk_text, max_tokens=2200)
+        summaries.append(chunk_result)
         checkpoint_value = {
             "schema": "meeting-topic-map-work/v1", "revisions": revisions,
             "model": model, "chunk_seconds": chunk_seconds, "summaries": summaries,
@@ -354,11 +371,7 @@ def generate_topic_map(mdir: Path, *, llm: Callable[[str, int], object] | None =
     except (json.JSONDecodeError, ValueError):
         # 只让本机模型修复上一次结果的语法，不重新归纳内容，也不打印原输出。
         print("[meta] Topic Map 全场归并 JSON 无效，正在修复输出格式", flush=True)
-        repair_prompt = (
-            "你是严格的 JSON 格式修复器。修复下面对象中的缺逗号、未转义引号、括号和尾逗号；"
-            "不得改写、增删或重新归纳任何字段值、T/P/C ID、topic 或 child。"
-            "只输出一个合法 JSON 对象，不要 Markdown 或解释。待修复文本：\n" + str(reduce_text))
-        raw = _model_json(call(repair_prompt, 7000))
+        raw = _repair_model_json(call, reduce_text)
     result = _sanitize_map(raw, evidence, revisions, model=model,
                            window_count=len(windows), chunk_seconds=chunk_seconds)
     path = mdir / "meeting.topic-map.json"
@@ -386,7 +399,7 @@ def generate_for_pipeline(mdir: Path) -> dict | None:
 def main() -> int:
     parser = argparse.ArgumentParser(description="生成整场会议语义 Topic Map")
     parser.add_argument("meeting_dir", type=Path)
-    parser.add_argument("--chunk-seconds", type=float, default=480.0)
+    parser.add_argument("--chunk-seconds", type=float, default=900.0)
     args = parser.parse_args()
     started = time.time()
     try:

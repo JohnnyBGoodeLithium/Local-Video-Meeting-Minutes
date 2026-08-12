@@ -518,9 +518,10 @@ def _minutes_html(mdir: Path, slug: str):
                "start": _parse_ts(m.group(2)),
                "title": m.group(3).strip()}
               for m in TOPIC_RE.finditer(full_text)]
-    reading_text = artifact.minutes_reading_markdown(full_text)
-    reading_text = artifact.markdown_with_evidence_links(
-        reading_text, _current_evidence(mdir))
+    evidence = _current_evidence(mdir)
+    reading_text = artifact.minutes_reading_markdown(
+        full_text, evidence, include_topic_section=False)
+    reading_text = artifact.markdown_with_evidence_links(reading_text, evidence)
     html = MD.render(reading_text)
     # 纪要里的 slides/ 相对图片 → 本服务 file 路由
     html = html.replace('src="slides/', f'src="/api/meetings/{slug}/file?path=slides/')

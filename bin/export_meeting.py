@@ -307,7 +307,8 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
     # RAG 的纪要章节与 Viewer 共用“常规纪要”投影。逐页事实已经分别作为
     # claim / slide 记录进入 RAG，不能再把 canonical 逐页生成过程（包括旧会议
     # 可能残留的 reasoning 标签）重复塞进 minutes_section。
-    reading_minutes = clean_model_text(minutes_reading_markdown(minutes))
+    reading_minutes = clean_model_text(minutes_reading_markdown(
+        minutes, evidence, include_topic_section=False))
     linked_markdown = markdown_with_evidence_links(reading_minutes, evidence)
     minutes_html = MD.render(linked_markdown)
     records = rag_records(evidence, reading_minutes)

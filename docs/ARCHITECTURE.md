@@ -104,13 +104,13 @@ sidecar 保存 T ID、源语言、译文、数字核对警告、逐字稿 revisi
 
 `information_value` 另有 `unknown` 状态：页面尚未处理、模型正文为空或 reasoning 清洗后无可靠答案时只能标“待解析”，不得用描述字数推断为低价值。只有 VL 明确给出 low，或页面说明明确命中空白、过渡、会议 UI 等语义时才能降为 low；简短但有效的旧说明默认保留为 medium。`describe_pages()` 在详细解读为空时改用短 JSON 视觉读取提取标题、页面类型和摘要，再确定性转成页面说明；两条路径都失败才保留 unknown，空正文不持久化为成功缓存。页面价值与 `display_status` 的讨论关联度始终是两条独立维度。
 
-`meeting_topic_map.py` 在纪要生成完成后使用本机 LLM 建立 `meeting-topic-map/v1` sidecar。它先把逐字稿按约八分钟窗口做局部候选归纳，再把整场候选与 canonical claims 归并成 3–8 个一级 Topic 和类型化子节点。每个节点必须绑定有效 T/P/C ID；未知 ID 和无来源节点在代码层丢弃。相同 Topic 的非连续证据范围会保留在一个节点中。sidecar 绑定逐字稿、纪要、页面和 VL revision，输入变化即标记 stale，旧节点不向前端暴露。
+`meeting_topic_map.py` 在纪要生成完成后使用本机 LLM 建立 `meeting-topic-map/v1` sidecar。它先把逐字稿按约十五分钟窗口做局部候选归纳，再把整场候选与 canonical claims 归并成 3–8 个一级 Topic 和类型化子节点。每个节点必须绑定有效 T/P/C ID；未知 ID 和无来源节点在代码层丢弃。相同 Topic 的非连续证据范围会保留在一个节点中。局部 map 和全局 reduce 返回不合法 JSON 时，只允许模型修复标点、引号与括号，不能重新归纳字段或来源 ID；成功的局部窗口原子写入 checkpoint。sidecar 绑定逐字稿、纪要、页面和 VL revision，输入变化即标记 stale，旧节点不向前端暴露。
 
 前端时间线用 Topic 的一个或多个 ranges 作为上层、Segment 作为下层；右侧“章节脉络”展示“整场会议—一级论点—背景/观点/约束/决定/行动/风险/待确认”的思维导图。时间轴点击负责 seek + 定位，右侧节点点击只改变详情，显式范围按钮才 seek。Topic 和屏幕页面都只是 canonical evidence 的索引与重组；点击结论仍进入统一证据栏，VL 描述不能单独证明会议决定。Topic Map 缺失时允许用户后台生成，不再把视觉 Segment 扩写成几十个假章节。
 
 `slide_pages.py` 的变化检测默认排除画面右侧 15% 的会议 UI/参会人栏，再计算时序活动掩码、页面相似度和代表帧。用于判页的低分辨率 RGB 帧会先抑制稀疏的高饱和红框/激光点；页面距离同时比较全页稳定内容和顶部 22% 标题区，所以同一表格的局部标注不切页，大标题改变仍切页。RGB 逐帧流式转灰度，不使整段三通道帧常驻内存。输出截图仍从原视频抓取完整画面；参数 `--ignore-right-pct 0` 可关闭右栏排除。
 
-Web 与 MeetingPack 的常规纪要通过 `minutes_reading_markdown()` 从 canonical Markdown 做只读投影，在第一个“分页详情/逐页详情”章节前截断。原始 `minutes.md` 不被改写，逐页事实继续进入 evidence、Visual 和 RAG；这避免相同页面资料同时堆叠在纪要、章节和屏幕内容三个入口。MeetingPack 的 `assets/minutes.md` 是常规阅读投影，机器侧完整事实以 `assets/evidence.json` 和 `assets/rag/records.jsonl` 为准。
+Web 与 MeetingPack 的常规纪要通过 `minutes_reading_markdown()` 从 canonical Markdown 做只读投影，在第一个“分页详情/逐页详情”章节前截断。投影层还会用 `minutes.evidence.json.actions` 重建待办表：只有带有效逐字稿 T ID 的行动项可见，并保留可点击 claim 依据；无证据的建议不会被显示成正式待办。模型生成的“议题板块”不再重复出现在常规纪要，其整场结构由带 T/P/C linkage 的独立 Topic Map 负责。原始 `minutes.md` 不被改写，逐页事实和旧模型文本继续进入 evidence、Visual 和 RAG，便于审计与再处理。MeetingPack 的 `assets/minutes.md` 是同一常规阅读投影，机器侧完整事实以 `assets/evidence.json` 和 `assets/rag/records.jsonl` 为准。
 
 所有模型文本进入阅读结构前统一剥离完整、残缺或反向出现的 `<think>/<analysis>` 块。新纪要/VL 生成同样在落盘前清洗；如果旧 VL 缓存清洗后没有可靠答案，页面标为需要重新解析，不把推理过程伪装成标题。
 

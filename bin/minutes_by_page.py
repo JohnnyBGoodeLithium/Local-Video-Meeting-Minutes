@@ -90,8 +90,9 @@ SUM_PROMPT = """你是一名严谨的会议纪要编辑。你收到的是 `meeti
 分条列出
 
 ## 议题板块
-把连续页面按议题归并；优先使用页面读出的 agenda/章节标题，但概括必须有逐字稿依据。
-每块一行：板块名（第X–Y页，mm:ss 起）：一句话概括，并附证据标记。
+把连续页面严格归并为 3–8 个整场主要议题；优先使用页面读出的 agenda/章节标题，但概括
+必须有逐字稿依据。不要把每个页面或时间片直接当成一个议题。每块必须是独立列表项：
+- 板块名（第X–Y页，mm:ss 起）：一句话概括，并附带含真实 turns 的证据标记。
 
 {evidence_rules}
 
@@ -404,7 +405,7 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
         context=context_json,
     )
     if ContextBudget(output_tokens=8192).fits(summary_prompt):
-        part1, u1 = chat(summary_prompt)
+        part1, u1 = chat(summary_prompt, max_tokens=6144)
         overview_mode, overview_chunks = "direct", 1
     else:
         overview = generate_overview(
