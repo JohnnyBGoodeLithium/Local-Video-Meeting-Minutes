@@ -40,6 +40,8 @@ warnings.filterwarnings("ignore")
 from meeting_dir import for_teams, materialize_source
 from slide_pages import extract_pages
 from minutes_by_page import generate as generate_minutes
+import meeting_topic_map
+import meeting_generation
 import voice_bank as vb
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -215,21 +217,21 @@ def main() -> int:
     slug = mdir.name
     t_all = time.time()
 
-    print(f"[1/6] 抽音轨 → {mdir}", flush=True)
+    print(f"[1/7] 抽音轨 → {mdir}", flush=True)
     wav = mdir / "audio.wav"
     extract_audio(source_mp4, wav)
 
-    print("[2/6] 本地说话人分离 ...", flush=True)
+    print("[2/7] 本地说话人分离 ...", flush=True)
     t0 = time.time()
     dia_turns, centroids = diarize(wav, args.num_speakers)
     print(f"[meta] 分离 {time.time()-t0:.1f}s | 声纹聚类 {len(centroids)} 个", flush=True)
 
-    print("[3/6] 解析 VTT 并对齐姓名 ...", flush=True)
+    print("[3/7] 解析 VTT 并对齐姓名 ...", flush=True)
     cues = parse_vtt(source_vtt)
     final_cues, stats, lab2final = align(cues, dia_turns)
     turns = merge_same(final_cues, "name")
 
-    print("[4/6] 声纹库比对/入库 ...", flush=True)
+    print("[4/7] 声纹库比对/入库 ...", flush=True)
     name2vec = {lab2final[l]: centroids[l] for l in lab2final if l in centroids}
     rename, voice_of, linked, new = update_bank(name2vec, slug, args.match_threshold)
     # 显示名 → 声纹 id(多个聚类同名时取其一, best-effort)
@@ -257,13 +259,22 @@ def main() -> int:
     subprocess.run([sys.executable, str(ROOT / "bin" / "voice_tool.py"), "sample", str(mdir)],
                    check=False, capture_output=True)
 
-    print("[5/6] 抽屏幕共享逻辑页 ...", flush=True)
+    print("[5/7] 先生成语音草稿纪要 ...", flush=True)
+    meeting_generation.generate_voice_draft(mdir, python=sys.executable)
+    meeting_generation.begin_visual_enrichment(mdir)
+
+    print("[6/7] 抽屏幕共享逻辑页 ...", flush=True)
     t0 = time.time()
     pages = extract_pages(source_mp4, mdir / "slides", mdir / "slides.json")
     print(f"[meta] 逻辑页 {len(pages)} 页 | 抽页耗时 {time.time()-t0:.1f}s", flush=True)
 
-    print("[6/6] 生成按页纪要(VL画面内容+总体摘要+议题板块+逐页详情) ...", flush=True)
+    print("[7/7] 用 VL 屏幕资料升级多模态纪要 ...", flush=True)
     out_path, mstats = generate_minutes(mdir, video=source_mp4, vl=not args.no_vl)
+    meeting_generation.finalize(
+        mdir, pages=mstats["pages"], vl_pages=mstats["vl_pages"])
+    print(f"[meta] 多模态纪要已替换语音草稿 | VL {mstats['vl_pages']}/{mstats['pages']} 页",
+          flush=True)
+    meeting_topic_map.generate_for_pipeline(mdir)
 
     speakers = sorted({t["name"] for t in turns})
     print(f"[meta] 总耗时 {time.time()-t_all:.1f}s | 说话人标签 {len(speakers)} 个"

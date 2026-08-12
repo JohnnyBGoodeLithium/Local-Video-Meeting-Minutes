@@ -35,6 +35,8 @@ const state = {
   viewMode: ["minutes", "chapters", "visuals", "quality"].includes(requestedView)
     ? requestedView : "minutes",
   selectedChapterId: null,
+  selectedTopicId: null,
+  selectedTopicNodeId: null,
   selectedVisualId: null,
   visualFilter: "useful",
   transcriptMode: ["original", "translated", "comparison"].includes(savedTranscriptMode)
@@ -63,6 +65,8 @@ const state = {
   },
   activeJobs: [],
   exportPreflight: null,
+  storage: null,
+  progressiveRefreshes: new Set(),
 };
 
 /* ---------- 工具 ---------- */
@@ -163,6 +167,7 @@ function rememberReadingPosition() {
     .find(item => item.getBoundingClientRect().bottom > bounds.top + 2);
   anchor.minutes = {
     heading: heading?.id || null,
+    headingText: heading?.textContent?.trim() || null,
     scrollTop: heading ? null : Math.round(minutesBox.scrollTop),
     revision: state.bundle.minutes_revision,
   };
@@ -183,7 +188,10 @@ function restoreReadingPosition() {
       if (heading) heading.scrollIntoView({ block: "start" });
       else minutesBox.scrollTop = Number(anchor.minutes.scrollTop) || 0;
     } else {
-      minutesBox.scrollTop = 0;
+      const sameHeading = anchor.minutes?.headingText && $$('[data-reading-heading]', minutesBox)
+        .find(item => item.textContent.trim() === anchor.minutes.headingText);
+      if (sameHeading) sameHeading.scrollIntoView({ block: "start" });
+      else minutesBox.scrollTop = 0;
     }
   });
 }
@@ -212,7 +220,8 @@ function renderMeetingList() {
       m.date,
       m.duration ? fmt(m.duration) : null,
       m.speaker_count ? `${m.speaker_count} 人` : null,
-      m.has_minutes ? "可回顾" : "待生成纪要",
+      m.generation_phase && ["voice_draft_generating", "voice_draft", "visual_enrichment"].includes(m.generation_phase)
+        ? "语音草稿可读" : m.has_minutes ? "可回顾" : "待生成纪要",
     ].filter(Boolean).join(" · ");
     li.innerHTML =
       `<div class="m-title">${esc(m.title || m.slug)}</div>` +
@@ -256,6 +265,7 @@ async function deleteMeeting(ev, slug) {
     $("#regen-btn").disabled = true;
     $("#refine-btn").disabled = true;
     $("#export-btn").disabled = true;
+    $("#storage-btn").disabled = true;
     $("#quality-tab").disabled = true;
     $("#chapters-tab").disabled = true;
     $("#visuals-tab").disabled = true;
@@ -294,6 +304,7 @@ function renderMeetingStatuses() {
   const active = state.activeJobs.find(job => job.meeting === state.slug
     && ["queued", "running"].includes(job.status));
   const documentReady = b.document_state === "ready";
+  const voiceDraft = b.document_state === "draft";
   const evidenceState = b.evidence?.state || "partial";
   const evidenceLabel = evidenceState === "ready" ? "可核证"
     : evidenceState === "stale" ? "已过期" : "部分证据";
@@ -301,8 +312,10 @@ function renderMeetingStatuses() {
     : evidenceState === "stale" ? "warn" : "neutral";
   const shareReady = documentReady && Boolean(b.transcript?.length);
   box.innerHTML = [
-    statusChip("资料", active ? (active.stage || "处理中") : (documentReady ? "可阅读" : "处理中"),
-      active ? "working" : (documentReady ? "good" : "neutral")),
+    statusChip("资料", voiceDraft ? "语音草稿可读" : active ? (active.stage || "处理中")
+      : (documentReady ? "可阅读" : "处理中"),
+      voiceDraft || active ? "working" : (documentReady ? "good" : "neutral"),
+      voiceDraft ? "口头内容已经可读，屏幕表格、数字和画面资料仍在补充" : ""),
     statusChip("证据", evidenceLabel, evidenceTone,
       evidenceState === "ready" ? "结论可回到逐字稿或共享画面核对" : "重新生成纪要后可补齐结构化依据"),
     statusChip("分享", shareReady ? "可导出" : "待补齐", shareReady ? "good" : "neutral",
@@ -330,6 +343,8 @@ async function loadMeeting(slug) {
   state.quality = null;
   state.translation = null;
   state.selectedChapterId = b.structure?.chapters?.[0]?.id || null;
+  state.selectedTopicId = b.topic_map?.topics?.[0]?.id || null;
+  state.selectedTopicNodeId = state.selectedTopicId;
   state.selectedVisualId = b.structure?.visuals?.[0]?.id || null;
   state.visualFilter = "useful";
   state.expandedOriginals.clear();
@@ -348,15 +363,19 @@ async function loadMeeting(slug) {
   renderVisuals();
   renderMeetingStatuses();
   renderAssistantSuggestions();
-  $("#regen-btn").disabled = false;
-  $("#refine-btn").disabled = false;
-  $("#export-btn").disabled = false;
+  const isDraft = b.document_state === "draft";
+  $("#regen-btn").disabled = isDraft;
+  $("#refine-btn").disabled = isDraft;
+  $("#export-btn").disabled = isDraft;
+  $("#storage-btn").disabled = false;
   $("#assistant-launcher").disabled = false;
   if (state.workspace.utilityOpen) openUtility(state.workspace.utilityTab);
-  $("#quality-tab").disabled = false;
-  $("#chapters-tab").disabled = !(b.structure?.chapters?.length);
+  if (isDraft && state.viewMode === "quality") state.viewMode = "minutes";
+  $("#quality-tab").disabled = isDraft;
+  $("#chapters-tab").disabled = !(b.transcript?.length);
   $("#visuals-tab").disabled = !(b.structure?.visuals?.length);
-  $("#quality-entry-btn").disabled = false;
+  $("#quality-entry-btn").disabled = isDraft;
+  if (isDraft) $("#quality-entry-btn").textContent = "终稿后审计结论";
   $$('[data-transcript-mode]').forEach(button => button.disabled = false);
   $("#translation-target").disabled = false;
   $("#translation-target").value = state.translationTarget;
@@ -364,7 +383,11 @@ async function loadMeeting(slug) {
   setReviewMode(state.viewMode);
   restoreReadingPosition();
   await loadTranscriptTranslation();
-  await loadQualityReview();
+  if (!isDraft) await loadQualityReview();
+  else {
+    state.quality = null;
+    $("#quality").innerHTML = '<div class="quality-empty"><h3>语音草稿暂不审计</h3><p>屏幕表格、数字和画面依据仍在补充，终稿后再开始结论审计。</p></div>';
+  }
 }
 
 function renderPlayer() {
@@ -428,25 +451,37 @@ function buildTimeline(duration) {
   played.className = "tl-played";
   tl.appendChild(played);
 
-  // 上层：连续语义章节。点击进入章节脉络并从章节起点播放。
-  for (const [chapterIndex, chapter] of (b.structure?.chapters || []).entries()) {
-    if (chapter.end <= chapter.start) continue;
+  // 上层：LLM 归并后的语义论点出现区间。页面/参会人变化只留在下层视觉片段。
+  const topicReady = b.topic_map?.state === "ready" && b.topic_map?.topics?.length;
+  const timelineTopics = topicReady
+    ? b.topic_map.topics.flatMap((topic, index) => (topic.ranges || []).map(range => ({
+        id: topic.id, title: topic.title, summary: topic.summary, index,
+        start: Number(range[0]), end: Number(range[1]), topic,
+      })))
+    : ((b.structure?.chapter_source === "minutes_topic" && b.structure?.chapters?.length <= 12)
+      ? b.structure.chapters.map((chapter, index) => ({
+          id: chapter.id, title: chapter.title, summary: chapter.summary, index,
+          start: chapter.start, end: chapter.end, chapter,
+        })) : []);
+  for (const item of timelineTopics) {
+    if (item.end <= item.start) continue;
     const block = document.createElement("div");
     block.className = "tl-chapter";
-    block.dataset.chapterId = chapter.id;
-    block.style.left = (chapter.start / duration * 100) + "%";
-    const chapterWidth = (chapter.end - chapter.start) / duration * 100;
+    block.dataset.topicId = item.id;
+    block.style.left = (item.start / duration * 100) + "%";
+    const chapterWidth = (item.end - item.start) / duration * 100;
     block.style.width = Math.max(.8, chapterWidth) + "%";
-    block.title = `${fmt(chapter.start)}–${fmt(chapter.end)} ${chapter.title}`;
-    block.innerHTML = `<span class="tl-chapter-index">${String(chapterIndex + 1).padStart(2, "0")}</span>` +
-      (chapterWidth >= 11 ? `<span class="tl-chapter-title">${esc(chapter.title)}</span>` : "");
-    block.addEventListener("mouseenter", event => showChapterTip(event, chapter, chapterIndex));
+    block.title = `${fmt(item.start)}–${fmt(item.end)} ${item.title}`;
+    block.innerHTML = `<span class="tl-chapter-index">${String(item.index + 1).padStart(2, "0")}</span>` +
+      (chapterWidth >= 11 ? `<span class="tl-chapter-title">${esc(item.title)}</span>` : "");
+    block.addEventListener("mouseenter", event => showSemanticTip(event, item));
     block.addEventListener("mousemove", moveTip);
     block.addEventListener("mouseleave", hideTip);
     block.addEventListener("click", event => {
       event.stopPropagation();
       hideTip();
-      openChapter(chapter.id, true, true);
+      if (item.topic) openTopic(item.id, true, true, item.start);
+      else openChapter(item.id, true, true);
     });
     tl.appendChild(block);
   }
@@ -514,18 +549,19 @@ function showTip(ev, page, label, start = page.first, occurrence = null) {
   moveTip(ev);
 }
 
-function showChapterTip(ev, chapter, index) {
+function showSemanticTip(ev, item) {
   const tip = $("#tl-tip");
   const visuals = state.bundle?.structure?.visuals || [];
-  const visual = (chapter.page_ids || []).map(id => visuals.find(item => item.id === id))
-    .find(item => item?.image && item.information_value !== "low");
+  const source = item.topic || item.chapter || {};
+  const visual = (source.page_ids || []).map(id => visuals.find(visual => visual.id === id))
+    .find(visual => visual?.image && visual.information_value !== "low");
   const image = visualImageUrl(visual);
-  tip.innerHTML = `<div class="tip-title">章节 ${String(index + 1).padStart(2, "0")} · ` +
-    `${fmt(chapter.start)}–${fmt(chapter.end)}</div>` +
-    `<b class="tip-heading">${esc(chapter.title)}</b>` +
-    `<p class="tip-summary">${esc(chapter.summary || "点击播放并定位到整场会议脉络。")}</p>` +
-    `<div class="tip-metrics">决定 ${chapter.decision_claim_ids?.length || 0} · ` +
-    `行动 ${chapter.action_claim_ids?.length || 0} · 待确认 ${chapter.open_claim_ids?.length || 0}</div>` +
+  tip.innerHTML = `<div class="tip-title">论点 ${String(item.index + 1).padStart(2, "0")} · ` +
+    `${fmt(item.start)}–${fmt(item.end)}</div>` +
+    `<b class="tip-heading">${esc(item.title)}</b>` +
+    `<p class="tip-summary">${esc(item.summary || "点击播放并定位到会议语义脉络。")}</p>` +
+    (item.topic ? `<div class="tip-metrics">${item.topic.children?.length || 0} 个结构节点 · ` +
+      `${item.topic.ranges?.length || 0} 个出现区间</div>` : "") +
     (image ? `<img src="${image}" alt="">` : "");
   tip.classList.remove("hidden");
   moveTip(ev);
@@ -586,17 +622,23 @@ function onTimeUpdate() {
 }
 
 function updateActiveChapter(time) {
-  const chapters = state.bundle?.structure?.chapters || [];
-  const current = chapters.find(chapter => chapter.start <= time && time < chapter.end)
+  const topics = state.bundle?.topic_map?.state === "ready"
+    ? state.bundle.topic_map.topics || [] : [];
+  const topic = topics.find(item => (item.ranges || []).some(([start, end]) =>
+    Number(start) <= time && time < Number(end)));
+  const chapters = (!topics.length && state.bundle?.structure?.chapter_source === "minutes_topic"
+    && state.bundle?.structure?.chapters?.length <= 12) ? state.bundle.structure.chapters : [];
+  const chapter = chapters.find(item => item.start <= time && time < item.end)
     || (time === state.bundle?.duration ? chapters.at(-1) : null);
+  const current = topic || chapter;
   $$(".tl-chapter.active").forEach(item => item.classList.remove("active"));
-  if (current) $(`.tl-chapter[data-chapter-id="${current.id}"]`)?.classList.add("active");
-  $$(".meeting-flow-card.playing").forEach(item => item.classList.remove("playing"));
-  if (current) $(`.meeting-flow-card[data-chapter-card="${current.id}"]`)?.classList.add("playing");
+  if (current) $$(`.tl-chapter[data-topic-id="${current.id}"]`).forEach(item => item.classList.add("active"));
+  $$(".topic-map-branch.playing").forEach(item => item.classList.remove("playing"));
+  if (topic) $(`.topic-map-branch[data-topic-branch="${topic.id}"]`)?.classList.add("playing");
   const label = $("#current-chapter");
   label.classList.toggle("hidden", !current);
   label.textContent = current ? current.title : "";
-  label.title = current ? `${fmt(current.start)}–${fmt(current.end)} ${current.title}` : "";
+  label.title = current ? `${topic ? "当前论点" : "当前章节"} · ${current.title}` : "";
 }
 
 /* ---------- 转写区 ---------- */
@@ -878,7 +920,13 @@ function expandEvidenceBilingual(indexes) {
 
 function renderMinutes() {
   const box = $("#minutes");
-  box.innerHTML = state.bundle.minutes_html || '<p class="placeholder">暂无纪要</p>';
+  const draft = state.bundle?.document_state === "draft";
+  const phase = state.bundle?.generation?.phase;
+  const banner = draft ? `<section class="minutes-draft-banner"><div><span>语音草稿 · 已可阅读</span>` +
+    `<b>${phase === "visual_enrichment" ? "正在补充屏幕资料" : "正在准备屏幕分析"}</b>` +
+    `<p>当前结论来自逐字稿和说话人；页面数字、表格和画面上下文会在多模态终稿中补充。` +
+    `草稿期间可以播放、搜索和追问，暂不支持修改或导出。</p></div><i></i></section>` : "";
+  box.innerHTML = banner + (state.bundle.minutes_html || '<p class="placeholder">暂无纪要</p>');
   $$("h1, h2, h3", box).forEach((heading, index) => {
     heading.id = `minutes-heading-${index}`;
     heading.dataset.readingHeading = "1";
@@ -919,19 +967,11 @@ function wireStructureClaims(box) {
     button.onclick = () => showMinutesEvidence(button.dataset.structureClaim));
 }
 
-function revealChapter(chapterId, behavior = "smooth") {
-  requestAnimationFrame(() => {
-    const card = $(`.meeting-flow-card[data-chapter-card="${chapterId}"]`);
-    card?.scrollIntoView({ block: "center", behavior });
-  });
-}
-
-function openChapter(chapterId, play = false, reveal = false) {
+function openChapter(chapterId, play = false) {
   if (!chapterId) return;
   state.selectedChapterId = chapterId;
   setReviewMode("chapters");
   const chapter = state.bundle?.structure?.chapters?.find(item => item.id === chapterId);
-  if (reveal) revealChapter(chapterId);
   if (play && chapter) seek(chapter.start);
 }
 
@@ -946,103 +986,159 @@ function flowClaim(id) {
     `</button>`;
 }
 
-function flowClaimGroup(title, ids, tone) {
-  const claims = (ids || []).map(flowClaim).filter(Boolean);
-  if (!claims.length) return "";
-  return `<section class="meeting-flow-group ${tone}"><h4>${esc(title)}<span>${claims.length}</span></h4>` +
-    claims.join("") + `</section>`;
+const TOPIC_NODE_LABELS = {
+  context: "背景", argument: "观点", counterpoint: "反方/约束", decision: "决定",
+  action: "行动", open_question: "待确认", risk: "风险", evidence: "依据", discussion: "讨论",
+};
+
+function revealTopic(topicId, behavior = "smooth") {
+  requestAnimationFrame(() => {
+    const branch = $(`.topic-map-branch[data-topic-branch="${topicId}"]`);
+    branch?.scrollIntoView({ block: "center", behavior });
+  });
 }
 
-function flowVisualStrip(pages, chapter) {
-  const useful = pages.filter(page => page.information_value !== "low");
-  const low = pages.filter(page => page.information_value === "low");
-  if (!useful.length && !low.length) return "";
-  const buttons = useful.slice(0, 4).map(page => {
-    const range = (page.ranges || []).find(([start, end]) => start < chapter.end && end > chapter.start);
-    const at = range ? Math.max(range[0], chapter.start) : chapter.start;
-    const image = visualImageUrl(page);
-    return `<button type="button" class="meeting-flow-visual" data-visual-id="${esc(page.id)}" ` +
-      `data-visual-time="${at}">` +
-      (image ? `<img src="${image}" alt="">` : `<span class="visual-thumb-empty">无截图</span>`) +
-      `<span><b>${esc(page.title)}</b><small>${fmt(at)} · ${esc(visualValueLabel(page))}</small></span></button>`;
-  }).join("");
-  return `<section class="meeting-flow-screens"><div class="meeting-flow-screens-head"><h4>关键屏幕</h4>` +
-    `<span>${useful.length} 项${low.length ? ` · 已折叠 ${low.length} 个低信息画面` : ""}</span></div>` +
-    (buttons ? `<div class="meeting-flow-visuals">${buttons}</div>` :
-      `<button type="button" class="chapter-low-info" data-low-visual="${esc(low[0].id)}">` +
-      `本章仅识别到 ${low.length} 个低信息画面 · 查看</button>`) + `</section>`;
+function openTopic(topicId, play = false, reveal = false, at = null) {
+  const topic = state.bundle?.topic_map?.topics?.find(item => item.id === topicId);
+  if (!topic) return;
+  state.selectedTopicId = topicId;
+  state.selectedTopicNodeId = topicId;
+  setReviewMode("chapters");
+  if (reveal) revealTopic(topicId);
+  if (play) seek(Number.isFinite(at) ? at : Number(topic.ranges?.[0]?.[0] || 0));
 }
 
-function flowMetric(label, count, tone) {
-  return `<span class="meeting-flow-metric ${tone}">${esc(label)} <b>${count || 0}</b></span>`;
+function topicRangeText(ranges) {
+  const rows = ranges || [];
+  if (!rows.length) return "没有可用时间范围";
+  const visible = rows.slice(0, 3).map(([start, end]) => `${fmt(start)}–${fmt(end)}`);
+  return visible.join(" · ") + (rows.length > 3 ? ` · 另 ${rows.length - 3} 段` : "");
 }
 
-function flowChapterCard(chapter, index, selected, pageMap) {
-  const isSelected = chapter.id === selected.id;
-  const pages = (chapter.page_ids || []).map(id => pageMap.get(id)).filter(Boolean);
-  const details = [
-    flowClaimGroup("讨论依据", chapter.discussion_claim_ids, "discussion"),
-    flowClaimGroup("形成结果", chapter.decision_claim_ids, "decision"),
-    flowClaimGroup("后续动作", chapter.action_claim_ids, "action"),
-    flowClaimGroup("待确认", chapter.open_claim_ids, "open"),
-  ].filter(Boolean).join("");
-  return `<section class="meeting-flow-card ${isSelected ? "selected" : ""}" ` +
-    `data-chapter-card="${esc(chapter.id)}">` +
-    `<button type="button" class="meeting-flow-card-head" data-chapter-select="${esc(chapter.id)}" ` +
-    `aria-expanded="${isSelected}"><span class="meeting-flow-index">${String(index + 1).padStart(2, "0")}</span>` +
-    `<span class="meeting-flow-copy"><small>${fmt(chapter.start)}–${fmt(chapter.end)}</small>` +
-    `<strong>${esc(chapter.title)}</strong><span class="meeting-flow-summary">${esc(chapter.summary)}</span>` +
-    `<span class="meeting-flow-metrics">${flowMetric("决定", chapter.decision_claim_ids?.length, "decision")}` +
-    `${flowMetric("行动", chapter.action_claim_ids?.length, "action")}` +
-    `${flowMetric("待确认", chapter.open_claim_ids?.length, "open")}</span></span>` +
-    `<span class="meeting-flow-toggle" aria-hidden="true">${isSelected ? "−" : "+"}</span></button>` +
-    (isSelected ? `<div class="meeting-flow-expanded"><div class="meeting-flow-expanded-head">` +
-      (chapter.speakers?.length ? `<span>主要发言：${esc(chapter.speakers.join("、"))}</span>` : `<span>本章未标记主要发言人</span>`) +
-      `<button type="button" class="chapter-play" data-chapter-play="${esc(chapter.id)}">▶ 从这里播放</button></div>` +
-      (details ? `<div class="meeting-flow-detail-grid">${details}</div>` :
-        `<p class="structure-empty">本章暂无单独标记的结论或行动，可结合摘要和逐字稿回看。</p>`) +
-      flowVisualStrip(pages, chapter) + `</div>` : "") + `</section>`;
+function topicMapBranch(topic, index, selectedNodeId) {
+  const selected = topic.id === state.selectedTopicId;
+  return `<section class="topic-map-branch ${selected ? "selected" : ""}" ` +
+    `data-topic-branch="${esc(topic.id)}"><button type="button" class="topic-map-topic-node ` +
+    `${selectedNodeId === topic.id ? "active" : ""}" data-topic-select="${esc(topic.id)}">` +
+    `<small>论点 ${String(index + 1).padStart(2, "0")} · ${topic.children?.length || 0} 个结构节点</small>` +
+    `<b>${esc(topic.title)}</b><span>${esc(topic.summary)}</span>` +
+    `<em>${esc(topicRangeText(topic.ranges))}</em></button>` +
+    `<div class="topic-map-children">${(topic.children || []).map(child =>
+      `<button type="button" class="topic-map-child ${esc(child.type)} ` +
+      `${selectedNodeId === child.id ? "active" : ""}" data-topic-child="${esc(child.id)}" ` +
+      `data-topic-parent="${esc(topic.id)}"><small>${esc(TOPIC_NODE_LABELS[child.type] || "讨论")}</small>` +
+      `<b>${esc(child.title)}</b><span>${esc(child.summary)}</span></button>`).join("")}</div></section>`;
+}
+
+function topicDetailVisuals(node, pageMap) {
+  const pages = (node.page_ids || []).map(id => pageMap.get(id)).filter(Boolean).slice(0, 4);
+  if (!pages.length) return "";
+  return `<section class="topic-detail-section"><h4>相关屏幕资料 <span>${node.page_ids.length}</span></h4>` +
+    `<div class="topic-detail-visuals">${pages.map(page => {
+      const image = visualImageUrl(page);
+      const at = Number(page.ranges?.[0]?.[0] || page.first || 0);
+      return `<button type="button" data-visual-id="${esc(page.id)}" data-visual-time="${at}">` +
+        (image ? `<img src="${image}" alt="">` : `<span>无截图</span>`) +
+        `<b>${esc(page.title)}</b></button>`;
+    }).join("")}</div></section>`;
+}
+
+function topicMapDetail(topic, node, pageMap) {
+  const ranges = node.ranges || topic.ranges || [];
+  const claims = (node.claim_ids || []).map(flowClaim).filter(Boolean).join("");
+  return `<section class="topic-map-detail"><header><div><span>${esc(
+    node.id === topic.id ? "一级论点" : TOPIC_NODE_LABELS[node.type] || "结构节点")}</span>` +
+    `<h3>${esc(node.title)}</h3></div><small>${esc(topic.title)}</small></header>` +
+    `<p>${esc(node.summary || topic.summary)}</p>` +
+    `<div class="topic-detail-ranges">${ranges.map(([start, end], index) =>
+      `<button type="button" data-topic-play="${start}">▶ ${fmt(start)}–${fmt(end)}` +
+      `${index === 0 ? " 从这里播放" : ""}</button>`).join("")}</div>` +
+    (claims ? `<section class="topic-detail-section"><h4>相关结论与依据 <span>${node.claim_ids.length}</span></h4>` +
+      `<div class="topic-detail-claims">${claims}</div></section>` : "") +
+    topicDetailVisuals(node, pageMap) + `</section>`;
+}
+
+async function startTopicMapGeneration(button) {
+  button.disabled = true;
+  const response = await api(`/api/meetings/${encodeURIComponent(state.slug)}/topic-map`,
+    { method: "POST" });
+  const job = await response.json();
+  if (!response.ok) {
+    button.disabled = false;
+    toast(`生成会议脉络失败：${job.detail || response.status}`);
+    return;
+  }
+  button.textContent = "正在归纳整场会议…";
+  toast(`会议脉络作业 ${job.id} 已排队`);
+  pollJob(job.id, async current => {
+    if (current.status === "done") {
+      toast("整场会议脉络已生成");
+      await loadMeeting(state.slug);
+    } else if (["failed", "cancelled"].includes(current.status)) {
+      button.disabled = false;
+      button.textContent = "重新生成会议脉络";
+      toast(`会议脉络作业 ${current.status}`);
+    }
+  });
 }
 
 function renderChapters() {
   const box = $("#chapters");
-  const structure = state.bundle?.structure;
-  const chapters = structure?.chapters || [];
-  if (!chapters.length) {
-    box.innerHTML = '<div class="structure-empty-state"><h3>还没有章节脉络</h3><p>会议纪要仍可正常阅读。</p></div>';
+  const topicMap = state.bundle?.topic_map || {};
+  const topics = topicMap.topics || [];
+  if (state.bundle?.document_state === "draft") {
+    box.innerHTML = `<div class="topic-map-empty"><span>语音草稿已可阅读</span>` +
+      `<h3>会议脉络将在多模态终稿后生成</h3>` +
+      `<p>系统正在补充屏幕表格、数字和视觉上下文。为避免基于不完整资料提前固化论点，` +
+      `Topic Map 会在终稿证据稳定后自动生成。</p></div>`;
     return;
   }
-  let selected = chapters.find(item => item.id === state.selectedChapterId) || chapters[0];
-  state.selectedChapterId = selected.id;
-  const sourceLabel = structure.chapter_source === "minutes_topic" ? "按纪要议题组织" : "按有效屏幕变化组织";
-  const pageMap = new Map((structure.visuals || []).map(item => [item.id, item]));
-  const uniqueClaims = key => new Set(chapters.flatMap(chapter => chapter[key] || [])).size;
-  box.innerHTML = `<article class="meeting-flow"><header class="meeting-flow-head"><div>` +
-    `<span>整场会议脉络 · ${esc(sourceLabel)}</span><h2>${esc(state.bundle?.title || "会议脉络")}</h2>` +
-    `<p>章节按内容推进连续展开。点击章节只展开详情；需要切换播放时间时使用“从这里播放”或上方时间轴。</p>` +
-    `</div><div class="meeting-flow-overview">${flowMetric("章节", chapters.length, "chapter")}` +
-    `${flowMetric("决定", uniqueClaims("decision_claim_ids"), "decision")}` +
-    `${flowMetric("行动", uniqueClaims("action_claim_ids"), "action")}` +
-    `${flowMetric("待确认", uniqueClaims("open_claim_ids"), "open")}</div></header>` +
-    `<div class="meeting-flow-line">${chapters.map((chapter, index) =>
-      flowChapterCard(chapter, index, selected, pageMap)).join("")}</div></article>`;
-  $$('[data-chapter-select]', box).forEach(button => button.onclick = () => {
-    state.selectedChapterId = button.dataset.chapterSelect;
+  if (topicMap.state !== "ready" || !topics.length) {
+    const stale = topicMap.state === "stale";
+    box.innerHTML = `<div class="topic-map-empty"><span>AI 语义归纳</span>` +
+      `<h3>${stale ? "会议内容变化，需要更新脉络" : "还没有整场会议语义脉络"}</h3>` +
+      `<p>系统会读取逐字稿、说话人、结论依据和屏幕资料，先做大尺度内容归纳，再合并为 ` +
+      `3–8 个一级论点。截图和参会人变化不会直接成为节点。</p>` +
+      `<button type="button" id="topic-map-generate" class="primary">${stale ? "更新会议脉络" : "生成会议脉络"}</button></div>`;
+    $("#topic-map-generate", box).onclick = event => startTopicMapGeneration(event.currentTarget);
+    return;
+  }
+  const selectedTopic = topics.find(item => item.id === state.selectedTopicId) || topics[0];
+  state.selectedTopicId = selectedTopic.id;
+  const allNodes = [selectedTopic, ...(selectedTopic.children || [])];
+  const selectedNode = allNodes.find(item => item.id === state.selectedTopicNodeId) || selectedTopic;
+  state.selectedTopicNodeId = selectedNode.id;
+  const pageMap = new Map((state.bundle?.structure?.visuals || []).map(item => [item.id, item]));
+  box.innerHTML = `<article class="topic-map-view"><header class="topic-map-head"><div>` +
+    `<span>AI 全场语义归纳 · ${topics.length} 个一级论点</span><h2>${esc(state.bundle?.title || "会议脉络")}</h2>` +
+    `<p>${esc(topicMap.meeting_summary || "按整场会议的论点、分歧、结论和行动组织；页面只作为证据。")}</p>` +
+    `</div><button type="button" id="topic-map-refresh">重新归纳</button></header>` +
+    `<div class="topic-map-canvas"><div class="topic-map-root-wrap"><div class="topic-map-root">` +
+    `<small>整场会议</small><b>${esc(state.bundle?.title || "会议")}</b>` +
+    `<span>${topics.length} 个论点 · ${topicMap.stats?.children || 0} 个结构节点</span></div></div>` +
+    `<div class="topic-map-branches">${topics.map((topic, index) =>
+      topicMapBranch(topic, index, selectedNode.id)).join("")}</div></div>` +
+    topicMapDetail(selectedTopic, selectedNode, pageMap) + `</article>`;
+  $$('[data-topic-select]', box).forEach(button => button.onclick = () => {
+    state.selectedTopicId = button.dataset.topicSelect;
+    state.selectedTopicNodeId = button.dataset.topicSelect;
     renderChapters();
-    revealChapter(state.selectedChapterId);
+    revealTopic(state.selectedTopicId);
   });
-  $$('[data-chapter-play]', box).forEach(button => button.onclick = event => {
-    event.stopPropagation();
-    const chapter = chapters.find(item => item.id === button.dataset.chapterPlay);
-    if (chapter) seek(chapter.start);
+  $$('[data-topic-child]', box).forEach(button => button.onclick = () => {
+    state.selectedTopicId = button.dataset.topicParent;
+    state.selectedTopicNodeId = button.dataset.topicChild;
+    renderChapters();
+    revealTopic(state.selectedTopicId);
   });
+  $$('[data-topic-play]', box).forEach(button => button.onclick = () =>
+    seek(Number(button.dataset.topicPlay)));
   $$('[data-visual-id]', box).forEach(button => button.onclick = () =>
     openVisual(button.dataset.visualId, Number(button.dataset.visualTime)));
-  $$('[data-low-visual]', box).forEach(button => button.onclick = () => {
-    state.visualFilter = "all";
-    openVisual(button.dataset.lowVisual);
-  });
+  $("#topic-map-refresh", box).onclick = event => startTopicMapGeneration(event.currentTarget);
   wireStructureClaims(box);
+  $$(".tl-chapter.selected").forEach(item => item.classList.remove("selected"));
+  $$(`.tl-chapter[data-topic-id="${state.selectedTopicId}"]`).forEach(item => item.classList.add("selected"));
   updateActiveChapter(player()?.currentTime || 0);
 }
 
@@ -1120,7 +1216,7 @@ function renderVisuals() {
 function setReviewMode(mode) {
   const allowed = new Set(["minutes", "chapters", "visuals", "quality"]);
   state.viewMode = allowed.has(mode) ? mode : "minutes";
-  if (state.viewMode === "chapters" && !state.bundle?.structure?.chapters?.length)
+  if (state.viewMode === "chapters" && !state.bundle?.transcript?.length)
     state.viewMode = "minutes";
   if (state.viewMode === "visuals" && !state.bundle?.structure?.visuals?.length)
     state.viewMode = "minutes";
@@ -1378,9 +1474,9 @@ function renderExportPreflight() {
   if (!data) return;
   const evidenceNames = { ready: "可核证", stale: "依据已过期", partial: "部分证据" };
   const options = [
-    ["none", "轻量包", "纪要、逐字稿、页面与证据", true],
-    ["audio", "包含音频", "可离线播放并按证据跳转", data.media.audio.available],
-    ["video", "包含源视频", "可离线回看共享画面", data.media.video.available],
+    ["none", "轻量包", "纪要、脉络、屏幕资料与证据", true],
+    ["audio", "分享版音频", `${data.media.audio.format || "AAC"}，可按证据跳转`, data.media.audio.available],
+    ["video", "分享版视频", `${data.media.video.format || "720p"}，保留屏幕可读性`, data.media.video.available],
   ];
   const html = `<div class="export-facts">` +
     `<span><b>${esc(evidenceNames[data.evidence.state] || "部分证据")}</b>${data.evidence.linked_claims}/${data.evidence.claims} 条结论有链接</span>` +
@@ -1393,7 +1489,7 @@ function renderExportPreflight() {
       `<strong>约 ${formatBytes(data.estimated_bytes[id])}</strong></label>`).join("")}</div>` +
     (data.evidence.state === "ready" ? "" :
       '<div class="export-warning">当前包仍可阅读，但部分结论不能回到原文核对。建议重新生成纪要后再正式分享。</div>') +
-    '<p class="export-note">收件人无需模型或服务：解压 ZIP 后双击 <code>viewer.html</code>。不要直接在压缩包内打开。</p>';
+    '<p class="export-note">包顶层只有 <code>viewer.html</code>、<code>README.txt</code> 和 <code>assets/</code>。音视频是分享压缩版，项目中的原始母版不会被修改。</p>';
   $("#export-preflight").innerHTML = html;
   $("#export-confirm").disabled = false;
 }
@@ -1408,6 +1504,65 @@ function exportMeeting(media = "none") {
   a.click();
   a.remove();
   toast(media === "none" ? "正在生成离线查看包（默认不含音视频）…" : `正在生成含${media === "video" ? "视频" : "音频"}的查看包…`);
+}
+
+async function openStorageDialog() {
+  if (!state.slug) return;
+  $(".more-menu")?.removeAttribute("open");
+  $("#storage-mask").classList.remove("hidden");
+  $("#storage-clean").disabled = true;
+  $("#storage-content").innerHTML = '<p class="placeholder">正在计算会议占用…</p>';
+  try {
+    state.storage = await jget(`/api/meetings/${encodeURIComponent(state.slug)}/storage`);
+    renderStorageDialog();
+  } catch (error) {
+    $("#storage-content").innerHTML = `<div class="export-warning">无法读取存储信息（${esc(error.message)}）</div>`;
+  }
+}
+
+function closeStorageDialog() {
+  $("#storage-mask").classList.add("hidden");
+}
+
+function renderStorageDialog() {
+  const data = state.storage;
+  if (!data) return;
+  const groups = data.cache?.groups || [];
+  $("#storage-content").innerHTML = `<div class="storage-total"><span>本会议逻辑占用</span>` +
+    `<strong>${formatBytes(data.logical_bytes)}</strong><small>CoW/Reflink 共享的数据块可能使实际物理占用更低</small></div>` +
+    `<div class="storage-buckets">` +
+    `<section><span class="storage-dot original"></span><div><b>原始母版</b><small>${esc(data.policy?.original || "受保护")}</small></div><strong>${formatBytes(data.original?.bytes)}</strong></section>` +
+    `<section><span class="storage-dot reading"></span><div><b>阅读资产</b><small>${esc(data.policy?.reading || "默认保留")}</small></div><strong>${formatBytes(data.reading?.bytes)}</strong></section>` +
+    `<section><span class="storage-dot cache"></span><div><b>可再生缓存</b><small>${esc(data.policy?.cache || "可重新生成")}</small></div><strong>${formatBytes(data.cache?.bytes)}</strong></section></div>` +
+    (groups.length ? `<div class="storage-groups"><b>本次智能清理范围</b>${groups.map(group =>
+      `<div><span>${esc(group.label)}<small>${esc(group.regenerates_from)}可恢复 · ${group.files} 个文件</small></span>` +
+      `<strong>${formatBytes(group.bytes)}</strong></div>`).join("")}</div>` :
+      `<div class="storage-clean-empty">目前没有可安全清理的缓存。原始母版、逻辑页面、逐字稿和纪要均未计入清理范围。</div>`);
+  $("#storage-clean").disabled = !data.cache?.reclaimable;
+  $("#storage-clean").textContent = data.cache?.reclaimable
+    ? `智能清理 · 约 ${formatBytes(data.cache.bytes)}` : "没有可清理缓存";
+}
+
+async function cleanMeetingStorage() {
+  if (!state.slug || !state.storage?.cache?.reclaimable) return;
+  const amount = formatBytes(state.storage.cache.bytes);
+  if (!confirm(`清理约 ${amount} 可再生缓存？\n原始母版、逐字稿、纪要、Topic Map 和阅读页面不会删除；重新处理时会再次生成缓存。`)) return;
+  const button = $("#storage-clean");
+  button.disabled = true;
+  button.textContent = "正在清理…";
+  try {
+    const response = await api(`/api/meetings/${encodeURIComponent(state.slug)}/storage/cleanup`,
+      { method: "POST" });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.detail || response.status);
+    state.storage = result.storage;
+    renderStorageDialog();
+    toast(`已清理 ${formatBytes(result.reclaimed_logical_bytes)} 可再生缓存`);
+    await loadMeeting(state.slug);
+  } catch (error) {
+    button.disabled = false;
+    toast(`清理失败：${error.message}`);
+  }
 }
 
 /* ---------- 本地会议助手：右侧智能栏 + 结构化逐字稿引用 ---------- */
@@ -1448,11 +1603,12 @@ function renderAssistantSuggestions() {
     box.innerHTML = "";
     return;
   }
+  const draft = state.bundle.document_state === "draft";
   const hasClaims = Boolean(state.bundle.evidence?.claims?.length);
   const suggestions = hasClaims
     ? ["这次确认了什么？", "有哪些行动项和负责人？", "还有哪些问题没有解决？"]
     : ["按原文梳理这场会议的讨论主题"];
-  box.innerHTML = suggestions.map(item =>
+  box.innerHTML = (draft ? '<p class="assistant-draft-note">当前可以追问语音草稿；修改命令将在多模态终稿后开放。</p>' : "") + suggestions.map(item =>
     `<button type="button" data-assistant-suggestion="${esc(item)}">${esc(item)}</button>`).join("");
   $$('[data-assistant-suggestion]', box).forEach(button => {
     button.onclick = () => {
@@ -1674,6 +1830,14 @@ async function sendAssistant() {
   const message = input.value.trim();
   if (!message) return;
   const intent = inferAssistantIntent(message);
+  if (intent === "edit" && state.bundle?.document_state === "draft") {
+    state.assistantNextIntent = null;
+    addAssistantMessage({ role: "user", content: message, sources: [] });
+    addAssistantMessage({ role: "assistant", content: "当前是语音草稿，屏幕表格和画面依据还在补充。等多模态终稿替换完成后再修改，避免这次编辑被终稿覆盖。", sources: [] });
+    input.value = "";
+    setAssistantThread(true);
+    return;
+  }
   state.assistantNextIntent = null;
   const common = {
     message,
@@ -1886,10 +2050,26 @@ async function uploadFiles(files) {
   const j = await r.json();
   if (!r.ok) { toast(`上传被拒: ${j.detail || r.status}`); return; }
   toast(`作业 ${j.id} (${j.route}) 已创建，目标会议 ${j.meeting}`);
-  pollJob(j.id, jj => {
+  let draftOpened = false;
+  pollJob(j.id, async jj => {
+    const logs = (jj.log || []).map(String);
+    if (!draftOpened && logs.some(line => line.includes("语音草稿已可阅读"))) {
+      draftOpened = true;
+      state.progressiveRefreshes.add(`${j.id}:draft`);
+      toast("语音草稿已可阅读，正在补充屏幕资料…");
+      await loadMeetings();
+      if (state.bundle) rememberReadingPosition();
+      await loadMeeting(j.meeting);
+      return;
+    }
     if (jj.status === "done") {
-      toast(`作业 ${j.id} 完成`);
-      loadMeetings();
+      const key = `${j.id}:final`;
+      if (state.progressiveRefreshes.has(key)) return;
+      state.progressiveRefreshes.add(key);
+      toast(`作业 ${j.id} 完成，已升级为多模态终稿`);
+      if (state.bundle) rememberReadingPosition();
+      await loadMeetings();
+      if (state.slug === j.meeting || draftOpened) await loadMeeting(j.meeting);
     } else if (jj.status === "failed") {
       toast(`作业 ${j.id} 失败 (rc=${jj.rc})`);
     } else {
@@ -1941,7 +2121,8 @@ function renderJobs(jobs) {
     const meeting = state.meetings.find(item => item.slug === j.meeting);
     const name = meeting?.title || j.meeting || "会议处理";
     const kindLabel = j.kind === "translation" ? `${translationTargetLabel(j.target_language)}翻译`
-      : j.kind === "regen" ? "生成纪要" : j.kind === "upload" ? "会议处理" : "";
+      : j.kind === "regen" ? "生成纪要" : j.kind === "topic_map" ? "生成会议脉络"
+      : j.kind === "upload" ? "会议处理" : "";
     const progress = j.progress?.total
       ? ` ${j.progress.done || 0}/${j.progress.total}` : "";
     const lastLog = String(j.log?.at(-1) || "");
@@ -1951,7 +2132,10 @@ function renderJobs(jobs) {
     const vlTotal = [...(j.log || [])].reverse()
       .map(line => String(line).match(/逻辑页\s+(\d+)\s+页/)).find(Boolean);
     const liveProgress = vlPage && vlTotal ? ` ${vlPage[1]}/${vlTotal[1]}` : (progress || step);
-    const liveStage = /抽屏幕|逻辑页/.test(lastLog) ? "提取共享画面"
+    const liveStage = /语音草稿|voice draft/i.test(lastLog) ? "生成语音草稿"
+      : /多模态纪要|升级多模态|补充屏幕资料/i.test(lastLog) ? "升级多模态纪要"
+      : /topic map|会议脉络|论点/i.test(lastLog) ? "构建会议脉络"
+      : /抽屏幕|逻辑页/.test(lastLog) ? "提取共享画面"
       : /生成按页纪要|生成.*纪要|结构化输入|总体摘要|页块|分页详情/.test(lastLog) ? "生成会议纪要"
       : /声纹库|声纹/.test(lastLog) ? "确认人员身份"
       : /解析 VTT|对齐姓名/.test(lastLog) ? "对齐参会者"
@@ -2039,6 +2223,7 @@ function init() {
       regenMinutes("qwen3.5-122b-a10b-planner");
   };
   $("#export-btn").onclick = openExportDialog;
+  $("#storage-btn").onclick = openStorageDialog;
   $("#minutes-tab").onclick = () => setReviewMode("minutes");
   $("#chapters-tab").onclick = () => setReviewMode("chapters");
   $("#visuals-tab").onclick = () => setReviewMode("visuals");
@@ -2090,6 +2275,12 @@ function init() {
   };
   $("#export-mask").addEventListener("click", event => {
     if (event.target.id === "export-mask") closeExportDialog();
+  });
+  $("#storage-close").onclick = closeStorageDialog;
+  $("#storage-cancel").onclick = closeStorageDialog;
+  $("#storage-clean").onclick = cleanMeetingStorage;
+  $("#storage-mask").addEventListener("click", event => {
+    if (event.target.id === "storage-mask") closeStorageDialog();
   });
 
   const dz = $("#dropzone");

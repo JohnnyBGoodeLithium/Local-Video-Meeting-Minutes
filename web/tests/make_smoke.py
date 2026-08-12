@@ -20,6 +20,7 @@ from PIL import Image
 PROJECT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT / "bin"))
 from meeting_artifact import load_speaker_profiles, write_evidence_document  # noqa: E402
+import meeting_topic_map  # noqa: E402
 
 ROOT = Path(os.environ.get("MM_TEST_ROOT", "/home/johnny-tcx_ultra/meeting-minutes")).resolve()
 mdir = ROOT / "meetings" / "_smoke"
@@ -57,6 +58,7 @@ slides = [
                                   encoding="utf-8")
 for i, color in ((1, (200, 220, 255)), (2, (220, 255, 220))):
     Image.new("RGB", (320, 180), color).save(mdir / "slides" / f"page{i}.png")
+Image.new("RGB", (1920, 1080), (210, 210, 210)).save(mdir / "slides" / "full_01.jpg")
 
 minutes = """# 会议纪要
 
@@ -101,8 +103,40 @@ for name in ("Alice", "Bob"):
 
 bank_dir = Path(os.environ.get("MM_TEST_BANK", "/tmp/mm_fake_bank"))
 profiles = load_speaker_profiles(turns, bank_dir)
-write_evidence_document(
+_, evidence = write_evidence_document(
     mdir, minutes, turns, slides, {1: page_desc["desc"]["1"], 2: page_desc["desc"]["2"]}, profiles,
     generation={"synthetic_fixture": True})
+
+raw_topic_map = {
+    "meeting_summary": "合成会议依次完成开场、第一轮评审和第二轮收束。",
+    "topics": [
+        {"title": "明确评审范围", "summary": "先确认本次合成评审的目标。",
+         "turn_ids": ["T000001"], "claim_ids": ["C00001"], "page_ids": ["P0001"],
+         "children": [
+             {"type": "context", "title": "评审开场", "summary": "说明会议目的。",
+              "turn_ids": ["T000001"], "claim_ids": ["C00001"], "page_ids": ["P0001"]},
+             {"type": "discussion", "title": "进入评审", "summary": "开始核对第一轮内容。",
+              "turn_ids": ["T000001"], "claim_ids": [], "page_ids": ["P0001"]}]},
+        {"title": "完成第一轮评审", "summary": "围绕第一轮合成数据进行检查。",
+         "turn_ids": ["T000002"], "claim_ids": ["C00002"], "page_ids": ["P0001"],
+         "children": [
+             {"type": "argument", "title": "第一轮内容", "summary": "说明第一轮评审对象。",
+              "turn_ids": ["T000002"], "claim_ids": ["C00002"], "page_ids": ["P0001"]},
+             {"type": "evidence", "title": "对应画面", "summary": "页面一作为背景资料。",
+              "turn_ids": ["T000002"], "claim_ids": [], "page_ids": ["P0001"]}]},
+        {"title": "第二轮收束", "summary": "切换到第二轮并结束合成会议。",
+         "turn_ids": ["T000003"], "claim_ids": ["C00003"], "page_ids": ["P0002"],
+         "children": [
+             {"type": "decision", "title": "评审结束", "summary": "第二轮完成后收束会议。",
+              "turn_ids": ["T000003"], "claim_ids": ["C00003"], "page_ids": ["P0002"]},
+             {"type": "evidence", "title": "第二页资料", "summary": "页面二辅助定位收束阶段。",
+              "turn_ids": ["T000003"], "claim_ids": [], "page_ids": ["P0002"]}]},
+    ],
+}
+topic_map = meeting_topic_map._sanitize_map(
+    raw_topic_map, evidence, meeting_topic_map.current_revisions(mdir),
+    model="synthetic", window_count=1, chunk_seconds=480.0)
+(mdir / "meeting.topic-map.json").write_text(
+    json.dumps(topic_map, ensure_ascii=False, indent=1), encoding="utf-8")
 
 print("smoke fixture ok:", sorted(p.name for p in mdir.iterdir()))

@@ -43,10 +43,12 @@ VL 页面理解和逐字稿承担不同职责：
 展示分三层：
 
 1. 常规纪要只引用与讨论、结论或行动相关的页面，不在正文底部重复逐页资料；
-2. 整场章节脉络把连续讨论段落、结果、行动和关键屏幕串成可跳转主线；
+2. 在线章节脉络把整场内容归并为 3–8 个一级论点和类型化子节点；节点绑定逐字稿、结论和页面依据，并可跳到同一论点的多个非连续时间范围；
 3. 屏幕内容以“缩略图 + 标题 + 信息价值 + 讨论状态”列出全部逻辑页面，并保留完整 VL 解释。没有对应逐字稿的页标记为“仅展示”，有对应发言的页标记为“有讨论”。
 
 生成阶段的 canonical `minutes.md` 目前仍可保留“分页详情”作为证据构建输入，但 Web 和 MeetingPack 使用确定性的常规纪要投影；逐页事实继续保存在 `evidence.json`、Visual 和 RAG，不会丢失整套 deck，也不会把页面上的目标、方案或数字误写成会议共识。
+
+带录屏管线会先发布仅基于 turns/说话人的语音草稿，再用 pages/VL 生成多模态终稿。草稿 evidence 的 `generation_stage=voice_draft` 并保存独立快照；终稿为 `generation_stage=final`。MeetingPack 只允许在 `meeting-generation/v1.phase=ready` 后导出，因为离线包没有后续自动替换机制，不能把临时草稿当成可分享定稿。
 
 ## 2. Prompt 传输结构
 
@@ -119,36 +121,42 @@ Web 和查看器把它显示成很轻的“依据”链接；原始 Markdown 仍
 
 Web 只在 sidecar 的逐字稿和纪要 revision 与当前文件一致时展示“依据”，避免编辑后误指向旧内容。说话人绑定、首选显示名变更、纪要应用或撤销后，由确定性代码刷新 sidecar，不调用模型。
 
-## 4. MeetingPack v2
+## 4. MeetingPack v3
 
 分享格式是普通 ZIP，文件名后缀为 `.meetingpack.zip`。收件人解压后双击 `viewer.html`，不需要安装本项目、不需要运行服务，也不需要 LLM。查看器没有 CDN、外部字体或 `fetch` 依赖，使用 `file://` 即可。
 
 ```text
 <meeting>.meetingpack.zip
 ├── viewer.html             # CSS/JS/数据内嵌的静态查看器
-├── manifest.json           # meetingpack/v2、文件哈希、证据状态、媒体策略
 ├── README.txt
-├── minutes.md              # 常规阅读版纪要 + 隐藏 marker，不重复逐页详情
-├── transcript.md           # 带可读时间码的完整逐字稿
-├── transcript.json         # 结构化完整逐字稿
-├── evidence.json           # canonical 证据关系
-├── views.json              # 四种阅读视图与会议理解图
-├── rag/
-│   └── records.jsonl       # meeting-minutes-rag/v1
-├── slides/
-│   └── ...                 # 本次会议使用的页面图
-└── media/                  # 默认不存在
-    ├── audio.wav           # --media audio 时
-    └── source.mp4          # --media video 时
+└── assets/                 # 所有依赖统一收纳；顶层不再散落机器文件
+    ├── manifest.json       # meetingpack/v3、文件哈希、证据与媒体策略
+    ├── minutes.md          # 常规阅读版纪要 + 隐藏 marker
+    ├── transcript.md       # 带可读时间码的完整逐字稿
+    ├── transcript.json     # 结构化完整逐字稿
+    ├── evidence.json       # canonical 证据关系
+    ├── topic-map.json      # meeting-topic-map/v1 整场语义脉络
+    ├── views.json          # 管理层/执行层 × 快速/精细视图
+    ├── rag/
+    │   └── records.jsonl   # meeting-minutes-rag/v1
+    ├── slides/
+    │   └── ...             # 960px WebP 阅读图，不包含 VL full_* 工作帧
+    └── media/              # 默认不存在
+        ├── audio.m4a       # --media audio：AAC 40kbps 分享版
+        └── video.mp4       # --media video：H.264 720p/10fps 分享版
 ```
 
-Viewer 左侧常驻媒体、时间轴和完整逐字稿，中间提供管理层/执行层 × 快速/精细四种确定性视图、会议理解图和会议纪要，右侧展示原始证据。所有逐字稿时间码、claim 和图节点都可以跳到媒体进度；全文搜索覆盖结论、逐字稿和页面。必须解压整个 ZIP 后再打开，不能只在压缩软件里预览单个 HTML。
+Viewer 左侧常驻媒体、时间轴和完整逐字稿，中间提供管理层/执行层 × 快速/精细视图、整场会议脉络、屏幕内容和会议纪要，右侧展示原始证据。“会议脉络”直接消费导出时冻结的 `meeting-topic-map/v1`，不会从截图重建另一套假章节；“屏幕内容”按缩略图、标题、状态和完整 VL 解读浏览。所有逐字稿时间码、Topic range 和 claim 都可跳到媒体进度。必须解压整个 ZIP 后再打开，不能只在压缩软件里预览单个 HTML。
 
 四种视图只选择和重组 canonical claim，不再次调用 LLM，也不会补造负责人、截止日期或决定。旧会议没有有效 evidence marker 时，包仍包含完整逐字稿、媒体与纪要，但 `manifest.evidence.state=partial`，Viewer 显式提醒“结论不可逐条核验”，不会把 `claims=0` 伪装成完整导出。导出过程只读会议目录，不会为方便打包而重写 `minutes.evidence.json`。
 
 ### 4.1 是否需要传源视频
 
-默认不需要。纪要阅读、页面浏览、逐字稿检索和 RAG 都由 `minutes.md + evidence.json + slides + records.jsonl` 完成。源视频通常体积最大，并不会提高文本检索质量。
+默认不需要。纪要阅读、页面浏览、逐字稿检索和 RAG 都由 `assets/minutes.md + assets/evidence.json + assets/topic-map.json + assets/slides + assets/rag/records.jsonl` 完成。源视频通常体积最大，并不会提高文本检索质量。
+
+应用中的原始媒体是项目母版；MeetingPack 中的音视频只是面向分享的派生副本。导出不会覆盖或重新编码项目母版：音频统一生成 AAC 40kbps，视频生成 H.264 720p/10fps，屏幕图生成 960px WebP。以 78 分钟会议估算，AAC 约 24–27MB；视频大小依画面变化量而异。需要逐像素、原码流审计时应访问项目母版，而不是把 MeetingPack 当作原始档案。
+
+当前 Gate B 实测：无媒体包 2.52MB；AAC 包 23.60MB，相比 149.55MB PCM 工作音轨减少约 84%；视频包 40.27MB，其中分享视频 37.74MB，相比 206.92MB 母版减少约 82%。这些是实际内容的参考值，导出预检仍按每场会议时长和源媒体单独估算。
 
 只有以下情况建议包含媒体：
 
@@ -166,7 +174,7 @@ Web“更多”菜单提供三种导出；命令行等价用法：
 
 ## 5. RAG 使用方式
 
-`rag/records.jsonl` 每行是独立 JSON，`record_type` 包括：
+`assets/rag/records.jsonl` 每行是独立 JSON，`record_type` 包括：
 
 - `claim`：结论、共识、行动、风险等可读归纳，带 `evidence_ids`；
 - `transcript`：单轮原文，带时间、说话人、person 和页面；
@@ -182,7 +190,7 @@ Web“更多”菜单提供三种导出；命令行等价用法：
 5. `retrieval_priority` 只用于召回排序，不代表真实性。`confidence` 是纪要归纳置信度，也不能覆盖原始证据；
 6. `meeting_id` 用于把同一会议的不同版本归组；每条记录 ID 以 `artifact_id` 为前缀。逐字稿或纪要变化会产生新的 `artifact_id`，旧包与旧索引记录保持不可变，便于审计或显式清理旧版本。
 
-不建议从渲染后的 HTML 或 Markdown 脚注反向解析 RAG。`evidence.json` 和 `records.jsonl` 才是机器接口。
+不建议从渲染后的 HTML 或 Markdown 脚注反向解析 RAG。`assets/evidence.json` 和 `assets/rag/records.jsonl` 才是机器接口。
 
 ### 5.1 当前本机 RAG 服务
 
@@ -206,7 +214,7 @@ make rag-index
 
 两个 0.6B 模型分别由 loopback systemd user service 常驻在 `127.0.0.1:11437` 和 `127.0.0.1:11438`。服务使用单并发、4K context、关闭额外 prompt cache，并设置 `MemoryHigh=3G`、`MemoryMax=5G`；Web 健康接口公开模型状态但不公开会议正文。测试中 `retrieval_mode` 会明确返回 `hybrid_reranked`、`hybrid` 或 `lexical`，便于排查是否发生降级。
 
-MeetingPack 中的 `rag/records.jsonl` 是可移植的索引原料，不等于一个可运行的 RAG 服务。纯 `file://` Viewer 可以离线全文搜索，但若要生成回答，必须满足以下之一：
+MeetingPack 中的 `assets/rag/records.jsonl` 是可移植的索引原料，不等于一个可运行的 RAG 服务。纯 `file://` Viewer 可以离线全文搜索，但若要生成回答，必须满足以下之一：
 
 - 连接部署在有算力机器上的受控 RAG/LLM 服务；
 - 接收方本机运行模型；
@@ -218,5 +226,5 @@ MeetingPack 中的 `rag/records.jsonl` 是可移植的索引原料，不等于�
 
 - MeetingPack 是分享副本，会包含逐字稿正文、页面解释、人员显示名和可能的岗位/团队信息；发送前应按会议保密级别判断接收范围。
 - 默认不打包本机原始路径、声纹向量、声纹试听样本、完整 Org Chart 或 LLM 服务配置。
-- `manifest.json` 记录包内文件 SHA-256，便于接收方验证内容是否被替换。
+- `assets/manifest.json` 记录包内文件 SHA-256，便于接收方验证内容是否被替换。
 - 后续 schema 变更必须增加版本，不得静默改变现有字段语义。

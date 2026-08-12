@@ -25,6 +25,7 @@ from meeting_artifact import (
     normalize_minutes_markdown,
     write_evidence_document,
 )
+import meeting_topic_map
 
 ROUTER = "http://127.0.0.1:11435/v1/chat/completions"
 MODEL = "qwen3.6-35b-a3b-operator"
@@ -98,6 +99,12 @@ def main() -> int:
     ap.add_argument("--max-tokens", type=int, default=4096)
     ap.add_argument("--spk", type=Path, default=None,
                     help="分说话人轮次 transcript.spk.json；提供则按说话人归属生成纪要")
+    ap.add_argument("--output-name", default=None,
+                    help="输出文件名；渐进视频管线使用 minutes.md 发布语音草稿")
+    ap.add_argument("--generation-stage", default="final",
+                    choices=("voice_draft", "final"), help="写入 evidence generation 元数据")
+    ap.add_argument("--skip-topic-map", action="store_true",
+                    help="语音草稿阶段不提前生成 Topic Map")
     args = ap.parse_args()
 
     if args.spk:
@@ -147,14 +154,21 @@ def main() -> int:
 
     out_dir = args.out or args.transcript.parent
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / ("minutes.spk.md" if args.spk else "minutes.md")
+    output_name = args.output_name or ("minutes.spk.md" if args.spk else "minutes.md")
+    if Path(output_name).name != output_name or not output_name.endswith(".md"):
+        print("output-name 必须是当前目录内的 .md 文件名", file=sys.stderr)
+        return 4
+    out_path = out_dir / output_name
     out_path.write_text(minutes + "\n", encoding="utf-8")
     if args.spk:
         write_evidence_document(
             args.spk.parent, minutes + "\n", turns, [], {}, profiles,
             generation={"prompt_schema": "meeting-minutes-prompt/v1",
                         "conclusion_policy": CONCLUSION_POLICY["version"],
-                        "text_model": MODEL, "vl_enabled": False})
+                        "text_model": MODEL, "vl_enabled": False,
+                        "generation_stage": args.generation_stage})
+        if not args.skip_topic_map:
+            meeting_topic_map.generate_for_pipeline(args.spk.parent)
 
     usage = data.get("usage", {})
     print(f"[meta] 纪要生成 {elapsed:.1f}s | 输入 {usage.get('prompt_tokens','?')} tok"

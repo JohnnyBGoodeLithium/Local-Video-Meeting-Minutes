@@ -152,6 +152,14 @@ check("bundle 提供逻辑页、连续视觉片段和语义章节三层结构",
               for visual in j.get("structure", {}).get("visuals", []))
       and all(visual.get("description_html")
               for visual in j.get("structure", {}).get("visuals", [])))
+check("bundle 提供整场语义 Topic Map，而不是按截图生成节点",
+      j.get("topic_map", {}).get("schema") == "meeting-topic-map/v1"
+      and j.get("topic_map", {}).get("state") == "ready"
+      and len(j.get("topic_map", {}).get("topics", [])) == 3
+      and all(len(topic.get("children", [])) == 2
+              for topic in j.get("topic_map", {}).get("topics", []))
+      and len(j.get("topic_map", {}).get("topics", []))
+      != len(j.get("structure", {}).get("visuals", [])))
 check("bundle 常规纪要不再重复铺开逐页详情",
       "分页详情" not in j.get("minutes_html", "")
       and "假页面一" not in j.get("minutes_html", "")
@@ -163,7 +171,23 @@ check("bundle 提供可点击纪要依据且 HTML 不泄露机器标记",
       and '#mm-C00001' in j.get("minutes_html", "")
       and 'mm:evidence' not in j.get("minutes_html", ""))
 
-# 2a. 本地结论审计：逐条标签、乐观锁、隐私最小化与汇总
+# 2a. 存储分层：母版/阅读资产受保护，智能清理仅移除可再生工作帧
+s, _, storage_before = req("GET", "/api/meetings/_smoke/storage")
+cache_ids = {group.get("id") for group in storage_before.get("cache", {}).get("groups", [])}
+check("存储接口区分受保护母版、阅读资产和可再生缓存",
+      s == 200 and storage_before.get("schema") == "meeting-storage/v1"
+      and storage_before.get("original", {}).get("protected") is True
+      and storage_before.get("reading", {}).get("bytes", 0) > 0
+      and "vl_frames" in cache_ids)
+s, _, cleaned = req("POST", "/api/meetings/_smoke/storage/cleanup")
+check("智能清理只删除白名单缓存并保留会议核心文件",
+      s == 200 and cleaned.get("reclaimed_logical_bytes", 0) > 0
+      and not (SMOKE / "slides" / "full_01.jpg").exists()
+      and (SMOKE / "audio.wav").is_file()
+      and (SMOKE / "minutes.md").is_file()
+      and (SMOKE / "meeting.topic-map.json").is_file())
+
+# 2b. 本地结论审计：逐条标签、乐观锁、隐私最小化与汇总
 minutes_before_quality = (SMOKE / "minutes.md").read_text()
 s, _, quality = req("GET", "/api/meetings/_smoke/quality")
 quality_claims = quality.get("claims", [])
@@ -200,7 +224,33 @@ check("本地评测文件只存指纹/标签，不复制 claim 正文",
       evaluation_disk.get("schema") == "meeting-minutes-evaluation/v1"
       and len(events) == 2 and all("text" not in event for event in events))
 
-# 2b. 上下文翻译 sidecar：异步生成，不覆盖原始逐字稿
+# 2c. 渐进式纪要：语音草稿可读/追问，但暂停审计、修改、脉络和导出。
+generation_path = SMOKE / "meeting.generation.json"
+generation_path.write_text(json.dumps({
+    "schema": "meeting-generation/v1", "phase": "visual_enrichment",
+    "voice_draft_revision": "synthetic-draft",
+}), encoding="utf-8")
+try:
+    s, _, draft_bundle = req("GET", "/api/meetings/_smoke/bundle")
+    sq, _, draft_quality = req("GET", "/api/meetings/_smoke/quality")
+    se, _, _ = req("PUT", "/api/meetings/_smoke/quality/claims/C00001", {
+        "label": "correct", "note": "", "claim_fingerprint": first.get("fingerprint"),
+    })
+    st, _, _ = req("POST", "/api/meetings/_smoke/topic-map")
+    sx, _, _ = req("GET", "/api/meetings/_smoke/export?media=none")
+    sp, _, draft_preflight = req("GET", "/api/meetings/_smoke/export/preflight")
+    check("语音草稿通过 bundle 可读且暴露明确阶段",
+          s == 200 and draft_bundle.get("document_state") == "draft"
+          and draft_bundle.get("generation", {}).get("phase") == "visual_enrichment")
+    check("草稿阶段暂停结论审计、Topic Map 和导出",
+          sq == 200 and draft_quality.get("evidence_state") == "draft"
+          and draft_quality.get("summary", {}).get("total") == 0
+          and se == 409 and st == 409 and sx == 409
+          and sp == 200 and draft_preflight.get("document_state") == "draft")
+finally:
+    generation_path.unlink(missing_ok=True)
+
+# 2d. 上下文翻译 sidecar：异步生成，不覆盖原始逐字稿
 transcript_before_translation = (SMOKE / "transcript.spk.json").read_text()
 s, _, translation_before = req(
     "GET", "/api/meetings/_smoke/translations/transcript?target=zh-CN")
@@ -239,7 +289,7 @@ check("逐字稿支持独立的英语目标语言 sidecar",
       and len(english.get("turns", [])) == 3
       and (SMOKE / "transcript.translation.en.json").is_file())
 
-# 2c. MeetingPack 默认不带媒体，解压后 viewer.html 可直接 file:// 打开
+# 2e. MeetingPack 默认不带媒体，解压后 viewer.html 可直接 file:// 打开
 evidence_before_export = (SMOKE / "minutes.evidence.json").read_bytes()
 s, _, preflight = req("GET", "/api/meetings/_smoke/export/preflight")
 check("导出预检只返回内容状态、数量、媒体和预计体积",
@@ -248,37 +298,44 @@ check("导出预检只返回内容状态、数量、媒体和预计体积",
       and preflight.get("content", {}).get("transcript_turns") == 3
       and preflight.get("media", {}).get("audio", {}).get("available") is True
       and preflight.get("media", {}).get("video", {}).get("available") is False
+      and preflight.get("media", {}).get("audio", {}).get("format") == "AAC 40kbps"
       and preflight.get("estimated_bytes", {}).get("audio", 0)
       > preflight.get("estimated_bytes", {}).get("none", 0)
       and "transcript" not in preflight and "path" not in str(preflight))
 s, h, pack_bytes = req("GET", "/api/meetings/_smoke/export?media=none", raw=True)
 pack = zipfile.ZipFile(io.BytesIO(pack_bytes)) if s == 200 else None
 names = set(pack.namelist()) if pack else set()
-required = {"viewer.html", "minutes.md", "transcript.json", "transcript.md", "views.json",
-            "evidence.json", "rag/records.jsonl", "manifest.json", "README.txt",
-            "slides/page1.png", "slides/page2.png"}
+required = {"viewer.html", "README.txt", "assets/minutes.md", "assets/transcript.json",
+            "assets/transcript.md", "assets/views.json", "assets/evidence.json",
+            "assets/topic-map.json", "assets/rag/records.jsonl", "assets/manifest.json",
+            "assets/slides/p0001.webp", "assets/slides/p0002.webp"}
 check("导出 MeetingPack → 标准文件齐全且默认无音视频",
-      s == 200 and required <= names and not any(n.startswith("media/") for n in names))
+      s == 200 and required <= names and not any(n.startswith("assets/media/") for n in names)
+      and {name.split("/", 1)[0] for name in names} == {"viewer.html", "README.txt", "assets"})
 if pack:
-    manifest = json.loads(pack.read("manifest.json"))
-    evidence = json.loads(pack.read("evidence.json"))
+    manifest = json.loads(pack.read("assets/manifest.json"))
+    evidence = json.loads(pack.read("assets/evidence.json"))
+    exported_topic_map = json.loads(pack.read("assets/topic-map.json"))
     viewer = pack.read("viewer.html").decode("utf-8")
-    rag = [json.loads(line) for line in pack.read("rag/records.jsonl").decode("utf-8").splitlines()]
+    rag = [json.loads(line) for line in pack.read("assets/rag/records.jsonl").decode("utf-8").splitlines()]
 else:
-    manifest, evidence, viewer, rag = {}, {}, "", []
-check("MeetingPack v2 manifest/evidence/RAG/视图共享稳定 linkage",
-      manifest.get("schema") == "meetingpack/v2"
+    manifest, evidence, exported_topic_map, viewer, rag = {}, {}, {}, "", []
+check("MeetingPack v3 manifest/evidence/RAG/Topic Map 共享稳定 linkage",
+      manifest.get("schema") == "meetingpack/v3"
       and evidence.get("schema") == "meeting-minutes-evidence/v1"
       and evidence.get("claims", [{}])[0].get("turn_ids") == ["T000001", "T000002"]
       and any(r.get("record_type") == "claim" and r.get("evidence_ids") for r in rag)
-      and manifest.get("evidence", {}).get("state") == "ready")
+      and manifest.get("evidence", {}).get("state") == "ready"
+      and exported_topic_map.get("state") == "ready"
+      and len(exported_topic_map.get("topics", [])) == 3)
 check("MeetingPack 分享纪要采用常规阅读版，逐页事实仍在 evidence/RAG",
-      "分页详情" not in (pack.read("minutes.md").decode("utf-8") if pack else "")
+      "分页详情" not in (pack.read("assets/minutes.md").decode("utf-8") if pack else "")
       and any(record.get("record_type") == "slide" for record in rag))
-check("viewer 为无外链、自包含且可浏览逐字稿/媒体/图谱的静态页面",
+check("viewer 为无外链、自包含且可浏览逐字稿/媒体/脉络/屏幕的静态页面",
       'id="meeting-data"' in viewer and "fetch(" not in viewer
       and "http://" not in viewer and "https://" not in viewer
-      and 'id="transcript"' in viewer and 'id="scrub"' in viewer and "会议理解图" in viewer)
+      and 'id="transcript"' in viewer and 'id="scrub"' in viewer
+      and "会议脉络" in viewer and "屏幕内容" in viewer)
 check("导出是只读操作，不重写会议 canonical evidence",
       (SMOKE / "minutes.evidence.json").read_bytes() == evidence_before_export)
 minutes_before_legacy_export = (SMOKE / "minutes.md").read_text()
@@ -287,16 +344,23 @@ minutes_before_legacy_export = (SMOKE / "minutes.md").read_text()
 try:
     sl, _, legacy_pack_bytes = req("GET", "/api/meetings/_smoke/export?media=none", raw=True)
     legacy_pack = zipfile.ZipFile(io.BytesIO(legacy_pack_bytes)) if sl == 200 else None
-    legacy_manifest = json.loads(legacy_pack.read("manifest.json")) if legacy_pack else {}
+    legacy_manifest = json.loads(legacy_pack.read("assets/manifest.json")) if legacy_pack else {}
     check("旧纪要无 marker → 仍打包完整逐字稿但显式标记 partial",
           sl == 200 and legacy_manifest.get("evidence", {}).get("state") == "partial"
           and legacy_manifest.get("counts", {}).get("turns") == 3
-          and {"transcript.json", "transcript.md"} <= set(legacy_pack.namelist()))
+          and {"assets/transcript.json", "assets/transcript.md"} <= set(legacy_pack.namelist()))
 finally:
     (SMOKE / "minutes.md").write_text(minutes_before_legacy_export)
 s, _, audio_pack_bytes = req("GET", "/api/meetings/_smoke/export?media=audio", raw=True)
 audio_names = set(zipfile.ZipFile(io.BytesIO(audio_pack_bytes)).namelist()) if s == 200 else set()
-check("MeetingPack 可选包含音频", s == 200 and "media/audio.wav" in audio_names)
+audio_pack = zipfile.ZipFile(io.BytesIO(audio_pack_bytes)) if s == 200 else None
+audio_manifest = json.loads(audio_pack.read("assets/manifest.json")) if audio_pack else {}
+check("MeetingPack 音频使用分享版 AAC，且不打包 16k PCM WAV",
+      s == 200 and "assets/media/audio.m4a" in audio_names
+      and "assets/media/audio.wav" not in audio_names
+      and audio_manifest.get("media", {}).get("optimized_for_sharing") is True
+      and audio_manifest.get("media", {}).get("included_bytes", 10**9)
+      < audio_manifest.get("media", {}).get("source_bytes", 0))
 
 # 3. Range 请求
 s, h, b = req("GET", "/api/meetings/_smoke/media/audio",

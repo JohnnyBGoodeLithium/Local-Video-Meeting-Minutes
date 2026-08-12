@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""验证会议媒体固化优先硬链接，且源文件删除后会议副本仍可用。"""
+"""验证会议媒体固化为独立母版，删除或修改源文件都不影响母版。"""
 
 from __future__ import annotations
 
@@ -22,8 +22,10 @@ with tempfile.TemporaryDirectory(prefix="media-materialize-") as tmp:
     result = materialize_source(source, target)
     assert result == target.resolve()
     assert target.read_bytes() == b"synthetic-media-not-a-real-recording"
-    assert source.stat().st_ino == target.stat().st_ino
+    assert source.stat().st_ino != target.stat().st_ino
+    source.write_bytes(b"source-was-modified")
+    assert target.read_bytes() == b"synthetic-media-not-a-real-recording"
     source.unlink()
     assert target.is_file() and target.read_bytes().startswith(b"synthetic-media")
 
-print("Media materialization: hardlink survives source removal")
+print("Media materialization: independent CoW/copy survives source mutation and removal")

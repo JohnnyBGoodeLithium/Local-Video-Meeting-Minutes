@@ -32,6 +32,8 @@ from diarize import smooth_dia
 from teams_minutes import extract_audio, diarize, slugify, mmss
 from slide_pages import extract_pages
 from minutes_by_page import generate as generate_minutes
+import meeting_topic_map
+import meeting_generation
 
 ROOT = Path(__file__).resolve().parent.parent
 BIN = ROOT / "bin"
@@ -81,11 +83,11 @@ def main() -> int:
     t_all = time.time()
     env = dict(os.environ, HF_HUB_OFFLINE="1")
 
-    print(f"[1/5] 抽音轨 → {mdir}", flush=True)
+    print(f"[1/6] 抽音轨 → {mdir}", flush=True)
     wav = mdir / "audio.wav"
     extract_audio(source_mp4, wav)
 
-    print("[2/5] 转写 ∥ 说话人分离 ...", flush=True)
+    print("[2/6] 转写 ∥ 说话人分离 ...", flush=True)
     tr_cmd = [str(PY), str(BIN / "transcribe.py"), str(wav), "--out", str(mdir)]
     if args.language:
         tr_cmd += ["--language", args.language]
@@ -105,7 +107,7 @@ def main() -> int:
         [{"start": round(s, 3), "end": round(e, 3), "speaker": name_of[l]}
          for s, e, l in dia_turns], ensure_ascii=False, indent=1), encoding="utf-8")
 
-    print("[3/5] 合并轮次 + 声纹入库 ...", flush=True)
+    print("[3/6] 合并轮次 + 声纹入库 ...", flush=True)
     rc = subprocess.run([str(PY), str(BIN / "diarize.py"), str(wav),
                          "--from-segments", str(mdir / "diarization.json"),
                          "--out", str(mdir)], env=env).returncode
@@ -129,13 +131,22 @@ def main() -> int:
     subprocess.run([sys.executable, str(BIN / "voice_tool.py"), "sample", str(mdir)],
                    check=False, capture_output=True)
 
-    print("[4/5] 抽屏幕共享逻辑页 ...", flush=True)
+    print("[4/6] 先生成语音草稿纪要 ...", flush=True)
+    meeting_generation.generate_voice_draft(mdir, python=sys.executable)
+    meeting_generation.begin_visual_enrichment(mdir)
+
+    print("[5/6] 抽屏幕共享逻辑页 ...", flush=True)
     t0 = time.time()
     pages = extract_pages(source_mp4, mdir / "slides", mdir / "slides.json")
     print(f"[meta] 逻辑页 {len(pages)} 页 | 抽页耗时 {time.time()-t0:.1f}s", flush=True)
 
-    print("[5/5] 生成按页纪要(VL画面内容+总体摘要+议题板块+逐页详情) ...", flush=True)
+    print("[6/6] 用 VL 屏幕资料升级多模态纪要 ...", flush=True)
     out_path, mstats = generate_minutes(mdir, video=source_mp4, vl=not args.no_vl)
+    meeting_generation.finalize(
+        mdir, pages=mstats["pages"], vl_pages=mstats["vl_pages"])
+    print(f"[meta] 多模态纪要已替换语音草稿 | VL {mstats['vl_pages']}/{mstats['pages']} 页",
+          flush=True)
+    meeting_topic_map.generate_for_pipeline(mdir)
     print(f"[meta] 总耗时 {time.time()-t_all:.1f}s | 纪要 {mstats['chars']} 字"
           f" | 页块 {mstats['page_blocks']}/{mstats['pages']} | VL页数 {mstats['vl_pages']}",
           flush=True)

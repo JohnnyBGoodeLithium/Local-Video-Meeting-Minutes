@@ -23,7 +23,7 @@ import sys
 import time
 from pathlib import Path
 
-from meeting_dir import for_recording, materialize_audio
+from meeting_dir import for_recording, materialize_audio, materialize_source
 
 ROOT = Path(__file__).resolve().parent.parent
 BIN = ROOT / "bin"
@@ -46,7 +46,9 @@ def main() -> int:
         return 1
     folder = for_recording(ROOT, original.stem, args.title)
     folder.mkdir(parents=True, exist_ok=True)
-    wav = materialize_audio(original, folder / "audio.wav")
+    source_audio = materialize_source(
+        original, folder / f"source_audio{original.suffix.lower() or '.audio'}")
+    wav = materialize_audio(source_audio, folder / "audio.wav")
     t_start = time.time()
     env = dict(os.environ, HF_HUB_OFFLINE="1")
 
@@ -67,7 +69,7 @@ def main() -> int:
         print(f"失败：transcribe rc={rc_tr} diarize rc={rc_dz}", file=sys.stderr)
         return 1
     (folder / "source.json").write_text(json.dumps(
-        {"wav": str(wav), "original_audio": str(original)},
+        {"audio": str(source_audio), "wav": str(wav), "original_name": original.name},
         ensure_ascii=False, indent=1), encoding="utf-8")
 
     print("[2/3] 合并说话人轮次 ...", flush=True)

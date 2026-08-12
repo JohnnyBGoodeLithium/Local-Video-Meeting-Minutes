@@ -2,10 +2,12 @@
 """屏幕共享录屏 → 逻辑页(deck page)抽取。
 
 思路（替代旧的 ffmpeg scene-detect 瞬间帧方案）：
-    1. 视频按低 fps(默认 1)重采样成小灰度帧序列
-    2. ROI 运动屏蔽：统计逐像素的时间平均变化，常年在动的区域(摄像头条等)
-       不参与差异计算 —— Teams 布局下翻页检测不被视频区干扰
-    3. 相邻帧算"屏蔽后"平均绝对差 → 距离序列；阈值自适应 max(2.0, p90×5)
+    1. 视频按低 fps(默认 1)重采样成小帧序列；稀疏高饱和激光点/红框
+       先从用于判页的灰度帧中消除（不修改导出截图）
+    2. 内容 ROI + 运动屏蔽：右侧参会人栏默认不参与页面判断；其余区域再统计
+       逐像素时间平均变化，持续运动的摄像头/光标区也不参与差异计算
+    3. 相邻帧算页面距离：全页稳定内容 + 顶部标题区增强。因此表格
+       主体相似但大标题改变仍会切页，局部讲解标注不会。
        (距离分布是 静态≪小变化/build≪大翻页 三层，Otsu 二分会把线划进小变化层，
        漏掉 build；空档很宽所以自适应下限稳)，可 --threshold 手动覆盖
     4. 连续相似帧聚成稳定段；<min-seg 秒的段并回邻居(动画过渡被吃掉)
@@ -42,31 +44,127 @@ def _probe_size(video: Path):
     return int(w), int(h)
 
 
+def _suppress_sparse_annotations(rgb: np.ndarray, max_fraction: float = 0.04) -> np.ndarray:
+    """将 RGB 帧转灰度，并仅为“页面身份判定”消除稀疏高饱和标注。
+
+    会议中的红框、激光点和彩色鼠标通常是稀疏线条；当高饱和像素
+    超过整帧的 max_fraction 时，更可能是彩色图表/实际内容，不做抑制。
+    截图仍从原视频抓取，不会被这个预处理改写。
+    """
+    values = rgb.astype(np.uint16)
+    red, green, blue = values[..., 0], values[..., 1], values[..., 2]
+    gray = ((77 * red + 150 * green + 29 * blue + 128) >> 8).astype(np.uint8)
+    red_mark = (red >= 135) & (red >= green + 42) & (red >= blue + 42)
+    green_mark = (green >= 150) & (green >= red + 48) & (green >= blue + 32)
+    blue_mark = (blue >= 150) & (blue >= red + 48) & (blue >= green + 32)
+    marked = red_mark | green_mark | blue_mark
+    fraction = float(marked.mean())
+    if not marked.any() or fraction > max_fraction:
+        return gray
+
+    # 用 6px 外围邻域的中位数替换线条/光点。偏移大于常见红框线宽，
+    # 同时避免引入 OpenCV 依赖。
+    offset = 6
+    padded = np.pad(gray, offset, mode="edge")
+    h, w = gray.shape
+    neighbors = np.stack([
+        padded[offset + dy:offset + dy + h, offset + dx:offset + dx + w]
+        for dy, dx in ((-offset, -offset), (-offset, 0), (-offset, offset),
+                       (0, -offset), (0, 0), (0, offset),
+                       (offset, -offset), (offset, 0), (offset, offset))
+    ])
+    replacement = np.median(neighbors, axis=0).astype(np.uint8)
+    result = gray.copy()
+    result[marked] = replacement[marked]
+    return result
+
+
 def _decode_small(video: Path, fps: float, sw: int):
-    """低帧率小灰度帧序列 → (frames[N,h,w] uint8, )。"""
+    """低帧率 RGB 流式解码后转为判页灰度帧，避免整段 RGB 常驻内存。"""
     w, h = _probe_size(video)
     sh = max(2, round(h * sw / w / 2) * 2)
     cmd = ["ffmpeg", "-v", "error", "-i", str(video),
-           "-vf", f"fps={fps},scale={sw}:{sh}", "-f", "rawvideo", "-pix_fmt", "gray", "-"]
-    raw = subprocess.run(cmd, capture_output=True, check=True).stdout
-    n = len(raw) // (sw * sh)
-    return np.frombuffer(raw[: n * sw * sh], dtype=np.uint8).reshape(n, sh, sw)
+           "-vf", f"fps={fps},scale={sw}:{sh}", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"]
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    frame_bytes = sw * sh * 3
+    gray_raw = bytearray()
+    while True:
+        block = bytearray()
+        while len(block) < frame_bytes:
+            chunk = proc.stdout.read(frame_bytes - len(block)) if proc.stdout else b""
+            if not chunk:
+                break
+            block.extend(chunk)
+        if len(block) != frame_bytes:
+            break
+        rgb = np.frombuffer(block, dtype=np.uint8).reshape(sh, sw, 3)
+        gray_raw.extend(_suppress_sparse_annotations(rgb).tobytes())
+    stderr = proc.stderr.read() if proc.stderr else b""
+    rc = proc.wait()
+    if rc:
+        raise subprocess.CalledProcessError(rc, cmd, stderr=stderr)
+    n = len(gray_raw) // (sw * sh)
+    return np.frombuffer(gray_raw, dtype=np.uint8).reshape(n, sh, sw)
 
 
-def _motion_mask(frames: np.ndarray, keep_pct: float = 80.0):
-    """逐像素时间平均绝对差；低于 keep_pct 分位的像素参与比较(屏蔽常在动的区域)。"""
+def _motion_mask(frames: np.ndarray, keep_pct: float = 80.0,
+                 ignore_right_pct: float = 15.0):
+    """返回页面内容比较 mask。
+
+    Teams/Zoom 的右侧参会人栏会因加入、离开、开关摄像头而偶发变化；它不是
+    持续运动区域，单靠全场 activity 分位无法稳定屏蔽。先显式排除右侧 UI，再
+    在剩余内容区屏蔽持续运动像素。截图仍保留完整画面，只影响切页和同页判断。
+    """
     f = frames.astype(np.float32)
     activity = np.abs(np.diff(f, axis=0)).mean(axis=0)
     th = np.percentile(activity, keep_pct)
     mask = activity <= th
-    if mask.mean() < 0.1:      # 全屏都在动(纯视频?)→ 不屏蔽
-        mask = np.ones_like(activity, dtype=bool)
+    ignored = max(0.0, min(45.0, float(ignore_right_pct)))
+    content_end = max(1, int(round(mask.shape[1] * (1.0 - ignored / 100.0))))
+    mask[:, content_end:] = False
+    content_area = mask[:, :content_end]
+    if content_area.mean() < 0.1:      # 内容区全屏都在动(纯视频?)→ 只保留显式 ROI
+        mask = np.zeros_like(activity, dtype=bool)
+        mask[:, :content_end] = True
     return mask
 
 
 def _masked_diff(a: np.ndarray, b: np.ndarray, mask: np.ndarray) -> float:
     d = np.abs(a.astype(np.float32) - b.astype(np.float32))
     return float(d[mask].mean())
+
+
+def _content_roi(shape: tuple[int, int], ignore_right_pct: float = 15.0) -> np.ndarray:
+    """只排除会议 UI 右栏的显式内容 ROI；用于标题区，不受全场 activity 屏蔽影响。"""
+    h, w = shape
+    ignored = max(0.0, min(45.0, float(ignore_right_pct)))
+    end = max(1, int(round(w * (1.0 - ignored / 100.0))))
+    roi = np.zeros((h, w), dtype=bool)
+    roi[:, :end] = True
+    return roi
+
+
+def _trimmed_mean(values: np.ndarray, upper_fraction: float = 0.01) -> float:
+    """丢掉最强的少量差异，避免白色鼠标等非彩色小物体主导标题区。"""
+    flat = np.asarray(values, dtype=np.float32).reshape(-1)
+    if not len(flat):
+        return 0.0
+    keep = max(1, int(round(len(flat) * (1.0 - upper_fraction))))
+    if keep >= len(flat):
+        return float(flat.mean())
+    return float(np.partition(flat, keep - 1)[:keep].mean())
+
+
+def _page_diff(a: np.ndarray, b: np.ndarray, stable_mask: np.ndarray,
+               content_roi: np.ndarray, title_fraction: float = 0.22) -> float:
+    """页面身份距离：全页用稳定像素，标题区用显式 ROI 并增强灵敏度。"""
+    delta = np.abs(a.astype(np.float32) - b.astype(np.float32))
+    whole = float(delta[stable_mask].mean()) if stable_mask.any() else 0.0
+    title_rows = max(1, int(round(delta.shape[0] * title_fraction)))
+    title_mask = content_roi.copy()
+    title_mask[title_rows:, :] = False
+    title = _trimmed_mean(delta[title_mask], upper_fraction=0.01)
+    return max(whole, title)
 
 
 def _segments(dist: np.ndarray, threshold: float, min_len: int):
@@ -97,7 +195,8 @@ def _grab_frame(video: Path, t: float, width: int, out: Path):
 
 def extract_pages(video, out_dir, pages_json=None, fps=1.0, width=1280,
                   min_seg_sec=2.0, threshold=None, same_threshold=None,
-                  keep_pct=80.0, video_motion=0.5, verbose=True):
+                  keep_pct=80.0, video_motion=0.5, verbose=True,
+                  ignore_right_pct=15.0):
     """返回 [{page, first, image(Path), ranges:[[s,e],...]}]，按首次出现排序。
 
     段内帧间差中位数 > video_motion 的段判为摄像头画面(人坐在一起：整屏持续微动，
@@ -112,8 +211,10 @@ def extract_pages(video, out_dir, pages_json=None, fps=1.0, width=1280,
     n = len(frames)
     if n < 2:
         return []
-    mask = _motion_mask(frames, keep_pct)
-    dist = np.array([_masked_diff(frames[i], frames[i + 1], mask) for i in range(n - 1)])
+    mask = _motion_mask(frames, keep_pct, ignore_right_pct)
+    content_roi = _content_roi(frames.shape[1:], ignore_right_pct)
+    dist = np.array([_page_diff(frames[i], frames[i + 1], mask, content_roi)
+                     for i in range(n - 1)])
     # 自适应下限：静态噪声(p90≈0.3)与真变化(≥3)之间空档很宽；全程静态时无切点=单页
     th = threshold if threshold is not None else max(2.0, float(np.percentile(dist, 90)) * 5)
     th_same = same_threshold if same_threshold is not None else max(1.0, th / 2)
@@ -139,7 +240,7 @@ def extract_pages(video, out_dir, pages_json=None, fps=1.0, width=1280,
         cap_f = s + int(np.argmin(d2sig))
         hit = None
         for p in pages:
-            if _masked_diff(sig, p["sig"], mask) < th_same:
+            if _page_diff(sig, p["sig"], mask, content_roi) < th_same:
                 hit = p
                 break
         if hit is None:
@@ -157,7 +258,8 @@ def extract_pages(video, out_dir, pages_json=None, fps=1.0, width=1280,
             hit["ranges"].append([round(t0, 1), round(t1, 1)])
 
     if verbose:
-        print(f"[meta] 抽页: {n} 采样帧 | 阈值 {th:.2f}(同页 {th_same:.2f})"
+        print(f"[meta] 抽页: {n} 采样帧 | 内容区右侧排除 {ignore_right_pct:.0f}%"
+              f" | 阈值 {th:.2f}(同页 {th_same:.2f})"
               f" | 稳定段 {len(segs)} | 逻辑页 {len(pages)}"
               f" | 摄像头画面段 {sum(len(c['ranges']) for c in cams)} 个已跳过", flush=True)
     out_pages = [{"page": p["page"], "first": p["first"], "image": p["image"],
@@ -240,6 +342,8 @@ def main() -> int:
     ap.add_argument("--threshold", type=float, default=None, help="翻页阈值(默认 max(2.0, p90×5) 自适应)")
     ap.add_argument("--same-threshold", type=float, default=None, help="同页阈值(默认翻页/2)")
     ap.add_argument("--keep-pct", type=float, default=80.0, help="参与比较的静态像素分位")
+    ap.add_argument("--ignore-right-pct", type=float, default=15.0,
+                    help="忽略右侧会议 UI/参会人栏宽度百分比；0 表示不忽略")
     ap.add_argument("--video-motion", type=float, default=0.5,
                     help="段内运动中位数超过此值判为摄像头画面(人坐一起), 不截图")
     args = ap.parse_args()
@@ -249,7 +353,7 @@ def main() -> int:
         return 1
     pages = extract_pages(args.video, args.out, args.pages_json, args.fps, args.width,
                           args.min_seg, args.threshold, args.same_threshold, args.keep_pct,
-                          args.video_motion)
+                          args.video_motion, ignore_right_pct=args.ignore_right_pct)
     if args.update_minutes and pages:
         update_minutes(args.update_minutes, pages, Path(args.update_minutes).parent)
         print(f"[meta] 已重贴纪要截图: {args.update_minutes}", flush=True)

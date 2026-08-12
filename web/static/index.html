@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>会议纪要</title>
-<link rel="stylesheet" href="/static/style.css?v=20260812p8">
+<link rel="stylesheet" href="/static/style.css?v=20260812p10">
 </head>
 <body class="page-index">
 <header class="topbar">
@@ -50,6 +50,7 @@
             <button id="regen-btn" type="button" disabled>重新生成纪要</button>
             <button id="refine-btn" type="button" disabled title="使用更强的本地模型优化全文">优化全文</button>
             <button id="export-btn" type="button" disabled title="导出前检查证据、媒体和预计大小">分享 / 导出…</button>
+            <button id="storage-btn" type="button" disabled title="查看原始母版、阅读资产和可再生缓存">存储与清理…</button>
             <a href="/admin">人员与高级设置</a>
           </div>
         </details>
@@ -190,6 +191,23 @@
   </div>
 </div>
 
-<script src="/static/app.js?v=20260812p8"></script>
+<div id="storage-mask" class="mask hidden">
+  <div class="dialog export-dialog" role="dialog" aria-modal="true" aria-labelledby="storage-title">
+    <div class="export-dialog-head">
+      <div>
+        <h3 id="storage-title">存储与清理</h3>
+        <p class="dim">原始母版受保护；智能清理只删除可以重新生成的工作文件。</p>
+      </div>
+      <button id="storage-close" type="button" aria-label="关闭">×</button>
+    </div>
+    <div id="storage-content" class="storage-content"><p class="placeholder">正在计算会议占用…</p></div>
+    <div class="dialog-btns export-actions">
+      <button id="storage-cancel" type="button">关闭</button>
+      <button id="storage-clean" class="primary" type="button" disabled>智能清理缓存</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/app.js?v=20260812p10"></script>
 </body>
 </html>

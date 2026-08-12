@@ -16,10 +16,11 @@ meeting-minutes/
   meetings/                   # 每场会议一个自包含文件夹(可随便改名)
     2026-08-06_FY28-Gate-B-Pre-review-2nd-Round-Portfolio-Framework/
       audio.wav               # 16k 单声道音轨
-      source_video.mp4        # 视频源的会议内硬链接/副本（视频会议；不再依赖 inbox）
+      source_video.mp4        # 视频原始母版的会议内 CoW 副本（不再依赖 inbox）
       transcript.spk.md/json  # 具名/分说话人逐字稿
       minutes.md              # 纪要(Teams 场: 总体摘要+议题板块+逐页详情, 每页内嵌截图)
       minutes.evidence.json   # 纪要 claim ↔ 逐字稿 T ID / 页面 P ID 的 canonical sidecar
+      meeting.topic-map.json  # 整场论点/子节点 ↔ T/P/C 依据（按输入 revision 失效）
       slides/                 # 屏幕共享逻辑页截图(page_NN_t####s.jpg) + slides.json(页码时间线)
       samples/                # 声纹试听片段(voice_tool 生成)
     2026-08-06_171137/        # 录音笔会议: transcript.txt / stamps.json / transcript.ts.md
@@ -54,7 +55,9 @@ python3 -m venv --system-site-packages .venv
 ```
 左栏拖入 视频(可带同名 .vtt) 或 音频 即自动处理。详见 [web/README.md](web/README.md)。
 
-导入媒体会先固化进会议目录：同一文件系统优先使用硬链接，因此不会额外占用一份大文件空间；跨文件系统才复制。删除原 inbox/下载路径后，会议中的媒体仍可回放。旧录音若只有 `source.json` 外部路径，Web 也会兼容回退播放。
+导入媒体会先固化进会议目录：Btrfs/兼容文件系统优先使用 CoW reflink，形成独立 inode 但初始共享数据块；不支持时才完整复制。删除或修改原 inbox/下载路径都不会影响会议母版，处理成功后项目自动清理上传暂存。旧录音若只有 `source.json` 外部路径，Web 也会兼容回退播放。“存储与清理”会把母版、阅读资产和可再生缓存分开，只允许一键删除 PCM 工作音轨、VL full 帧和 RAG 索引等可恢复项。
+
+带录屏的会议采用渐进发布：语音转写和说话人完成后先发布“语音草稿”，可立即阅读、播放和追问；屏幕抽页、VL 表格/画面理解完成后，再原位替换为多模态终稿并生成会议脉络。草稿期暂停编辑、结论审计和导出，避免操作落在即将被替换的版本上。
 
 会议详情左侧是常驻的播放证据栏：播放器、带页区间/议题标记的时间轴和逐字稿在同一列；右侧阅读纪要。逐字稿可在“原文 / 译文 / 对照”间切换，并独立选择译为中文或 English；时间、定宽说话人姓名和正文按列对齐，完整姓名通过悬停保留。右侧智能栏共用 AI 对话与证据核对，可引用一轮或多轮逐字稿进行本地问答，回答带可点击时间来源。直接输入修改要求时，系统先展示可读的章节修改预览，只有用户确认后才写入，并支持立即撤销。
 
@@ -74,10 +77,13 @@ python3 -m venv --system-site-packages .venv
 ```bash
 .venv/bin/python bin/teams_minutes.py meeting.mp4 meeting.vtt
 # VTT 自带姓名: 远程参会者直接具名; 会议室设备通道按声纹拆成"声音K"
-# 自动抽幻灯片逻辑页(屏蔽摄像头条→逐秒画面差→自适应阈值 max(2.0,p90×5) 切段,
+# 转写/说话人完成后先发布语音草稿，然后并入 VL 升级为多模态终稿。
+# 自动抽幻灯片逻辑页(默认排除右侧15%参会人栏→抑制稀疏红框/激光点
+#   →屏蔽持续活动区→全页稳定差异+顶部大标题增强→自适应阈值切段,
 #   build 小变化也能抓到→回翻认页→medoid 截图(与段签名最接近的帧,
 #   动画播完且免疫并入段尾的 1-2s 闪断/黑帧杂质)
 #   →段内运动中位>0.5 的摄像头画面(人坐一起)自动过滤不截图)
+# 保存的截图仍是完整画面；共享内容占满右侧时可传 --ignore-right-pct 0 关闭排除。
 # 纪要是"按页"结构(bin/minutes_by_page.py): 逐字稿按"说话时显示哪页"切片 →
 #   VL 层: 本地 Miloco-7B 视觉模型逐页详细解读(原生分辨率帧, 缓存 page_desc.json;
 #   服务不在时自动拉起, 端口 11436; --no-vl 可关) →
@@ -91,6 +97,9 @@ python3 -m venv --system-site-packages .venv
 
 # 只重生成纪要(逐字稿/slides.json 已在, 旧纪要备份为 minutes.prev.md):
 .venv/bin/python bin/minutes_by_page.py meetings/<某会议>/ --video 原视频.mp4   # 不带 --video 则用 slides/ 里 1280px 图给 VL
+
+# 只重新生成整场语义脉络（本机 LLM；3–8 个一级论点，不按截图建节点）:
+.venv/bin/python bin/meeting_topic_map.py meetings/<某会议>/
 
 # 导出无需本机服务/LLM 的离线查看包（默认不带媒体；可改 audio/video）:
 .venv/bin/python bin/export_meeting.py meetings/<某会议>/ --media none

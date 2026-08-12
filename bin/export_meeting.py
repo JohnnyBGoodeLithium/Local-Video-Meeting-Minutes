@@ -9,15 +9,20 @@ from __future__ import annotations
 import argparse
 import hashlib
 import html
+import io
 import json
 import mimetypes
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
 from markdown_it import MarkdownIt
+from PIL import Image
 
 from meeting_artifact import (
     build_evidence_document,
@@ -27,9 +32,10 @@ from meeting_artifact import (
     rag_records,
 )
 from meeting_views import build_views
+import meeting_topic_map
 
 
-PACK_SCHEMA = "meetingpack/v2"
+PACK_SCHEMA = "meetingpack/v3"
 MD = MarkdownIt("default", {"html": False, "linkify": True})
 VIEWER_TEMPLATE_PATH = Path(__file__).with_name("meetingpack_viewer.html")
 
@@ -58,6 +64,18 @@ def _media_source(mdir: Path, kind: str) -> Path | None:
         candidate = candidate if candidate.is_absolute() else mdir / candidate
         if candidate.is_file():
             return candidate.resolve()
+    if kind == "audio":
+        # 视频母版里的音轨可直接生成分享版音频，不必长期保留 PCM WAV。
+        video = next((p for p in sorted(mdir.glob("source_video.*")) if p.is_file()), None)
+        if video:
+            return video
+        for key in ("mp4", "video", "original_mp4"):
+            if not source.get(key):
+                continue
+            candidate = Path(str(source[key]))
+            candidate = candidate if candidate.is_absolute() else mdir / candidate
+            if candidate.is_file():
+                return candidate.resolve()
     return None
 
 
@@ -71,6 +89,58 @@ def _sha256_file(path: Path) -> str:
         while chunk := stream.read(1024 * 1024):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _viewer_slide_assets(mdir: Path, pages: list[dict], evidence: dict) -> dict[str, bytes]:
+    """生成仅供阅读的 960px WebP；不改会议目录中的原截图。"""
+    source_by_number = {int(page["page"]): page for page in pages if page.get("page") is not None}
+    assets: dict[str, bytes] = {}
+    for item in evidence.get("sources", {}).get("pages", []):
+        source = source_by_number.get(int(item.get("number", 0)))
+        image_name = str((source or {}).get("image") or "")
+        image = (mdir / "slides" / image_name).resolve()
+        if not image_name or not image.is_file() or not image.is_relative_to((mdir / "slides").resolve()):
+            item["image"] = None
+            continue
+        arcname = f"assets/slides/{item['id'].lower()}.webp"
+        try:
+            with Image.open(image) as opened:
+                frame = opened.convert("RGB")
+                frame.thumbnail((960, 540), Image.Resampling.LANCZOS)
+                output = io.BytesIO()
+                frame.save(output, "WEBP", quality=72, method=4)
+                assets[arcname] = output.getvalue()
+                item["image"] = arcname
+        except (OSError, ValueError):
+            arcname = f"assets/slides/{item['id'].lower()}{image.suffix.lower() or '.jpg'}"
+            assets[arcname] = image.read_bytes()
+            item["image"] = arcname
+    return assets
+
+
+def _optimized_media(source: Path, kind: str, temp_dir: Path) -> tuple[Path, str, str]:
+    """生成分享版媒体：语音 AAC 40k；视频 720p/10fps H.264 + AAC。"""
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise ValueError("导出压缩媒体需要本机 ffmpeg")
+    if kind == "audio":
+        target, arcname, media_kind = temp_dir / "audio.m4a", "assets/media/audio.m4a", "audio"
+        codec_args = ["-vn", "-c:a", "aac", "-ac", "1", "-ar", "16000", "-b:a", "40k"]
+    else:
+        target, arcname, media_kind = temp_dir / "video.mp4", "assets/media/video.mp4", "video"
+        codec_args = [
+            "-vf", "scale='min(1280,iw)':-2:force_original_aspect_ratio=decrease,fps=10",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "30", "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-ac", "1", "-ar", "16000", "-b:a", "40k",
+        ]
+    command = [ffmpeg, "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+               "-i", str(source), *codec_args, "-movflags", "+faststart", str(target)]
+    completed = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                               text=True, timeout=7200)
+    if completed.returncode != 0 or not target.is_file():
+        detail = (completed.stderr or "媒体压缩失败").strip().splitlines()[-1]
+        raise ValueError(f"媒体压缩失败：{detail[:240]}")
+    return target, arcname, media_kind
 
 
 def _identity(slug: str) -> tuple[str, str]:
@@ -87,8 +157,8 @@ def _safe_json_script(value: dict) -> str:
 def _readme(media_mode: str) -> str:
     media_note = {
         "none": "本包未包含源音视频；时间戳仍可用于回到原系统定位。",
-        "audio": "本包包含音频，可在 viewer.html 中按证据时间跳转。",
-        "video": "本包包含源视频，可在 viewer.html 中按证据时间跳转。",
+        "audio": "本包包含 AAC 分享版音频，可在 viewer.html 中按证据时间跳转。",
+        "video": "本包包含 720p/10fps 分享版视频，可在 viewer.html 中按证据时间跳转。",
     }[media_mode]
     return f"""MeetingPack 离线会议查看包
 
@@ -100,13 +170,13 @@ def _readme(media_mode: str) -> str:
 
 内容
 - viewer.html：开箱即用的静态查看器（数据已内嵌，file:// 可用）
-- minutes.md：适合继续编辑的可读纪要，含不可见的 mm:evidence 标记
-- transcript.json / transcript.md：完整逐字稿与可读时间码版本
-- evidence.json：结论、逐字稿、页面和人员身份的规范化关联
-- views.json：管理层/执行层、快速/精细视图与会议理解图
-- rag/records.jsonl：可直接送入后续向量/全文索引的记录
-- slides/：纪要与页面证据使用的页面图
-- manifest.json：格式版本、内容清单、哈希和媒体策略
+- README.txt：本说明
+- assets/：其余全部依赖文件；可整体交给后续程序处理
+  - minutes.md、transcript.*：常规纪要与完整逐字稿
+  - evidence.json、topic-map.json、views.json：证据、整场语义脉络与阅读视图
+  - rag/records.jsonl：可直接送入后续向量/全文索引的记录
+  - slides/：屏幕内容缩略图；media/：可选音视频
+  - manifest.json：格式版本、内容清单、哈希和媒体策略
 
 媒体策略
 {media_note}
@@ -161,7 +231,7 @@ $('#search').oninput=e=>{let q=e.target.value.trim().toLowerCase(),box=$('#resul
 
 
 def _viewer_html(title: str, date: str, minutes_html: str, evidence: dict, views: dict,
-                 media_path: str | None, media_kind: str | None) -> bytes:
+                 topic_map: dict, media_path: str | None, media_kind: str | None) -> bytes:
     duration = max((float(t.get("end", 0)) for t in evidence["sources"]["transcript"]), default=0)
     payload = {
         "title": title,
@@ -170,6 +240,7 @@ def _viewer_html(title: str, date: str, minutes_html: str, evidence: dict, views
         "minutes_html": minutes_html,
         "evidence": evidence,
         "views": views,
+        "topic_map": topic_map,
         "media_path": media_path,
         "media_kind": media_kind,
     }
@@ -210,9 +281,19 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
     profiles = load_speaker_profiles(turns, bank_dir)
     evidence = build_evidence_document(mdir, minutes, turns, pages, descs, profiles,
                                        generation={"export_rebuilt": True})
+    slide_assets = _viewer_slide_assets(mdir, pages, evidence)
     evidence_bytes = json.dumps(evidence, ensure_ascii=False, indent=2).encode("utf-8")
     views = build_views(evidence)
     views_bytes = json.dumps(views, ensure_ascii=False, indent=2).encode("utf-8")
+    topic_state, ready_topic_map = meeting_topic_map.load_current_topic_map(mdir)
+    topic_map = (ready_topic_map if topic_state == "ready" else {
+        "schema": meeting_topic_map.SCHEMA,
+        "state": topic_state,
+        "meeting_summary": "",
+        "topics": [],
+        "stats": {"topics": 0, "children": 0},
+    })
+    topic_map_bytes = json.dumps(topic_map, ensure_ascii=False, indent=2).encode("utf-8")
 
     inferred_title, inferred_date = _identity(mdir.name)
     title, date = title or inferred_title, inferred_date if date is None else date
@@ -223,73 +304,76 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
     rag_bytes = ("\n".join(json.dumps(r, ensure_ascii=False, separators=(",", ":"))
                            for r in records) + "\n").encode("utf-8")
 
-    media_file = None
-    media_arc = media_kind = None
-    if media_mode == "audio":
-        candidate = _media_source(mdir, "audio")
-        if candidate is None:
-            raise ValueError("会议没有可用的 audio.wav；可改用 --media none")
-        suffix = candidate.suffix.lower() or ".wav"
-        media_file, media_arc, media_kind = candidate, f"media/audio{suffix}", "audio"
-    elif media_mode == "video":
-        candidate = _media_source(mdir, "video")
-        if candidate is not None:
-            suffix = candidate.suffix.lower() or ".mp4"
-            media_file, media_arc, media_kind = candidate, f"media/source{suffix}", "video"
-        else:
-            raise ValueError("会议没有可用的源视频；可改用 --media audio 或 none")
+    with tempfile.TemporaryDirectory(prefix="meetingpack-export-") as temp_name:
+        temp_dir = Path(temp_name)
+        media_file = None
+        media_arc = media_kind = None
+        media_source_bytes = 0
+        if media_mode == "audio":
+            candidate = _media_source(mdir, "audio")
+            if candidate is None:
+                raise ValueError("会议没有可用音频；可改用 --media none")
+            media_source_bytes = candidate.stat().st_size
+            media_file, media_arc, media_kind = _optimized_media(candidate, "audio", temp_dir)
+        elif media_mode == "video":
+            candidate = _media_source(mdir, "video")
+            if candidate is None:
+                raise ValueError("会议没有可用的源视频；可改用 --media audio 或 none")
+            media_source_bytes = candidate.stat().st_size
+            media_file, media_arc, media_kind = _optimized_media(candidate, "video", temp_dir)
 
-    small_files = {
-        "viewer.html": _viewer_html(title, date, minutes_html, evidence, views,
-                                    media_arc, media_kind),
-        "minutes.md": reading_minutes.encode("utf-8"),
-        "transcript.json": json.dumps(turns, ensure_ascii=False, indent=2).encode("utf-8"),
-        "transcript.md": _transcript_markdown(turns).encode("utf-8"),
-        "evidence.json": evidence_bytes,
-        "views.json": views_bytes,
-        "rag/records.jsonl": rag_bytes,
-        "README.txt": _readme(media_mode).encode("utf-8"),
-    }
-    disk_files: list[tuple[Path, str]] = []
-    for page in pages:
-        if not page.get("image"):
-            continue
-        image = (mdir / "slides" / str(page["image"])).resolve()
-        if image.is_file() and image.is_relative_to((mdir / "slides").resolve()):
-            disk_files.append((image, f"slides/{image.name}"))
-    if media_file and media_arc:
-        disk_files.append((media_file, media_arc))
-
-    manifest_files = []
-    for arcname, data in small_files.items():
-        manifest_files.append({"path": arcname, "bytes": len(data), "sha256": _sha256_bytes(data)})
-    for path, arcname in disk_files:
-        manifest_files.append({"path": arcname, "bytes": path.stat().st_size,
-                               "sha256": _sha256_file(path)})
-    manifest = {
-        "schema": PACK_SCHEMA,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "meeting_id": evidence["meeting_id"],
-        "artifact_id": evidence["artifact_id"],
-        "title": title,
-        "date": date,
-        "source_slug": mdir.name,
-        "media": {"mode": media_mode, "included": bool(media_file), "path": media_arc},
-        "evidence": views["integrity"],
-        "counts": {"turns": len(turns), "pages": len(pages), "claims": len(evidence["claims"]),
-                   "rag_records": len(records)},
-        "files": sorted(manifest_files, key=lambda x: x["path"]),
-    }
-    manifest_bytes = json.dumps(manifest, ensure_ascii=False, indent=2).encode("utf-8")
-    out.parent.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(out, "w") as archive:
-        for arcname, data in small_files.items():
-            archive.writestr(arcname, data, compress_type=zipfile.ZIP_DEFLATED)
+        small_files = {
+            "viewer.html": _viewer_html(title, date, minutes_html, evidence, views, topic_map,
+                                        media_arc, media_kind),
+            "README.txt": _readme(media_mode).encode("utf-8"),
+            "assets/minutes.md": reading_minutes.encode("utf-8"),
+            "assets/transcript.json": json.dumps(turns, ensure_ascii=False, indent=2).encode("utf-8"),
+            "assets/transcript.md": _transcript_markdown(turns).encode("utf-8"),
+            "assets/evidence.json": evidence_bytes,
+            "assets/views.json": views_bytes,
+            "assets/topic-map.json": topic_map_bytes,
+            "assets/rag/records.jsonl": rag_bytes,
+            **slide_assets,
+        }
+        disk_files = [(media_file, media_arc)] if media_file and media_arc else []
+        manifest_files = [
+            {"path": arcname, "bytes": len(data), "sha256": _sha256_bytes(data)}
+            for arcname, data in small_files.items()
+        ]
         for path, arcname in disk_files:
-            mime = mimetypes.guess_type(path.name)[0] or ""
-            compression = zipfile.ZIP_STORED if mime.startswith(("video/", "audio/", "image/")) else zipfile.ZIP_DEFLATED
-            archive.write(path, arcname, compress_type=compression)
-        archive.writestr("manifest.json", manifest_bytes, compress_type=zipfile.ZIP_DEFLATED)
+            manifest_files.append({"path": arcname, "bytes": path.stat().st_size,
+                                   "sha256": _sha256_file(path)})
+        manifest = {
+            "schema": PACK_SCHEMA,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "meeting_id": evidence["meeting_id"],
+            "artifact_id": evidence["artifact_id"],
+            "title": title,
+            "date": date,
+            "source_slug": mdir.name,
+            "media": {"mode": media_mode, "included": bool(media_file), "path": media_arc,
+                      "optimized_for_sharing": bool(media_file),
+                      "source_bytes": media_source_bytes,
+                      "included_bytes": media_file.stat().st_size if media_file else 0},
+            "evidence": views["integrity"],
+            "topic_map": {"state": topic_map.get("state"),
+                          "schema": topic_map.get("schema")},
+            "counts": {"turns": len(turns), "pages": len(pages),
+                       "claims": len(evidence["claims"]),
+                       "topics": len(topic_map.get("topics", [])), "rag_records": len(records)},
+            "files": sorted(manifest_files, key=lambda x: x["path"]),
+        }
+        manifest_bytes = json.dumps(manifest, ensure_ascii=False, indent=2).encode("utf-8")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(out, "w") as archive:
+            for arcname, data in small_files.items():
+                mime = mimetypes.guess_type(arcname)[0] or ""
+                compression = zipfile.ZIP_STORED if mime.startswith("image/") else zipfile.ZIP_DEFLATED
+                archive.writestr(arcname, data, compress_type=compression)
+            for path, arcname in disk_files:
+                archive.write(path, arcname, compress_type=zipfile.ZIP_STORED)
+            archive.writestr("assets/manifest.json", manifest_bytes,
+                             compress_type=zipfile.ZIP_DEFLATED)
     return {"path": str(out), "bytes": out.stat().st_size, **manifest["counts"],
             "media": manifest["media"]}
 

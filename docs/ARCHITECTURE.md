@@ -60,17 +60,25 @@ flowchart LR
 
 ### 普通录屏
 
-`video_minutes.py` 抽取音轨，并行执行 ASR/分离，随后入库匿名声纹、抽取逻辑页、进行 VL 页面理解并生成按页纪要。
+`video_minutes.py` 抽取音轨，并行执行 ASR/分离，随后入库匿名声纹。逐字稿和说话人稳定后先用文本模型发布语音草稿；之后抽取逻辑页、进行 VL 页面理解，再用按页纪要原位替换草稿。
 
 ### Teams 录制
 
-`teams_minutes.py` 使用 VTT 的姓名线索与本地分离结果对齐；会议室混合通道继续按声纹拆分，然后进入抽页和按页纪要流程。
+`teams_minutes.py` 使用 VTT 的姓名线索与本地分离结果对齐；会议室混合通道继续按声纹拆分，然后进入同样的语音草稿 → VL 终稿流程。
 
-音视频导入后通过 `meeting_dir.materialize_source` 固化到会议目录。同一文件系统优先创建硬链接，跨文件系统才复制；`source.json` 的主媒体路径指向会议内文件，同时保留 `original_*` 作为来源记录。Web 对旧会议继续支持外部 `source.json` 回退，避免迁移前录音因缺少 `audio.wav` 而无法播放。
+音视频导入后通过 `meeting_dir.materialize_source` 固化到会议目录。优先创建独立 inode 的 CoW reflink，不支持时完整复制；`source.json` 的主媒体路径指向会议内文件。Web 对旧会议继续支持外部 `source.json` 回退，避免迁移前录音因缺少 `audio.wav` 而无法播放。
 
 ### 纪要证据与导出
 
-`minutes_by_page.py` 和 `summarize.py` 使用 `meeting-minutes-prompt/v1` 结构化输入，并在可读 Markdown 中留下隐藏的 T/P 证据 marker。`meeting_artifact.py` 将其规范化为 `minutes.evidence.json`；Web、`export_meeting.py` 和后续 RAG 都消费同一 sidecar。导出器生成 `meetingpack/v2`：完整逐字稿、媒体时间跳转、证据状态、四种阅读视图和会议理解图都进入同一个无需服务、LLM、CDN 或网络请求的 Viewer。导出是只读操作，不反写 canonical sidecar。完整规范见 `docs/EXPORT_AND_RAG.md`。
+`meeting_generation.py` 管理 `meeting-generation/v1` sidecar，只保存阶段、revision 和统计，不复制正文。阶段为 `voice_draft_generating → voice_draft → visual_enrichment → ready`。语音草稿另存 `minutes.voice-draft.*` 作为可回溯快照；前端检测可读日志后立即打开，终稿 revision 变化时按同名标题尽量恢复阅读位置。草稿可播放、搜索、翻译和追问；服务端同时拒绝编辑应用、结论审计写入、Topic Map、重生成和 MeetingPack 导出。
+
+`minutes_by_page.py` 和 `summarize.py` 使用 `meeting-minutes-prompt/v1` 结构化输入，并在可读 Markdown 中留下隐藏的 T/P 证据 marker。`meeting_artifact.py` 将其规范化为 `minutes.evidence.json`；Web、`export_meeting.py` 和后续 RAG 都消费同一 sidecar。导出器生成 `meetingpack/v3`：顶层只有 `viewer.html + README.txt + assets/`，完整逐字稿、Topic Map、屏幕资料、媒体时间跳转、证据状态和四种阅读视图都进入同一个无需服务、LLM、CDN 或网络请求的 Viewer。导出只生成 960px WebP 与压缩分享媒体，不反写 canonical sidecar 或原始母版。完整规范见 `docs/EXPORT_AND_RAG.md`。
+
+### 媒体固化与存储生命周期
+
+`meeting_dir.materialize_source()` 优先使用 Btrfs/兼容文件系统的 CoW reflink：会议母版拥有独立 inode，初始共享数据块，因此删除或原地修改下载源都不会影响项目文件，也不会立刻复制一份完整大文件；reflink 不可用时退回 `copy2`。浏览器上传先写项目 inbox，管线成功并确认母版已经固化后自动删除 inbox；失败或取消则保留，以便诊断和重试。音频导入同时保存 `source_audio.<ext>` 母版和可再生的 16k PCM 工作音轨。
+
+`meeting-storage/v1` 把每场会议分为三类：原始母版（受保护）、阅读资产（逐字稿、纪要、证据、Topic Map、逻辑页面等）和可再生缓存（PCM 工作音轨、`full_*` VL 工作帧、`.rag` 索引）。`POST /storage/cleanup` 只删除代码白名单内且具备再生来源的缓存，并在会议仍有作业时拒绝执行；它永不删除母版或阅读资产。接口显示的是逻辑大小，CoW 共享块使实际物理释放量可能更低。当前清理由用户显式触发，自动保留期需在具备策略开关和磁盘压力提示后再启用。
 
 ### 人工结论审计
 
@@ -90,9 +98,13 @@ sidecar 保存 T ID、源语言、译文、数字核对警告、逐字稿 revisi
 - `Chapter`：一个连续讨论时间段。优先解析纪要“议题板块”的开始时间，缺失时按视觉 Segment 降级；章节关联 T/P 来源，并确定性分组 discussion/decision/action/open claim；
 - `Visual`：逻辑页面级资料，一页只保存一份完整 VL 描述和图片，同时列出全部出现 ranges、相关 Segment 与 claim。`display_status` 区分被讨论、仅展示和摄像头动态画面；`content_role` 与 `information_value=high|medium|low` 标记页面角色和信息价值。新 VL 输出显式给出这两个字段，旧缓存使用保守启发式；空白、过渡、会议 UI 等低信息 Segment 不再单独创建 fallback Chapter。
 
-前端时间线用 Chapter 作为上层、Segment 作为下层，章节块 hover 提供摘要和结果数量。右侧“章节脉络”把全部 Chapter 投影到一条整场会议主线，一次只展开一章的讨论依据、形成结果、后续动作、待确认和关键屏幕；时间轴点击负责 seek + 定位，右侧章节点击只改变展开状态。该结构不凭空生成章节关系。章节和屏幕页面只是对 canonical evidence 的索引与重组；点击结论仍进入统一证据栏，VL 描述明确标注不能单独证明会议决定。跨章节 Topic 图仍应建立在独立语义实体上，不能直接用页码或 Segment 冒充主题。
+`meeting_topic_map.py` 在纪要生成完成后使用本机 LLM 建立 `meeting-topic-map/v1` sidecar。它先把逐字稿按约八分钟窗口做局部候选归纳，再把整场候选与 canonical claims 归并成 3–8 个一级 Topic 和类型化子节点。每个节点必须绑定有效 T/P/C ID；未知 ID 和无来源节点在代码层丢弃。相同 Topic 的非连续证据范围会保留在一个节点中。sidecar 绑定逐字稿、纪要、页面和 VL revision，输入变化即标记 stale，旧节点不向前端暴露。
 
-Web 与 MeetingPack 的常规纪要通过 `minutes_reading_markdown()` 从 canonical Markdown 做只读投影，在第一个“分页详情/逐页详情”章节前截断。原始 `minutes.md` 不被改写，逐页事实继续进入 evidence、Visual 和 RAG；这避免相同页面资料同时堆叠在纪要、章节和屏幕内容三个入口。MeetingPack 内的 `minutes.md` 是常规阅读投影，机器侧完整事实以 `evidence.json` 和 `rag/records.jsonl` 为准。
+前端时间线用 Topic 的一个或多个 ranges 作为上层、Segment 作为下层；右侧“章节脉络”展示“整场会议—一级论点—背景/观点/约束/决定/行动/风险/待确认”的思维导图。时间轴点击负责 seek + 定位，右侧节点点击只改变详情，显式范围按钮才 seek。Topic 和屏幕页面都只是 canonical evidence 的索引与重组；点击结论仍进入统一证据栏，VL 描述不能单独证明会议决定。Topic Map 缺失时允许用户后台生成，不再把视觉 Segment 扩写成几十个假章节。
+
+`slide_pages.py` 的变化检测默认排除画面右侧 15% 的会议 UI/参会人栏，再计算时序活动掩码、页面相似度和代表帧。用于判页的低分辨率 RGB 帧会先抑制稀疏的高饱和红框/激光点；页面距离同时比较全页稳定内容和顶部 22% 标题区，所以同一表格的局部标注不切页，大标题改变仍切页。RGB 逐帧流式转灰度，不使整段三通道帧常驻内存。输出截图仍从原视频抓取完整画面；参数 `--ignore-right-pct 0` 可关闭右栏排除。
+
+Web 与 MeetingPack 的常规纪要通过 `minutes_reading_markdown()` 从 canonical Markdown 做只读投影，在第一个“分页详情/逐页详情”章节前截断。原始 `minutes.md` 不被改写，逐页事实继续进入 evidence、Visual 和 RAG；这避免相同页面资料同时堆叠在纪要、章节和屏幕内容三个入口。MeetingPack 的 `assets/minutes.md` 是常规阅读投影，机器侧完整事实以 `assets/evidence.json` 和 `assets/rag/records.jsonl` 为准。
 
 所有模型文本进入阅读结构前统一剥离完整、残缺或反向出现的 `<think>/<analysis>` 块。新纪要/VL 生成同样在落盘前清洗；如果旧 VL 缓存清洗后没有可靠答案，页面标为需要重新解析，不把推理过程伪装成标题。
 

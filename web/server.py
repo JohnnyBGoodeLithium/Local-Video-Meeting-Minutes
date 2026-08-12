@@ -65,6 +65,8 @@ import meeting_dir as md_util  # noqa: E402
 import assistant_service as assistant  # noqa: E402
 import meeting_artifact as artifact  # noqa: E402
 import meeting_structure  # noqa: E402
+import meeting_topic_map  # noqa: E402
+import meeting_generation  # noqa: E402
 import export_meeting as meeting_export  # noqa: E402
 import evaluation_service as evaluation  # noqa: E402
 import translation_service as translation  # noqa: E402
@@ -75,6 +77,7 @@ MD = MarkdownIt("default", {"html": False})
 
 BANK_LOCK = threading.Lock()      # bank.json / orgchart.json 写操作串行化
 EVALUATION_LOCK = threading.Lock()  # 本地人工验收事件串行化
+STORAGE_LOCK = threading.Lock()     # 会议缓存清理与大小读取串行化
 EXEC = ThreadPoolExecutor(max_workers=1)  # 管线/重生成作业单 worker 串行（GPU 资源互斥）
 JOBS: dict[str, dict] = {}
 PROCS: dict[str, subprocess.Popen] = {}   # 运行中作业的子进程(取消用, 不序列化)
@@ -175,6 +178,100 @@ def _video_path(mdir: Path) -> Path | None:
     candidates = sorted(mdir.glob("source_video.*"))
     return next((p for p in candidates if p.is_file()), None) or _source_path(
         mdir, "mp4", "video", "original_mp4")
+
+
+def _storage_file_size(paths: list[Path]) -> int:
+    return sum(path.stat().st_size for path in paths
+               if path.is_file() and not path.is_symlink())
+
+
+def _meeting_storage(mdir: Path) -> dict:
+    """按母版、阅读资产、可再生缓存返回逻辑大小，不暴露会议正文。"""
+    all_files = [path for path in mdir.rglob("*") if path.is_file() and not path.is_symlink()]
+    original = sorted({
+        *[path for pattern in ("source_video.*", "source_audio.*") for path in mdir.glob(pattern)
+          if path.is_file()],
+        *([mdir / "source.vtt"] if (mdir / "source.vtt").is_file() else []),
+    })
+    # 兼容旧录音会议：没有独立母版时，audio.wav 本身必须被保护。
+    if not any(path.name.startswith(("source_video.", "source_audio.")) for path in original):
+        if (mdir / "audio.wav").is_file():
+            original.append(mdir / "audio.wav")
+
+    canonical_media = any(path.name.startswith(("source_video.", "source_audio."))
+                          for path in original)
+    cache_groups: list[dict] = []
+    work_audio = mdir / "audio.wav"
+    if canonical_media and work_audio.is_file() and (mdir / "transcript.spk.json").is_file():
+        cache_groups.append({"id": "work_audio", "label": "模型 PCM 工作音轨",
+                             "files": [work_audio], "regenerates_from": "原始母版"})
+    full_frames = sorted((mdir / "slides").glob("full_*")) if (mdir / "slides").is_dir() else []
+    if full_frames and (mdir / "page_desc.json").is_file():
+        cache_groups.append({"id": "vl_frames", "label": "VL 高分辨率工作帧",
+                             "files": full_frames, "regenerates_from": "原始母版"})
+    rag_files = ([path for path in (mdir / ".rag").rglob("*")
+                  if path.is_file() and not path.is_symlink()]
+                 if (mdir / ".rag").is_dir() else [])
+    if rag_files:
+        cache_groups.append({"id": "rag", "label": "本地检索索引",
+                             "files": rag_files, "regenerates_from": "逐字稿与证据"})
+    topic_work = mdir / ".topic-map-work.json"
+    if topic_work.is_file():
+        cache_groups.append({"id": "topic_work", "label": "会议脉络生成检查点",
+                             "files": [topic_work], "regenerates_from": "逐字稿与证据"})
+
+    original_set = set(original)
+    cache_set = {path for group in cache_groups for path in group["files"]}
+    reading = [path for path in all_files if path not in original_set and path not in cache_set]
+    original_bytes = _storage_file_size(original)
+    reading_bytes = _storage_file_size(reading)
+    cache_bytes = _storage_file_size(list(cache_set))
+    return {
+        "schema": "meeting-storage/v1",
+        "logical_bytes": original_bytes + reading_bytes + cache_bytes,
+        "original": {"bytes": original_bytes, "files": len(original), "protected": True},
+        "reading": {"bytes": reading_bytes, "files": len(reading)},
+        "cache": {
+            "bytes": cache_bytes, "files": len(cache_set), "reclaimable": bool(cache_set),
+            "groups": [{"id": group["id"], "label": group["label"],
+                        "bytes": _storage_file_size(group["files"]),
+                        "files": len(group["files"]),
+                        "regenerates_from": group["regenerates_from"]}
+                       for group in cache_groups],
+        },
+        "policy": {
+            "original": "受保护，不会被智能清理删除",
+            "reading": "默认保留，支持离线阅读与证据核对",
+            "cache": "可从母版或文本证据重新生成；当前由用户触发清理",
+        },
+    }
+
+
+def _clean_meeting_cache(mdir: Path) -> dict:
+    before = _meeting_storage(mdir)
+    removed_files = 0
+    for group in before["cache"]["groups"]:
+        if group["id"] == "work_audio":
+            targets = [mdir / "audio.wav"]
+        elif group["id"] == "vl_frames":
+            targets = sorted((mdir / "slides").glob("full_*"))
+        elif group["id"] == "rag":
+            targets = [mdir / ".rag"]
+        elif group["id"] == "topic_work":
+            targets = [mdir / ".topic-map-work.json"]
+        else:
+            targets = []
+        for target in targets:
+            if target.is_dir() and target == mdir / ".rag":
+                removed_files += sum(1 for path in target.rglob("*") if path.is_file())
+                shutil.rmtree(target)
+            elif target.is_file() and target.is_relative_to(mdir):
+                target.unlink()
+                removed_files += 1
+    after = _meeting_storage(mdir)
+    return {"ok": True, "removed_files": removed_files,
+            "reclaimed_logical_bytes": max(0, before["logical_bytes"] - after["logical_bytes"]),
+            "storage": after}
 
 
 def _read_json(path: Path, default):
@@ -298,11 +395,14 @@ def _load_jobs():
 def _pipeline_stage(line: str, current: str = "处理中") -> str:
     value = line.lower()
     stages = [
+        (("语音草稿", "voice draft"), "生成语音草稿"),
+        (("多模态纪要", "升级多模态", "补充屏幕资料"), "升级多模态纪要"),
         (("asr", "transcrib", "转写", "字幕"), "语音转写"),
         (("diar", "speaker", "发言人", "分离"), "区分发言人"),
         (("slide", "extract", "抽页", "抽屏幕", "逻辑页", "幻灯片"), "提取共享画面"),
         (("vl", "vision", "画面理解", "页面理解"), "理解共享画面"),
         (("minute", "summary", "纪要", "总结"), "生成纪要"),
+        (("topic map", "会议脉络", "论点"), "构建会议脉络"),
         (("rag", "index", "索引", "检索"), "建立索引"),
     ]
     return next((label for needles, label in stages if any(needle in value for needle in needles)),
@@ -351,6 +451,17 @@ def _run_pipeline(job: dict):
     if job.get("cancel_requested"):
         _set_status(job, "cancelled", finished=_now(), rc=proc.returncode)
     else:
+        if proc.returncode == 0 and job.get("kind") == "upload" and not DRY_RUN:
+            inbox_rel = str(job.get("inbox") or "")
+            inbox_dir = (DATA_ROOT / inbox_rel).resolve()
+            if inbox_rel and inbox_dir.is_dir() and inbox_dir.is_relative_to(INBOX.resolve()):
+                try:
+                    shutil.rmtree(inbox_dir)
+                    job["inbox_cleaned"] = True
+                    job["log"].append("[meta] 已清理处理完成的上传暂存目录")
+                except OSError as exc:
+                    job["inbox_cleaned"] = False
+                    job["log"].append(f"[error] 上传暂存目录清理失败: {type(exc).__name__}")
         _set_status(job, "done" if proc.returncode == 0 else "failed",
                     finished=_now(), rc=proc.returncode,
                     result={"dry_run": True} if DRY_RUN and proc.returncode == 0 else None)
@@ -378,6 +489,8 @@ def list_meetings():
             item["pages"] = sum(1 for p in slides if p.get("kind") == "slide") or len(slides)
             item["has_minutes"] = _minutes_file(d) is not None
             item["has_video"] = _video_path(d) is not None
+            item["generation_phase"] = meeting_generation.load(d).get("phase") or (
+                "ready" if item["has_minutes"] else "processing")
             out.append(item)
     return {"meetings": out}
 
@@ -428,6 +541,23 @@ def delete_meeting(slug: str):
             "evaluation_removed": evaluation_removed}
 
 
+@app.get("/api/meetings/{slug}/storage")
+def meeting_storage(slug: str):
+    """查看会议逻辑占用；原始母版、阅读资产和可再生缓存严格分开。"""
+    with STORAGE_LOCK:
+        return _meeting_storage(_mdir(slug))
+
+
+@app.post("/api/meetings/{slug}/storage/cleanup")
+def clean_meeting_storage(slug: str):
+    """只删除白名单内可再生缓存；永不删除母版、逐字稿、纪要或阅读页面。"""
+    if any(job.get("meeting") == slug and job.get("status") in {"queued", "running"}
+           for job in JOBS.values()):
+        raise HTTPException(409, "会议仍在处理，完成后才能清理缓存")
+    with STORAGE_LOCK:
+        return _clean_meeting_cache(_mdir(slug))
+
+
 @app.get("/api/meetings/{slug}/bundle")
 def get_bundle(slug: str):
     mdir = _mdir(slug)
@@ -451,6 +581,15 @@ def get_bundle(slug: str):
     for visual in structure.get("visuals", []):
         visual["description_html"] = MD.render(
             visual.get("display_description") or "当前画面没有可用的 VL 详细解读。")
+    topic_state, topic_map = meeting_topic_map.load_current_topic_map(mdir)
+    topic_payload = ({**topic_map, "state": "ready"} if topic_state == "ready" else
+                     {"schema": meeting_topic_map.SCHEMA, "state": topic_state, "topics": []})
+    generation = meeting_generation.load(mdir)
+    if not generation:
+        generation = {"schema": meeting_generation.SCHEMA,
+                      "phase": "ready" if minutes_html else "processing", "inferred": True}
+    document_state = meeting_generation.document_state(
+        mdir, bool(transcript and minutes_html))
     return {
         "slug": slug,
         **_meeting_identity(slug),
@@ -467,8 +606,10 @@ def get_bundle(slug: str):
         "speaker_count": len({t.get("speaker") for t in transcript if t.get("speaker")}),
         "transcript_revision": assistant.revision(mdir / "transcript.spk.json"),
         "minutes_revision": assistant.revision(_minutes_file(mdir)) if _minutes_file(mdir) else None,
-        "document_state": "ready" if transcript and minutes_html else "processing",
+        "document_state": document_state,
+        "generation": generation,
         "structure": structure,
+        "topic_map": topic_payload,
         "evidence": {
             "schema": evidence.get("schema"),
             "state": _evidence_state(mdir, evidence),
@@ -494,6 +635,9 @@ def _evaluation_path(slug: str) -> Path:
 
 
 def _quality_payload(slug: str, mdir: Path) -> dict:
+    if meeting_generation.document_state(mdir, _minutes_file(mdir) is not None) == "draft":
+        store = evaluation.load_store(_evaluation_path(slug), slug)
+        return evaluation.build_payload(slug, {}, store, "draft")
     evidence = _current_evidence(mdir)
     if evidence:
         evidence_state = "ready"
@@ -515,6 +659,8 @@ def get_quality_review(slug: str):
 @app.put("/api/meetings/{slug}/quality/claims/{claim_id}")
 def put_quality_review(slug: str, claim_id: str, req: QualityReviewReq):
     mdir = _mdir(slug)
+    if meeting_generation.document_state(mdir, _minutes_file(mdir) is not None) == "draft":
+        raise HTTPException(409, "语音草稿仍在补充屏幕资料，终稿后再审计结论")
     evidence = _current_evidence(mdir)
     if not evidence:
         raise HTTPException(409, "纪要依据缺失或已过期，请先重新生成纪要")
@@ -644,6 +790,8 @@ def create_transcript_translation(
 def export_meeting_pack(slug: str, media: str = Query("none", pattern="^(none|audio|video)$")):
     """生成静态 MeetingPack；默认不带媒体，收件人无需本机模型或 Web 服务。"""
     mdir = _mdir(slug)
+    if meeting_generation.document_state(mdir, _minutes_file(mdir) is not None) == "draft":
+        raise HTTPException(409, "屏幕资料仍在补充；多模态终稿完成后再导出")
     fd, temp_name = tempfile.mkstemp(prefix="meetingpack-", suffix=".zip")
     os.close(fd)
     archive = Path(temp_name)
@@ -676,22 +824,35 @@ def export_meeting_preflight(slug: str):
         mdir / "transcript.spk.json",
         mdir / "transcript.spk.md",
         mdir / "minutes.evidence.json",
+        mdir / "meeting.topic-map.json",
         _minutes_file(mdir),
     ]
-    base_bytes = 180_000  # viewer、manifest、README 与导出索引的保守开销
+    base_bytes = 260_000  # viewer、manifest、README 与导出索引的保守开销
     for path in base_paths:
         if path and path.is_file():
             base_bytes += path.stat().st_size
     slides_dir = mdir / "slides"
-    if slides_dir.is_dir():
-        base_bytes += sum(path.stat().st_size for path in slides_dir.iterdir() if path.is_file())
-    audio = _audio_path(mdir)
+    slide_images = []
+    for page in slides:
+        image = slides_dir / str(page.get("image") or "")
+        if image.is_file() and image not in slide_images:
+            slide_images.append(image)
+    # 导出会生成 960px WebP 阅读图，不把 full_* VL 工作帧放入包中。
+    base_bytes += sum(min(path.stat().st_size, max(8_000, int(path.stat().st_size * .42)))
+                      for path in slide_images)
+    audio = meeting_export._media_source(mdir, "audio")
     video = _video_path(mdir)
     audio_bytes = audio.stat().st_size if audio else 0
     video_bytes = video.stat().st_size if video else 0
+    duration = max((float(turn.get("end", 0)) for turn in transcript), default=0)
+    audio_export_bytes = int(duration * 5_300) if audio else 0  # AAC 40kbps + container
+    video_export_bytes = (min(video_bytes, int(duration * 35_000))
+                          if video else 0)  # 720p/10fps CRF30 的保守估计
     return {
         **ident,
-        "document_state": "ready" if transcript and _minutes_file(mdir) else "processing",
+        "document_state": meeting_generation.document_state(
+            mdir, bool(transcript and _minutes_file(mdir))),
+        "generation": meeting_generation.load(mdir),
         "evidence": {
             "state": _evidence_state(mdir, evidence),
             "claims": len(claims),
@@ -703,13 +864,15 @@ def export_meeting_preflight(slug: str):
             "pages": sum(1 for page in slides if page.get("kind") == "slide") or len(slides),
         },
         "media": {
-            "audio": {"available": bool(audio), "bytes": audio_bytes},
-            "video": {"available": bool(video), "bytes": video_bytes},
+            "audio": {"available": bool(audio), "source_bytes": audio_bytes,
+                      "export_bytes": audio_export_bytes, "format": "AAC 40kbps"},
+            "video": {"available": bool(video), "source_bytes": video_bytes,
+                      "export_bytes": video_export_bytes, "format": "H.264 720p / 10fps"},
         },
         "estimated_bytes": {
             "none": base_bytes,
-            "audio": base_bytes + audio_bytes,
-            "video": base_bytes + video_bytes,
+            "audio": base_bytes + audio_export_bytes,
+            "video": base_bytes + video_export_bytes,
         },
     }
 
@@ -784,6 +947,8 @@ def rag_search(slug: str, req: RagSearchReq):
 @app.post("/api/meetings/{slug}/assistant/edit/preview")
 def assistant_edit_preview(slug: str, req: AssistantEditReq):
     mdir = _mdir(slug)
+    if meeting_generation.document_state(mdir, _minutes_file(mdir) is not None) == "draft":
+        raise HTTPException(409, "语音草稿正在补充屏幕资料；终稿完成后才能修改纪要")
     transcript = mdir / "transcript.spk.json"
     minutes = _minutes_file(mdir)
     if not transcript.is_file() or minutes is None:
@@ -799,6 +964,8 @@ def assistant_edit_preview(slug: str, req: AssistantEditReq):
 @app.post("/api/meetings/{slug}/assistant/edit/apply")
 def assistant_edit_apply(slug: str, req: AssistantApplyReq):
     mdir = _mdir(slug)
+    if meeting_generation.document_state(mdir, _minutes_file(mdir) is not None) == "draft":
+        raise HTTPException(409, "语音草稿正在升级，不能应用旧修改提案")
     minutes = _minutes_file(mdir)
     if minutes is None:
         raise HTTPException(400, "没有可修改的纪要")
@@ -1394,12 +1561,29 @@ async def upload(files: list[UploadFile] = File(...), no_vl: str = Form("")):
 @app.post("/api/meetings/{slug}/regen_minutes")
 def regen_minutes(slug: str, refine: str = Query("")):
     mdir = _mdir(slug)
+    if meeting_generation.document_state(mdir, _minutes_file(mdir) is not None) == "draft":
+        raise HTTPException(409, "语音草稿仍在补充屏幕资料，暂不能重新生成")
     if not (mdir / "transcript.spk.json").is_file():
         raise HTTPException(400, "没有逐字稿，无法重生成")
     cmd = [str(PY), str(ROOT / "bin" / "minutes_by_page.py"), str(mdir)]
     if refine:
         cmd += ["--refine-model", refine]
     job = _new_job("regen", meeting=slug, cmd=cmd)
+    resp = dict(job)
+    EXEC.submit(_run_pipeline, job)
+    return resp
+
+
+@app.post("/api/meetings/{slug}/topic-map")
+def generate_topic_map(slug: str):
+    """串行生成整场语义脉络；不修改逐字稿、纪要或屏幕资料。"""
+    mdir = _mdir(slug)
+    if meeting_generation.document_state(mdir, _minutes_file(mdir) is not None) == "draft":
+        raise HTTPException(409, "语音草稿正在升级；多模态终稿后再生成会议脉络")
+    if _minutes_file(mdir) is None or not (mdir / "transcript.spk.json").is_file():
+        raise HTTPException(400, "会议缺少纪要或逐字稿，无法生成语义脉络")
+    cmd = [str(PY), str(ROOT / "bin" / "meeting_topic_map.py"), str(mdir)]
+    job = _new_job("topic_map", meeting=slug, cmd=cmd)
     resp = dict(job)
     EXEC.submit(_run_pipeline, job)
     return resp

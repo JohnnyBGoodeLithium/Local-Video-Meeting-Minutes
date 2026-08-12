@@ -40,6 +40,7 @@ from meeting_artifact import (
     write_evidence_document,
 )
 from meeting_structure import clean_model_text
+import meeting_topic_map
 
 ROUTER = "http://127.0.0.1:11435/v1/chat/completions"
 MODEL = "qwen3.6-35b-a3b-operator"
@@ -439,6 +440,7 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
             "text_model": MODEL,
             "vl_enabled": bool(vl),
             "vl_pages": len(descs),
+            "generation_stage": "final",
             "refined": refined,
             "refine_model": refine_model if refined else None,
         })
@@ -462,6 +464,7 @@ def main() -> int:
         return 1
     out, stats = generate(args.mdir, args.out, vl=not args.no_vl, video=args.video,
                           refine_model=args.refine_model)
+    meeting_topic_map.generate_for_pipeline(args.mdir)
     print(f"[meta] 纪要: {out} | {stats['chars']} 字 | VL页数 {stats['vl_pages']}"
           f"{' | 已精修' if stats['refined'] else ''}", flush=True)
     return 0

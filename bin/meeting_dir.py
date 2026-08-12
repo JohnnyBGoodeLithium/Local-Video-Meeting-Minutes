@@ -36,9 +36,10 @@ def for_teams(root: Path, slug_title: str, date_yyyymmdd: str) -> Path:
 
 
 def materialize_source(source: Path, destination: Path) -> Path:
-    """把源媒体固化进会议目录：优先硬链接，跨文件系统时才复制。
+    """把源媒体固化进会议目录：优先 CoW reflink，不可用时复制。
 
-    源文件之后即使从 inbox/下载目录删除，会议目录里的硬链接仍然有效。
+    Reflink 初始共享磁盘数据块，但拥有独立 inode；源文件之后无论删除还是原地修改，
+    都不会影响会议母版。当前文件系统不支持 reflink 时退回普通复制。
     已存在的目标不静默覆盖，方便同一会议目录安全重跑。
     """
     source, destination = Path(source).resolve(), Path(destination).resolve()
@@ -53,8 +54,14 @@ def materialize_source(source: Path, destination: Path) -> Path:
     incoming.unlink(missing_ok=True)
     try:
         try:
-            os.link(source, incoming)
-        except OSError:
+            copied = subprocess.run(
+                ["cp", "--reflink=always", "--preserve=mode,timestamps", "--",
+                 str(source), str(incoming)],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+        except (OSError, ValueError):
+            copied = False
+        if not copied:
+            incoming.unlink(missing_ok=True)
             shutil.copy2(source, incoming)
         incoming.replace(destination)
     finally:
