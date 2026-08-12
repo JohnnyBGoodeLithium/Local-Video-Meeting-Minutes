@@ -232,7 +232,9 @@ body.page-index { overflow: hidden; }
 .st-done { color: #22a06b; }
 .st-failed { color: #c25050; }
 .st-cancelled { color: #e2a13c; }
-.j-cancel { grid-column: 2; grid-row: 1; padding: 0 8px; font-size: 12px; }
+.j-actions { grid-column: 2; grid-row: 1 / span 2; display: flex; gap: 4px; align-items: center; }
+.j-actions button { padding: 0 7px; font-size: 11px; }
+.j-priority { border-color: rgba(80, 125, 245, .55); color: var(--accent); }
 .cand.create { border-color: var(--accent); color: var(--accent); }
 #meeting-list { list-style: none; margin: 0; padding: 0; }
 .meeting-item {

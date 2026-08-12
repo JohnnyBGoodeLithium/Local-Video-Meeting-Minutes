@@ -110,10 +110,11 @@ Web 与 MeetingPack 的常规纪要通过 `minutes_reading_markdown()` 从 canon
 
 ## Web 作业模型
 
-- GPU/重模型管线统一进入单 worker `ThreadPoolExecutor`，避免互相争抢模型资源。
+- GPU/重模型管线统一进入单 worker `SerialPriorityExecutor`，避免互相争抢模型资源，同时允许尚未开始的任务重排。默认顺序为“用户置顶 > 新会议处理 > 纪要/脉络/组织图 > 逐字稿翻译”；同级保持提交顺序，手动“优先处理”的任务排到当前运行任务之后，不抢占或强杀运行中的进程。
 - 每个外部管线运行在独立进程组，取消时先发 `SIGTERM`，5 秒后仍未退出则 `SIGKILL`。
 - 作业 JSON 只保存状态和以 `[` 开头的元数据行，不保存任意 stderr 或会议正文。
-- 服务重启时，遗留的 `queued/running` 作业会标为失败；当前不自动恢复。
+- `/api/jobs` 返回实际 `queue_position`；`POST /api/jobs/{id}/prioritize` 只接受 queued 作业，取消 queued 作业会同时从内存等待队列移除。
+- 服务重启时，遗留的 `queued/running` 作业会标为失败；当前不自动恢复，因此优先级调度不等于持久队列恢复。
 
 ## 会议助手
 

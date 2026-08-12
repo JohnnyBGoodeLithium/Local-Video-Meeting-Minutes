@@ -64,6 +64,7 @@ const state = {
       ? workspaceState.anchors : {},
   },
   activeJobs: [],
+  jobPriorityAvailable: false,
   exportPreflight: null,
   storage: null,
   progressiveRefreshes: new Set(),
@@ -2106,6 +2107,7 @@ function pollJob(id, onUpdate) {
 async function pollJobs() {
   try {
     const d = await jget("/api/jobs");
+    state.jobPriorityAvailable = d.capabilities?.job_priority === true;
     renderJobs(d.jobs);
   } catch (e) { /* 忽略 */ }
 }
@@ -2113,7 +2115,10 @@ async function pollJobs() {
 function renderJobs(jobs) {
   const ul = $("#jobs-list");
   if (!ul) return;
-  const activeJobs = jobs.filter(j => j.status === "queued" || j.status === "running");
+  const activeJobs = jobs.filter(j => j.status === "queued" || j.status === "running")
+    .sort((a, b) => a.status === b.status
+      ? Number(a.queue_position || 9999) - Number(b.queue_position || 9999)
+      : a.status === "running" ? -1 : 1);
   const activeMeetings = new Set(activeJobs.map(job => job.meeting).filter(Boolean));
   const recentFailures = jobs.filter(j => j.status === "failed"
     && !activeMeetings.has(j.meeting)
@@ -2152,7 +2157,10 @@ function renderJobs(jobs) {
       : j.stage;
     const elapsed = j.status === "running" && j.started
       ? ` · 已运行 ${fmt(Date.now() / 1000 - j.started)}` : "";
-    const status = j.status === "queued" ? `${kindLabel ? `${kindLabel} · ` : ""}等待处理`
+    const queueLabel = j.status === "queued" && j.queue_position
+      ? (j.priority_boost ? "优先 · 下一项" : `队列第 ${j.queue_position}`) : "";
+    const status = j.status === "queued" ? `${kindLabel ? `${kindLabel} · ` : ""}等待处理` +
+        `${queueLabel ? ` · ${queueLabel}` : ""}`
       : j.status === "failed" ? `失败 · ${liveStage || "处理阶段"}`
       : `${kindLabel ? `${kindLabel} · ` : ""}${liveStage || "处理中"}${liveProgress}` +
         `${voiceDraftFailed ? " · 草稿未生成" : ""}${elapsed}`;
@@ -2161,15 +2169,37 @@ function renderJobs(jobs) {
       `<span class="j-name" title="${esc(j.id)}">${esc(name)}</span>` +
       `<span class="j-st st-${esc(j.status)}">${esc(status)}</span>`;
     if (active) {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "j-cancel";
-      btn.textContent = "取消";
-      btn.onclick = async () => {
+      const actions = document.createElement("div");
+      actions.className = "j-actions";
+      if (state.jobPriorityAvailable && j.status === "queued"
+          && (!j.priority_boost || Number(j.queue_position) > 1)) {
+        const priority = document.createElement("button");
+        priority.type = "button";
+        priority.className = "j-priority";
+        priority.textContent = "优先";
+        priority.title = "排到当前运行任务之后；不会中断正在运行的任务";
+        priority.onclick = async () => {
+          const response = await api(`/api/jobs/${j.id}/prioritize`, { method: "POST" });
+          if (!response.ok) {
+            const detail = await response.json();
+            toast(`调整失败：${detail.detail || response.status}`);
+          } else {
+            toast(`${name} 已设为下一项`);
+          }
+          pollJobs();
+        };
+        actions.appendChild(priority);
+      }
+      const cancel = document.createElement("button");
+      cancel.type = "button";
+      cancel.className = "j-cancel";
+      cancel.textContent = "取消";
+      cancel.onclick = async () => {
         await api(`/api/jobs/${j.id}/cancel`, { method: "POST" });
         pollJobs();
       };
-      li.appendChild(btn);
+      actions.appendChild(cancel);
+      li.appendChild(actions);
     }
     li.title = (j.log || []).slice(-1)[0] || j.id;
     ul.appendChild(li);

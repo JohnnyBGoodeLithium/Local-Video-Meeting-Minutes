@@ -14,6 +14,7 @@ check:
 	$(PY) web/tests/minutes_markdown_test.py
 	$(PY) web/tests/minutes_policy_test.py
 	$(PY) web/tests/summarize_request_test.py
+	$(PY) web/tests/job_scheduler_test.py
 	$(PY) web/tests/media_materialize_test.py
 	$(PY) web/tests/slide_pages_test.py
 	$(PY) web/tests/meeting_generation_test.py

@@ -27,7 +27,6 @@ import tempfile
 import threading
 import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import aiofiles
@@ -70,6 +69,7 @@ import meeting_generation  # noqa: E402
 import export_meeting as meeting_export  # noqa: E402
 import evaluation_service as evaluation  # noqa: E402
 import translation_service as translation  # noqa: E402
+from job_scheduler import SerialPriorityExecutor, default_priority  # noqa: E402
 
 from markdown_it import MarkdownIt  # noqa: E402
 
@@ -78,7 +78,7 @@ MD = MarkdownIt("default", {"html": False})
 BANK_LOCK = threading.Lock()      # bank.json / orgchart.json 写操作串行化
 EVALUATION_LOCK = threading.Lock()  # 本地人工验收事件串行化
 STORAGE_LOCK = threading.Lock()     # 会议缓存清理与大小读取串行化
-EXEC = ThreadPoolExecutor(max_workers=1)  # 管线/重生成作业单 worker 串行（GPU 资源互斥）
+EXEC = SerialPriorityExecutor()  # 重模型仍单 worker 串行，但等待任务可以重排
 JOBS: dict[str, dict] = {}
 PROCS: dict[str, subprocess.Popen] = {}   # 运行中作业的子进程(取消用, 不序列化)
 
@@ -368,9 +368,19 @@ def _set_status(job: dict, status: str, **kw):
         _save_job(job)
 
 
+def _scheduler_error(job: dict, exc: Exception) -> None:
+    """未知异常不能杀死唯一调度线程；日志只保存异常类型，不保存潜在正文。"""
+    job.setdefault("log", []).append(f"[error] 后台调度异常 ({type(exc).__name__})")
+    _set_status(job, "failed", finished=_now(), rc=None)
+
+
+EXEC.set_error_handler(_scheduler_error)
+
+
 def _new_job(kind: str, **kw) -> dict:
     jid = uuid.uuid4().hex[:12]
     job = {"id": jid, "kind": kind, "status": "queued", "created": _now(),
+           "queue_priority": default_priority(kind), "priority_boost": False,
            "started": None, "finished": None, "rc": None, "log": [], **kw}
     with BANK_LOCK:
         JOBS[jid] = job
@@ -1591,7 +1601,21 @@ def generate_topic_map(slug: str):
 
 @app.get("/api/jobs")
 def list_jobs():
-    return {"jobs": sorted(JOBS.values(), key=lambda j: j["created"], reverse=True)}
+    queue = {item["id"]: item for item in EXEC.snapshot()}
+    jobs = []
+    for original in JOBS.values():
+        job = dict(original)
+        if job.get("status") == "running":
+            job["queue_position"] = 0
+        elif job.get("status") == "queued" and job["id"] in queue:
+            job["queue_position"] = queue[job["id"]]["position"]
+            job["queue_priority"] = queue[job["id"]]["priority"]
+        jobs.append(job)
+    return {
+        "jobs": sorted(jobs, key=lambda j: j["created"], reverse=True),
+        "capabilities": {"job_priority": True, "running_preemption": False},
+        "queue_policy": ["用户优先", "会议处理", "纪要与脉络", "逐字稿翻译"],
+    }
 
 
 @app.get("/api/jobs/{jid}")
@@ -1602,6 +1626,27 @@ def get_job(jid: str):
     return job
 
 
+@app.post("/api/jobs/{jid}/prioritize")
+def prioritize_job(jid: str):
+    """只置顶尚未开始的任务；运行中任务不抢占，避免损坏中间资产。"""
+    job = JOBS.get(jid)
+    if not job:
+        raise HTTPException(404, "没有这条作业")
+    if job.get("status") != "queued":
+        raise HTTPException(409, "只有等待中的任务可以优先处理")
+    if not EXEC.prioritize(jid):
+        raise HTTPException(409, "任务已经开始，无法再调整顺序")
+    with BANK_LOCK:
+        job["priority_boost"] = True
+        job["queue_priority"] = 0
+        job["prioritized_at"] = _now()
+        _save_job(job)
+    queue = EXEC.snapshot()
+    return {"ok": True, "id": jid,
+            "queue_position": next((item["position"] for item in queue
+                                    if item["id"] == jid), None)}
+
+
 @app.post("/api/jobs/{jid}/cancel")
 def cancel_job(jid: str):
     """取消作业：排队的直接作废；运行中的整进程组 SIGTERM(5s 不死再 SIGKILL)。"""
@@ -1610,7 +1655,10 @@ def cancel_job(jid: str):
         raise HTTPException(404, "没有这条作业")
     if job["status"] not in ("queued", "running"):
         raise HTTPException(400, f"作业已结束({job['status']})")
+    was_queued = job["status"] == "queued"
     job["cancel_requested"] = True
+    if was_queued:
+        EXEC.discard(jid)
     proc = PROCS.get(jid)
     if proc and proc.poll() is None:
         try:

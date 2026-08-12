@@ -585,15 +585,28 @@ after_dirs = len(list(inbox_root.iterdir())) if inbox_root.is_dir() else 0
 check("非法上传 → 400 且不留孤儿目录", s == 400 and after_dirs == before_dirs,
       f"before={before_dirs} after={after_dirs}")
 
-# 15. 排队作业可取消（dry-run delay 保证第二条仍在队列）
+# 15. 等待任务可插队/取消（dry-run delay 保证后两条仍在队列）
 wav_bytes = (SMOKE / "audio.wav").read_bytes()
 s1, _, j1 = multipart("/api/upload", "files", "queue_a.wav", wav_bytes, "audio/wav")
 s2, _, j2 = multipart("/api/upload", "files", "queue_b.wav", wav_bytes, "audio/wav")
+s3, _, j3 = multipart("/api/upload", "files", "queue_c.wav", wav_bytes, "audio/wav")
+sp, _, priority = req("POST", f"/api/jobs/{j3.get('id')}/prioritize")
+sl, _, queue_state = req("GET", "/api/jobs")
+queued = sorted(
+    [job for job in queue_state.get("jobs", []) if job.get("status") == "queued"],
+    key=lambda job: job.get("queue_position", 999))
+check("等待作业支持手动优先且 API 返回实际队列顺序",
+      s1 == 200 and s2 == 200 and s3 == 200 and sp == 200 and sl == 200
+      and priority.get("queue_position") == 1
+      and queue_state.get("capabilities", {}).get("job_priority") is True
+      and queued and queued[0].get("id") == j3.get("id")
+      and queued[0].get("priority_boost") is True)
 sc, _, jc = req("POST", f"/api/jobs/{j2.get('id')}/cancel")
 cancelled = poll_job(j2.get("id"))
 check("排队作业取消 → cancelled", s1 == 200 and s2 == 200 and sc == 200
       and jc.get("ok") is True and cancelled.get("status") == "cancelled")
 poll_job(j1.get("id"))
+poll_job(j3.get("id"))
 
 # 16. 结构化逐字稿引用问答（dry-run 不调用真实模型）
 s, _, bundle = req("GET", "/api/meetings/_smoke/bundle")
