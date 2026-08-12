@@ -411,6 +411,12 @@ function visualValueLabel(visual) {
   return visual?.value_label || VISUAL_VALUE_LABELS[visual?.information_value] || "待判断";
 }
 
+function visualImageUrl(visual) {
+  return visual?.image
+    ? `/api/meetings/${encodeURIComponent(state.slug)}/file?path=${encodeURIComponent(`slides/${visual.image}`)}`
+    : "";
+}
+
 function buildTimeline(duration) {
   const b = state.bundle || { slides: [], topics: [] };
   const tl = $("#timeline");
@@ -423,18 +429,24 @@ function buildTimeline(duration) {
   tl.appendChild(played);
 
   // 上层：连续语义章节。点击进入章节脉络并从章节起点播放。
-  for (const chapter of b.structure?.chapters || []) {
+  for (const [chapterIndex, chapter] of (b.structure?.chapters || []).entries()) {
     if (chapter.end <= chapter.start) continue;
     const block = document.createElement("div");
     block.className = "tl-chapter";
     block.dataset.chapterId = chapter.id;
     block.style.left = (chapter.start / duration * 100) + "%";
-    block.style.width = Math.max(.8, (chapter.end - chapter.start) / duration * 100) + "%";
+    const chapterWidth = (chapter.end - chapter.start) / duration * 100;
+    block.style.width = Math.max(.8, chapterWidth) + "%";
     block.title = `${fmt(chapter.start)}–${fmt(chapter.end)} ${chapter.title}`;
-    block.innerHTML = `<span>${esc(chapter.title)}</span>`;
+    block.innerHTML = `<span class="tl-chapter-index">${String(chapterIndex + 1).padStart(2, "0")}</span>` +
+      (chapterWidth >= 11 ? `<span class="tl-chapter-title">${esc(chapter.title)}</span>` : "");
+    block.addEventListener("mouseenter", event => showChapterTip(event, chapter, chapterIndex));
+    block.addEventListener("mousemove", moveTip);
+    block.addEventListener("mouseleave", hideTip);
     block.addEventListener("click", event => {
       event.stopPropagation();
-      openChapter(chapter.id, true);
+      hideTip();
+      openChapter(chapter.id, true, true);
     });
     tl.appendChild(block);
   }
@@ -502,10 +514,28 @@ function showTip(ev, page, label, start = page.first, occurrence = null) {
   moveTip(ev);
 }
 
+function showChapterTip(ev, chapter, index) {
+  const tip = $("#tl-tip");
+  const visuals = state.bundle?.structure?.visuals || [];
+  const visual = (chapter.page_ids || []).map(id => visuals.find(item => item.id === id))
+    .find(item => item?.image && item.information_value !== "low");
+  const image = visualImageUrl(visual);
+  tip.innerHTML = `<div class="tip-title">章节 ${String(index + 1).padStart(2, "0")} · ` +
+    `${fmt(chapter.start)}–${fmt(chapter.end)}</div>` +
+    `<b class="tip-heading">${esc(chapter.title)}</b>` +
+    `<p class="tip-summary">${esc(chapter.summary || "点击播放并定位到整场会议脉络。")}</p>` +
+    `<div class="tip-metrics">决定 ${chapter.decision_claim_ids?.length || 0} · ` +
+    `行动 ${chapter.action_claim_ids?.length || 0} · 待确认 ${chapter.open_claim_ids?.length || 0}</div>` +
+    (image ? `<img src="${image}" alt="">` : "");
+  tip.classList.remove("hidden");
+  moveTip(ev);
+}
+
 function moveTip(ev) {
   const tip = $("#tl-tip");
-  tip.style.left = Math.min(window.innerWidth - 240, ev.clientX + 12) + "px";
-  tip.style.top = (ev.clientY - tip.offsetHeight - 14) + "px";
+  tip.style.left = Math.max(8, Math.min(window.innerWidth - 292, ev.clientX + 12)) + "px";
+  const above = ev.clientY - tip.offsetHeight - 14;
+  tip.style.top = (above >= 8 ? above : ev.clientY + 16) + "px";
 }
 
 function hideTip() { $("#tl-tip").classList.add("hidden"); }
@@ -561,6 +591,8 @@ function updateActiveChapter(time) {
     || (time === state.bundle?.duration ? chapters.at(-1) : null);
   $$(".tl-chapter.active").forEach(item => item.classList.remove("active"));
   if (current) $(`.tl-chapter[data-chapter-id="${current.id}"]`)?.classList.add("active");
+  $$(".meeting-flow-card.playing").forEach(item => item.classList.remove("playing"));
+  if (current) $(`.meeting-flow-card[data-chapter-card="${current.id}"]`)?.classList.add("playing");
   const label = $("#current-chapter");
   label.classList.toggle("hidden", !current);
   label.textContent = current ? current.title : "";
@@ -887,49 +919,89 @@ function wireStructureClaims(box) {
     button.onclick = () => showMinutesEvidence(button.dataset.structureClaim));
 }
 
-function openChapter(chapterId, play = false) {
+function revealChapter(chapterId, behavior = "smooth") {
+  requestAnimationFrame(() => {
+    const card = $(`.meeting-flow-card[data-chapter-card="${chapterId}"]`);
+    card?.scrollIntoView({ block: "center", behavior });
+  });
+}
+
+function openChapter(chapterId, play = false, reveal = false) {
   if (!chapterId) return;
   state.selectedChapterId = chapterId;
   setReviewMode("chapters");
-  renderChapters();
   const chapter = state.bundle?.structure?.chapters?.find(item => item.id === chapterId);
+  if (reveal) revealChapter(chapterId);
   if (play && chapter) seek(chapter.start);
 }
 
-function chapterMapClaim(id) {
+function flowClaim(id) {
   const claim = (state.bundle?.evidence?.claims || []).find(item => item.id === id);
   if (!claim) return "";
   const action = claim.kind === "action" ? (claim.action ||
     (state.bundle?.evidence?.actions || []).find(item => item.claim_id === claim.id)) : null;
-  return `<button type="button" class="chapter-map-leaf" data-structure-claim="${esc(id)}">` +
+  return `<button type="button" class="meeting-flow-claim" data-structure-claim="${esc(id)}">` +
     `<b>${esc(action?.text || claim.text)}</b>` +
     `${claim.start != null ? `<small>${fmt(claim.start)} · 核对依据</small>` : "<small>核对依据</small>"}` +
     `</button>`;
 }
 
-function chapterMapBranch(title, ids, tone, empty = "") {
-  const leaves = (ids || []).map(chapterMapClaim).filter(Boolean);
-  if (!leaves.length && !empty) return "";
-  return `<section class="chapter-map-branch ${tone}"><h3>${esc(title)}<span>${leaves.length}</span></h3>` +
-    (leaves.join("") || `<p>${esc(empty)}</p>`) + `</section>`;
+function flowClaimGroup(title, ids, tone) {
+  const claims = (ids || []).map(flowClaim).filter(Boolean);
+  if (!claims.length) return "";
+  return `<section class="meeting-flow-group ${tone}"><h4>${esc(title)}<span>${claims.length}</span></h4>` +
+    claims.join("") + `</section>`;
 }
 
-function chapterMapVisualBranch(pages, chapter) {
+function flowVisualStrip(pages, chapter) {
   const useful = pages.filter(page => page.information_value !== "low");
   const low = pages.filter(page => page.information_value === "low");
-  const buttons = useful.map(page => {
+  if (!useful.length && !low.length) return "";
+  const buttons = useful.slice(0, 4).map(page => {
     const range = (page.ranges || []).find(([start, end]) => start < chapter.end && end > chapter.start);
     const at = range ? Math.max(range[0], chapter.start) : chapter.start;
-    return `<button type="button" class="chapter-map-leaf visual-leaf" data-visual-id="${esc(page.id)}" ` +
-      `data-visual-time="${at}"><b>${esc(page.title)}</b>` +
-      `<small>${fmt(at)} · ${esc(visualValueLabel(page))}</small></button>`;
+    const image = visualImageUrl(page);
+    return `<button type="button" class="meeting-flow-visual" data-visual-id="${esc(page.id)}" ` +
+      `data-visual-time="${at}">` +
+      (image ? `<img src="${image}" alt="">` : `<span class="visual-thumb-empty">无截图</span>`) +
+      `<span><b>${esc(page.title)}</b><small>${fmt(at)} · ${esc(visualValueLabel(page))}</small></span></button>`;
   }).join("");
-  if (!buttons && !low.length) return "";
-  const lowNote = low.length
-    ? `<button type="button" class="chapter-low-info" data-low-visual="${esc(low[0].id)}">` +
-      `已折叠 ${low.length} 个低信息画面 · 查看</button>` : "";
-  return `<section class="chapter-map-branch visual"><h3>关键屏幕<span>${useful.length}</span></h3>` +
-    (buttons || `<p>本章没有识别到高价值屏幕内容。</p>`) + lowNote + `</section>`;
+  return `<section class="meeting-flow-screens"><div class="meeting-flow-screens-head"><h4>关键屏幕</h4>` +
+    `<span>${useful.length} 项${low.length ? ` · 已折叠 ${low.length} 个低信息画面` : ""}</span></div>` +
+    (buttons ? `<div class="meeting-flow-visuals">${buttons}</div>` :
+      `<button type="button" class="chapter-low-info" data-low-visual="${esc(low[0].id)}">` +
+      `本章仅识别到 ${low.length} 个低信息画面 · 查看</button>`) + `</section>`;
+}
+
+function flowMetric(label, count, tone) {
+  return `<span class="meeting-flow-metric ${tone}">${esc(label)} <b>${count || 0}</b></span>`;
+}
+
+function flowChapterCard(chapter, index, selected, pageMap) {
+  const isSelected = chapter.id === selected.id;
+  const pages = (chapter.page_ids || []).map(id => pageMap.get(id)).filter(Boolean);
+  const details = [
+    flowClaimGroup("讨论依据", chapter.discussion_claim_ids, "discussion"),
+    flowClaimGroup("形成结果", chapter.decision_claim_ids, "decision"),
+    flowClaimGroup("后续动作", chapter.action_claim_ids, "action"),
+    flowClaimGroup("待确认", chapter.open_claim_ids, "open"),
+  ].filter(Boolean).join("");
+  return `<section class="meeting-flow-card ${isSelected ? "selected" : ""}" ` +
+    `data-chapter-card="${esc(chapter.id)}">` +
+    `<button type="button" class="meeting-flow-card-head" data-chapter-select="${esc(chapter.id)}" ` +
+    `aria-expanded="${isSelected}"><span class="meeting-flow-index">${String(index + 1).padStart(2, "0")}</span>` +
+    `<span class="meeting-flow-copy"><small>${fmt(chapter.start)}–${fmt(chapter.end)}</small>` +
+    `<strong>${esc(chapter.title)}</strong><span class="meeting-flow-summary">${esc(chapter.summary)}</span>` +
+    `<span class="meeting-flow-metrics">${flowMetric("决定", chapter.decision_claim_ids?.length, "decision")}` +
+    `${flowMetric("行动", chapter.action_claim_ids?.length, "action")}` +
+    `${flowMetric("待确认", chapter.open_claim_ids?.length, "open")}</span></span>` +
+    `<span class="meeting-flow-toggle" aria-hidden="true">${isSelected ? "−" : "+"}</span></button>` +
+    (isSelected ? `<div class="meeting-flow-expanded"><div class="meeting-flow-expanded-head">` +
+      (chapter.speakers?.length ? `<span>主要发言：${esc(chapter.speakers.join("、"))}</span>` : `<span>本章未标记主要发言人</span>`) +
+      `<button type="button" class="chapter-play" data-chapter-play="${esc(chapter.id)}">▶ 从这里播放</button></div>` +
+      (details ? `<div class="meeting-flow-detail-grid">${details}</div>` :
+        `<p class="structure-empty">本章暂无单独标记的结论或行动，可结合摘要和逐字稿回看。</p>`) +
+      flowVisualStrip(pages, chapter) + `</div>` : "") + `</section>`;
 }
 
 function renderChapters() {
@@ -944,37 +1016,26 @@ function renderChapters() {
   state.selectedChapterId = selected.id;
   const sourceLabel = structure.chapter_source === "minutes_topic" ? "按纪要议题组织" : "按有效屏幕变化组织";
   const pageMap = new Map((structure.visuals || []).map(item => [item.id, item]));
-  const pages = selected.page_ids.map(id => pageMap.get(id)).filter(Boolean);
-  box.innerHTML = `<div class="structure-layout"><nav class="structure-list" aria-label="会议章节">` +
-    `<div class="structure-list-head"><b>章节导航</b><span>${esc(sourceLabel)}</span></div>` +
-    chapters.map((chapter, index) =>
-      `<button type="button" class="structure-nav-item ${chapter.id === selected.id ? "active" : ""}" ` +
-      `data-chapter-id="${esc(chapter.id)}"><small>${String(index + 1).padStart(2, "0")} · ` +
-      `${fmt(chapter.start)}–${fmt(chapter.end)}</small><b>${esc(chapter.title)}</b>` +
-      `<span>${esc(chapter.summary)}</span></button>`).join("") +
-    `</nav><article class="structure-detail chapter-detail">` +
-    `<header class="structure-detail-head"><div><span>章节 · ${fmt(selected.start)}–${fmt(selected.end)}</span>` +
-    `<h2>${esc(selected.title)}</h2></div><button type="button" class="chapter-play">▶ 从这里播放</button></header>` +
-    `<p class="chapter-summary">${esc(selected.summary)}</p>` +
-    (selected.speakers?.length ? `<div class="chapter-speakers">主要发言：${esc(selected.speakers.join("、"))}</div>` : "") +
-    `<div class="chapter-map" aria-label="本章内容脉络"><div class="chapter-map-root">` +
-    `<span>本章脉络</span><b>${esc(selected.title)}</b><small>${fmt(selected.start)}–${fmt(selected.end)}</small>` +
-    `</div><div class="chapter-map-stem"></div><div class="chapter-map-grid">` +
-    chapterMapBranch("讨论焦点", selected.discussion_claim_ids, "discussion",
-      "本章没有单独标记的讨论要点，可从逐字稿继续核对。") +
-    chapterMapBranch("形成结果", selected.decision_claim_ids, "decision",
-      "尚未形成有依据的决定或共识。") +
-    chapterMapBranch("后续动作", selected.action_claim_ids, "action",
-      "尚未识别到明确行动项。") +
-    chapterMapBranch("待确认", selected.open_claim_ids, "open") +
-    chapterMapVisualBranch(pages, selected) +
-    `</div></div>` +
-    `</article></div>`;
-  $$('.structure-nav-item', box).forEach(button => button.onclick = () => {
-    state.selectedChapterId = button.dataset.chapterId;
+  const uniqueClaims = key => new Set(chapters.flatMap(chapter => chapter[key] || [])).size;
+  box.innerHTML = `<article class="meeting-flow"><header class="meeting-flow-head"><div>` +
+    `<span>整场会议脉络 · ${esc(sourceLabel)}</span><h2>${esc(state.bundle?.title || "会议脉络")}</h2>` +
+    `<p>章节按内容推进连续展开。点击章节只展开详情；需要切换播放时间时使用“从这里播放”或上方时间轴。</p>` +
+    `</div><div class="meeting-flow-overview">${flowMetric("章节", chapters.length, "chapter")}` +
+    `${flowMetric("决定", uniqueClaims("decision_claim_ids"), "decision")}` +
+    `${flowMetric("行动", uniqueClaims("action_claim_ids"), "action")}` +
+    `${flowMetric("待确认", uniqueClaims("open_claim_ids"), "open")}</div></header>` +
+    `<div class="meeting-flow-line">${chapters.map((chapter, index) =>
+      flowChapterCard(chapter, index, selected, pageMap)).join("")}</div></article>`;
+  $$('[data-chapter-select]', box).forEach(button => button.onclick = () => {
+    state.selectedChapterId = button.dataset.chapterSelect;
     renderChapters();
+    revealChapter(state.selectedChapterId);
   });
-  $(".chapter-play", box).onclick = () => seek(selected.start);
+  $$('[data-chapter-play]', box).forEach(button => button.onclick = event => {
+    event.stopPropagation();
+    const chapter = chapters.find(item => item.id === button.dataset.chapterPlay);
+    if (chapter) seek(chapter.start);
+  });
   $$('[data-visual-id]', box).forEach(button => button.onclick = () =>
     openVisual(button.dataset.visualId, Number(button.dataset.visualTime)));
   $$('[data-low-visual]', box).forEach(button => button.onclick = () => {
@@ -982,6 +1043,7 @@ function renderChapters() {
     openVisual(button.dataset.lowVisual);
   });
   wireStructureClaims(box);
+  updateActiveChapter(player()?.currentTime || 0);
 }
 
 function openVisual(visualId, time = null) {
@@ -990,7 +1052,6 @@ function openVisual(visualId, time = null) {
   if (target?.information_value === "low") state.visualFilter = "all";
   state.selectedVisualId = visualId;
   setReviewMode("visuals");
-  renderVisuals();
   if (Number.isFinite(time)) seek(time);
 }
 
@@ -1008,20 +1069,26 @@ function renderVisuals() {
   state.selectedVisualId = selected.id;
   const status = selected.display_status === "discussed" ? "有对应讨论"
     : selected.display_status === "display_only" ? "仅展示" : "动态画面";
-  const image = selected.image
-    ? `/api/meetings/${encodeURIComponent(state.slug)}/file?path=${encodeURIComponent(`slides/${selected.image}`)}` : "";
-  box.innerHTML = `<div class="structure-layout"><nav class="structure-list visual-list" aria-label="屏幕内容">` +
+  const image = visualImageUrl(selected);
+  box.innerHTML = `<div class="structure-layout visual-layout"><nav class="structure-list visual-list" aria-label="屏幕内容">` +
     `<div class="structure-list-head visual-list-head"><div><b>屏幕内容</b><span>${allVisuals.length} 项</span></div>` +
     `<div class="visual-filter"><button type="button" data-visual-filter="useful" ` +
     `class="${state.visualFilter === "useful" ? "active" : ""}">重点 ${useful.length}</button>` +
     `<button type="button" data-visual-filter="all" class="${state.visualFilter === "all" ? "active" : ""}">` +
     `全部 ${allVisuals.length}</button></div></div>` +
-    visuals.map(visual => `<button type="button" class="structure-nav-item ${visual.id === selected.id ? "active" : ""} ` +
+    visuals.map(visual => {
+      const visualImage = visualImageUrl(visual);
+      const visualStatus = visual.display_status === "discussed" ? "有讨论" :
+        visual.display_status === "display_only" ? "仅展示" : "动态画面";
+      return `<button type="button" class="visual-nav-card ${visual.id === selected.id ? "active" : ""} ` +
       `${visual.information_value === "low" ? "low-information" : ""}" ` +
-      `data-visual-id="${esc(visual.id)}"><small>${fmt(visual.first)} · ` +
+      `data-visual-select="${esc(visual.id)}"><span class="visual-nav-thumb">` +
+      (visualImage ? `<img src="${visualImage}" alt="">` : `<i>无截图</i>`) +
+      `</span><span class="visual-nav-copy"><small>${fmt(visual.first)} · ` +
       `${visual.kind === "slide" ? `第${visual.page}页` : "摄像头"}</small>` +
-      `<b>${esc(visual.title)}</b><i class="visual-value ${esc(visual.information_value || "unknown")}">` +
-      `${esc(visualValueLabel(visual))}</i><span>${visual.ranges?.length || 0} 个出现区间</span></button>`).join("") +
+      `<b>${esc(visual.title)}</b><span><i class="visual-value ${esc(visual.information_value || "unknown")}">` +
+      `${esc(visualValueLabel(visual))}</i><em>${esc(visualStatus)}</em></span></span></button>`;
+    }).join("") +
     `</nav><article class="structure-detail visual-detail">` +
     `<header class="structure-detail-head"><div><span>屏幕 · ${esc(status)} · ${esc(visualValueLabel(selected))}</span>` +
     `<h2>${esc(selected.title)}</h2></div></header>` +
@@ -1037,8 +1104,8 @@ function renderVisuals() {
     `<div>${selected.description_html || esc(selected.description || "当前画面没有可用的 VL 详细解读。")}</div></section>` +
     structureClaimGroup("相关会议内容", selected.claim_ids) +
     `</article></div>`;
-  $$('.structure-nav-item', box).forEach(button => button.onclick = () => {
-    state.selectedVisualId = button.dataset.visualId;
+  $$('[data-visual-select]', box).forEach(button => button.onclick = () => {
+    state.selectedVisualId = button.dataset.visualSelect;
     renderVisuals();
   });
   $$('[data-visual-filter]', box).forEach(button => button.onclick = () => {

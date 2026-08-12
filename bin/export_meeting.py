@@ -23,7 +23,7 @@ from meeting_artifact import (
     build_evidence_document,
     load_speaker_profiles,
     markdown_with_evidence_links,
-    normalize_minutes_markdown,
+    minutes_reading_markdown,
     rag_records,
 )
 from meeting_views import build_views
@@ -216,7 +216,8 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
 
     inferred_title, inferred_date = _identity(mdir.name)
     title, date = title or inferred_title, inferred_date if date is None else date
-    linked_markdown = markdown_with_evidence_links(normalize_minutes_markdown(minutes), evidence)
+    reading_minutes = minutes_reading_markdown(minutes)
+    linked_markdown = markdown_with_evidence_links(reading_minutes, evidence)
     minutes_html = MD.render(linked_markdown)
     records = rag_records(evidence, minutes)
     rag_bytes = ("\n".join(json.dumps(r, ensure_ascii=False, separators=(",", ":"))
@@ -241,7 +242,7 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
     small_files = {
         "viewer.html": _viewer_html(title, date, minutes_html, evidence, views,
                                     media_arc, media_kind),
-        "minutes.md": minutes.encode("utf-8"),
+        "minutes.md": reading_minutes.encode("utf-8"),
         "transcript.json": json.dumps(turns, ensure_ascii=False, indent=2).encode("utf-8"),
         "transcript.md": _transcript_markdown(turns).encode("utf-8"),
         "evidence.json": evidence_bytes,

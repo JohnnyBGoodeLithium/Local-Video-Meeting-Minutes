@@ -13,7 +13,11 @@ from markdown_it import MarkdownIt
 
 PROJECT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT / "bin"))
-from meeting_artifact import build_evidence_document, normalize_minutes_markdown  # noqa: E402
+from meeting_artifact import (  # noqa: E402
+    build_evidence_document,
+    minutes_reading_markdown,
+    normalize_minutes_markdown,
+)
 
 
 minutes = """# 会议纪要
@@ -51,5 +55,26 @@ with tempfile.TemporaryDirectory(prefix="minutes-markdown-test-") as tmp:
 fullwidth = "｜事项｜负责人｜\n｜---｜---｜\n｜合成事项｜待确认｜\n"
 assert sum(token.type == "table_open" for token in MarkdownIt("default").parse(
     normalize_minutes_markdown(fullwidth))) == 1
+
+reading_source = """# 会议纪要
+
+## 总体摘要
+
+- 常规结论。
+
+## 议题板块
+
+- 合成议题（第1页，00:00 起）：合成摘要。
+
+## 分页详情
+
+### 第1页 [00:00] 不应出现在阅读版
+
+- 技术性逐页事实。
+"""
+reading = minutes_reading_markdown(reading_source)
+assert "常规结论" in reading and "议题板块" in reading
+assert "分页详情" not in reading and "技术性逐页事实" not in reading
+assert minutes_reading_markdown(reading) == reading
 
 print("Minutes Markdown: legacy tables and structured actions passed")

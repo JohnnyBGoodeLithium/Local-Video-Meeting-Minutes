@@ -90,7 +90,9 @@ sidecar 保存 T ID、源语言、译文、数字核对警告、逐字稿 revisi
 - `Chapter`：一个连续讨论时间段。优先解析纪要“议题板块”的开始时间，缺失时按视觉 Segment 降级；章节关联 T/P 来源，并确定性分组 discussion/decision/action/open claim；
 - `Visual`：逻辑页面级资料，一页只保存一份完整 VL 描述和图片，同时列出全部出现 ranges、相关 Segment 与 claim。`display_status` 区分被讨论、仅展示和摄像头动态画面；`content_role` 与 `information_value=high|medium|low` 标记页面角色和信息价值。新 VL 输出显式给出这两个字段，旧缓存使用保守启发式；空白、过渡、会议 UI 等低信息 Segment 不再单独创建 fallback Chapter。
 
-前端时间线用 Chapter 作为上层、Segment 作为下层。“章节脉络”把同一章 evidence 确定性投影为讨论焦点、形成结果、后续动作、待确认和关键屏幕五类分支；它是可回溯的阅读树，不凭空生成关系。章节和屏幕页面只是对 canonical evidence 的索引与重组；点击结论仍进入统一证据栏，VL 描述明确标注不能单独证明会议决定。跨章节 Topic 图仍应建立在独立语义实体上，不能直接用页码或 Segment 冒充主题。
+前端时间线用 Chapter 作为上层、Segment 作为下层，章节块 hover 提供摘要和结果数量。右侧“章节脉络”把全部 Chapter 投影到一条整场会议主线，一次只展开一章的讨论依据、形成结果、后续动作、待确认和关键屏幕；时间轴点击负责 seek + 定位，右侧章节点击只改变展开状态。该结构不凭空生成章节关系。章节和屏幕页面只是对 canonical evidence 的索引与重组；点击结论仍进入统一证据栏，VL 描述明确标注不能单独证明会议决定。跨章节 Topic 图仍应建立在独立语义实体上，不能直接用页码或 Segment 冒充主题。
+
+Web 与 MeetingPack 的常规纪要通过 `minutes_reading_markdown()` 从 canonical Markdown 做只读投影，在第一个“分页详情/逐页详情”章节前截断。原始 `minutes.md` 不被改写，逐页事实继续进入 evidence、Visual 和 RAG；这避免相同页面资料同时堆叠在纪要、章节和屏幕内容三个入口。MeetingPack 内的 `minutes.md` 是常规阅读投影，机器侧完整事实以 `evidence.json` 和 `rag/records.jsonl` 为准。
 
 所有模型文本进入阅读结构前统一剥离完整、残缺或反向出现的 `<think>/<analysis>` 块。新纪要/VL 生成同样在落盘前清洗；如果旧 VL 缓存清洗后没有可靠答案，页面标为需要重新解析，不把推理过程伪装成标题。
 

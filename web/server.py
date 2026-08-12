@@ -389,15 +389,18 @@ def _minutes_html(mdir: Path, slug: str):
     mf = _minutes_file(mdir)
     if mf is None:
         return "", []
-    text = artifact.normalize_minutes_markdown(mf.read_text(encoding="utf-8"))
-    text = artifact.markdown_with_evidence_links(text, _current_evidence(mdir))
-    html = MD.render(text)
-    # 纪要里的 slides/ 相对图片 → 本服务 file 路由
-    html = html.replace('src="slides/', f'src="/api/meetings/{slug}/file?path=slides/')
+    full_text = artifact.normalize_minutes_markdown(mf.read_text(encoding="utf-8"))
+    # 章节定位仍可读取 canonical 逐页标题；常规纪要阅读层不重复铺开逐页详情。
     topics = [{"page": int(m.group(1)) if m.group(1) else None,
                "start": _parse_ts(m.group(2)),
                "title": m.group(3).strip()}
-              for m in TOPIC_RE.finditer(text)]
+              for m in TOPIC_RE.finditer(full_text)]
+    reading_text = artifact.minutes_reading_markdown(full_text)
+    reading_text = artifact.markdown_with_evidence_links(
+        reading_text, _current_evidence(mdir))
+    html = MD.render(reading_text)
+    # 纪要里的 slides/ 相对图片 → 本服务 file 路由
+    html = html.replace('src="slides/', f'src="/api/meetings/{slug}/file?path=slides/')
     return html, topics
 
 

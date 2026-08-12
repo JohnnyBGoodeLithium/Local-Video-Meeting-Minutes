@@ -152,8 +152,10 @@ check("bundle 提供逻辑页、连续视觉片段和语义章节三层结构",
               for visual in j.get("structure", {}).get("visuals", []))
       and all(visual.get("description_html")
               for visual in j.get("structure", {}).get("visuals", [])))
-check("bundle minutes_html 图片已改写为 file 路由",
-      f'/api/meetings/_smoke/file?path=slides/' in j.get("minutes_html", ""))
+check("bundle 常规纪要不再重复铺开逐页详情",
+      "分页详情" not in j.get("minutes_html", "")
+      and "假页面一" not in j.get("minutes_html", "")
+      and "总体摘要" in j.get("minutes_html", ""))
 check("bundle 提供可点击纪要依据且 HTML 不泄露机器标记",
       len(j.get("evidence", {}).get("claims", [])) == 3
       and j.get("document_state") == "ready"
@@ -270,6 +272,9 @@ check("MeetingPack v2 manifest/evidence/RAG/视图共享稳定 linkage",
       and evidence.get("claims", [{}])[0].get("turn_ids") == ["T000001", "T000002"]
       and any(r.get("record_type") == "claim" and r.get("evidence_ids") for r in rag)
       and manifest.get("evidence", {}).get("state") == "ready")
+check("MeetingPack 分享纪要采用常规阅读版，逐页事实仍在 evidence/RAG",
+      "分页详情" not in (pack.read("minutes.md").decode("utf-8") if pack else "")
+      and any(record.get("record_type") == "slide" for record in rag))
 check("viewer 为无外链、自包含且可浏览逐字稿/媒体/图谱的静态页面",
       'id="meeting-data"' in viewer and "fetch(" not in viewer
       and "http://" not in viewer and "https://" not in viewer

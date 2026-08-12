@@ -295,6 +295,27 @@ def normalize_minutes_markdown(minutes: str) -> str:
     return result + "\n" if trailing_newline else result
 
 
+READING_DETAIL_SECTION_RE = re.compile(
+    r"^##\s+(?:分页详情|逐页详情|按页详情|页面详情|"
+    r"附录\s*[:：-]?\s*(?:页面|屏幕)(?:详解|详情|分析).*)\s*$",
+    re.M,
+)
+
+
+def minutes_reading_markdown(minutes: str) -> str:
+    """投影面向阅读与分享的常规纪要，不丢弃 canonical 逐页事实。
+
+    逐页详情仍保留在原始 ``minutes.md``，供 evidence、RAG 与屏幕内容视图使用；
+    Web 纪要和 MeetingPack 的 ``minutes.md`` 只呈现逐页详情之前的常规纪要，避免
+    同一批页面事实同时出现在纪要、章节和屏幕内容三个入口。
+    """
+    normalized = normalize_minutes_markdown(minutes)
+    match = READING_DETAIL_SECTION_RE.search(normalized)
+    if not match:
+        return normalized
+    return normalized[:match.start()].rstrip() + "\n"
+
+
 def _action_fields(value: str) -> dict:
     cells = [_clean_markdown_text(cell) for cell in _table_cells(value)]
     cells = [cell for cell in cells if cell]
