@@ -22,7 +22,7 @@ sys.path.insert(0, str(PROJECT / "bin"))
 from meeting_artifact import load_speaker_profiles, write_evidence_document  # noqa: E402
 import meeting_topic_map  # noqa: E402
 
-ROOT = Path(os.environ.get("MM_TEST_ROOT", "/home/johnny-tcx_ultra/meeting-minutes")).resolve()
+ROOT = Path(os.environ.get("MM_TEST_ROOT", Path(__file__).resolve().parents[2])).resolve()
 mdir = ROOT / "meetings" / "_smoke"
 SR = 16000
 

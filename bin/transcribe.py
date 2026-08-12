@@ -21,11 +21,14 @@ import time
 from pathlib import Path
 
 from meeting_dir import for_recording
+from meeting_core.hardware import configured_path, inference_device, inference_dtype
 
 HOME = Path.home()
 ROOT = Path(__file__).resolve().parent.parent
-ASR_PATH = HOME / ".local/share/models/hf/Qwen/Qwen3-ASR-1.7B"
-ALIGNER_PATH = HOME / ".local/share/models/hf/Qwen/Qwen3-ForcedAligner-0.6B"
+ASR_PATH = configured_path(
+    "MEETING_ASR_MODEL", HOME / ".local/share/models/hf/Qwen/Qwen3-ASR-1.7B")
+ALIGNER_PATH = configured_path(
+    "MEETING_ALIGNER_MODEL", HOME / ".local/share/models/hf/Qwen/Qwen3-ForcedAligner-0.6B")
 
 SENT_END = tuple("。！？!?；;\n")
 
@@ -116,20 +119,21 @@ def main() -> int:
     import torch
     from qwen_asr import Qwen3ASRModel
 
-    device = "cuda:0" if torch.cuda.is_available() else "cpu"
+    device = inference_device(torch, indexed=True)
+    dtype = inference_dtype(torch, device)
     load_kwargs = dict(
-        dtype=torch.bfloat16,
+        dtype=dtype,
         device_map=device,
         max_inference_batch_size=args.batch_size,
         max_new_tokens=args.max_new_tokens,
     )
     if not args.no_timestamps:
         load_kwargs["forced_aligner"] = str(ALIGNER_PATH)
-        load_kwargs["forced_aligner_kwargs"] = dict(dtype=torch.bfloat16, device_map=device)
+        load_kwargs["forced_aligner_kwargs"] = dict(dtype=dtype, device_map=device)
 
     t0 = time.time()
     model = Qwen3ASRModel.from_pretrained(str(ASR_PATH), **load_kwargs)
-    print(f"[meta] 模型加载 {time.time()-t0:.1f}s device={device}", flush=True)
+    print(f"[meta] 模型加载 {time.time()-t0:.1f}s device={device} dtype={dtype}", flush=True)
 
     t0 = time.time()
     results = model.transcribe(

@@ -14,7 +14,7 @@ import zipfile
 from pathlib import Path
 
 BASE = os.environ.get("MM_TEST_BASE", "http://127.0.0.1:8899")
-TEST_ROOT = Path(os.environ.get("MM_TEST_ROOT", "/home/johnny-tcx_ultra/meeting-minutes")).resolve()
+TEST_ROOT = Path(os.environ.get("MM_TEST_ROOT", Path(__file__).resolve().parents[2])).resolve()
 FAKE_BANK = Path(os.environ.get("MM_TEST_BANK", "/tmp/mm_fake_bank")).resolve()
 TEST_JOBS = Path(os.environ.get("MM_TEST_JOBS", TEST_ROOT / "web/jobs")).resolve()
 SMOKE = TEST_ROOT / "meetings" / "_smoke"
@@ -122,6 +122,10 @@ check("在线端以合格会议脉络为第一眼，并共享时间聚焦状态"
       b'requestedViewExplicit' in app_js and b'setTopicFocus' in app_js
       and b'id="focus-summary"' in page
       and b'updateFocusPresentation' in app_js and b'content-stage' in app_js)
+check("在线屏幕舞台支持放大、缩放和相邻屏幕键盘导航",
+      b'id="screen-preview-mask"' in page and b'openScreenPreview' in app_js
+      and b'navigateScreenPreview' in app_js and b'SCREEN_PREVIEW_ZOOMS' in app_js
+      and b'20260812p16' in page)
 s, product_headers, product_page = req("GET", "/product", raw=True)
 product_cache = next((value for key, value in product_headers.items()
                       if key.lower() == "cache-control"), "")
@@ -357,6 +361,9 @@ check("Viewer 无视频也用屏幕舞台联动时间、逐字稿和结论 Focus
       "media-stage" in viewer and "focusbar" in viewer and "focus-ranges" in viewer
       and "function focusTime" in viewer and "function focusTopic" in viewer
       and "applyClaimFocus" in viewer and "focus-show-claims" in viewer and "focus-pulse" in viewer)
+check("Viewer 屏幕舞台支持离线放大、缩放和相邻屏幕导航",
+      'id="screen-preview"' in viewer and "function openScreenPreview" in viewer
+      and "function navigatePreview" in viewer and "previewZooms" in viewer)
 exported_pages = evidence.get("sources", {}).get("pages", [])
 all_export_text = viewer + json.dumps(evidence, ensure_ascii=False) + json.dumps(rag, ensure_ascii=False)
 check("导出层清理 VL 推理文本，并使用与在线端一致的屏幕标题",

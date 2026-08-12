@@ -41,6 +41,7 @@ const state = {
   selectedVisualId: null,
   focus: { mode: "overview", time: null, ranges: [], topicId: null, nodeId: null,
     turnIds: [], claimIds: [], pageIds: [], source: "overview" },
+  screenPreview: { visualId: null, zoomIndex: 0, returnFocus: null },
   visualFilter: "useful",
   transcriptMode: ["original", "translated", "comparison"].includes(savedTranscriptMode)
     ? savedTranscriptMode : "original",
@@ -335,6 +336,7 @@ async function loadMeeting(slug) {
   state.slug = slug;
   if (changed) {
     resetAssistant();
+    closeScreenPreview();
     if (state.translationPoller) clearInterval(state.translationPoller);
     state.translationPoller = null;
     state.translationJob = null;
@@ -411,8 +413,10 @@ function renderPlayer() {
   const hasVisualStage = !b.has_video && (b.structure?.visuals || []).some(item => item.image);
   if (hasVisualStage) {
     holder.innerHTML = `<div id="content-stage" class="content-stage"><img id="content-stage-image" alt="">` +
+      `<button id="content-stage-expand" class="content-stage-expand" type="button">⌕ 放大查看</button>` +
       `<div class="content-stage-caption"><span id="content-stage-kicker">当前屏幕</span>` +
       `<b id="content-stage-title">正在定位屏幕内容</b></div></div>`;
+    wireContentStage();
   }
   if (b.has_video) {
     el = document.createElement("video");
@@ -482,6 +486,99 @@ function representativeVisual(pageIds = []) {
   return (pageIds || []).map(id => (state.bundle?.structure?.visuals || []).find(item => item.id === id))
     .filter(item => item?.image).sort((a, b) => (order[a.information_value] ?? 2) -
       (order[b.information_value] ?? 2) || Number(a.first || 0) - Number(b.first || 0))[0] || null;
+}
+
+const SCREEN_PREVIEW_ZOOMS = [0, 1.25, 1.5, 2, 3];
+
+function screenPreviewVisuals() {
+  return [...(state.bundle?.structure?.visuals || [])].filter(item => item.image)
+    .sort((a, b) => Number(a.ranges?.[0]?.[0] ?? a.first ?? 0) -
+      Number(b.ranges?.[0]?.[0] ?? b.first ?? 0));
+}
+
+function applyScreenPreviewZoom() {
+  const image = $("#screen-preview-image");
+  const button = $("#screen-preview-zoom");
+  if (!image || !button) return;
+  const zoom = SCREEN_PREVIEW_ZOOMS[state.screenPreview.zoomIndex] || 0;
+  image.classList.toggle("zoomed", Boolean(zoom));
+  image.style.width = zoom ? `${zoom * 100}%` : "auto";
+  button.textContent = zoom ? `${Math.round(zoom * 100)}%` : "适应";
+  $("#screen-preview-zoom-out").disabled = state.screenPreview.zoomIndex === 0;
+  $("#screen-preview-zoom-in").disabled = state.screenPreview.zoomIndex === SCREEN_PREVIEW_ZOOMS.length - 1;
+}
+
+function updateScreenPreview(visual = null) {
+  const mask = $("#screen-preview-mask");
+  if (!mask || mask.classList.contains("hidden")) return;
+  const visuals = screenPreviewVisuals();
+  const source = visual || visuals.find(item => item.id === state.screenPreview.visualId);
+  if (!source) return closeScreenPreview();
+  const changed = state.screenPreview.visualId !== source.id;
+  state.screenPreview.visualId = source.id;
+  $("#screen-preview-image").src = visualImageUrl(source);
+  $("#screen-preview-title").textContent = source.title || "屏幕内容";
+  $("#screen-preview-kicker").textContent = source.kind === "slide"
+    ? `第 ${source.page} 页` : "动态画面";
+  const at = Number(source.ranges?.[0]?.[0] ?? source.first ?? 0);
+  $("#screen-preview-meta").textContent = `${fmt(at)} · ${visualValueLabel(source)} · ` +
+    `${source.display_status === "discussed" ? "有对应讨论" :
+      source.display_status === "display_only" ? "仅展示" : "动态画面"}`;
+  const index = visuals.findIndex(item => item.id === source.id);
+  $("#screen-preview-prev").disabled = index <= 0;
+  $("#screen-preview-next").disabled = index < 0 || index >= visuals.length - 1;
+  if (changed) {
+    const viewport = $("#screen-preview-viewport");
+    viewport.scrollTop = 0;
+    viewport.scrollLeft = 0;
+  }
+  applyScreenPreviewZoom();
+}
+
+function openScreenPreview(visualId = null) {
+  const source = screenPreviewVisuals().find(item => item.id === visualId)
+    || screenPreviewVisuals().find(item => item.id === $("#content-stage")?.dataset.visualId);
+  if (!source) return;
+  state.screenPreview.returnFocus = document.activeElement;
+  state.screenPreview.visualId = source.id;
+  state.screenPreview.zoomIndex = 0;
+  $("#screen-preview-mask").classList.remove("hidden");
+  document.body.classList.add("screen-preview-open");
+  updateScreenPreview(source);
+  $("#screen-preview-close").focus();
+}
+
+function closeScreenPreview() {
+  $("#screen-preview-mask")?.classList.add("hidden");
+  document.body.classList.remove("screen-preview-open");
+  if (state.screenPreview.returnFocus?.isConnected) state.screenPreview.returnFocus.focus();
+  state.screenPreview.returnFocus = null;
+}
+
+function changeScreenPreviewZoom(delta) {
+  state.screenPreview.zoomIndex = Math.min(SCREEN_PREVIEW_ZOOMS.length - 1,
+    Math.max(0, state.screenPreview.zoomIndex + delta));
+  applyScreenPreviewZoom();
+}
+
+function navigateScreenPreview(delta) {
+  const visuals = screenPreviewVisuals();
+  const index = visuals.findIndex(item => item.id === state.screenPreview.visualId);
+  const target = visuals[index + delta];
+  if (!target) return;
+  const at = Number(target.ranges?.[0]?.[0] ?? target.first ?? 0);
+  seek(at, false);
+  updateScreenPreview(target);
+}
+
+function wireContentStage() {
+  const stage = $("#content-stage");
+  if (!stage) return;
+  stage.addEventListener("click", event => {
+    if (event.target.closest("#content-stage-expand") || event.target.id === "content-stage-image"
+        || event.target.closest(".content-stage-caption"))
+      openScreenPreview(stage.dataset.visualId);
+  });
 }
 
 function turnIndexesForIds(ids = []) {
@@ -554,12 +651,17 @@ function updateContentStage(visual = null, semantic = false) {
   const source = visual || (state.focus.mode === "topic"
     ? representativeVisual(state.focus.pageIds) : visualForTime(state.focus.time || 0));
   const url = visualImageUrl(source);
+  const expand = $("#content-stage-expand");
+  stage.dataset.visualId = source?.id || "";
   stage.classList.toggle("empty", !url);
   if (image) image.src = url || "";
+  if (expand) expand.classList.toggle("hidden", !url);
   if (title) title.textContent = source?.title || "这一位置没有静态屏幕资料";
   if (kicker) kicker.textContent = semantic ? "论点代表画面" : source
     ? `${fmt(state.focus.time ?? source.first)} · ${source.kind === "slide" ? `第${source.page}页` : "动态画面"}`
     : "当前屏幕";
+  if (!$("#screen-preview-mask")?.classList.contains("hidden") && source)
+    updateScreenPreview(source);
 }
 
 function updateTimelineFocus() {
@@ -1432,7 +1534,8 @@ function renderVisuals() {
       selected.needs_reprocess ? `<div class="visual-reprocess">页面解析没有得到可读正文，已标记为需要重新解析；当前不会将它判为低信息。</div>` : "") +
     `<div class="visual-ranges">${(selected.ranges || []).map(([start, end]) =>
       `<button type="button" data-visual-seek="${start}">${fmt(start)}–${fmt(end)}</button>`).join("")}</div>` +
-    (image ? `<img class="visual-hero" src="${image}" alt="${esc(selected.title)}">` :
+    (image ? `<img class="visual-hero" data-preview-visual="${esc(selected.id)}" src="${image}" ` +
+      `alt="${esc(selected.title)}" title="点击放大查看">` :
       `<div class="visual-no-image">该片段没有静态页面截图</div>`) +
     `<section class="visual-description"><h3>屏幕内容解读</h3>` +
     `<p class="visual-boundary">仅说明画面展示内容，不代表会议作出了决定。</p>` +
@@ -1449,6 +1552,8 @@ function renderVisuals() {
   });
   $$('[data-visual-seek]', box).forEach(button =>
     button.onclick = () => seek(Number(button.dataset.visualSeek)));
+  $$('[data-preview-visual]', box).forEach(image =>
+    image.onclick = () => openScreenPreview(image.dataset.previewVisual));
   wireStructureClaims(box);
 }
 
@@ -2485,6 +2590,18 @@ function setupPaneResizer() {
   });
 }
 
+function screenPreviewShortcut(event) {
+  if ($("#screen-preview-mask")?.classList.contains("hidden")) return;
+  if (event.key === "Escape") closeScreenPreview();
+  else if (event.key === "ArrowLeft") navigateScreenPreview(-1);
+  else if (event.key === "ArrowRight") navigateScreenPreview(1);
+  else if (["+", "="].includes(event.key)) changeScreenPreviewZoom(1);
+  else if (event.key === "-") changeScreenPreviewZoom(-1);
+  else return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+}
+
 function init() {
   $("#search").addEventListener("input", renderMeetingList);
   $("#regen-btn").onclick = () => regenMinutes("");
@@ -2552,6 +2669,23 @@ function init() {
   $("#storage-mask").addEventListener("click", event => {
     if (event.target.id === "storage-mask") closeStorageDialog();
   });
+  $("#screen-preview-close").onclick = closeScreenPreview;
+  $("#screen-preview-prev").onclick = () => navigateScreenPreview(-1);
+  $("#screen-preview-next").onclick = () => navigateScreenPreview(1);
+  $("#screen-preview-zoom-out").onclick = () => changeScreenPreviewZoom(-1);
+  $("#screen-preview-zoom-in").onclick = () => changeScreenPreviewZoom(1);
+  $("#screen-preview-zoom").onclick = () => {
+    state.screenPreview.zoomIndex = 0;
+    applyScreenPreviewZoom();
+  };
+  $("#screen-preview-mask").addEventListener("click", event => {
+    if (event.target.id === "screen-preview-mask") closeScreenPreview();
+  });
+  $("#screen-preview-image").ondblclick = () => {
+    state.screenPreview.zoomIndex = state.screenPreview.zoomIndex ? 0 : 3;
+    applyScreenPreviewZoom();
+  };
+  document.addEventListener("keydown", screenPreviewShortcut, { capture: true });
 
   const dz = $("#dropzone");
   dz.addEventListener("dragover", e => { e.preventDefault(); dz.classList.add("over"); });

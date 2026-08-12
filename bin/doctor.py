@@ -6,10 +6,13 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
 import shutil
 import urllib.error
 import urllib.request
 from pathlib import Path
+
+from meeting_core.hardware import accelerator_backend, configured_path
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -57,15 +60,42 @@ def main() -> int:
         for mod in ("numpy", "soundfile", "PIL", "torch", "qwen_asr", "pyannote.audio"):
             add(f"python:{mod}", module_exists(mod), True)
         model_paths = {
-            "model:qwen3-asr": Path.home() / ".local/share/models/hf/Qwen/Qwen3-ASR-1.7B",
-            "model:forced-aligner": Path.home() / ".local/share/models/hf/Qwen/Qwen3-ForcedAligner-0.6B",
-            "model:pyannote": Path.home() / ".local/share/models/hf/pyannote/speaker-diarization-community-1",
-            "model:miloco-vl": Path.home() / "视频/joyai-test/models/MiMo-VL-Miloco-7B_Q4_0.gguf",
+            "model:qwen3-asr": configured_path(
+                "MEETING_ASR_MODEL",
+                Path.home() / ".local/share/models/hf/Qwen/Qwen3-ASR-1.7B"),
+            "model:forced-aligner": configured_path(
+                "MEETING_ALIGNER_MODEL",
+                Path.home() / ".local/share/models/hf/Qwen/Qwen3-ForcedAligner-0.6B"),
+            "model:pyannote": configured_path(
+                "MEETING_PYANNOTE_MODEL",
+                Path.home() / ".local/share/models/hf/pyannote/speaker-diarization-community-1"),
+            "model:miloco-vl": configured_path(
+                "MEETING_VL_MODEL",
+                Path.home() / "视频/joyai-test/models/MiMo-VL-Miloco-7B_Q4_0.gguf"),
+            "model:vl-mmproj": configured_path(
+                "MEETING_VL_MMPROJ",
+                Path.home() / "视频/joyai-test/models/mmproj-MiMo-VL-Miloco-7B_BF16.gguf"),
         }
         for name, path in model_paths.items():
-            add(name, path.exists(), name != "model:miloco-vl")
+            add(name, path.exists(), name not in {"model:miloco-vl", "model:vl-mmproj"}, str(path))
+        if module_exists("torch"):
+            try:
+                import torch
+                backend = accelerator_backend(torch)
+                versions = []
+                if getattr(torch.version, "cuda", None):
+                    versions.append(f"CUDA {torch.version.cuda}")
+                if getattr(torch.version, "hip", None):
+                    versions.append(f"ROCm/HIP {torch.version.hip}")
+                detail = f"backend={backend} torch={torch.__version__}"
+                if versions:
+                    detail += " " + " ".join(versions)
+                add("accelerator", backend != "cpu", False, detail)
+            except Exception as exc:
+                add("accelerator", False, False, f"探测失败: {type(exc).__name__}")
 
-    add("service:llama-router", endpoint_ok("http://127.0.0.1:11435/v1/models"), False,
+    llm_api = os.environ.get("MEETING_LLM_API", "http://127.0.0.1:11435/v1").rstrip("/")
+    add("service:llama-router", endpoint_ok(f"{llm_api}/models"), False,
         "未运行时仅影响纪要生成与助手")
 
     if args.json:

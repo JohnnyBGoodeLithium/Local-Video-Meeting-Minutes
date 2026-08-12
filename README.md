@@ -1,180 +1,150 @@
-# 本地会议纪要管线（"钉钉闪记"的本地版）
+# Local Video Meeting Minutes
 
-目标：把录音笔/会议录音变成**带时间戳的逐字稿 + 结构化会议纪要**，全流程在本机完成，音频和文字不出机器。
+本地多模态会议知识工作台：把录音、录屏、Teams VTT、说话人声纹、组织架构和共享画面组织成一套可阅读、可核验、可追问、可修正、可离线分享的会议记录。
 
-工程文档：[系统架构](docs/ARCHITECTURE.md) · [产品与交互](docs/PRODUCT_UX.md) · [UX 走查/同类参考](docs/UX_REVIEW_AND_REFERENCES.md) · [开发与验证](docs/DEVELOPMENT.md) · [工程走查](docs/ENGINEERING_REVIEW.md) · [完整变更日志](CHANGELOG.md) · [模型矩阵](docs/MODELS.md) · [结论/导出/RAG 规范](docs/EXPORT_AND_RAG.md)
+它已经不是“钉钉闪记的本地替代品”。产品的核心差异是把四类信息绑定在一起：
 
-## 为什么做这个
+- **Meeting Identity Core**：声纹证据 → 稳定 Person ID → 中文名/全拼/英文名等类型化名称 → 可编辑 Org Chart。它解决会议室共用麦克风只能显示设备名称、无法区分真人的问题。
+- **Evidence Core**：纪要结论、行动项和风险绑定逐字稿 T ID、屏幕页 P ID 与 claim C ID；页面展示不能被自动升级为会议决定。
+- **Multimodal Review**：会议脉络是首屏，播放器、时间轴、逐字稿、当前屏幕和结论共享 Focus；屏幕资料可放大、缩放并按时间前后切换。
+- **Knowledge Core**：本地混合检索、reranker、带来源问答、结论审计和版本化 MeetingPack，为后续跨会议 RAG 保留稳定 linkage。
 
-钉钉"闪记"这类功能好用，但录音和纪要都要上云。本项目的约束（来自 `~/agent-memory/PROFILE.md`）：录音、公司信息、未公开内容**优先本地处理**，云端模型需要每次显式授权。所以搭一条等价的本地管线。
+## 用户旅程
 
-## 目录结构
+1. 导入音频、录屏，或带 VTT 的 Teams 录制。
+2. 先完成转写和说话人识别，尽快发布可阅读的语音草稿。
+3. 后台继续抽取逻辑页面、理解共享画面、生成多模态终稿和整场会议脉络。
+4. 用户从会议脉络进入某个论点；时间操作改变播放位置，右侧节点选择只改变阅读 Focus。
+5. 在纪要、逐字稿与画面之间核对证据，确认人员身份，追问或预览纪要修改。
+6. 导出一个 `viewer.html + README.txt + assets/` 的 MeetingPack；收件人无需 GPU、LLM 或本机服务。
+
+## 架构概览
 
 ```text
-meeting-minutes/
-  recordings/                 # 录音笔原始 WAV(从 VTR5910 复制, 原件留设备上)
-  meetings/                   # 每场会议一个自包含文件夹(可随便改名)
-    2026-08-06_FY28-Gate-B-Pre-review-2nd-Round-Portfolio-Framework/
-      audio.wav               # 16k 单声道音轨
-      source_video.mp4        # 视频原始母版的会议内 CoW 副本（不再依赖 inbox）
-      transcript.spk.md/json  # 具名/分说话人逐字稿
-      minutes.md              # 纪要(Teams 场: 总体摘要+议题板块+逐页详情, 每页内嵌截图)
-      minutes.evidence.json   # 纪要 claim ↔ 逐字稿 T ID / 页面 P ID 的 canonical sidecar
-      meeting.topic-map.json  # 整场论点/子节点 ↔ T/P/C 依据（按输入 revision 失效）
-      slides/                 # 屏幕共享逻辑页截图(page_NN_t####s.jpg) + slides.json(页码时间线)
-      samples/                # 声纹试听片段(voice_tool 生成)
-    2026-08-06_171137/        # 录音笔会议: transcript.txt / stamps.json / transcript.ts.md
-                              #   / diarization.json / transcript.spk.* / minutes*.md
-  speaker_bank/               # 声纹库(个人数据, 云端不读)
-    bank.json                 #   v3: 稳定人员 ID + 类型化名称 + 首选显示名；一人可挂多条声纹
-    emb/v_XXXX.npy            #   声纹向量(质心, 不可还原成声音)
-    orgchart.json             #   可选: BU 架构, 用户自放, 只被本地脚本读取
-    orgchart.template.json    #   格式模板(假数据示例)
-  bin/                        # 管线脚本
-  .venv/  .cache/
+音频 / 视频 / VTT
+        │
+        ├─ 转写与字级对齐 ───────┐
+        ├─ 说话人分离与声纹匹配 ─┼─ transcript.spk.json (T IDs)
+        └─ 逻辑页面检测 + VL ────┘               │
+                                                  ▼
+                               结构化纪要 + evidence claims
+                                  │          │          │
+                                  ▼          ▼          ▼
+                              会议脉络     本地 RAG    结论审计
+                                  └──────────┬──────────┘
+                                             ▼
+                              Web 阅读器 / MeetingPack Viewer
 ```
 
-## 用法
+详细边界见 [系统架构](docs/ARCHITECTURE.md)，结论和 RAG schema 见 [导出与 RAG](docs/EXPORT_AND_RAG.md)。
+
+## 快速开始
+
+项目要求 Python 3.11+、`ffmpeg/ffprobe`，完整管线还需要与显卡匹配的 PyTorch 和 `llama-server`。新机器请先阅读 [跨机器与 GPU 部署](docs/DEPLOYMENT.md)，不要让 `pip` 意外覆盖已经可用的 CUDA/ROCm PyTorch。
 
 ```bash
-# 首次：建环境(已建好可跳过)
-python3 -m venv --system-site-packages .venv
+python3 -m venv .venv
 .venv/bin/pip install -e .
-# 确认不会覆盖现有 ROCm torch 后，才安装管线依赖：
+# 先按 GPU 厂商安装 PyTorch，再安装完整管线依赖
 .venv/bin/pip install -e '.[pipeline]'
-```
 
-### Web 会议回顾工作台
-
-```bash
-.venv/bin/python web/server.py
-# 或 make run
-# http://127.0.0.1:8899/       打开已处理会议，阅读纪要、核对逐字稿、追问和修正
-# http://127.0.0.1:8899/admin  人员身份 + 声纹试听/确认 + 图形化 org chart + 参考文件
-# http://127.0.0.1:8899/product 面向管理者、产品与技术评估的产品介绍
-```
-左栏拖入 视频(可带同名 .vtt) 或 音频 即自动处理。详见 [web/README.md](web/README.md)。
-
-导入媒体会先固化进会议目录：Btrfs/兼容文件系统优先使用 CoW reflink，形成独立 inode 但初始共享数据块；不支持时才完整复制。删除或修改原 inbox/下载路径都不会影响会议母版，处理成功后项目自动清理上传暂存。旧录音若只有 `source.json` 外部路径，Web 也会兼容回退播放。“存储与清理”会把母版、阅读资产和可再生缓存分开，只允许一键删除 PCM 工作音轨、VL full 帧和 RAG 索引等可恢复项。
-
-带录屏的会议采用渐进发布：语音转写和说话人完成后先发布“语音草稿”，可立即阅读、播放和追问；屏幕抽页、VL 表格/画面理解完成后，再原位替换为多模态终稿并生成会议脉络。短会议直接生成草稿，长会议按连续逐字稿片段提取带 T ID 的事实笔记后全局合并，不再用一次超限请求阻塞草稿。草稿期暂停编辑、结论审计和导出，避免操作落在即将被替换的版本上。
-
-会议详情左侧是常驻的播放证据栏：播放器、带页区间/议题标记的时间轴和逐字稿在同一列；右侧阅读纪要。逐字稿可在“原文 / 译文 / 对照”间切换，并独立选择译为中文或 English；时间、定宽说话人姓名和正文按列对齐，完整姓名通过悬停保留。右侧智能栏共用 AI 对话与证据核对，可引用一轮或多轮逐字稿进行本地问答，回答带可点击时间来源。直接输入修改要求时，系统先展示可读的章节修改预览，只有用户确认后才写入，并支持立即撤销。
-
-新生成的纪要会把结论关联到稳定的逐字稿/页面证据，正文只显示轻量“依据”链接；行动项同时保存事项、负责人、期限、状态和来源 linkage，Markdown 表格只是可读导出，不是唯一数据源。岗位职级只作为决策权限语境，不能把建议自动升级为结论。“更多”菜单可导出 `.meetingpack.zip`：默认不带音视频，收件人解压后双击 `viewer.html` 即可离线阅读、搜索和核对依据，无需服务或 LLM。格式与 RAG 接入见 [结论/导出/RAG 规范](docs/EXPORT_AND_RAG.md)。
-
-### 录音笔 WAV：一条命令
-
-```bash
-.venv/bin/python bin/run_all.py recordings/20260807113447.WAV --title 周会
-# 转写与分离并行 → 轮次合并 → 分说话人纪要; 产出全部进 meetings/<日期>_<标题>/
-```
-
-分步：`bin/transcribe.py`(转写+字级时间戳) → `bin/diarize.py`(分离+合并) → `bin/summarize.py`(纪要, `--spk` 出分说话人版)。
-
-### Teams 录制(带屏幕共享)
-
-```bash
-.venv/bin/python bin/teams_minutes.py meeting.mp4 meeting.vtt
-# VTT 自带姓名: 远程参会者直接具名; 会议室设备通道按声纹拆成"声音K"
-# 转写/说话人完成后先发布语音草稿，然后并入 VL 升级为多模态终稿。
-# 自动抽幻灯片逻辑页(默认排除右侧15%参会人栏→抑制稀疏红框/激光点
-#   →屏蔽持续活动区→全页稳定差异+顶部大标题增强→自适应阈值切段,
-#   build 小变化也能抓到→回翻认页→medoid 截图(与段签名最接近的帧,
-#   动画播完且免疫并入段尾的 1-2s 闪断/黑帧杂质)
-#   →段内运动中位>0.5 的摄像头画面(人坐一起)自动过滤不截图)
-# 保存的截图仍是完整画面；共享内容占满右侧时可传 --ignore-right-pct 0 关闭排除。
-# 纪要是"按页"结构(bin/minutes_by_page.py): 逐字稿按"说话时显示哪页"切片 →
-#   VL 层: 本地 Miloco-7B 视觉模型逐页详细解读(原生分辨率帧, 缓存 page_desc.json;
-#   服务不在时自动拉起, 端口 11436; --no-vl 可关) →
-#   总体摘要+议题板块(VL 读出的 agenda/章节标题锚定) → 逐页讨论要点/结论;
-#   正文每页 = 截图+一行页面主题+讨论块, VL 详解全文收在文末"附录: 页面详解";
-#   可选 122B 大模型整体精修(--refine-model, 或网页"大模型精修"按钮); 声纹自动入库
-
-# 只重抽截图/换参数, 不动纪要文字(会删掉旧图片行再按时间线重贴):
-.venv/bin/python bin/slide_pages.py meeting.mp4 --out meetings/<某会议>/slides \
-    --update-minutes meetings/<某会议>/minutes.md
-
-# 只重生成纪要(逐字稿/slides.json 已在, 旧纪要备份为 minutes.prev.md):
-.venv/bin/python bin/minutes_by_page.py meetings/<某会议>/ --video 原视频.mp4   # 不带 --video 则用 slides/ 里 1280px 图给 VL
-
-# 只重新生成整场语义脉络（本机 LLM；3–8 个一级论点，不按截图建节点）:
-.venv/bin/python bin/meeting_topic_map.py meetings/<某会议>/
-
-# 导出无需本机服务/LLM 的离线查看包（默认不带媒体；可改 audio/video）:
-.venv/bin/python bin/export_meeting.py meetings/<某会议>/ --media none
-
-# VL 读页单独测试/评审(对照模型用):
-.venv/bin/python bin/vl_page_test.py meetings/<某会议>/ --tag xxx --detail --video 原视频.mp4 [--pages 2,9,11]
-.venv/bin/python bin/vl_report.py meetings/<某会议>/vl_test_xxx.json   # 生成图文对照 .md
-```
-
-### 无 VTT 的普通录屏
-
-```bash
-.venv/bin/python bin/video_minutes.py meeting.mp4 --slug 标题
-# 转写走 Qwen3-ASR; 说话人是匿名"说话人K"(声纹入库但不建 person), 之后在网页/CLI 绑定
-```
-
-### 维护/修复
-
-```bash
-# 老会议逐字稿修复(空格回填+分离段平滑+重放合并+voice回填, 不重跑模型):
-.venv/bin/python bin/repair_transcript.py meetings/<某会议>/
-
-# 工程自检与隔离回归（不会读真实会议目录）
 make doctor
 make check
 make smoke
+make run
 ```
 
-### 声纹绑定(谁是谁)
+浏览器入口：
+
+- `http://127.0.0.1:8899/`：会议回顾、证据、翻译、追问与导出
+- `http://127.0.0.1:8899/admin`：人员身份、声纹试听和图形化 Org Chart
+- `http://127.0.0.1:8899/product`：面向管理、产品、UX 和技术评估的产品介绍
+
+## 常用处理命令
 
 ```bash
-.venv/bin/python bin/voice_tool.py sample meetings/<某会议>/   # 1) 每个声音切 ≤20s 试听片段
-.venv/bin/python bin/voice_tool.py list                       # 2) 看库里的人和声纹
-.venv/bin/python bin/voice_tool.py bind v_0003 "Peter Yuan"   # 3) 绑定（只接受唯一精确已确认名称）
-.venv/bin/python bin/voice_tool.py alias "Peter Yuan" 彼得 Peter   # 加别名(多标签)
-.venv/bin/python bin/voice_tool.py merge v_0003 v_0007        # 多条声纹并给同一人(拆过头时)
-.venv/bin/python bin/voice_tool.py unbind v_0003              # 绑错了撤销
+# 录音：转写和分离并行，再生成纪要
+.venv/bin/python bin/run_all.py /path/to/recording.wav --title 周会
+
+# Teams 录屏：使用 VTT 姓名，识别会议室内多个声音，并理解共享画面
+.venv/bin/python bin/teams_minutes.py /path/to/meeting.mp4 /path/to/meeting.vtt
+
+# 无 VTT 录屏：本地 ASR + 说话人分离 + 屏幕理解
+.venv/bin/python bin/video_minutes.py /path/to/meeting.mp4 --slug 项目评审
+
+# 只重建多模态纪要或整场语义脉络
+.venv/bin/python bin/minutes_by_page.py meetings/<meeting>/ --publish
+.venv/bin/python bin/meeting_topic_map.py meetings/<meeting>/
+
+# 导出离线阅读包；默认不携带媒体
+.venv/bin/python bin/export_meeting.py meetings/<meeting>/ --media none
 ```
 
-绑定一次，之后所有会议可通过声纹自动认人（余弦相似度 ≥0.70，`teams_minutes.py --match-threshold` 可调）。姓名绑定只接受唯一、精确的已确认名称；包含或近似匹配只展示候选，必须由用户选择或显式新建，不能自动归到相似人员。每个人可保存 Org Chart 原名、中文名、全拼、英文名加姓氏等类型化名称，并独立选择首选显示名。旧版声纹库首次加载时会本地升级到 v3，并先保留 `bank.pre-v3.backup.json`。
+Web 导入会把源文件固化到会议目录。同文件系统优先使用 CoW reflink，不支持时复制；因此下载目录清理后会议仍可播放。存储清理只删除可再生缓存，不删除母版和阅读资产。
 
-org chart 也可以走 `/admin` 网页：上传架构 PDF → “提取草稿”（VL 逐页读姓名/岗位/汇报关系，不翻译、不补全拼音、不合并跨语言变体）→ 将草稿增量合并到图形画布 → 拖动节点确认上级 → 保存。未确认上级、重名与冲突保留为待人工处理项，不创建虚假上级。解析器会剥离模型 reasoning 标签并拒绝提示词回声；每页原始模型输出只保存在私有的 `speaker_bank/orgchart_extract_raw/`，不进入 Git 或作业 stdout。人员身份与岗位节点分离，新建人员会先进入“待放置人员”区。提取规范见 `prompts/orgchart_extract.md`；`bin/orgchart_mermaid.py` 可导出 Mermaid 层级图。
+## 目录与文件职责
 
-注意：所有脚本的 stdout 只打印元数据(耗时/数量/时长)，不打印转写、纪要或人名，防止内容进入云端 agent 上下文。
+```text
+meeting-minutes/
+├── bin/                       # CLI、处理管线、导出器和纯业务模块
+│   └── meeting_core/          # LLM 协议、上下文预算、硬件选择、长会 Map/Reduce
+├── web/                       # FastAPI 服务、RAG/翻译/审计服务和浏览器前端
+│   ├── static/                # 在线工作台 HTML/CSS/JS
+│   └── tests/                 # 仅使用虚构/临时数据的回归测试
+├── prompts/                   # 独立可审查的模型提示词
+├── docs/                      # 产品、架构、部署、成本和工程文档
+├── deploy/                    # 无凭据的环境变量与 systemd 示例
+├── recordings/                # 私有输入与上传暂存；不进 Git
+├── meetings/                  # 每场会议的 canonical 资产；不进 Git
+├── speaker_bank/              # 私有人员、声纹和 Org Chart；不进 Git
+├── evaluations/               # 私有结论审计事件；不进 Git
+├── AGENTS.md                  # 代码代理的范围、隐私和验证约束
+├── CHANGELOG.md               # 面向人的重要变更索引；Git 仍是完整历史真源
+├── Makefile                   # 统一运行与验证入口
+└── pyproject.toml             # Python 包与依赖声明
+```
 
-已知事项：
+一场会议目录的关键资产：
 
-- pyannote 开源版无遥测，分离推理完全在本机；唯一接触 HuggingFace 的环节是最初下载 gated 模型(需账号授权，已完成)。若要无 HF 血统的替代，可走 ModelScope 的 FunASR/CAM++/3D-Speaker 组合。
-- pyannote 配置 `min_duration_off=0.0` 会把静音段吸收进说话人段，所以分离报告的"说话总时长"含噪声段，偏高；分说话人逐字稿不受影响(只挂接真实转写文字)。
-- 若说话人标签切换过频/人数偏多，说明聚类过度，可调高 `config.yaml` 的 `clustering.threshold`(默认 0.6)或用 `--num-speakers N` 指定人数。
+| 文件 | 作用 | 是否可再生 |
+|---|---|---|
+| `source_video.*` / `source_audio.*` | 会议母版 | 否，受保护 |
+| `audio.wav` | 16 kHz PCM 工作音轨 | 是 |
+| `transcript.spk.json` | 带稳定 T ID 语义的具名逐字稿来源 | 代价高，视为 canonical |
+| `minutes.md` | 正式可读纪要 | 可由来源重算，但保留版本 |
+| `minutes.evidence.json` | claim ↔ T/P linkage 与结构化行动项 | 可由纪要和来源重建 |
+| `meeting.topic-map.json` | 3–8 个整场论点及证据范围 | 可重建，输入变更即 stale |
+| `slides.json` + `slides/` | 逻辑页、出现区间和阅读缩略图 | 可从视频重建 |
+| `page_desc.json` | VL 对每个逻辑页的详细说明 | 可重建，成本较高 |
+| `.rag/` | 本地 embedding/reranker 索引 | 是 |
 
-实测(gfx1151 ROCm)：24m35s 录音笔文件全链路 **322s**(0.22× 实时)；51m20s Teams 会议 **286s**。首次跑会慢一倍左右(MIOpen 内核库冷启动)。
+## 文档地图
 
-## 模型路径（已就位）
+| 文档 | 何时阅读 |
+|---|---|
+| [PRODUCT_UX.md](docs/PRODUCT_UX.md) | 理解产品定位、阅读旅程和交互原则 |
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | 理解处理流、canonical 数据和模块边界 |
+| [EXPORT_AND_RAG.md](docs/EXPORT_AND_RAG.md) | 实现证据 linkage、MeetingPack 或 RAG 消费方 |
+| [DEPLOYMENT.md](docs/DEPLOYMENT.md) | 在 NVIDIA、AMD 或 CPU 机器部署和验收 |
+| [COST_MODEL.md](docs/COST_MODEL.md) | 查看 2 小时实测会议的云端/本地/套餐成本模型 |
+| [MODELS.md](docs/MODELS.md) | 选择模型、显存策略和常驻方式 |
+| [DEVELOPMENT.md](docs/DEVELOPMENT.md) | 开发、测试、配置和 Git 私有数据边界 |
+| [ENGINEERING_REVIEW.md](docs/ENGINEERING_REVIEW.md) | 查看工程风险、重构顺序和未完成项 |
+| [UX_REVIEW_AND_REFERENCES.md](docs/UX_REVIEW_AND_REFERENCES.md) | 查看 UX 走查、同类产品和开源参考 |
+| [CHANGELOG.md](CHANGELOG.md) | 按功能阅读变更历史 |
 
-**模型清单、激活策略（内存×速度）、不同机型（如 M90t+5060Ti 16G/8G）的功能取舍见 [docs/MODELS.md](docs/MODELS.md)。**
+## 配置与显卡兼容
 
-- Qwen3-ASR：`~/.local/share/models/hf/Qwen/Qwen3-ASR-1.7B/`
-- ForcedAligner：`~/.local/share/models/hf/Qwen/Qwen3-ForcedAligner-0.6B/`
-- Whisper（对照，未跑）：`~/.local/share/models/hf/openai/whisper-large-v3-turbo/`
-- 说话人分离：`~/.local/share/models/hf/pyannote/speaker-diarization-community-1/`
-- VL 读页：`视频/joyai-test/models/MiMo-VL-Miloco-7B_Q4_0.gguf`（+ 同目录 mmproj；:11436 按需拉起）
-- 备选 VL：`~/.local/share/models/hf/Qwen/Qwen3-VL-8B-Instruct-GGUF/`（Q8_0）
+业务代码不依赖 AMD。PyTorch 的 ROCm 版本也使用 `torch.cuda` API；项目会诊断实际 backend 为 `rocm` 或 `cuda`，NVIDIA 不支持 BF16 时自动回退 FP16。`llama.cpp` 则需要在目标机器安装对应的 CUDA 或 HIP backend。
 
-## 隐私红线
+模型路径、设备和端口都可通过环境变量覆盖；完整列表及 NVIDIA 验证矩阵见 [DEPLOYMENT.md](docs/DEPLOYMENT.md)。示例配置位于 [deploy/meeting-minutes.env.example](deploy/meeting-minutes.env.example)。
 
-- `recordings/`、`meetings/`、`speaker_bank/`（含 org chart 与声纹）**不进任何云端服务**；这些目录的内容不发给云模型，云端 agent（含 Kimi Code）不读取其中数据文件——脚本 stdout 只出元数据。
-- 需要云端能力时必须单独、显式授权，且只针对当前那次请求。
+## 隐私与维护约束
 
-## 状态
+- 默认模型端点只允许 loopback；远程模型必须针对当次处理得到明确授权，并设置 `MEETING_ALLOW_REMOTE_LLM=1`。
+- `recordings/`、`meetings/`、`speaker_bank/`、`evaluations/` 和作业状态不进 Git，也不能进入测试夹具或诊断输出。
+- 模型输出是候选事实；决定、行动和风险必须回链真实逐字稿证据。职位只提供权限语境，不是全局重要性权重。
+- 测试不得读取真实会议。提交前至少运行 `make check && make smoke`。
+- 仓库级代理规范见 [AGENTS.md](AGENTS.md)；它用于约束后续 Codex/Kimi 等维护者，不替代 README 或架构文档。
 
-- [x] 录音笔管线（转写/时间戳/分离/纪要，一条命令 `bin/run_all.py`）
-- [x] Teams 管线（VTT 姓名对齐 + 房间声纹拆分 + 截图纪要，见 `bin/teams_minutes.py`）
-- [x] 声纹库 v3 + 人员身份管理（国际化类型名称、独立首选显示名、精确绑定、后台试听与跨会议认人）
-- [x] 本地会议助手（逐字稿引用问答 + 来源跳转 + 纪要预览/确认/撤销/版本备份）
-- [x] 隔离测试数据根、环境 doctor、Git 私有数据边界与工程文档
-- [ ] 与 Whisper 的对照评估
-- [ ] 房间声音完成命名后的首轮跨会议验证
+完整代码历史保存在当前私有 GitHub 仓库；`CHANGELOG.md` 只负责把重要产品变化翻译成人可以快速阅读的记录。

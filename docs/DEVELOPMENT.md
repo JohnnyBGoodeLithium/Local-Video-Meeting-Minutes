@@ -36,9 +36,18 @@ make run      # 127.0.0.1:8899
 | `MEETING_LLM_MODEL` | `qwen3.6-35b-a3b-operator` | 助手模型 |
 | `MEETING_LLM_CONTEXT_SIZE` | `65536` | 文本模型服务实际上下文窗口，供请求预算与长文本切分 |
 | `MEETING_ALLOW_REMOTE_LLM` | 未设置 | 只有明确授权远程处理时才可设为 `1` |
+| `MEETING_DEVICE` | `auto` | PyTorch 设备；ROCm 与 CUDA 都使用 `cuda` 设备语义 |
+| `MEETING_TORCH_DTYPE` | `auto` | 自动 BF16/FP16/FP32，或显式覆盖 |
+| `MEETING_ASR_MODEL` | 用户模型缓存 | Qwen3-ASR 路径 |
+| `MEETING_ALIGNER_MODEL` | 用户模型缓存 | ForcedAligner 路径 |
+| `MEETING_PYANNOTE_MODEL` | 用户模型缓存 | pyannote 路径 |
+| `MEETING_VL_MODEL` / `MEETING_VL_MMPROJ` | 用户模型缓存 | llama.cpp VL 模型和 projector |
+| `MEETING_VL_PORT` | `11436` | 按需 VL 服务端口 |
+| `MEETING_VL_GPU_LAYERS` | `999` | VL GPU offload 层数 |
 | `MEETING_WEB_DRYRUN` | 未设置 | 测试时管线只执行 `--help` |
 
 旧变量 `MEETING_MINUTES_ROOT` 仍兼容，但新部署应使用 `MEETING_DATA_ROOT`。
+跨 NVIDIA/AMD/CPU 的安装顺序、环境模板和验收矩阵见 `docs/DEPLOYMENT.md`。
 
 ## Git 与私有数据
 

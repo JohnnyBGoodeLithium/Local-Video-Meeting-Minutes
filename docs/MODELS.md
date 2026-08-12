@@ -3,6 +3,12 @@
 验证矩阵：每档机型回答三件事——**什么模型验证可跑 → 能开哪些服务 → 慢多少/缺什么**，以及升降级路径。
 验证状态：✅=本机实测；📐=按参数量/量化体积推算（未实测）。
 
+Python 管线不绑定 AMD：NVIDIA 使用 PyTorch CUDA，AMD 使用 PyTorch ROCm，两者在代码中
+都遵循 `torch.cuda` 设备语义。`meeting_core.hardware` 会诊断真实 backend，并在 NVIDIA
+不支持 BF16 时回退 FP16。GGUF 文本/VL 层依赖目标机器对应的 llama.cpp 构建：NVIDIA
+使用 CUDA backend，AMD 使用 HIP backend。模型路径与 dtype 不应写死，配置和验收见
+[跨机器与 GPU 部署](DEPLOYMENT.md)。
+
 ## 1. 模型池（按管线角色）
 
 | 角色 | 模型 | 体积 | 备注 |

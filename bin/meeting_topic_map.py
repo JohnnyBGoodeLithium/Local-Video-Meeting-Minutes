@@ -21,11 +21,13 @@ from typing import Callable
 
 import meeting_artifact as artifact
 import meeting_structure
+from meeting_core.llm import validated_api_base
 
 
 SCHEMA = "meeting-topic-map/v1"
-ROUTER = "http://127.0.0.1:11435/v1/chat/completions"
-MODEL = "qwen3.6-35b-a3b-operator"
+ROUTER = validated_api_base(os.environ.get(
+    "MEETING_LLM_API", "http://127.0.0.1:11435/v1")) + "/chat/completions"
+MODEL = os.environ.get("MEETING_LLM_MODEL", "qwen3.6-35b-a3b-operator")
 ALLOWED_CHILD_TYPES = {
     "context", "argument", "counterpoint", "decision", "action",
     "open_question", "risk", "evidence", "discussion",

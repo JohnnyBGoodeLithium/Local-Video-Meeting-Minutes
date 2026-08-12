@@ -37,7 +37,7 @@ import meeting_generation
 
 ROOT = Path(__file__).resolve().parent.parent
 BIN = ROOT / "bin"
-PY = ROOT / ".venv" / "bin" / "python"
+PY = Path(os.environ.get("MEETING_PYTHON", sys.executable)).expanduser()
 BANK_DIR = ROOT / "speaker_bank"
 
 

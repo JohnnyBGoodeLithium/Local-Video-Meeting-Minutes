@@ -38,6 +38,7 @@ from pathlib import Path
 warnings.filterwarnings("ignore")
 
 from meeting_dir import for_teams, materialize_source
+from meeting_core.hardware import configured_path, inference_device
 from slide_pages import extract_pages
 from minutes_by_page import generate as generate_minutes
 import meeting_topic_map
@@ -45,7 +46,9 @@ import meeting_generation
 import voice_bank as vb
 
 ROOT = Path(__file__).resolve().parent.parent
-PYANN = Path.home() / ".local/share/models/hf/pyannote/speaker-diarization-community-1"
+PYANN = configured_path(
+    "MEETING_PYANNOTE_MODEL",
+    Path.home() / ".local/share/models/hf/pyannote/speaker-diarization-community-1")
 BANK_DIR = ROOT / "speaker_bank"
 
 
@@ -115,7 +118,7 @@ def diarize(wav: Path, num_speakers=None):
     from pyannote.audio import Pipeline
 
     pipeline = Pipeline.from_pretrained(str(PYANN))
-    pipeline.to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+    pipeline.to(torch.device(inference_device(torch)))
     data, sr = sf.read(str(wav), dtype="float32", always_2d=True)
     audio = {"waveform": torch.from_numpy(data.T), "sample_rate": sr}
     kw = {"num_speakers": num_speakers} if num_speakers else {}

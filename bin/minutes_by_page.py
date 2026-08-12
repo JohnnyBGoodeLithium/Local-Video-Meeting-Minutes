@@ -45,12 +45,19 @@ from meeting_core.context_budget import ContextBudget
 from meeting_core.minutes_overview import generate as generate_overview
 import meeting_topic_map
 import meeting_generation
+from meeting_core.hardware import configured_path
+from meeting_core.llm import validated_api_base
 
-ROUTER = "http://127.0.0.1:11435/v1/chat/completions"
-MODEL = "qwen3.6-35b-a3b-operator"
-VL_PORT = 11436
-VL_MODEL = Path.home() / "视频/joyai-test/models/MiMo-VL-Miloco-7B_Q4_0.gguf"
-VL_MMPROJ = Path.home() / "视频/joyai-test/models/mmproj-MiMo-VL-Miloco-7B_BF16.gguf"
+ROUTER = validated_api_base(os.environ.get(
+    "MEETING_LLM_API", "http://127.0.0.1:11435/v1")) + "/chat/completions"
+MODEL = os.environ.get("MEETING_LLM_MODEL", "qwen3.6-35b-a3b-operator")
+VL_PORT = int(os.environ.get("MEETING_VL_PORT", "11436"))
+VL_MODEL = configured_path(
+    "MEETING_VL_MODEL", Path.home() / "视频/joyai-test/models/MiMo-VL-Miloco-7B_Q4_0.gguf")
+VL_MMPROJ = configured_path(
+    "MEETING_VL_MMPROJ",
+    Path.home() / "视频/joyai-test/models/mmproj-MiMo-VL-Miloco-7B_BF16.gguf")
+VL_GPU_LAYERS = os.environ.get("MEETING_VL_GPU_LAYERS", "999")
 VL_MAXTOK = 2048
 
 EVIDENCE_RULES = """
@@ -146,7 +153,7 @@ def ensure_vl_server(port: int = VL_PORT):
     print("[meta] 拉起 Miloco VL 服务 ...", flush=True)
     proc = subprocess.Popen(
         ["llama-server", "--model", str(VL_MODEL), "--mmproj", str(VL_MMPROJ),
-         "--host", "127.0.0.1", "--port", str(port), "--gpu-layers", "999",
+         "--host", "127.0.0.1", "--port", str(port), "--gpu-layers", VL_GPU_LAYERS,
          "--ctx-size", "16384", "--parallel", "1", "--flash-attn", "auto",
          "--jinja", "--no-webui"],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

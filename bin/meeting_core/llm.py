@@ -20,6 +20,16 @@ DEFAULT_MODEL = os.environ.get("MEETING_LLM_MODEL", "qwen3.6-35b-a3b-operator")
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 
+def validated_api_base(api: str) -> str:
+    """拒绝未显式授权的远程模型端点，并返回无尾斜线的 API base。"""
+    value = str(api).rstrip("/")
+    parsed = urlparse(value)
+    allow_remote = os.environ.get("MEETING_ALLOW_REMOTE_LLM") == "1"
+    if parsed.hostname not in LOOPBACK_HOSTS and not allow_remote:
+        raise ValueError("文本模型地址必须是本机回环地址")
+    return value
+
+
 class LLMError(RuntimeError):
     """可安全展示、不包含请求正文的模型错误。"""
 
@@ -42,11 +52,7 @@ class Completion:
 class LocalLLMClient:
     def __init__(self, *, api: str = DEFAULT_API, model: str = DEFAULT_MODEL,
                  timeout: int = 1800):
-        parsed = urlparse(api)
-        allow_remote = os.environ.get("MEETING_ALLOW_REMOTE_LLM") == "1"
-        if parsed.hostname not in LOOPBACK_HOSTS and not allow_remote:
-            raise ValueError("文本模型地址必须是本机回环地址")
-        self.api = api.rstrip("/")
+        self.api = validated_api_base(api)
         self.model = model
         self.timeout = int(timeout)
 

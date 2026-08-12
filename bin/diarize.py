@@ -19,10 +19,13 @@ import time
 from pathlib import Path
 
 from meeting_dir import for_recording
+from meeting_core.hardware import configured_path, inference_device
 
 HOME = Path.home()
 ROOT = Path(__file__).resolve().parent.parent
-MODEL_DIR = HOME / ".local/share/models/hf/pyannote/speaker-diarization-community-1"
+MODEL_DIR = configured_path(
+    "MEETING_PYANNOTE_MODEL",
+    HOME / ".local/share/models/hf/pyannote/speaker-diarization-community-1")
 SENT_END = tuple("。！？!?；;")
 
 
@@ -136,7 +139,7 @@ def main() -> int:
         import soundfile as sf
         from pyannote.audio import Pipeline
 
-        device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
+        device = args.device or inference_device(torch)
         t0 = time.time()
         pipeline = Pipeline.from_pretrained(str(MODEL_DIR))
         pipeline.to(torch.device(device))

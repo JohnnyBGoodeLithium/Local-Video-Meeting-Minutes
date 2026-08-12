@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>会议纪要</title>
-<link rel="stylesheet" href="/static/style.css?v=20260812p15">
+<link rel="stylesheet" href="/static/style.css?v=20260812p16">
 </head>
 <body class="page-index">
 <header class="topbar">
@@ -209,6 +209,27 @@
   </div>
 </div>
 
-<script src="/static/app.js?v=20260812p15"></script>
+<div id="screen-preview-mask" class="screen-preview-mask hidden" role="dialog" aria-modal="true"
+     aria-labelledby="screen-preview-title">
+  <section class="screen-preview-dialog">
+    <header class="screen-preview-head">
+      <div><span id="screen-preview-kicker">屏幕内容</span><b id="screen-preview-title">放大查看</b></div>
+      <div class="screen-preview-tools">
+        <button id="screen-preview-prev" type="button" aria-label="上一屏">←</button>
+        <button id="screen-preview-zoom-out" type="button" aria-label="缩小">−</button>
+        <button id="screen-preview-zoom" type="button" title="恢复适应窗口">适应</button>
+        <button id="screen-preview-zoom-in" type="button" aria-label="放大">＋</button>
+        <button id="screen-preview-next" type="button" aria-label="下一屏">→</button>
+        <button id="screen-preview-close" class="screen-preview-close" type="button" aria-label="关闭">×</button>
+      </div>
+    </header>
+    <div id="screen-preview-viewport" class="screen-preview-viewport">
+      <img id="screen-preview-image" alt="放大的屏幕内容">
+    </div>
+    <footer><span id="screen-preview-meta"></span><span>←/→ 切换屏幕 · ＋/− 缩放 · Esc 关闭</span></footer>
+  </section>
+</div>
+
+<script src="/static/app.js?v=20260812p16"></script>
 </body>
 </html>

@@ -3,7 +3,7 @@
 
 用法（在 ~/meeting-minutes 下）：
     .venv/bin/python bin/voice_tool.py list                       # 看库里有哪些人和声纹
-    .venv/bin/python bin/voice_tool.py sample meetings/2026-08-06_FY28-...   # 切试听片段
+    .venv/bin/python bin/voice_tool.py sample meetings/<meeting>/   # 切试听片段
     .venv/bin/python bin/voice_tool.py bind v_0003 "Peter Yuan"   # 绑定（唯一精确已确认名称）
     .venv/bin/python bin/voice_tool.py alias "Peter Yuan" 彼得 Peter
     .venv/bin/python bin/voice_tool.py merge v_0003 v_0007        # v_0007 并入 v_0003 对应的人

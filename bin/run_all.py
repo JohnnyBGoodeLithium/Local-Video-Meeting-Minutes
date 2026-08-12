@@ -27,7 +27,7 @@ from meeting_dir import for_recording, materialize_audio, materialize_source
 
 ROOT = Path(__file__).resolve().parent.parent
 BIN = ROOT / "bin"
-PY = ROOT / ".venv" / "bin" / "python"
+PY = Path(os.environ.get("MEETING_PYTHON", sys.executable)).expanduser()
 
 
 def main() -> int:
