@@ -9,11 +9,12 @@ doctor:
 	$(PY) bin/doctor.py --profile all
 
 check:
-	$(PY) -c 'import ast,pathlib; files=list(pathlib.Path("bin").glob("*.py"))+list(pathlib.Path("web").glob("*.py"))+list(pathlib.Path("web/tests").glob("*.py")); [ast.parse(p.read_text(encoding="utf-8"), filename=str(p)) for p in files]; print(f"Python syntax: {len(files)} files OK")'
+	$(PY) -c 'import ast,pathlib; files=list(pathlib.Path("bin").rglob("*.py"))+list(pathlib.Path("web").rglob("*.py")); [ast.parse(p.read_text(encoding="utf-8"), filename=str(p)) for p in files]; print(f"Python syntax: {len(files)} files OK")'
 	$(PY) web/tests/orgchart_extract_test.py
 	$(PY) web/tests/minutes_markdown_test.py
 	$(PY) web/tests/minutes_policy_test.py
 	$(PY) web/tests/summarize_request_test.py
+	$(PY) web/tests/voice_draft_test.py
 	$(PY) web/tests/job_scheduler_test.py
 	$(PY) web/tests/media_materialize_test.py
 	$(PY) web/tests/slide_pages_test.py

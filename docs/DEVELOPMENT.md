@@ -34,6 +34,7 @@ make run      # 127.0.0.1:8899
 | `MEETING_PYTHON` | `.venv/bin/python` | 管线子进程解释器 |
 | `MEETING_LLM_API` | `http://127.0.0.1:11435/v1` | 本机 OpenAI-compatible API |
 | `MEETING_LLM_MODEL` | `qwen3.6-35b-a3b-operator` | 助手模型 |
+| `MEETING_LLM_CONTEXT_SIZE` | `65536` | 文本模型服务实际上下文窗口，供请求预算与长文本切分 |
 | `MEETING_ALLOW_REMOTE_LLM` | 未设置 | 只有明确授权远程处理时才可设为 `1` |
 | `MEETING_WEB_DRYRUN` | 未设置 | 测试时管线只执行 `--help` |
 
@@ -49,6 +50,23 @@ git diff --cached --name-only
 ```
 
 不得用 `git add -f` 绕过私有目录规则。
+
+Git 是完整代码历史的唯一真源：每个可独立验证的功能、修复或重构使用单独提交，
+提交保留作者、时间、父提交和逐行差异。`CHANGELOG.md` 是便于产品和管理回看的阅读索引，
+不能代替 Git 历史。重大功能提交前应同步更新工程走查与变更日志，并在提交说明或工程
+走查中记录验证命令和仍有限制。
+
+首次发布到 GitHub 时应创建空的私有仓库，再添加远端并推送当前分支；正常 push 会上传
+当前分支可达的全部历史提交，而不只是最终快照。发布前必须再次执行私有路径检查：
+
+```bash
+git status --short
+git ls-files meetings recordings speaker_bank evaluations web/jobs
+git check-ignore -v meetings/example/transcript.spk.json recordings/example.wav
+```
+
+第二条命令只允许出现明确公开的模板或 `.gitkeep`。不得把真实会议、录音、人员、声纹、
+组织架构、评测事件、作业状态或凭据加入远端仓库。
 
 ## 回归要求
 

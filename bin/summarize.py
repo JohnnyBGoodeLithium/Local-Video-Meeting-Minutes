@@ -14,8 +14,6 @@ import argparse
 import json
 import os
 import sys
-import time
-import urllib.request
 from pathlib import Path
 
 from meeting_artifact import (
@@ -25,10 +23,11 @@ from meeting_artifact import (
     normalize_minutes_markdown,
     write_evidence_document,
 )
+from meeting_core.llm import DEFAULT_MODEL, LLMError, LocalLLMClient
+from meeting_core import voice_draft
 import meeting_topic_map
 
-ROUTER = "http://127.0.0.1:11435/v1/chat/completions"
-MODEL = "qwen3.6-35b-a3b-operator"
+MODEL = DEFAULT_MODEL
 
 PROMPT = """你是一名会议纪要助手。下面是会议录音的逐字稿(自动转写，可能有个别错字)。
 请输出 Markdown 格式的结构化会议纪要，包含：
@@ -44,37 +43,6 @@ PROMPT = """你是一名会议纪要助手。下面是会议录音的逐字稿(�
 ---
 {transcript}
 ---"""
-
-STRUCTURED_PROMPT = """你是一名严谨的会议纪要编辑。输入是 `meeting-minutes-prompt/v1` JSON，
-逐字稿可能有少量转写或说话人归属错误。请输出 Markdown：
-
-# 会议纪要
-## 总体摘要
-- 主旨
-- 关键结论（区分 已确认 / 方向共识 / 提议 / 未决）
-## 待办事项
-使用 Markdown 表格，列固定为“事项 / 负责人 / 期限 / 状态”；标题与表格之间保留空行。
-每个事项独占一行并附 evidence marker；负责人或期限未明确时写“待确认”。
-## 风险/待确认
-## 议题详情
-
-规则：
-- turns 是决定、共识、行动和风险的唯一主证据。
-- 岗位/职级只提供决策权限语境，不能把建议或单人观点自动升级为结论。
-- 已确认结论需要明确决定/批准措辞，并由议题责任人作出，或得到多人明确确认且无未解决反对。
-- 行动项按动作、接受责任、负责人和期限判断，不按职级判断。
-- 每个事实性条目末尾附机器标记：
-  `<!-- mm:evidence kind=decision status=confirmed confidence=high turns=T000001,T000003 -->`
-  turns 只能写输入中存在的 T 编号；kind 可用 purpose/decision/alignment/action/risk/open_question/discussion。
-
-结论策略：
-{policy}
-
-输入 JSON：
-```json
-{context}
-```"""
-
 
 def _fmt_mmss(seconds: float) -> str:
     s = int(seconds)
@@ -115,9 +83,6 @@ def main() -> int:
         bank_dir = Path(os.environ.get("MEETING_WEB_BANK", args.spk.parent.parent.parent / "speaker_bank"))
         profiles = load_speaker_profiles(turns, bank_dir)
         context = build_prompt_context(turns, [], {}, profiles)
-        text = json.dumps(context, ensure_ascii=False, separators=(",", ":"))
-        prompt = STRUCTURED_PROMPT.format(
-            policy=json.dumps(CONCLUSION_POLICY, ensure_ascii=False, indent=2), context=text)
     else:
         if not args.transcript.is_file():
             print(f"找不到输入文件: {args.transcript}", file=sys.stderr)
@@ -128,29 +93,33 @@ def main() -> int:
             return 1
         prompt = PROMPT.format(transcript=text)
 
-    body = json.dumps({
-        "model": MODEL,
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": args.max_tokens,
-        "temperature": 0.2,
-        # 语音草稿需要尽快给用户可读正文。Qwen thinking 打开时可能把整个
-        # completion budget 用在 reasoning_content，最终 content 为空。
-        "chat_template_kwargs": {"enable_thinking": False},
-    }).encode("utf-8")
-
-    t0 = time.time()
-    req = urllib.request.Request(ROUTER, data=body,
-                                 headers={"Content-Type": "application/json"})
+    client = LocalLLMClient()
     try:
-        with urllib.request.urlopen(req, timeout=1800) as resp:
-            data = json.loads(resp.read())
-    except Exception as e:
-        print(f"[error] 请求本地路由失败({ROUTER}): {e}", file=sys.stderr)
+        if args.spk:
+            result = voice_draft.generate(
+                context, CONCLUSION_POLICY, client=client, max_tokens=args.max_tokens,
+                progress=lambda current, total: print(
+                    f"[meta] 长会议草稿分段 {current}/{total}", flush=True),
+            )
+            raw_minutes = result.content
+            elapsed = result.elapsed
+            prompt_tokens = result.prompt_tokens
+            completion_tokens = result.completion_tokens
+            generation_mode = result.mode
+            generation_chunks = result.chunks
+        else:
+            completion = client.complete(prompt, max_tokens=args.max_tokens, temperature=0.2)
+            raw_minutes = completion.content
+            elapsed = completion.elapsed
+            prompt_tokens = int(completion.usage.get("prompt_tokens") or 0)
+            completion_tokens = int(completion.usage.get("completion_tokens") or 0)
+            generation_mode = "direct"
+            generation_chunks = 1
+    except LLMError as exc:
+        print(f"[error] {exc}", file=sys.stderr)
         return 2
-    elapsed = time.time() - t0
 
-    msg = data["choices"][0]["message"]
-    minutes = normalize_minutes_markdown((msg.get("content") or "").strip())
+    minutes = normalize_minutes_markdown(raw_minutes.strip())
     if not minutes:
         print("[error] 模型返回为空（正文输出预算耗尽）", file=sys.stderr)
         return 3
@@ -169,13 +138,15 @@ def main() -> int:
             generation={"prompt_schema": "meeting-minutes-prompt/v1",
                         "conclusion_policy": CONCLUSION_POLICY["version"],
                         "text_model": MODEL, "vl_enabled": False,
-                        "generation_stage": args.generation_stage})
+                        "generation_stage": args.generation_stage,
+                        "generation_mode": generation_mode,
+                        "generation_chunks": generation_chunks})
         if not args.skip_topic_map:
             meeting_topic_map.generate_for_pipeline(args.spk.parent)
 
-    usage = data.get("usage", {})
-    print(f"[meta] 纪要生成 {elapsed:.1f}s | 输入 {usage.get('prompt_tokens','?')} tok"
-          f" | 输出 {usage.get('completion_tokens','?')} tok | 纪要字符数={len(minutes)}")
+    print(f"[meta] 纪要生成 {elapsed:.1f}s | 模式 {generation_mode}"
+          f" ({generation_chunks} 段) | 输入 {prompt_tokens or '?'} tok"
+          f" | 输出 {completion_tokens or '?'} tok | 纪要字符数={len(minutes)}")
     print(f"[meta] 输出: {out_path}")
     return 0
 

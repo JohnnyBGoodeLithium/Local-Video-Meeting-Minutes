@@ -12,6 +12,7 @@ from pathlib import Path
 PROJECT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT / "bin"))
 import summarize  # noqa: E402
+from meeting_core import llm  # noqa: E402
 
 
 class FakeResponse:
@@ -42,14 +43,14 @@ with tempfile.TemporaryDirectory(prefix="summarize-request-test-") as temp:
     transcript = root / "transcript.txt"
     transcript.write_text("这是完全虚构的测试逐字稿。", encoding="utf-8")
     original_argv = sys.argv
-    original_urlopen = summarize.urllib.request.urlopen
+    original_urlopen = llm.urllib.request.urlopen
     try:
-        summarize.urllib.request.urlopen = fake_urlopen
+        llm.urllib.request.urlopen = fake_urlopen
         sys.argv = ["summarize.py", str(transcript), "--out", str(root)]
         assert summarize.main() == 0
     finally:
         sys.argv = original_argv
-        summarize.urllib.request.urlopen = original_urlopen
+        llm.urllib.request.urlopen = original_urlopen
     assert captured.get("chat_template_kwargs") == {"enable_thinking": False}
     assert (root / "minutes.md").is_file()
 
