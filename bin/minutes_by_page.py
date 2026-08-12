@@ -163,8 +163,13 @@ def describe_pages(mdir: Path, pages, api: str, video: Path = None):
     """逐页 VL 详细解读(带 page_desc.json 缓存, 重跑只补缺的页)。返回 {页码: 文本}。"""
     cache_p = mdir / "page_desc.json"
     cache = json.loads(cache_p.read_text(encoding="utf-8")) if cache_p.is_file() else {}
-    descs = {int(k): clean_model_text(v) for k, v in cache.get("desc", {}).items()}
-    todo = [p for p in pages if p["page"] not in descs]
+    descs = {}
+    for key, value in cache.get("desc", {}).items():
+        cleaned = clean_model_text(value)
+        if cleaned:
+            descs[int(key)] = cleaned
+    # 清洗后为空不是成功缓存：旧的 reasoning-only/空正文页面必须自动补算。
+    todo = [p for p in pages if not descs.get(p["page"], "").strip()]
     if not todo:
         print(f"[meta] VL 页面解读全部命中缓存({len(descs)} 页)", flush=True)
         return descs
@@ -178,13 +183,34 @@ def describe_pages(mdir: Path, pages, api: str, video: Path = None):
             grab_fullres(video, p.get("captured", p["first"]), img)
         try:
             raw, usage = chat_with_image(api, mid, img, VL_MAXTOK, DETAIL_PROMPT)
-            descs[p["page"]] = clean_model_text(raw)
+            cleaned = clean_model_text(raw)
+            if not cleaned:
+                print(f"[meta] VL 第{p['page']}页正文为空，重试 1/1", flush=True)
+                raw, retry_usage = chat_with_image(
+                    api, mid, img, VL_MAXTOK,
+                    DETAIL_PROMPT + "\n请直接从“## 标题”开始回答，必须给出可读正文。")
+                cleaned = clean_model_text(raw)
+                usage = {
+                    "completion_tokens": int(usage.get("completion_tokens") or 0)
+                    + int(retry_usage.get("completion_tokens") or 0)
+                }
+            if not cleaned:
+                raise ValueError("empty_vl_content")
+            descs[p["page"]] = cleaned
         except Exception as e:
             print(f"[meta] VL 第{p['page']}页失败: {type(e).__name__}", flush=True)
+            # 把已存在的空缓存移除并原子覆盖当前成功结果；下次会继续补算。
+            descs.pop(p["page"], None)
+            temp = cache_p.with_suffix(".tmp")
+            temp.write_text(json.dumps({"model": mid, "desc": descs},
+                                       ensure_ascii=False, indent=1), encoding="utf-8")
+            temp.replace(cache_p)
             continue
         print(f"[meta] VL 第{p['page']}页 tokens={usage.get('completion_tokens','?')}", flush=True)
-        cache_p.write_text(json.dumps({"model": mid, "desc": descs},
-                                      ensure_ascii=False, indent=1), encoding="utf-8")
+        temp = cache_p.with_suffix(".tmp")
+        temp.write_text(json.dumps({"model": mid, "desc": descs},
+                                   ensure_ascii=False, indent=1), encoding="utf-8")
+        temp.replace(cache_p)
     print(f"[meta] VL 解读 {len(todo)} 页(累计 {len(descs)}/{len(pages)})"
           f" | {time.time()-t0:.0f}s", flush=True)
     return descs

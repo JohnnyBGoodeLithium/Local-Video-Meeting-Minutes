@@ -432,7 +432,7 @@ function renderPlayer() {
 /* ---------- 时间轴（页区间分段 + 刻度 + 议题标记） ---------- */
 
 const PAGE_COLORS = ["#4f7cff", "#22a06b", "#e2a13c", "#c25050", "#8a5cd6", "#2ba3b8", "#b8609a"];
-const VISUAL_VALUE_LABELS = { high: "核心", medium: "参考", low: "低信息" };
+const VISUAL_VALUE_LABELS = { high: "核心", medium: "参考", low: "低信息", unknown: "待解析" };
 
 function visualValueLabel(visual) {
   return visual?.value_label || VISUAL_VALUE_LABELS[visual?.information_value] || "待判断";
@@ -1200,7 +1200,8 @@ function renderVisuals() {
     `<h2>${esc(selected.title)}</h2></div></header>` +
     `<div class="visual-value-note ${esc(selected.information_value || "unknown")}"><b>${esc(visualValueLabel(selected))}</b>` +
     `<span>${esc(selected.value_reason || "尚未判断这张画面的信息价值。")}</span></div>` +
-    (selected.needs_reprocess ? `<div class="visual-reprocess">已隐藏模型泄漏的思考过程；该页需要重新解析后才能获得可靠说明。</div>` : "") +
+    (selected.analysis_state === "pending" ? `<div class="visual-reprocess pending">屏幕解析仍在进行，完成前不会判断这页的内容价值。</div>` :
+      selected.needs_reprocess ? `<div class="visual-reprocess">页面解析没有得到可读正文，已标记为需要重新解析；当前不会将它判为低信息。</div>` : "") +
     `<div class="visual-ranges">${(selected.ranges || []).map(([start, end]) =>
       `<button type="button" data-visual-seek="${start}">${fmt(start)}–${fmt(end)}</button>`).join("")}</div>` +
     (image ? `<img class="visual-hero" src="${image}" alt="${esc(selected.title)}">` :

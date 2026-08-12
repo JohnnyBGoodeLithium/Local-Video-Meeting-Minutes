@@ -122,6 +122,10 @@ def _visual_value(description: str, title: str, kind: str = "slide") -> dict:
                 "value_reason": "摄像头动态画面不是静态页面资料。"}
     cleaned = clean_model_text(description)
     role = _visual_role(cleaned, title)
+    if not cleaned:
+        return {"content_role": role, "information_value": "unknown",
+                "value_label": "待解析", "value_source": "unavailable",
+                "value_reason": "页面说明尚未生成或没有可读正文，暂不评价内容价值。"}
     explicit = re.search(
         r"(?:信息价值|information value)\s*[:：]?\s*(?:`)?"
         r"(high|medium|low|高|中|低)", cleaned, re.I | re.S)
@@ -137,7 +141,9 @@ def _visual_value(description: str, title: str, kind: str = "slide") -> dict:
         elif HIGH_VALUE_RE.search(plain) or len(plain) >= 260:
             level = "high"
         elif len(plain) < 70:
-            level = "low"
+            # 简短说明不等于页面没有价值。只有明确的空白/过渡/会议 UI 信号
+            # 才能降为 low；旧缓存信息不足时保守保留为参考。
+            level = "medium"
         else:
             level = "medium"
     reason_match = re.search(
@@ -297,7 +303,8 @@ def _fallback_chapters(segments: list[dict], duration: float) -> list[dict]:
                  "start": 0.0, "end": duration, "page_numbers": [], "source": "meeting"}]
     # 页面变化不等于主题变化。空白、过渡、会议 UI 等低信息片段只归入相邻章节，
     # 不再各自生成一个没有业务意义的章节标题。
-    anchors = [segment for segment in segments if segment.get("information_value") != "low"]
+    anchors = [segment for segment in segments
+               if segment.get("information_value") in {"high", "medium"}]
     if not anchors:
         return [{"title": "会议讨论", "summary": "共享画面以低信息或过渡内容为主。",
                  "start": 0.0, "end": duration, "page_numbers": [], "source": "visual"}]
@@ -386,6 +393,7 @@ def build_structure(minutes: str, turns: list[dict], timeline: list[dict],
         groups = _claim_groups(claims, indexes, [pid])
         title = _visual_title(descriptions.get(page, ""), page)
         description = clean_model_text(descriptions.get(page, ""))
+        has_cached_description = page in descriptions
         visuals.append({
             "id": pid, "kind": "slide", "page": page,
             "title": title,
@@ -396,7 +404,9 @@ def build_structure(minutes: str, turns: list[dict], timeline: list[dict],
             "segment_ids": [segment["id"] for segment in related_segments],
             "turn_indexes": indexes,
             "display_status": source.get("display_status") or ("discussed" if indexes else "display_only"),
-            "needs_reprocess": bool(descriptions.get(page) and not description),
+            "analysis_state": ("ready" if description else
+                               "failed" if has_cached_description else "pending"),
+            "needs_reprocess": bool(has_cached_description and not description),
             **_visual_value(description, title),
             **groups,
         })

@@ -18,6 +18,7 @@ check:
 	$(PY) web/tests/job_scheduler_test.py
 	$(PY) web/tests/media_materialize_test.py
 	$(PY) web/tests/slide_pages_test.py
+	$(PY) web/tests/vl_cache_test.py
 	$(PY) web/tests/meeting_generation_test.py
 	$(PY) web/tests/meeting_structure_test.py
 	$(PY) web/tests/meeting_topic_map_test.py

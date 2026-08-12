@@ -72,4 +72,21 @@ assert fallback["chapter_source"] == "visual_segments"
 assert len(fallback["chapters"]) == 2
 assert all(chapter["title"] != "第二页标题" for chapter in fallback["chapters"])
 
+pending = meeting_structure.build_structure(
+    "# 处理中", turns, [timeline[0]], {}, {}, duration=20)["visuals"][0]
+assert pending["information_value"] == "unknown"
+assert pending["value_label"] == "待解析"
+assert pending["analysis_state"] == "pending"
+assert not pending["needs_reprocess"]
+
+empty_cached = meeting_structure.build_structure(
+    "# 旧缓存", turns, [timeline[0]], {1: "<think>只有推理，没有正文"}, {},
+    duration=20)["visuals"][0]
+assert empty_cached["information_value"] == "unknown"
+assert empty_cached["analysis_state"] == "failed"
+assert empty_cached["needs_reprocess"]
+
+short_but_valid = meeting_structure._visual_value("简短但有效的页面说明。", "业务更新")
+assert short_but_valid["information_value"] == "medium"
+
 print("Meeting structure: segments, chapters, and repeated pages passed")
