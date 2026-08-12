@@ -14,6 +14,7 @@ from markdown_it import MarkdownIt
 PROJECT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT / "bin"))
 from meeting_artifact import (  # noqa: E402
+    action_candidates_from_minutes,
     build_evidence_document,
     minutes_reading_markdown,
     normalize_minutes_markdown,
@@ -105,5 +106,8 @@ projected = minutes_reading_markdown(
 assert "没有依据的模型建议" not in projected
 assert "完成合成验证 [依据](#mm-C00009)" in projected
 assert "## 议题板块" not in projected and "### 风险/待确认" in projected
+candidates = action_candidates_from_minutes(ungrounded, grounded_evidence["actions"])
+assert len(candidates) == 1 and candidates[0]["text"] == "没有依据的模型建议"
+assert candidates[0]["verification_state"] == "unlinked"
 
 print("Minutes Markdown: legacy tables and structured actions passed")

@@ -110,7 +110,7 @@ sidecar 保存 T ID、源语言、译文、数字核对警告、逐字稿 revisi
 
 `slide_pages.py` 的变化检测默认排除画面右侧 15% 的会议 UI/参会人栏，再计算时序活动掩码、页面相似度和代表帧。用于判页的低分辨率 RGB 帧会先抑制稀疏的高饱和红框/激光点；页面距离同时比较全页稳定内容和顶部 22% 标题区，所以同一表格的局部标注不切页，大标题改变仍切页。RGB 逐帧流式转灰度，不使整段三通道帧常驻内存。输出截图仍从原视频抓取完整画面；参数 `--ignore-right-pct 0` 可关闭右栏排除。
 
-Web 与 MeetingPack 的常规纪要通过 `minutes_reading_markdown()` 从 canonical Markdown 做只读投影，在第一个“分页详情/逐页详情”章节前截断。投影层还会用 `minutes.evidence.json.actions` 重建待办表：只有带有效逐字稿 T ID 的行动项可见，并保留可点击 claim 依据；无证据的建议不会被显示成正式待办。模型生成的“议题板块”不再重复出现在常规纪要，其整场结构由带 T/P/C linkage 的独立 Topic Map 负责。原始 `minutes.md` 不被改写，逐页事实和旧模型文本继续进入 evidence、Visual 和 RAG，便于审计与再处理。MeetingPack 的 `assets/minutes.md` 是同一常规阅读投影，机器侧完整事实以 `assets/evidence.json` 和 `assets/rag/records.jsonl` 为准。
+Web 与 MeetingPack 的常规纪要通过 `minutes_reading_markdown()` 从 canonical Markdown 做只读投影，在第一个“分页详情/逐页详情”章节前截断。投影层还会用 `minutes.evidence.json.actions` 重建“可核验待办”表：只有带有效逐字稿 T ID 的行动项进入正式表格，并保留可点击 claim 依据。原模型待办表中没有绑定来源的行不会删除，而是进入 `action_candidates`，由在线端和离线 Viewer 默认收起并标为“待核实候选”；它们不能用于正式任务统计，后续可通过证据绑定晋级。模型生成的“议题板块”不再重复出现在常规纪要，其整场结构由带 T/P/C linkage 的独立 Topic Map 负责。原始 `minutes.md` 不被改写，逐页事实和旧模型文本继续进入 evidence、Visual 和 RAG，便于审计与再处理。MeetingPack 的 `assets/minutes.md` 是同一常规阅读投影，机器侧完整事实以 `assets/evidence.json` 和 `assets/rag/records.jsonl` 为准。
 
 所有模型文本进入阅读结构前统一剥离完整、残缺或反向出现的 `<think>/<analysis>` 块。新纪要/VL 生成同样在落盘前清洗；如果旧 VL 缓存清洗后没有可靠答案，页面标为需要重新解析，不把推理过程伪装成标题。
 

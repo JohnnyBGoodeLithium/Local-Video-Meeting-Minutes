@@ -432,6 +432,46 @@ def action_items_from_claims(claims: list[dict]) -> list[dict]:
     return actions
 
 
+def action_candidates_from_minutes(minutes: str, grounded_actions: list[dict] | None = None) -> list[dict]:
+    """保留总体待办表中尚未绑定 T ID 的候选，不把“无依据”误解成“应删除”。"""
+    normalized = normalize_minutes_markdown(minutes)
+    match = re.search(r"^(?P<marks>#{1,6})\s+待办事项\s*$", normalized, re.M)
+    if not match:
+        return []
+    level = len(match.group("marks"))
+    end = len(normalized)
+    for heading in HEADING_RE.finditer(normalized, match.end()):
+        if len(heading.group(1)) <= level:
+            end = heading.start()
+            break
+    grounded_texts = {
+        " ".join(str(item.get("text") or "").split()).casefold()
+        for item in (grounded_actions or []) if item.get("text")
+    }
+    candidates, seen = [], set()
+    for line in normalized[match.end():end].splitlines():
+        cells = _table_cells(line)
+        if len(cells) < 4 or _is_table_separator(line):
+            continue
+        fields = _action_fields(line)
+        text = " ".join(str(fields.get("text") or "").split()).strip()
+        if not text or text in {"事项", "行动项", "待办"}:
+            continue
+        key = text.casefold()
+        if key in grounded_texts or key in seen:
+            continue
+        seen.add(key)
+        candidates.append({
+            "id": f"U{len(candidates) + 1:05d}",
+            "text": text,
+            "owner": fields.get("owner") or "待确认",
+            "deadline": fields.get("deadline") or "待确认",
+            "original_status": fields.get("status") or "待确认",
+            "verification_state": "unlinked",
+        })
+    return candidates
+
+
 def parse_claims(minutes: str, valid_turns: set[str], valid_pages: set[str]) -> list[dict]:
     claims, heading, previous_line = [], "", ""
     lines = minutes.splitlines()
@@ -534,6 +574,7 @@ def build_evidence_document(mdir: Path, minutes: str, turns: list[dict], pages: 
         claim["speakers"] = list(dict.fromkeys(t["speaker"] for t in linked))
         claim["person_ids"] = list(dict.fromkeys(t["person_id"] for t in linked if t.get("person_id")))
     actions = action_items_from_claims(claims)
+    action_candidates = action_candidates_from_minutes(minutes, actions)
     return {
         "schema": EVIDENCE_SCHEMA,
         "meeting_id": meeting_uid,
@@ -551,6 +592,7 @@ def build_evidence_document(mdir: Path, minutes: str, turns: list[dict], pages: 
         "sources": {"transcript": turn_sources, "pages": page_sources},
         "claims": claims,
         "actions": actions,
+        "action_candidates": action_candidates,
         "linkage": {
             "claim_count": len(claims),
             "claims_with_transcript": sum(bool(c["turn_ids"]) for c in claims),

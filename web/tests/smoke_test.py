@@ -116,7 +116,8 @@ s, _, app_js = req("GET", "/static/app.js", raw=True)
 check("渐进纪要失败时明确等待终稿，不把空纪要误报为草稿可读",
       s == 200 and "语音草稿生成失败".encode() in app_js
       and "草稿失败，生成终稿".encode() in app_js
-      and b'(m.has_minutes ?' in app_js)
+      and b'(m.has_minutes ?' in app_js
+      and "待核实候选".encode() in app_js)
 s, product_headers, product_page = req("GET", "/product", raw=True)
 product_cache = next((value for key, value in product_headers.items()
                       if key.lower() == "cache-control"), "")
@@ -173,6 +174,7 @@ check("bundle 提供可点击纪要依据且 HTML 不泄露机器标记",
       len(j.get("evidence", {}).get("claims", [])) == 3
       and j.get("document_state") == "ready"
       and j.get("evidence", {}).get("state") == "ready"
+      and isinstance(j.get("evidence", {}).get("action_candidates"), list)
       and '#mm-C00001' in j.get("minutes_html", "")
       and 'mm:evidence' not in j.get("minutes_html", ""))
 
@@ -341,7 +343,8 @@ check("viewer 为无外链、自包含且可浏览逐字稿/媒体/脉络/屏幕
       'id="meeting-data"' in viewer and "fetch(" not in viewer
       and "http://" not in viewer and "https://" not in viewer
       and 'id="transcript"' in viewer and 'id="scrub"' in viewer
-      and "章节脉络" in viewer and "屏幕内容" in viewer)
+      and "章节脉络" in viewer and "屏幕内容" in viewer
+      and "candidatePanel" in viewer)
 check("Viewer 只保留三个阅读入口，纪要默认且层级最高",
       "管理层 ·" not in viewer and "执行层 ·" not in viewer
       and "const tabs=[{id:'minutes'" in viewer

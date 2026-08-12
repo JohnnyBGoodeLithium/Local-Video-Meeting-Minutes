@@ -17,7 +17,7 @@
 
 ## 已处理
 
-- 修复真实长会议“待办无论据、议题板块散乱”：该次总体合并输出 25 行待办但全部缺少 evidence marker，同时输出 23 条不符合前端契约的议题文本；canonical evidence 中只有 5 条行动具备逐字稿依据。Web 与 MeetingPack 现在从 evidence actions 确定性重建待办表，只显示有 T ID 的行动并提供依据跳转；常规纪要不再重复显示模型议题列表。生成 Prompt 增加硬数量上限，长会 map 目标从 22k 调为 38k tokens，Topic Map 处理窗调为约 15 分钟且局部/全局坏 JSON 都可安全修复。合成单元测试、完整 `make check` 和 103/103 隔离 Web 回归通过。
+- 修复真实长会议“待办无论据、议题板块散乱”：该次总体合并输出 25 行待办但全部缺少 evidence marker，同时输出 23 条不符合前端契约的议题文本；canonical evidence 中只有 5 条行动具备逐字稿依据。Web 与 MeetingPack 现在从 evidence actions 确定性重建“可核验待办”并提供依据跳转，原 25 行不删除而进入默认收起、明确不计为正式任务的 `action_candidates`；常规纪要不再重复显示模型议题列表。生成 Prompt 增加硬数量上限，长会 map 目标从 22k 调为 38k tokens，Topic Map 处理窗调为约 15 分钟且局部/全局坏 JSON 都可安全修复。合成单元测试、完整 `make check` 和 103/103 隔离 Web 回归通过。
 - 修复真实超长录屏会议“36/36 页 VL 完成后仍失败”：总体终稿请求约 88,166 tokens，超过本机 65,536 上下文；四个逐页分组最高约 39,575 tokens，未超限。新 `meeting_core.minutes_overview` 只对总体部分执行保留 T/P ID 的 map/reduce，短会维持直出。Web 重生成携带原视频、复用缓存并只补空 VL 页，成功后正式 finalize 并刷新 Topic Map，避免子进程完成但文档仍停留 processing。
 - 修复真实会议屏幕页被误标“低信息”：该页包含表格、follow-up 和负责人，但 VL 生成日志有 token、reasoning 清洗后的缓存正文却为空；旧逻辑又以“说明少于 70 字”直接判 low，并把空字符串当成功缓存。现在空/缺失结果为 `unknown/待解析`，旧空缓存会补算且失败后不落成功项，短说明不再成为 low 依据；页面价值与是否有讨论继续分开。隔离测试覆盖补算成功、连续空正文和旧缓存迁移，完整 Web smoke 为 103/103。
 - 语音草稿模型调用完成首轮边界重构：`meeting_core.llm` 统一 loopback、thinking、超时和错误分类，`context_budget` 统一实际上下文预算，`voice_draft` 对长会议执行保留稳定 T ID 的分段事实提取与全局合并。真实事故中 867 段会议的一次性提示为 88,273 tokens，超过 65,536 上下文并返回 HTTP 400；新策略在发送前即切分，隔离测试覆盖短会直出与长会分段。Topic Map、翻译、助手和多模态终稿尚待逐步迁移到统一客户端。

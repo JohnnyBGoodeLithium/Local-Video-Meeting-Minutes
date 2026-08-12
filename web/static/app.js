@@ -937,6 +937,20 @@ function renderMinutes() {
       '<p>文本模型没有返回可读正文，因此这次无法提前展示草稿；逐字稿仍可阅读和播放，终稿完成后会自动出现。</p></div><i></i></section>'
     : '<p class="placeholder">暂无纪要</p>';
   box.innerHTML = banner + (state.bundle.minutes_html || pending);
+  const candidates = state.bundle?.evidence?.action_candidates || [];
+  if (candidates.length) {
+    const candidateHtml = `<details class="action-candidate-panel"><summary>` +
+      `<span>待核实候选</span><b>另有 ${candidates.length} 条生成线索</b>` +
+      `<small>尚未绑定逐字稿依据，不代表已确认；展开后可完整保留查看。</small></summary>` +
+      `<div class="action-candidate-list">${candidates.map((item, index) =>
+        `<article><i>${String(index + 1).padStart(2, "0")}</i><div><b>${esc(item.text)}</b>` +
+        `<small>负责人：${esc(item.owner || "待确认")} · 期限：${esc(item.deadline || "待确认")} · ` +
+        `原状态：${esc(item.original_status || "待确认")}</small></div><span>待绑定依据</span></article>`
+      ).join("")}</div></details>`;
+    const riskHeading = $$(`h3`, box).find(item => item.textContent.trim() === "风险/待确认");
+    if (riskHeading) riskHeading.insertAdjacentHTML("beforebegin", candidateHtml);
+    else box.insertAdjacentHTML("beforeend", candidateHtml);
+  }
   $$("h1, h2, h3", box).forEach((heading, index) => {
     heading.id = `minutes-heading-${index}`;
     heading.dataset.readingHeading = "1";
