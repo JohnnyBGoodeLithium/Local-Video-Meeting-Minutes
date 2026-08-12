@@ -306,11 +306,12 @@ s, h, pack_bytes = req("GET", "/api/meetings/_smoke/export?media=none", raw=True
 pack = zipfile.ZipFile(io.BytesIO(pack_bytes)) if s == 200 else None
 names = set(pack.namelist()) if pack else set()
 required = {"viewer.html", "README.txt", "assets/minutes.md", "assets/transcript.json",
-            "assets/transcript.md", "assets/views.json", "assets/evidence.json",
+            "assets/transcript.md", "assets/evidence.json",
             "assets/topic-map.json", "assets/rag/records.jsonl", "assets/manifest.json",
             "assets/slides/p0001.webp", "assets/slides/p0002.webp"}
 check("导出 MeetingPack → 标准文件齐全且默认无音视频",
       s == 200 and required <= names and not any(n.startswith("assets/media/") for n in names)
+      and "assets/views.json" not in names
       and {name.split("/", 1)[0] for name in names} == {"viewer.html", "README.txt", "assets"})
 if pack:
     manifest = json.loads(pack.read("assets/manifest.json"))
@@ -320,8 +321,8 @@ if pack:
     rag = [json.loads(line) for line in pack.read("assets/rag/records.jsonl").decode("utf-8").splitlines()]
 else:
     manifest, evidence, exported_topic_map, viewer, rag = {}, {}, {}, "", []
-check("MeetingPack v3 manifest/evidence/RAG/Topic Map 共享稳定 linkage",
-      manifest.get("schema") == "meetingpack/v3"
+check("MeetingPack v4 manifest/evidence/RAG/Topic Map 共享稳定 linkage",
+      manifest.get("schema") == "meetingpack/v4"
       and evidence.get("schema") == "meeting-minutes-evidence/v1"
       and evidence.get("claims", [{}])[0].get("turn_ids") == ["T000001", "T000002"]
       and any(r.get("record_type") == "claim" and r.get("evidence_ids") for r in rag)
@@ -335,7 +336,17 @@ check("viewer 为无外链、自包含且可浏览逐字稿/媒体/脉络/屏幕
       'id="meeting-data"' in viewer and "fetch(" not in viewer
       and "http://" not in viewer and "https://" not in viewer
       and 'id="transcript"' in viewer and 'id="scrub"' in viewer
-      and "会议脉络" in viewer and "屏幕内容" in viewer)
+      and "章节脉络" in viewer and "屏幕内容" in viewer)
+check("Viewer 只保留三个阅读入口，纪要默认且层级最高",
+      "管理层 ·" not in viewer and "执行层 ·" not in viewer
+      and "const tabs=[{id:'minutes'" in viewer
+      and "primary-tab" in viewer and "renderMinutes();" in viewer)
+exported_pages = evidence.get("sources", {}).get("pages", [])
+all_export_text = viewer + json.dumps(evidence, ensure_ascii=False) + json.dumps(rag, ensure_ascii=False)
+check("导出层清理 VL 推理文本，并使用与在线端一致的屏幕标题",
+      "<think" not in all_export_text.lower()
+      and "不应进入导出包" not in all_export_text
+      and exported_pages and exported_pages[0].get("title") == "合成页面一。页面展示蓝色测试背景，不代表会议结论。")
 check("导出是只读操作，不重写会议 canonical evidence",
       (SMOKE / "minutes.evidence.json").read_bytes() == evidence_before_export)
 minutes_before_legacy_export = (SMOKE / "minutes.md").read_text()

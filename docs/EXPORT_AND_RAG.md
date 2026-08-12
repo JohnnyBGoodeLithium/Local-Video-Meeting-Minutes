@@ -121,7 +121,7 @@ Web 和查看器把它显示成很轻的“依据”链接；原始 Markdown 仍
 
 Web 只在 sidecar 的逐字稿和纪要 revision 与当前文件一致时展示“依据”，避免编辑后误指向旧内容。说话人绑定、首选显示名变更、纪要应用或撤销后，由确定性代码刷新 sidecar，不调用模型。
 
-## 4. MeetingPack v3
+## 4. MeetingPack v4
 
 分享格式是普通 ZIP，文件名后缀为 `.meetingpack.zip`。收件人解压后双击 `viewer.html`，不需要安装本项目、不需要运行服务，也不需要 LLM。查看器没有 CDN、外部字体或 `fetch` 依赖，使用 `file://` 即可。
 
@@ -130,13 +130,12 @@ Web 只在 sidecar 的逐字稿和纪要 revision 与当前文件一致时展示
 ├── viewer.html             # CSS/JS/数据内嵌的静态查看器
 ├── README.txt
 └── assets/                 # 所有依赖统一收纳；顶层不再散落机器文件
-    ├── manifest.json       # meetingpack/v3、文件哈希、证据与媒体策略
+    ├── manifest.json       # meetingpack/v4、文件哈希、证据与媒体策略
     ├── minutes.md          # 常规阅读版纪要 + 隐藏 marker
     ├── transcript.md       # 带可读时间码的完整逐字稿
     ├── transcript.json     # 结构化完整逐字稿
     ├── evidence.json       # canonical 证据关系
     ├── topic-map.json      # meeting-topic-map/v1 整场语义脉络
-    ├── views.json          # 管理层/执行层 × 快速/精细视图
     ├── rag/
     │   └── records.jsonl   # meeting-minutes-rag/v1
     ├── slides/
@@ -146,9 +145,11 @@ Web 只在 sidecar 的逐字稿和纪要 revision 与当前文件一致时展示
         └── video.mp4       # --media video：H.264 720p/10fps 分享版
 ```
 
-Viewer 左侧常驻媒体、时间轴和完整逐字稿，中间提供管理层/执行层 × 快速/精细视图、整场会议脉络、屏幕内容和会议纪要，右侧展示原始证据。“会议脉络”直接消费导出时冻结的 `meeting-topic-map/v1`，不会从截图重建另一套假章节；“屏幕内容”按缩略图、标题、状态和完整 VL 解读浏览。所有逐字稿时间码、Topic range 和 claim 都可跳到媒体进度。必须解压整个 ZIP 后再打开，不能只在压缩软件里预览单个 HTML。
+Viewer 左侧常驻媒体、时间轴和完整逐字稿，中间只保留与在线工作台一致的三个入口：默认且视觉层级最高的“会议纪要”，以及“章节脉络 / 屏幕内容”；右侧展示原始证据。“章节脉络”直接消费导出时冻结的 `meeting-topic-map/v1`，不会从截图重建另一套假章节；“屏幕内容”按缩略图、标题、状态和完整 VL 解读浏览。所有逐字稿时间码、Topic range 和 claim 都可跳到媒体进度。必须解压整个 ZIP 后再打开，不能只在压缩软件里预览单个 HTML。
 
-四种视图只选择和重组 canonical claim，不再次调用 LLM，也不会补造负责人、截止日期或决定。旧会议没有有效 evidence marker 时，包仍包含完整逐字稿、媒体与纪要，但 `manifest.evidence.state=partial`，Viewer 显式提醒“结论不可逐条核验”，不会把 `claims=0` 伪装成完整导出。导出过程只读会议目录，不会为方便打包而重写 `minutes.evidence.json`。
+导出不再生成 `views.json`；受众/深度重排并未产生新事实，却会让收件人在阅读前先理解模式。如后续需要“管理层版”，应当在导出时明确生成一份独立成品，而不是在离线 Viewer 中平铺四个重排入口。RAG 的 `minutes_section` 只取 Viewer 同款常规纪要，逐页事实由独立的 claim/slide 记录保留，避免重复收录旧纪要中的逐页生成过程或 reasoning 污染。旧会议没有有效 evidence marker 时，包仍包含完整逐字稿、媒体与纪要，但 `manifest.evidence.state=partial`，Viewer 显式提醒“结论不可逐条核验”，不会把 `claims=0` 伪装成完整导出。导出过程只读会议目录，不会为方便打包而重写 `minutes.evidence.json`。
+
+`page_desc.json` 保持 canonical 原始输出；导出投影使用与在线端相同的 `clean_model_text()` 和 `visual_title()`。清洗后的文本才进入 `evidence.json`、Viewer 内嵌数据和 RAG。如果去掉未闭合 reasoning 后没有可靠答案，标题回退为“第 N 页屏幕内容”，不从推理过程猜标题。
 
 ### 4.1 是否需要传源视频
 

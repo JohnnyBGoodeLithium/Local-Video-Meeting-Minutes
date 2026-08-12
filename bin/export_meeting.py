@@ -31,11 +31,12 @@ from meeting_artifact import (
     minutes_reading_markdown,
     rag_records,
 )
-from meeting_views import build_views
+from meeting_views import evidence_integrity
+from meeting_structure import clean_model_text, visual_title
 import meeting_topic_map
 
 
-PACK_SCHEMA = "meetingpack/v3"
+PACK_SCHEMA = "meetingpack/v4"
 MD = MarkdownIt("default", {"html": False, "linkify": True})
 VIEWER_TEMPLATE_PATH = Path(__file__).with_name("meetingpack_viewer.html")
 
@@ -173,7 +174,7 @@ def _readme(media_mode: str) -> str:
 - README.txt：本说明
 - assets/：其余全部依赖文件；可整体交给后续程序处理
   - minutes.md、transcript.*：常规纪要与完整逐字稿
-  - evidence.json、topic-map.json、views.json：证据、整场语义脉络与阅读视图
+  - evidence.json、topic-map.json：证据与整场语义脉络
   - rag/records.jsonl：可直接送入后续向量/全文索引的记录
   - slides/：屏幕内容缩略图；media/：可选音视频
   - manifest.json：格式版本、内容清单、哈希和媒体策略
@@ -230,7 +231,7 @@ $('#search').oninput=e=>{let q=e.target.value.trim().toLowerCase(),box=$('#resul
 </script></body></html>'''
 
 
-def _viewer_html(title: str, date: str, minutes_html: str, evidence: dict, views: dict,
+def _viewer_html(title: str, date: str, minutes_html: str, evidence: dict, integrity: dict,
                  topic_map: dict, media_path: str | None, media_kind: str | None) -> bytes:
     duration = max((float(t.get("end", 0)) for t in evidence["sources"]["transcript"]), default=0)
     payload = {
@@ -239,7 +240,7 @@ def _viewer_html(title: str, date: str, minutes_html: str, evidence: dict, views
         "duration": duration,
         "minutes_html": minutes_html,
         "evidence": evidence,
-        "views": views,
+        "integrity": integrity,
         "topic_map": topic_map,
         "media_path": media_path,
         "media_kind": media_kind,
@@ -277,14 +278,20 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
     timeline = _read_json(mdir / "slides.json", [])
     pages = [p for p in timeline if p.get("kind", "slide") == "slide" and p.get("page") is not None]
     raw_desc = _read_json(mdir / "page_desc.json", {}).get("desc", {})
-    descs = {int(k): str(v) for k, v in raw_desc.items() if str(k).isdigit()}
+    # 与在线阅读层共用同一清洗边界。不只修标题：导出 evidence、
+    # Viewer 详情和 RAG 都不应携带模型 <think>/<analysis> 文本。
+    descs = {int(k): clean_model_text(str(v)) for k, v in raw_desc.items()
+             if str(k).isdigit()}
     profiles = load_speaker_profiles(turns, bank_dir)
     evidence = build_evidence_document(mdir, minutes, turns, pages, descs, profiles,
                                        generation={"export_rebuilt": True})
+    for page in evidence.get("sources", {}).get("pages", []):
+        number = int(page.get("number") or 0)
+        page["visual_description"] = clean_model_text(page.get("visual_description") or "")
+        page["title"] = visual_title(page["visual_description"], number)
     slide_assets = _viewer_slide_assets(mdir, pages, evidence)
     evidence_bytes = json.dumps(evidence, ensure_ascii=False, indent=2).encode("utf-8")
-    views = build_views(evidence)
-    views_bytes = json.dumps(views, ensure_ascii=False, indent=2).encode("utf-8")
+    integrity = evidence_integrity(evidence)
     topic_state, ready_topic_map = meeting_topic_map.load_current_topic_map(mdir)
     topic_map = (ready_topic_map if topic_state == "ready" else {
         "schema": meeting_topic_map.SCHEMA,
@@ -297,10 +304,13 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
 
     inferred_title, inferred_date = _identity(mdir.name)
     title, date = title or inferred_title, inferred_date if date is None else date
-    reading_minutes = minutes_reading_markdown(minutes)
+    # RAG 的纪要章节与 Viewer 共用“常规纪要”投影。逐页事实已经分别作为
+    # claim / slide 记录进入 RAG，不能再把 canonical 逐页生成过程（包括旧会议
+    # 可能残留的 reasoning 标签）重复塞进 minutes_section。
+    reading_minutes = clean_model_text(minutes_reading_markdown(minutes))
     linked_markdown = markdown_with_evidence_links(reading_minutes, evidence)
     minutes_html = MD.render(linked_markdown)
-    records = rag_records(evidence, minutes)
+    records = rag_records(evidence, reading_minutes)
     rag_bytes = ("\n".join(json.dumps(r, ensure_ascii=False, separators=(",", ":"))
                            for r in records) + "\n").encode("utf-8")
 
@@ -323,14 +333,13 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
             media_file, media_arc, media_kind = _optimized_media(candidate, "video", temp_dir)
 
         small_files = {
-            "viewer.html": _viewer_html(title, date, minutes_html, evidence, views, topic_map,
+            "viewer.html": _viewer_html(title, date, minutes_html, evidence, integrity, topic_map,
                                         media_arc, media_kind),
             "README.txt": _readme(media_mode).encode("utf-8"),
             "assets/minutes.md": reading_minutes.encode("utf-8"),
             "assets/transcript.json": json.dumps(turns, ensure_ascii=False, indent=2).encode("utf-8"),
             "assets/transcript.md": _transcript_markdown(turns).encode("utf-8"),
             "assets/evidence.json": evidence_bytes,
-            "assets/views.json": views_bytes,
             "assets/topic-map.json": topic_map_bytes,
             "assets/rag/records.jsonl": rag_bytes,
             **slide_assets,
@@ -355,7 +364,7 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
                       "optimized_for_sharing": bool(media_file),
                       "source_bytes": media_source_bytes,
                       "included_bytes": media_file.stat().st_size if media_file else 0},
-            "evidence": views["integrity"],
+            "evidence": integrity,
             "topic_map": {"state": topic_map.get("state"),
                           "schema": topic_map.get("schema")},
             "counts": {"turns": len(turns), "pages": len(pages),

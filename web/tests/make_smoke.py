@@ -89,7 +89,7 @@ minutes = """# 会议纪要
 (mdir / "minutes.md").write_text(minutes, encoding="utf-8")
 
 page_desc = {"model": "synthetic-vl", "desc": {
-    "1": "# 标题\n合成页面一。页面展示蓝色测试背景，不代表会议结论。",
+    "1": "<think>这是不应进入导出包的合成推理</think>\n# 标题\n合成页面一。页面展示蓝色测试背景，不代表会议结论。",
     "2": "# 标题\n合成页面二。页面展示绿色测试背景，仅供页面检索。",
 }}
 (mdir / "page_desc.json").write_text(json.dumps(page_desc, ensure_ascii=False, indent=1),

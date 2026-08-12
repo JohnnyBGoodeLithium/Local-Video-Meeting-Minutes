@@ -70,7 +70,7 @@ def _plain(value: str) -> str:
     return " ".join(value.split()).strip()
 
 
-def _visual_title(description: str, page: int) -> str:
+def visual_title(description: str, page: int) -> str:
     lines = [line.strip() for line in clean_model_text(description).splitlines() if line.strip()]
     for index, line in enumerate(lines):
         if re.match(r"^#{1,5}\s*标题\s*$", line):
@@ -87,6 +87,10 @@ def _visual_title(description: str, page: int) -> str:
                 and not re.match(r"^(?:high|medium|low|高|中|低)\s*[：:]", cleaned, re.I)):
             return cleaned[:100]
     return f"第{page}页屏幕内容"
+
+
+# 保留内部别名，避免旧调用方一次性失效。导出器应使用公开的 visual_title。
+_visual_title = visual_title
 
 
 def _visual_role(description: str, title: str) -> str:
