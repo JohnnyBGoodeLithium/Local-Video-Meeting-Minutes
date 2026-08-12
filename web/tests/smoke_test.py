@@ -102,8 +102,10 @@ check("GET /api/health → 200 + dry-run + local assistant",
 s, headers, page = req("GET", "/", raw=True)
 cache_control = next((value for key, value in headers.items()
                       if key.lower() == "cache-control"), "")
-check("首页显式展示质量验收入口且禁止缓存旧壳",
+check("首页显式展示结论审计和章节脉络入口且禁止缓存旧壳",
       s == 200 and b'quality-entry-btn' in page and b'quality-tab' in page
+      and "结论审计".encode() in page and "章节脉络".encode() in page
+      and "屏幕内容".encode() in page and "完整纪要".encode() not in page
       and b'data-transcript-mode="comparison"' in page
       and b'id="translation-target"' in page
       and b'id="chapters-tab"' in page and b'id="visuals-tab"' in page
@@ -142,10 +144,12 @@ check("bundle 带逐字稿/纪要 revision",
 check("bundle 含可读会议身份元数据",
       j.get("title") == "smoke" and j.get("speaker_count") == 2)
 check("bundle 提供逻辑页、连续视觉片段和语义章节三层结构",
-      j.get("structure", {}).get("schema") == "meeting-structure/v1"
+      j.get("structure", {}).get("schema") == "meeting-structure/v2"
       and len(j.get("structure", {}).get("segments", [])) == 2
       and len(j.get("structure", {}).get("chapters", [])) == 1
       and len(j.get("structure", {}).get("visuals", [])) == 2
+      and all(visual.get("information_value") in {"high", "medium", "low"}
+              for visual in j.get("structure", {}).get("visuals", []))
       and all(visual.get("description_html")
               for visual in j.get("structure", {}).get("visuals", [])))
 check("bundle minutes_html 图片已改写为 file 路由",
@@ -157,27 +161,28 @@ check("bundle 提供可点击纪要依据且 HTML 不泄露机器标记",
       and '#mm-C00001' in j.get("minutes_html", "")
       and 'mm:evidence' not in j.get("minutes_html", ""))
 
-# 2a. 本地质量验收：逐条标签、乐观锁、隐私最小化与汇总
+# 2a. 本地结论审计：逐条标签、乐观锁、隐私最小化与汇总
 minutes_before_quality = (SMOKE / "minutes.md").read_text()
 s, _, quality = req("GET", "/api/meetings/_smoke/quality")
 quality_claims = quality.get("claims", [])
-check("质量验收初始为 3 条待判断",
+check("结论审计初始为 3 条待判断",
       s == 200 and quality.get("evidence_state") == "ready"
       and quality.get("summary", {}).get("total") == 3
-      and quality.get("summary", {}).get("pending") == 3)
+      and quality.get("summary", {}).get("pending") == 3
+      and quality.get("labels", [])[0].get("label") == "结论与依据一致")
 first = quality_claims[0] if quality_claims else {}
 s, _, quality = req("PUT", "/api/meetings/_smoke/quality/claims/C00001", {
     "label": "correct", "note": "合成验收说明",
     "claim_fingerprint": first.get("fingerprint"),
 })
-check("质量验收记录正确项并更新进度",
+check("结论审计记录可信项并更新进度",
       s == 200 and quality.get("summary", {}).get("reviewed") == 1
       and quality.get("summary", {}).get("passed") == 1)
 s, _, _ = req("PUT", "/api/meetings/_smoke/quality/claims/C00002", {
     "label": "wrong_evidence", "note": "",
     "claim_fingerprint": "stale-fingerprint",
 })
-check("质量验收拒绝过期结论指纹", s == 409)
+check("结论审计拒绝过期结论指纹", s == 409)
 second = next((claim for claim in quality_claims if claim.get("id") == "C00002"), {})
 s, _, quality = req("PUT", "/api/meetings/_smoke/quality/claims/C00002", {
     "label": "wrong_evidence", "note": "合成问题说明",
@@ -186,7 +191,7 @@ s, _, quality = req("PUT", "/api/meetings/_smoke/quality/claims/C00002", {
 evaluation_path = TEST_ROOT / "evaluations" / "_smoke.json"
 evaluation_disk = json.loads(evaluation_path.read_text()) if evaluation_path.is_file() else {}
 events = evaluation_disk.get("events", [])
-check("质量验收记录问题分类且不改正式纪要",
+check("结论审计记录问题分类且不改正式纪要",
       s == 200 and quality.get("summary", {}).get("issues") == 1
       and (SMOKE / "minutes.md").read_text() == minutes_before_quality)
 check("本地评测文件只存指纹/标签，不复制 claim 正文",
@@ -365,7 +370,7 @@ n_left = sum(1 for t in turns if t.get("voice") == "v_9001" and t["speaker"] != 
 check("v_9001 全部轮次改名", n_renamed == 2 and n_left == 0,
       f"renamed={n_renamed} left={n_left}")
 s, _, quality_after_bind = req("GET", "/api/meetings/_smoke/quality")
-check("相关逐字稿/身份变化后旧验收自动过期",
+check("相关逐字稿/身份变化后旧审计自动过期",
       s == 200 and quality_after_bind.get("summary", {}).get("stale") == 2
       and quality_after_bind.get("summary", {}).get("reviewed") == 0)
 s, _, translation_after_bind = req(
@@ -567,7 +572,7 @@ check("同一修改只能撤销一次", s == 409)
 # 18. 删除只作用于隔离数据根，并清理声纹来源引用
 s, _, deleted = req("POST", "/api/meetings/_smoke/delete")
 check("删除隔离会议 → 目录移除", s == 200 and deleted.get("ok") is True and not SMOKE.exists())
-check("删除会议 → 同步移除本地验收记录",
+check("删除会议 → 同步移除本地审计记录",
       deleted.get("evaluation_removed") is True and not evaluation_path.exists())
 bank_after_delete = json.loads((FAKE_BANK / "bank.json").read_text())
 check("删除会议 → 清理声纹 sources", all("_smoke" not in v.get("sources", [])

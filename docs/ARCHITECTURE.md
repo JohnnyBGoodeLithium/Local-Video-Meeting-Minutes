@@ -72,9 +72,9 @@ flowchart LR
 
 `minutes_by_page.py` 和 `summarize.py` 使用 `meeting-minutes-prompt/v1` 结构化输入，并在可读 Markdown 中留下隐藏的 T/P 证据 marker。`meeting_artifact.py` 将其规范化为 `minutes.evidence.json`；Web、`export_meeting.py` 和后续 RAG 都消费同一 sidecar。导出器生成 `meetingpack/v2`：完整逐字稿、媒体时间跳转、证据状态、四种阅读视图和会议理解图都进入同一个无需服务、LLM、CDN 或网络请求的 Viewer。导出是只读操作，不反写 canonical sidecar。完整规范见 `docs/EXPORT_AND_RAG.md`。
 
-### 人工质量验收
+### 人工结论审计
 
-`evaluation_service.py` 将当前 evidence claim 与本机追加式验收事件合并。事件只落 claim ID、标签、备注和来源结构指纹；指纹在内存中覆盖结论及其引用的逐字稿/页面内容，但不把来源正文复制到评测文件。浏览器提交 claim 指纹作为乐观锁，服务端重新计算后才接受写入。相关来源发生变化时只让对应判断失效，验收动作不会修改 `minutes.md`。删除会议时同步删除该会议的验收文件。
+`evaluation_service.py` 将当前 evidence claim 与本机追加式审计事件合并。事件只落 claim ID、标签、备注和来源结构指纹；指纹在内存中覆盖结论及其引用的逐字稿/页面内容，但不把来源正文复制到评测文件。浏览器提交 claim 指纹作为乐观锁，服务端重新计算后才接受写入。相关来源发生变化时只让对应判断失效，审计动作不会修改 `minutes.md`。删除会议时同步删除该会议的审计文件。
 
 ### 上下文感知翻译
 
@@ -84,13 +84,15 @@ sidecar 保存 T ID、源语言、译文、数字核对警告、逐字稿 revisi
 
 ### 在线阅读结构投影
 
-`meeting_structure.py` 在请求 bundle 时读取现有纪要议题、`slides.json`、`page_desc.json`、逐字稿和 evidence，生成 `meeting-structure/v1`。它不调用模型、不写会议文件，只提供三个稳定对象：
+`meeting_structure.py` 在请求 bundle 时读取现有纪要议题、`slides.json`、`page_desc.json`、逐字稿和 evidence，生成 `meeting-structure/v2`。它不调用模型、不写会议文件，只提供三个稳定对象：
 
 - `Segment`：一个逻辑页面或摄像头画面的一次连续出现。同一页面的多个 range 必须展开成多个 Segment，避免返回旧页时所有跳转都落到第一次；
 - `Chapter`：一个连续讨论时间段。优先解析纪要“议题板块”的开始时间，缺失时按视觉 Segment 降级；章节关联 T/P 来源，并确定性分组 discussion/decision/action/open claim；
-- `Visual`：逻辑页面级资料，一页只保存一份完整 VL 描述和图片，同时列出全部出现 ranges、相关 Segment 与 claim。`display_status` 区分被讨论、仅展示和摄像头动态画面。
+- `Visual`：逻辑页面级资料，一页只保存一份完整 VL 描述和图片，同时列出全部出现 ranges、相关 Segment 与 claim。`display_status` 区分被讨论、仅展示和摄像头动态画面；`content_role` 与 `information_value=high|medium|low` 标记页面角色和信息价值。新 VL 输出显式给出这两个字段，旧缓存使用保守启发式；空白、过渡、会议 UI 等低信息 Segment 不再单独创建 fallback Chapter。
 
-前端时间线用 Chapter 作为上层、Segment 作为下层。章节和画面页面只是对 canonical evidence 的索引与重组；点击结论仍进入统一证据栏，VL 描述明确标注不能单独证明会议决定。未来 Topic/思维导图应建立在可跨章节的语义实体上，不能直接用页码或 Segment 冒充主题。
+前端时间线用 Chapter 作为上层、Segment 作为下层。“章节脉络”把同一章 evidence 确定性投影为讨论焦点、形成结果、后续动作、待确认和关键屏幕五类分支；它是可回溯的阅读树，不凭空生成关系。章节和屏幕页面只是对 canonical evidence 的索引与重组；点击结论仍进入统一证据栏，VL 描述明确标注不能单独证明会议决定。跨章节 Topic 图仍应建立在独立语义实体上，不能直接用页码或 Segment 冒充主题。
+
+所有模型文本进入阅读结构前统一剥离完整、残缺或反向出现的 `<think>/<analysis>` 块。新纪要/VL 生成同样在落盘前清洗；如果旧 VL 缓存清洗后没有可靠答案，页面标为需要重新解析，不把推理过程伪装成标题。
 
 ## Web 作业模型
 

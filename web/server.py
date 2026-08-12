@@ -444,10 +444,10 @@ def get_bundle(slug: str):
         minutes_path.read_text(encoding="utf-8") if minutes_path else "",
         transcript, slides, descriptions, evidence, duration=duration)
     # VL 结果本身通常是 Markdown；沿用纪要的安全渲染配置（禁用原始 HTML），
-    # 让画面资料页保持可读层级，而不是把标题/列表作为原始文本展示。
+    # 让屏幕内容页保持可读层级，而不是把标题/列表作为原始文本展示。
     for visual in structure.get("visuals", []):
         visual["description_html"] = MD.render(
-            visual.get("description") or "当前画面没有可用的 VL 详细解读。")
+            visual.get("display_description") or "当前画面没有可用的 VL 详细解读。")
     return {
         "slug": slug,
         **_meeting_identity(slug),

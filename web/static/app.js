@@ -36,6 +36,7 @@ const state = {
     ? requestedView : "minutes",
   selectedChapterId: null,
   selectedVisualId: null,
+  visualFilter: "useful",
   transcriptMode: ["original", "translated", "comparison"].includes(savedTranscriptMode)
     ? savedTranscriptMode : "original",
   translationTarget: TRANSLATION_TARGETS.has(workspaceState.translationTarget)
@@ -247,8 +248,8 @@ async function deleteMeeting(ev, slug) {
     $("#meeting-meta").textContent = "阅读纪要、追问内容并修正记录";
     $("#transcript").innerHTML = '<p class="placeholder">← 选择一场会议</p>';
     $("#minutes").innerHTML = '<p class="placeholder">纪要内容</p>';
-    $("#chapters").innerHTML = '<p class="placeholder">选择会议后可按章节回顾</p>';
-    $("#visuals").innerHTML = '<p class="placeholder">选择会议后可查看画面资料</p>';
+    $("#chapters").innerHTML = '<p class="placeholder">选择会议后可查看章节脉络</p>';
+    $("#visuals").innerHTML = '<p class="placeholder">选择会议后可查看屏幕内容</p>';
     $("#player-holder").innerHTML = '<p class="placeholder">选择会议后可回放</p>';
     $("#timeline").innerHTML = "";
     $("#current-chapter").classList.add("hidden");
@@ -259,7 +260,7 @@ async function deleteMeeting(ev, slug) {
     $("#chapters-tab").disabled = true;
     $("#visuals-tab").disabled = true;
     $("#quality-entry-btn").disabled = true;
-    $("#quality-entry-btn").textContent = "开始质量验收";
+    $("#quality-entry-btn").textContent = "审计会议结论";
     $$('[data-transcript-mode]').forEach(button => button.disabled = true);
     $("#translation-target").disabled = true;
     state.translation = null;
@@ -305,7 +306,7 @@ function renderMeetingStatuses() {
     statusChip("证据", evidenceLabel, evidenceTone,
       evidenceState === "ready" ? "结论可回到逐字稿或共享画面核对" : "重新生成纪要后可补齐结构化依据"),
     statusChip("分享", shareReady ? "可导出" : "待补齐", shareReady ? "good" : "neutral",
-      b.has_video || b.has_audio ? "可选择是否随包包含媒体" : "当前只能导出文字与画面资料"),
+      b.has_video || b.has_audio ? "可选择是否随包包含媒体" : "当前只能导出文字与屏幕内容"),
   ].join("");
 }
 
@@ -330,6 +331,7 @@ async function loadMeeting(slug) {
   state.translation = null;
   state.selectedChapterId = b.structure?.chapters?.[0]?.id || null;
   state.selectedVisualId = b.structure?.visuals?.[0]?.id || null;
+  state.visualFilter = "useful";
   state.expandedOriginals.clear();
   state.evidenceBilingual.clear();
   $("#meeting-title").textContent = b.title || slug;
@@ -403,6 +405,11 @@ function renderPlayer() {
 /* ---------- 时间轴（页区间分段 + 刻度 + 议题标记） ---------- */
 
 const PAGE_COLORS = ["#4f7cff", "#22a06b", "#e2a13c", "#c25050", "#8a5cd6", "#2ba3b8", "#b8609a"];
+const VISUAL_VALUE_LABELS = { high: "核心", medium: "参考", low: "低信息" };
+
+function visualValueLabel(visual) {
+  return visual?.value_label || VISUAL_VALUE_LABELS[visual?.information_value] || "待判断";
+}
 
 function buildTimeline(duration) {
   const b = state.bundle || { slides: [], topics: [] };
@@ -415,7 +422,7 @@ function buildTimeline(duration) {
   played.className = "tl-played";
   tl.appendChild(played);
 
-  // 上层：连续语义章节。点击进入章节回顾并从章节起点播放。
+  // 上层：连续语义章节。点击进入章节脉络并从章节起点播放。
   for (const chapter of b.structure?.chapters || []) {
     if (chapter.end <= chapter.start) continue;
     const block = document.createElement("div");
@@ -445,8 +452,9 @@ function buildTimeline(duration) {
       const occurrence = (b.structure?.segments || []).find(item =>
         item.kind === (p.kind || "slide") && item.page === (p.page ?? null)
         && Math.abs(item.start - s) < .05 && Math.abs(item.end - e) < .05);
+      if (occurrence?.information_value === "low") seg.classList.add("low-information");
       const label = p.kind === "camera" ? "画面" : `第${p.page}页`;
-      seg.addEventListener("mouseenter", ev => showTip(ev, p, label, s));
+      seg.addEventListener("mouseenter", ev => showTip(ev, p, label, s, occurrence));
       seg.addEventListener("mousemove", ev => moveTip(ev));
       seg.addEventListener("mouseleave", hideTip);
       seg.addEventListener("click", event => {
@@ -482,9 +490,10 @@ function buildTimeline(duration) {
   });
 }
 
-function showTip(ev, page, label, start = page.first) {
+function showTip(ev, page, label, start = page.first, occurrence = null) {
   const tip = $("#tl-tip");
-  let html = `<div class="tip-title">${esc(label)} · ${fmt(start)}</div>`;
+  let html = `<div class="tip-title">${esc(label)} · ${fmt(start)}` +
+    `${occurrence ? ` · ${esc(visualValueLabel(occurrence))}` : ""}</div>`;
   if (page.image) {
     html += `<img src="/api/meetings/${encodeURIComponent(state.slug)}/file?path=${encodeURIComponent("slides/" + page.image)}">`;
   }
@@ -887,42 +896,79 @@ function openChapter(chapterId, play = false) {
   if (play && chapter) seek(chapter.start);
 }
 
+function chapterMapClaim(id) {
+  const claim = (state.bundle?.evidence?.claims || []).find(item => item.id === id);
+  if (!claim) return "";
+  const action = claim.kind === "action" ? (claim.action ||
+    (state.bundle?.evidence?.actions || []).find(item => item.claim_id === claim.id)) : null;
+  return `<button type="button" class="chapter-map-leaf" data-structure-claim="${esc(id)}">` +
+    `<b>${esc(action?.text || claim.text)}</b>` +
+    `${claim.start != null ? `<small>${fmt(claim.start)} · 核对依据</small>` : "<small>核对依据</small>"}` +
+    `</button>`;
+}
+
+function chapterMapBranch(title, ids, tone, empty = "") {
+  const leaves = (ids || []).map(chapterMapClaim).filter(Boolean);
+  if (!leaves.length && !empty) return "";
+  return `<section class="chapter-map-branch ${tone}"><h3>${esc(title)}<span>${leaves.length}</span></h3>` +
+    (leaves.join("") || `<p>${esc(empty)}</p>`) + `</section>`;
+}
+
+function chapterMapVisualBranch(pages, chapter) {
+  const useful = pages.filter(page => page.information_value !== "low");
+  const low = pages.filter(page => page.information_value === "low");
+  const buttons = useful.map(page => {
+    const range = (page.ranges || []).find(([start, end]) => start < chapter.end && end > chapter.start);
+    const at = range ? Math.max(range[0], chapter.start) : chapter.start;
+    return `<button type="button" class="chapter-map-leaf visual-leaf" data-visual-id="${esc(page.id)}" ` +
+      `data-visual-time="${at}"><b>${esc(page.title)}</b>` +
+      `<small>${fmt(at)} · ${esc(visualValueLabel(page))}</small></button>`;
+  }).join("");
+  if (!buttons && !low.length) return "";
+  const lowNote = low.length
+    ? `<button type="button" class="chapter-low-info" data-low-visual="${esc(low[0].id)}">` +
+      `已折叠 ${low.length} 个低信息画面 · 查看</button>` : "";
+  return `<section class="chapter-map-branch visual"><h3>关键屏幕<span>${useful.length}</span></h3>` +
+    (buttons || `<p>本章没有识别到高价值屏幕内容。</p>`) + lowNote + `</section>`;
+}
+
 function renderChapters() {
   const box = $("#chapters");
   const structure = state.bundle?.structure;
   const chapters = structure?.chapters || [];
   if (!chapters.length) {
-    box.innerHTML = '<div class="structure-empty-state"><h3>还没有章节结构</h3><p>完整纪要仍可正常阅读。</p></div>';
+    box.innerHTML = '<div class="structure-empty-state"><h3>还没有章节脉络</h3><p>会议纪要仍可正常阅读。</p></div>';
     return;
   }
   let selected = chapters.find(item => item.id === state.selectedChapterId) || chapters[0];
   state.selectedChapterId = selected.id;
-  const sourceLabel = structure.chapter_source === "minutes_topic" ? "基于纪要议题" : "基于视觉分段";
+  const sourceLabel = structure.chapter_source === "minutes_topic" ? "按纪要议题组织" : "按有效屏幕变化组织";
   const pageMap = new Map((structure.visuals || []).map(item => [item.id, item]));
   const pages = selected.page_ids.map(id => pageMap.get(id)).filter(Boolean);
   box.innerHTML = `<div class="structure-layout"><nav class="structure-list" aria-label="会议章节">` +
-    `<div class="structure-list-head"><b>时间章节</b><span>${esc(sourceLabel)}</span></div>` +
+    `<div class="structure-list-head"><b>章节导航</b><span>${esc(sourceLabel)}</span></div>` +
     chapters.map((chapter, index) =>
       `<button type="button" class="structure-nav-item ${chapter.id === selected.id ? "active" : ""}" ` +
       `data-chapter-id="${esc(chapter.id)}"><small>${String(index + 1).padStart(2, "0")} · ` +
       `${fmt(chapter.start)}–${fmt(chapter.end)}</small><b>${esc(chapter.title)}</b>` +
       `<span>${esc(chapter.summary)}</span></button>`).join("") +
     `</nav><article class="structure-detail chapter-detail">` +
-    `<header class="structure-detail-head"><div><span>CHAPTER · ${fmt(selected.start)}–${fmt(selected.end)}</span>` +
+    `<header class="structure-detail-head"><div><span>章节 · ${fmt(selected.start)}–${fmt(selected.end)}</span>` +
     `<h2>${esc(selected.title)}</h2></div><button type="button" class="chapter-play">▶ 从这里播放</button></header>` +
     `<p class="chapter-summary">${esc(selected.summary)}</p>` +
     (selected.speakers?.length ? `<div class="chapter-speakers">主要发言：${esc(selected.speakers.join("、"))}</div>` : "") +
-    (pages.length ? `<div class="chapter-pages">${pages.map(page => {
-      const src = page.image
-        ? `/api/meetings/${encodeURIComponent(state.slug)}/file?path=${encodeURIComponent(`slides/${page.image}`)}` : "";
-      return `<button type="button" data-visual-id="${esc(page.id)}" data-visual-time="${selected.start}">` +
-        (src ? `<img src="${src}" alt="${esc(page.title)}">` : "") +
-        `<span>${esc(page.title)}</span></button>`;
-    }).join("")}</div>` : "") +
-    structureClaimGroup("主要讨论", selected.discussion_claim_ids) +
-    structureClaimGroup("共识与决定", selected.decision_claim_ids, "这一章节未识别到已确认共识。") +
-    structureClaimGroup("行动项", selected.action_claim_ids, "这一章节未识别到明确行动项。") +
-    structureClaimGroup("提议与待确认", selected.open_claim_ids) +
+    `<div class="chapter-map" aria-label="本章内容脉络"><div class="chapter-map-root">` +
+    `<span>本章脉络</span><b>${esc(selected.title)}</b><small>${fmt(selected.start)}–${fmt(selected.end)}</small>` +
+    `</div><div class="chapter-map-stem"></div><div class="chapter-map-grid">` +
+    chapterMapBranch("讨论焦点", selected.discussion_claim_ids, "discussion",
+      "本章没有单独标记的讨论要点，可从逐字稿继续核对。") +
+    chapterMapBranch("形成结果", selected.decision_claim_ids, "decision",
+      "尚未形成有依据的决定或共识。") +
+    chapterMapBranch("后续动作", selected.action_claim_ids, "action",
+      "尚未识别到明确行动项。") +
+    chapterMapBranch("待确认", selected.open_claim_ids, "open") +
+    chapterMapVisualBranch(pages, selected) +
+    `</div></div>` +
     `</article></div>`;
   $$('.structure-nav-item', box).forEach(button => button.onclick = () => {
     state.selectedChapterId = button.dataset.chapterId;
@@ -931,11 +977,17 @@ function renderChapters() {
   $(".chapter-play", box).onclick = () => seek(selected.start);
   $$('[data-visual-id]', box).forEach(button => button.onclick = () =>
     openVisual(button.dataset.visualId, Number(button.dataset.visualTime)));
+  $$('[data-low-visual]', box).forEach(button => button.onclick = () => {
+    state.visualFilter = "all";
+    openVisual(button.dataset.lowVisual);
+  });
   wireStructureClaims(box);
 }
 
 function openVisual(visualId, time = null) {
   if (!visualId) return;
+  const target = state.bundle?.structure?.visuals?.find(item => item.id === visualId);
+  if (target?.information_value === "low") state.visualFilter = "all";
   state.selectedVisualId = visualId;
   setReviewMode("visuals");
   renderVisuals();
@@ -944,37 +996,53 @@ function openVisual(visualId, time = null) {
 
 function renderVisuals() {
   const box = $("#visuals");
-  const visuals = state.bundle?.structure?.visuals || [];
-  if (!visuals.length) {
-    box.innerHTML = '<div class="structure-empty-state"><h3>没有画面资料</h3><p>这场会议仍可通过完整纪要和逐字稿回顾。</p></div>';
+  const allVisuals = state.bundle?.structure?.visuals || [];
+  if (!allVisuals.length) {
+    box.innerHTML = '<div class="structure-empty-state"><h3>没有屏幕内容</h3><p>这场会议仍可通过会议纪要和逐字稿回顾。</p></div>';
     return;
   }
+  const useful = allVisuals.filter(item => item.information_value !== "low");
+  if (!useful.length) state.visualFilter = "all";
+  const visuals = state.visualFilter === "useful" && useful.length ? useful : allVisuals;
   const selected = visuals.find(item => item.id === state.selectedVisualId) || visuals[0];
   state.selectedVisualId = selected.id;
   const status = selected.display_status === "discussed" ? "有对应讨论"
     : selected.display_status === "display_only" ? "仅展示" : "动态画面";
   const image = selected.image
     ? `/api/meetings/${encodeURIComponent(state.slug)}/file?path=${encodeURIComponent(`slides/${selected.image}`)}` : "";
-  box.innerHTML = `<div class="structure-layout"><nav class="structure-list visual-list" aria-label="画面资料">` +
-    `<div class="structure-list-head"><b>画面资料</b><span>${visuals.length} 项</span></div>` +
-    visuals.map(visual => `<button type="button" class="structure-nav-item ${visual.id === selected.id ? "active" : ""}" ` +
+  box.innerHTML = `<div class="structure-layout"><nav class="structure-list visual-list" aria-label="屏幕内容">` +
+    `<div class="structure-list-head visual-list-head"><div><b>屏幕内容</b><span>${allVisuals.length} 项</span></div>` +
+    `<div class="visual-filter"><button type="button" data-visual-filter="useful" ` +
+    `class="${state.visualFilter === "useful" ? "active" : ""}">重点 ${useful.length}</button>` +
+    `<button type="button" data-visual-filter="all" class="${state.visualFilter === "all" ? "active" : ""}">` +
+    `全部 ${allVisuals.length}</button></div></div>` +
+    visuals.map(visual => `<button type="button" class="structure-nav-item ${visual.id === selected.id ? "active" : ""} ` +
+      `${visual.information_value === "low" ? "low-information" : ""}" ` +
       `data-visual-id="${esc(visual.id)}"><small>${fmt(visual.first)} · ` +
       `${visual.kind === "slide" ? `第${visual.page}页` : "摄像头"}</small>` +
-      `<b>${esc(visual.title)}</b><span>${visual.ranges?.length || 0} 个出现区间</span></button>`).join("") +
+      `<b>${esc(visual.title)}</b><i class="visual-value ${esc(visual.information_value || "unknown")}">` +
+      `${esc(visualValueLabel(visual))}</i><span>${visual.ranges?.length || 0} 个出现区间</span></button>`).join("") +
     `</nav><article class="structure-detail visual-detail">` +
-    `<header class="structure-detail-head"><div><span>VISUAL · ${esc(status)}</span>` +
+    `<header class="structure-detail-head"><div><span>屏幕 · ${esc(status)} · ${esc(visualValueLabel(selected))}</span>` +
     `<h2>${esc(selected.title)}</h2></div></header>` +
+    `<div class="visual-value-note ${esc(selected.information_value || "unknown")}"><b>${esc(visualValueLabel(selected))}</b>` +
+    `<span>${esc(selected.value_reason || "尚未判断这张画面的信息价值。")}</span></div>` +
+    (selected.needs_reprocess ? `<div class="visual-reprocess">已隐藏模型泄漏的思考过程；该页需要重新解析后才能获得可靠说明。</div>` : "") +
     `<div class="visual-ranges">${(selected.ranges || []).map(([start, end]) =>
       `<button type="button" data-visual-seek="${start}">${fmt(start)}–${fmt(end)}</button>`).join("")}</div>` +
     (image ? `<img class="visual-hero" src="${image}" alt="${esc(selected.title)}">` :
       `<div class="visual-no-image">该片段没有静态页面截图</div>`) +
-    `<section class="visual-description"><h3>视觉模型详细解读</h3>` +
+    `<section class="visual-description"><h3>屏幕内容解读</h3>` +
     `<p class="visual-boundary">仅说明画面展示内容，不代表会议作出了决定。</p>` +
     `<div>${selected.description_html || esc(selected.description || "当前画面没有可用的 VL 详细解读。")}</div></section>` +
     structureClaimGroup("相关会议内容", selected.claim_ids) +
     `</article></div>`;
   $$('.structure-nav-item', box).forEach(button => button.onclick = () => {
     state.selectedVisualId = button.dataset.visualId;
+    renderVisuals();
+  });
+  $$('[data-visual-filter]', box).forEach(button => button.onclick = () => {
+    state.visualFilter = button.dataset.visualFilter;
     renderVisuals();
   });
   $$('[data-visual-seek]', box).forEach(button =>
@@ -1031,7 +1099,7 @@ function showMinutesEvidence(claimId) {
     btn.onclick = () => seek(Number(btn.dataset.time || 0)));
 }
 
-/* ---------- 纪要质量验收 ---------- */
+/* ---------- 会议结论审计 ---------- */
 
 const qualityStatusNames = {
   confirmed: "已确认决定",
@@ -1062,9 +1130,9 @@ function updateQualityIndicators() {
   $("#quality-badge").textContent = pending;
   $("#quality-badge").classList.toggle("hidden", pending === 0);
   $("#quality-entry-btn").classList.toggle("evidence-missing", !evidenceReady);
-  $("#quality-entry-btn").textContent = !evidenceReady ? "证据需补全" : !total
-    ? "暂无可验收结论" : pending
-    ? `开始质量验收 · ${pending}` : (total ? "查看验收结果" : "质量验收");
+  $("#quality-entry-btn").textContent = !evidenceReady ? "结论依据待补全" : !total
+    ? "暂无可审计结论" : pending
+    ? `审计会议结论 · ${pending}` : (total ? "查看审计结果" : "结论审计");
 }
 
 async function loadQualityReview() {
@@ -1075,7 +1143,7 @@ async function loadQualityReview() {
     renderQualityReview();
   } catch (e) {
     state.quality = null;
-    $("#quality").innerHTML = '<p class="placeholder">无法读取本地验收记录</p>';
+    $("#quality").innerHTML = '<p class="placeholder">无法读取本地审计记录</p>';
   }
 }
 
@@ -1098,27 +1166,27 @@ function renderQualityReview() {
     const reason = quality.evidence_state === "stale"
       ? "纪要或逐字稿已经变化，现有依据已过期。"
       : "这场会议还没有结构化的结论依据。";
-    box.innerHTML = `<div class="quality-empty"><h3>暂时无法验收</h3><p>${esc(reason)}</p>` +
-      `<p class="dim">请先重新生成纪要；验收界面不会调用模型，也不会修改正式纪要。</p></div>`;
+    box.innerHTML = `<div class="quality-empty"><h3>暂时无法审计结论</h3><p>${esc(reason)}</p>` +
+      `<p class="dim">请先重新生成纪要；审计界面不会调用模型，也不会修改正式纪要。</p></div>`;
     return;
   }
   const s = quality.summary || {};
   if (!s.total) {
-    box.innerHTML = `<div class="quality-empty"><h3>还没有可验收的结构化结论</h3>` +
+    box.innerHTML = `<div class="quality-empty"><h3>还没有可审计的结构化结论</h3>` +
       `<p>这份旧纪要没有 claim 级依据标记，需要重新生成一次带依据的纪要。</p>` +
-      `<p class="dim">打开验收页不会运行模型，也不会改变现有纪要。</p></div>`;
+      `<p class="dim">打开结论审计不会运行模型，也不会改变现有纪要。</p></div>`;
     return;
   }
   const pct = s.total ? Math.round((s.reviewed / s.total) * 100) : 0;
   const filters = [
-    ["pending", `待判断 ${s.pending || 0}`],
-    ["issues", `有问题 ${s.issues || 0}`],
-    ["passed", `正确 ${s.passed || 0}`],
+    ["pending", `待审计 ${s.pending || 0}`],
+    ["issues", `存疑 ${s.issues || 0}`],
+    ["passed", `可信 ${s.passed || 0}`],
     ["all", `全部 ${s.total || 0}`],
   ];
   let html = `<section class="quality-summary">` +
-    `<div class="quality-summary-head"><div><b>纪要质量验收</b>` +
-    `<p>只保存人工判断，不改写正式纪要。点击依据可回到左侧原文和录音。</p></div>` +
+    `<div class="quality-summary-head"><div><b>会议结论审计</b>` +
+    `<p>逐条确认结论是否被原文和画面支持；只保存人工判断，不改写正式纪要。</p></div>` +
     `<strong>${s.reviewed || 0}/${s.total || 0}</strong></div>` +
     `<div class="quality-progress"><i style="width:${pct}%"></i></div>` +
     `<div class="quality-metrics"><span>完成 ${pct}%</span><span class="issue">问题 ${s.issues || 0}</span>` +
@@ -1130,8 +1198,8 @@ function renderQualityReview() {
 
   const claims = quality.claims.filter(qualityClaimVisible);
   if (!claims.length) {
-    html += `<div class="quality-empty"><h3>${state.qualityFilter === "pending" ? "这一轮已经验收完成" : "此筛选下没有条目"}</h3>` +
-      `<p class="dim">可以切换上方筛选查看已经记录的判断。</p></div>`;
+    html += `<div class="quality-empty"><h3>${state.qualityFilter === "pending" ? "这一轮结论已经审计完成" : "此筛选下没有条目"}</h3>` +
+      `<p class="dim">可以切换上方筛选查看已记录的审计判断。</p></div>`;
   }
   for (const claim of claims) {
     const review = claim.review;
@@ -1195,7 +1263,7 @@ async function saveQualityReview(claim, label, note, button) {
     toast(`已记录：${qualityLabelName(label)}`);
   } catch (e) {
     button.disabled = false;
-    toast(`验收记录失败：${e.message}`);
+    toast(`审计记录失败：${e.message}`);
   }
 }
 

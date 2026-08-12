@@ -14,12 +14,47 @@ from collections import Counter
 from meeting_artifact import MARKER_RE
 
 
-SCHEMA = "meeting-structure/v1"
+SCHEMA = "meeting-structure/v2"
 TOPIC_LINE_RE = re.compile(
     r"^\s*[-*+]\s*(?P<title>.+?)\s*[（(]\s*第\s*(?P<first>\d+)\s*"
     r"(?:[–—\-~至到]\s*(?P<last>\d+)\s*)?页\s*[，,]\s*"
     r"(?P<time>\d{1,3}:\d{2}(?::\d{2})?)\s*起?\s*[）)]\s*[：:]\s*(?P<summary>.+)$"
 )
+
+REASONING_BLOCK_RE = re.compile(
+    r"<(?:think|analysis)\b[^>]*>.*?</(?:think|analysis)\s*>", re.I | re.S)
+REASONING_OPEN_RE = re.compile(r"<(?:think|analysis)\b[^>]*>", re.I)
+REASONING_CLOSE_RE = re.compile(r"</(?:think|analysis)\s*>", re.I)
+SPECIAL_TOKEN_RE = re.compile(r"<\|[^>]+\|>")
+LOW_VALUE_RE = re.compile(
+    r"(?:空白|黑屏|加载中|等待共享|无实质|没有实质|无有效|低信息|过渡页|章节页|分隔页|"
+    r"纯装饰|会议界面|视频会议界面|摄像头画面|看不清|blank|loading|transition|divider)", re.I)
+SUPPORTING_RE = re.compile(r"(?:封面|标题页|目录|议程|agenda|title slide|cover)", re.I)
+HIGH_VALUE_RE = re.compile(
+    r"(?:图表|表格|架构|流程|路线图|数据|指标|趋势|对比|方案|风险|结论|决策|"
+    r"chart|table|architecture|workflow|roadmap|metric|trend)", re.I)
+
+
+def clean_model_text(value: str) -> str:
+    """隐藏模型 reasoning 泄漏；不尝试把思考过程修饰成业务内容。"""
+    text = str(value or "").replace("&lt;think&gt;", "<think>") \
+        .replace("&lt;/think&gt;", "</think>") \
+        .replace("&lt;analysis&gt;", "<analysis>") \
+        .replace("&lt;/analysis&gt;", "</analysis>")
+    text = REASONING_BLOCK_RE.sub("", text)
+    # 只有 closing tag 时，前半通常是泄漏的 reasoning，答案在 tag 后。
+    closers = list(REASONING_CLOSE_RE.finditer(text))
+    if closers and not REASONING_OPEN_RE.search(text):
+        text = text[closers[-1].end():]
+    # 未闭合的 opening tag 没有可靠答案，宁可隐藏，也不把推理过程当标题。
+    opener = REASONING_OPEN_RE.search(text)
+    if opener:
+        text = text[:opener.start()]
+    text = REASONING_CLOSE_RE.sub("", text)
+    text = SPECIAL_TOKEN_RE.sub("", text)
+    text = re.sub(r"^\s*(?:assistant|final)\s*[:：]?\s*$", "", text,
+                  flags=re.I | re.M)
+    return text.strip()
 
 
 def _timestamp(value: str) -> float:
@@ -30,23 +65,126 @@ def _timestamp(value: str) -> float:
 
 
 def _plain(value: str) -> str:
-    value = MARKER_RE.sub("", str(value or ""))
+    value = MARKER_RE.sub("", clean_model_text(value))
     value = value.replace("**", "").replace("__", "").replace("`", "")
     return " ".join(value.split()).strip()
 
 
 def _visual_title(description: str, page: int) -> str:
-    lines = [line.strip() for line in str(description or "").splitlines() if line.strip()]
+    lines = [line.strip() for line in clean_model_text(description).splitlines() if line.strip()]
     for index, line in enumerate(lines):
         if re.match(r"^#{1,5}\s*标题\s*$", line):
             for following in lines[index + 1:]:
                 if not following.startswith("#"):
-                    return following.lstrip("-* ")[:100]
+                    candidate = following.lstrip("-* ")[:100]
+                    if candidate:
+                        return candidate
     for line in lines:
         cleaned = re.sub(r"^#{1,5}\s*", "", line).lstrip("-* ").strip()
-        if cleaned and cleaned != "标题":
+        if (cleaned and cleaned not in {"标题", "页面角色", "信息价值", "页面内容", "这页想说明什么"}
+                and not re.match(r"^(?:content|agenda|cover|section|transition|blank|meeting_ui|demo)$",
+                                 cleaned, re.I)
+                and not re.match(r"^(?:high|medium|low|高|中|低)\s*[：:]", cleaned, re.I)):
             return cleaned[:100]
-    return f"第{page}页"
+    return f"第{page}页屏幕内容"
+
+
+def _visual_role(description: str, title: str) -> str:
+    text = f"{title}\n{description}"
+    explicit = re.search(
+        r"(?:页面角色|page role)\s*[:：]?\s*(?:`)?"
+        r"(content|agenda|cover|section|transition|blank|meeting_ui|demo)",
+        text, re.I | re.S)
+    if explicit:
+        return explicit.group(1).lower()
+    if re.search(r"(?:空白|黑屏|blank)", text, re.I):
+        return "blank"
+    if re.search(r"(?:加载中|等待共享|会议界面|meeting[ _-]?ui)", text, re.I):
+        return "meeting_ui"
+    if re.search(r"(?:过渡页|章节页|分隔页|transition|divider|section)", text, re.I):
+        return "transition"
+    if re.search(r"(?:目录|议程|agenda)", text, re.I):
+        return "agenda"
+    if re.search(r"(?:封面|标题页|cover|title slide)", text, re.I):
+        return "cover"
+    return "content"
+
+
+def _visual_value(description: str, title: str, kind: str = "slide") -> dict:
+    """给屏幕内容打阅读价值标签；显式 VL 结论优先，旧缓存使用保守启发式。"""
+    if kind == "camera":
+        return {"content_role": "camera", "information_value": "low",
+                "value_label": "低信息", "value_source": "deterministic",
+                "value_reason": "摄像头动态画面不是静态页面资料。"}
+    cleaned = clean_model_text(description)
+    role = _visual_role(cleaned, title)
+    explicit = re.search(
+        r"(?:信息价值|information value)\s*[:：]?\s*(?:`)?"
+        r"(high|medium|low|高|中|低)", cleaned, re.I | re.S)
+    normalized = {"高": "high", "中": "medium", "低": "low"}
+    level = normalized.get(explicit.group(1), explicit.group(1).lower()) if explicit else None
+    plain = _plain(cleaned)
+    value_source = "vl" if level else "heuristic"
+    if not level:
+        if role in {"blank", "meeting_ui", "transition"} or LOW_VALUE_RE.search(plain):
+            level = "low"
+        elif role in {"agenda", "cover"} or SUPPORTING_RE.search(plain):
+            level = "medium"
+        elif HIGH_VALUE_RE.search(plain) or len(plain) >= 260:
+            level = "high"
+        elif len(plain) < 70:
+            level = "low"
+        else:
+            level = "medium"
+    reason_match = re.search(
+        r"(?:信息价值|information value)\s*[:：]?\s*(?:`)?"
+        r"(?:high|medium|low|高|中|低)(?:`)?\s*[：:—-]?\s*([^\n#]+)", cleaned, re.I)
+    if reason_match:
+        reason = _plain(reason_match.group(1))
+    elif level == "low":
+        reason = "封面、过渡、空白或会议界面，缺少可复用的业务信息。"
+    elif level == "high":
+        reason = "包含数据、结构、方案或其他可复用的核心信息。"
+    else:
+        reason = "提供议程、标题或辅助背景，可作为讨论定位参考。"
+    return {"content_role": role, "information_value": level,
+            "value_label": {"high": "核心", "medium": "参考", "low": "低信息"}[level],
+            "value_source": value_source,
+            "value_reason": (("根据旧页面说明推测：" + reason)
+                             if value_source == "heuristic" else reason)}
+
+
+def _display_description(description: str) -> str:
+    """页面角色/信息价值已单独显示为 badge，正文里不再重复这两个元数据节。"""
+    text = clean_model_text(description)
+    for heading in ("页面角色", "信息价值"):
+        text = re.sub(
+            rf"^#{{1,5}}\s*{heading}\s*$.*?(?=^#{{1,5}}\s|\Z)", "", text,
+            flags=re.M | re.S)
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
+def _short_chapter_title(raw_title: str, claims: list[dict], claim_ids: list[str],
+                         page_ids: list[str], descriptions: dict[int, str], index: int) -> str:
+    title = _plain(raw_title)
+    invalid = (not title or len(title) > 72 or "<think" in title.lower()
+               or title.lower() in {"analysis", "assistant", "标题", "页面内容"})
+    if not invalid:
+        return title
+    claim_map = {claim.get("id"): claim for claim in claims}
+    for claim_id in claim_ids:
+        text = _plain((claim_map.get(claim_id) or {}).get("text"))
+        if text:
+            return text[:42] + ("…" if len(text) > 42 else "")
+    for page_id in page_ids:
+        try:
+            page = int(str(page_id).lstrip("P"))
+        except ValueError:
+            continue
+        title = _visual_title(descriptions.get(page, ""), page)
+        if title:
+            return title
+    return f"章节 {index}"
 
 
 def _topic_rows(minutes: str) -> list[dict]:
@@ -123,6 +261,8 @@ def _segments(turns: list[dict], timeline: list[dict], descriptions: dict[int, s
             start, end = float(bounds[0]), float(bounds[1])
             if end <= start:
                 continue
+            title = (_visual_title(descriptions.get(page, ""), page)
+                     if page is not None else "摄像头画面")
             rows.append({
                 "kind": kind,
                 "page": page,
@@ -131,8 +271,8 @@ def _segments(turns: list[dict], timeline: list[dict], descriptions: dict[int, s
                 "end": end,
                 "image": item.get("image") if kind == "slide" else None,
                 "range_index": range_index,
-                "title": (_visual_title(descriptions.get(page, ""), page)
-                          if page is not None else "摄像头画面"),
+                "title": title,
+                **_visual_value(descriptions.get(page, ""), title, kind),
             })
     rows.sort(key=lambda item: (item["start"], item["end"]))
     camera_count = 0
@@ -149,21 +289,27 @@ def _segments(turns: list[dict], timeline: list[dict], descriptions: dict[int, s
 
 def _fallback_chapters(segments: list[dict], duration: float) -> list[dict]:
     if not segments:
-        return [{"title": "完整会议", "summary": "这场会议没有可用的共享画面分段。",
+        return [{"title": "会议讨论", "summary": "这场会议没有可用的共享画面分段。",
                  "start": 0.0, "end": duration, "page_numbers": [], "source": "meeting"}]
+    # 页面变化不等于主题变化。空白、过渡、会议 UI 等低信息片段只归入相邻章节，
+    # 不再各自生成一个没有业务意义的章节标题。
+    anchors = [segment for segment in segments if segment.get("information_value") != "low"]
+    if not anchors:
+        return [{"title": "会议讨论", "summary": "共享画面以低信息或过渡内容为主。",
+                 "start": 0.0, "end": duration, "page_numbers": [], "source": "visual"}]
     rows = []
-    if segments[0]["start"] > 1:
+    if anchors[0]["start"] > 60:
         rows.append({"title": "开场", "summary": "共享画面开始前的讨论。", "start": 0.0,
-                     "end": segments[0]["start"], "page_numbers": [], "source": "visual"})
-    for segment in segments:
+                     "end": anchors[0]["start"], "page_numbers": [], "source": "visual"})
+    for index, segment in enumerate(anchors):
+        start = segment["start"] if rows else 0.0
+        end = anchors[index + 1]["start"] if index + 1 < len(anchors) else duration
         rows.append({"title": segment["title"],
                      "summary": ("这一时间段显示摄像头画面。" if segment["kind"] == "camera"
                                  else f"围绕第{segment['page']}页展开的讨论。"),
-                     "start": segment["start"], "end": segment["end"],
+                     "start": start, "end": end,
                      "page_numbers": [segment["page"]] if segment["page"] else [],
                      "source": "visual"})
-    if rows[-1]["end"] < duration:
-        rows[-1]["end"] = duration
     return rows
 
 
@@ -199,14 +345,17 @@ def build_structure(minutes: str, turns: list[dict], timeline: list[dict],
         ))
         speakers = Counter(str(turns[index].get("speaker") or "未知") for index in indexes)
         groups = _claim_groups(claims, indexes, page_ids)
-        summary = raw.get("summary") or ""
+        summary = _plain(raw.get("summary") or "")
         if not summary and groups["claim_ids"]:
             first_claim = next((claim for claim in claims
                                 if claim["id"] == groups["claim_ids"][0]), None)
-            summary = str((first_claim or {}).get("text") or "")
+            summary = _plain((first_claim or {}).get("text") or "")
+        chapter_number = len(chapters) + 1
         chapters.append({
-            "id": f"B{len(chapters) + 1:04d}",
-            "title": raw.get("title") or f"章节 {len(chapters) + 1}",
+            "id": f"B{chapter_number:04d}",
+            "title": _short_chapter_title(
+                raw.get("title") or "", claims, groups["claim_ids"], page_ids,
+                descriptions, chapter_number),
             "summary": summary or "这一章节尚没有结构化摘要，可从逐字稿和画面继续核对。",
             "start": start,
             "end": end,
@@ -231,15 +380,20 @@ def build_structure(minutes: str, turns: list[dict], timeline: list[dict],
                                      for index in segment["turn_indexes"]))
         source = page_sources.get(pid, {})
         groups = _claim_groups(claims, indexes, [pid])
+        title = _visual_title(descriptions.get(page, ""), page)
+        description = clean_model_text(descriptions.get(page, ""))
         visuals.append({
             "id": pid, "kind": "slide", "page": page,
-            "title": _visual_title(descriptions.get(page, ""), page),
-            "description": descriptions.get(page, ""),
+            "title": title,
+            "description": description,
+            "display_description": _display_description(description),
             "image": item.get("image"), "first": float(item.get("first", 0)),
             "ranges": item.get("ranges", []),
             "segment_ids": [segment["id"] for segment in related_segments],
             "turn_indexes": indexes,
             "display_status": source.get("display_status") or ("discussed" if indexes else "display_only"),
+            "needs_reprocess": bool(descriptions.get(page) and not description),
+            **_visual_value(description, title),
             **groups,
         })
     for segment in segments:
@@ -249,10 +403,12 @@ def build_structure(minutes: str, turns: list[dict], timeline: list[dict],
         visuals.append({
             "id": segment["visual_id"], "kind": "camera", "page": None,
             "title": "摄像头画面", "description": "动态摄像头画面未进入静态页面 VL 解读。",
+            "display_description": "动态摄像头画面未进入静态页面 VL 解读。",
             "image": None, "first": segment["start"],
             "ranges": [[segment["start"], segment["end"]]],
             "segment_ids": [segment["id"]],
             "turn_indexes": segment["turn_indexes"], "display_status": "camera",
+            **_visual_value("", "摄像头画面", "camera"),
             **groups,
         })
     visuals.sort(key=lambda item: item["first"])

@@ -39,6 +39,7 @@ from meeting_artifact import (
     normalize_minutes_markdown,
     write_evidence_document,
 )
+from meeting_structure import clean_model_text
 
 ROUTER = "http://127.0.0.1:11435/v1/chat/completions"
 MODEL = "qwen3.6-35b-a3b-operator"
@@ -161,7 +162,7 @@ def describe_pages(mdir: Path, pages, api: str, video: Path = None):
     """逐页 VL 详细解读(带 page_desc.json 缓存, 重跑只补缺的页)。返回 {页码: 文本}。"""
     cache_p = mdir / "page_desc.json"
     cache = json.loads(cache_p.read_text(encoding="utf-8")) if cache_p.is_file() else {}
-    descs = {int(k): v for k, v in cache.get("desc", {}).items()}
+    descs = {int(k): clean_model_text(v) for k, v in cache.get("desc", {}).items()}
     todo = [p for p in pages if p["page"] not in descs]
     if not todo:
         print(f"[meta] VL 页面解读全部命中缓存({len(descs)} 页)", flush=True)
@@ -176,7 +177,7 @@ def describe_pages(mdir: Path, pages, api: str, video: Path = None):
             grab_fullres(video, p.get("captured", p["first"]), img)
         try:
             raw, usage = chat_with_image(api, mid, img, VL_MAXTOK, DETAIL_PROMPT)
-            descs[p["page"]] = raw
+            descs[p["page"]] = clean_model_text(raw)
         except Exception as e:
             print(f"[meta] VL 第{p['page']}页失败: {type(e).__name__}", flush=True)
             continue
@@ -195,7 +196,8 @@ def chat(prompt: str, max_tokens: int = 8192, model: str = MODEL):
     req = urllib.request.Request(ROUTER, data=body, headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=1800) as resp:
         data = json.loads(resp.read())
-    return data["choices"][0]["message"].get("content", "").strip(), data.get("usage", {})
+    return clean_model_text(
+        data["choices"][0]["message"].get("content", "")), data.get("usage", {})
 
 
 def load_inputs(mdir: Path):

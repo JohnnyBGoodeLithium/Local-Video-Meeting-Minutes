@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>会议纪要</title>
-<link rel="stylesheet" href="/static/style.css?v=20260812p6">
+<link rel="stylesheet" href="/static/style.css?v=20260812p7">
 </head>
 <body class="page-index">
 <header class="topbar">
@@ -43,7 +43,7 @@
         <div id="meeting-statuses" class="meeting-statuses" aria-live="polite"></div>
       </div>
       <div class="meeting-head-actions">
-        <button id="quality-entry-btn" class="quality-entry" type="button" disabled>开始质量验收</button>
+        <button id="quality-entry-btn" class="quality-entry" type="button" disabled>审计会议结论</button>
         <details class="more-menu">
           <summary>更多</summary>
           <div class="more-menu-pop">
@@ -99,18 +99,18 @@
 
         <section class="minutes-pane">
           <div class="col-header minutes-mode-tabs">
-            <button id="minutes-tab" class="mode-tab active" type="button">完整纪要</button>
-            <button id="chapters-tab" class="mode-tab" type="button" disabled>章节回顾</button>
-            <button id="visuals-tab" class="mode-tab" type="button" disabled>画面资料</button>
+            <button id="minutes-tab" class="mode-tab active" type="button">会议纪要</button>
+            <button id="chapters-tab" class="mode-tab" type="button" disabled>章节脉络</button>
+            <button id="visuals-tab" class="mode-tab" type="button" disabled>屏幕内容</button>
             <button id="quality-tab" class="mode-tab" type="button" disabled>
-              质量验收 <span id="quality-badge" class="quality-badge hidden"></span>
+              结论审计 <span id="quality-badge" class="quality-badge hidden"></span>
             </button>
           </div>
           <div id="minutes" class="minutes"><p class="placeholder">纪要内容</p></div>
-          <div id="chapters" class="structure-view hidden"><p class="placeholder">选择会议后可按章节回顾</p></div>
-          <div id="visuals" class="structure-view hidden"><p class="placeholder">选择会议后可查看画面资料</p></div>
+          <div id="chapters" class="structure-view hidden"><p class="placeholder">选择会议后可查看章节脉络</p></div>
+          <div id="visuals" class="structure-view hidden"><p class="placeholder">选择会议后可查看屏幕内容</p></div>
           <div id="quality" class="quality-view hidden">
-            <p class="placeholder">选择会议后可核对结论质量</p>
+            <p class="placeholder">选择会议后可审计结论与依据</p>
           </div>
         </section>
       </div>
@@ -190,6 +190,6 @@
   </div>
 </div>
 
-<script src="/static/app.js?v=20260812p6"></script>
+<script src="/static/app.js?v=20260812p7"></script>
 </body>
 </html>

@@ -1,4 +1,4 @@
-"""本地纪要质量验收记录。
+"""本地会议结论审计记录。
 
 评测文件只保存 claim ID、结构指纹和人工标签，不复制逐字稿或纪要正文。
 结构指纹包含该 claim 引用的来源内容，因此修改无关段落不会让所有验收失效，
@@ -16,13 +16,13 @@ from pathlib import Path
 
 SCHEMA = "meeting-minutes-evaluation/v1"
 LABELS = [
-    {"id": "correct", "label": "正确", "group": "pass", "shortcut": "1"},
-    {"id": "proposal_not_decision", "label": "提议不是决定", "group": "issue", "shortcut": "2"},
-    {"id": "should_be_decision", "label": "应该是决定", "group": "issue", "shortcut": "3"},
-    {"id": "wrong_evidence", "label": "证据不对应", "group": "issue", "shortcut": "4"},
+    {"id": "correct", "label": "结论与依据一致", "group": "pass", "shortcut": "1"},
+    {"id": "proposal_not_decision", "label": "把提议写成决定", "group": "issue", "shortcut": "2"},
+    {"id": "should_be_decision", "label": "遗漏或弱化了决定", "group": "issue", "shortcut": "3"},
+    {"id": "wrong_evidence", "label": "引用依据不对应", "group": "issue", "shortcut": "4"},
     {"id": "wrong_owner_deadline", "label": "负责人/期限错误", "group": "issue", "shortcut": "5"},
-    {"id": "unsupported", "label": "原文没有该信息", "group": "issue", "shortcut": "6"},
-    {"id": "cannot_judge", "label": "暂时无法判断", "group": "uncertain", "shortcut": "7"},
+    {"id": "unsupported", "label": "缺少原文支持", "group": "issue", "shortcut": "6"},
+    {"id": "cannot_judge", "label": "暂时无法审计", "group": "uncertain", "shortcut": "7"},
 ]
 VALID_LABELS = {item["id"] for item in LABELS}
 LABEL_GROUPS = {item["id"]: item["group"] for item in LABELS}
@@ -98,7 +98,7 @@ def claim_fingerprint(claim: dict, evidence: dict) -> str:
 def save_review(path: Path, slug: str, evidence: dict, claim: dict,
                 label: str, note: str, now: float | None = None) -> dict:
     if label not in VALID_LABELS:
-        raise ValueError("未知验收标签")
+        raise ValueError("未知审计标签")
     note = note.strip()
     if len(note) > 1000:
         raise ValueError("备注不能超过 1000 字")
