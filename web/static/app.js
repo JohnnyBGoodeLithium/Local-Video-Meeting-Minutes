@@ -221,7 +221,7 @@ function renderMeetingList() {
       m.duration ? fmt(m.duration) : null,
       m.speaker_count ? `${m.speaker_count} 人` : null,
       m.generation_phase && ["voice_draft_generating", "voice_draft", "visual_enrichment"].includes(m.generation_phase)
-        ? "语音草稿可读" : m.has_minutes ? "可回顾" : "待生成纪要",
+        ? (m.has_minutes ? "语音草稿可读" : "终稿生成中") : m.has_minutes ? "可回顾" : "待生成纪要",
     ].filter(Boolean).join(" · ");
     li.innerHTML =
       `<div class="m-title">${esc(m.title || m.slug)}</div>` +
@@ -305,6 +305,7 @@ function renderMeetingStatuses() {
     && ["queued", "running"].includes(job.status));
   const documentReady = b.document_state === "ready";
   const voiceDraft = b.document_state === "draft";
+  const voiceDraftFailed = !b.has_minutes && Number(b.generation?.voice_draft_rc || 0) !== 0;
   const evidenceState = b.evidence?.state || "partial";
   const evidenceLabel = evidenceState === "ready" ? "可核证"
     : evidenceState === "stale" ? "已过期" : "部分证据";
@@ -312,10 +313,12 @@ function renderMeetingStatuses() {
     : evidenceState === "stale" ? "warn" : "neutral";
   const shareReady = documentReady && Boolean(b.transcript?.length);
   box.innerHTML = [
-    statusChip("资料", voiceDraft ? "语音草稿可读" : active ? (active.stage || "处理中")
+    statusChip("资料", voiceDraft ? "语音草稿可读" : voiceDraftFailed ? "草稿失败，生成终稿"
+      : active ? (active.stage || "处理中")
       : (documentReady ? "可阅读" : "处理中"),
-      voiceDraft || active ? "working" : (documentReady ? "good" : "neutral"),
-      voiceDraft ? "口头内容已经可读，屏幕表格、数字和画面资料仍在补充" : ""),
+      voiceDraftFailed ? "warn" : voiceDraft || active ? "working" : (documentReady ? "good" : "neutral"),
+      voiceDraft ? "口头内容已经可读，屏幕表格、数字和画面资料仍在补充"
+        : voiceDraftFailed ? "文本模型没有返回可读正文；系统没有停住，正在继续生成多模态终稿" : ""),
     statusChip("证据", evidenceLabel, evidenceTone,
       evidenceState === "ready" ? "结论可回到逐字稿或共享画面核对" : "重新生成纪要后可补齐结构化依据"),
     statusChip("分享", shareReady ? "可导出" : "待补齐", shareReady ? "good" : "neutral",
@@ -922,11 +925,17 @@ function renderMinutes() {
   const box = $("#minutes");
   const draft = state.bundle?.document_state === "draft";
   const phase = state.bundle?.generation?.phase;
+  const draftFailed = !state.bundle?.has_minutes
+    && Number(state.bundle?.generation?.voice_draft_rc || 0) !== 0;
   const banner = draft ? `<section class="minutes-draft-banner"><div><span>语音草稿 · 已可阅读</span>` +
     `<b>${phase === "visual_enrichment" ? "正在补充屏幕资料" : "正在准备屏幕分析"}</b>` +
     `<p>当前结论来自逐字稿和说话人；页面数字、表格和画面上下文会在多模态终稿中补充。` +
     `草稿期间可以播放、搜索和追问，暂不支持修改或导出。</p></div><i></i></section>` : "";
-  box.innerHTML = banner + (state.bundle.minutes_html || '<p class="placeholder">暂无纪要</p>');
+  const pending = draftFailed
+    ? '<section class="minutes-draft-banner"><div><span>语音草稿生成失败</span><b>正在继续生成多模态终稿</b>' +
+      '<p>文本模型没有返回可读正文，因此这次无法提前展示草稿；逐字稿仍可阅读和播放，终稿完成后会自动出现。</p></div><i></i></section>'
+    : '<p class="placeholder">暂无纪要</p>';
+  box.innerHTML = banner + (state.bundle.minutes_html || pending);
   $$("h1, h2, h3", box).forEach((heading, index) => {
     heading.id = `minutes-heading-${index}`;
     heading.dataset.readingHeading = "1";
@@ -2126,6 +2135,7 @@ function renderJobs(jobs) {
     const progress = j.progress?.total
       ? ` ${j.progress.done || 0}/${j.progress.total}` : "";
     const lastLog = String(j.log?.at(-1) || "");
+    const voiceDraftFailed = (j.log || []).some(line => String(line).includes("语音草稿生成失败"));
     const stepMatch = lastLog.match(/^\[(\d+)\/(\d+)\]/);
     const step = stepMatch ? ` ${stepMatch[1]}/${stepMatch[2]}` : "";
     const vlPage = lastLog.match(/^\[meta\] VL 第(\d+)页/);
@@ -2144,7 +2154,8 @@ function renderJobs(jobs) {
       ? ` · 已运行 ${fmt(Date.now() / 1000 - j.started)}` : "";
     const status = j.status === "queued" ? `${kindLabel ? `${kindLabel} · ` : ""}等待处理`
       : j.status === "failed" ? `失败 · ${liveStage || "处理阶段"}`
-      : `${kindLabel ? `${kindLabel} · ` : ""}${liveStage || "处理中"}${liveProgress}${elapsed}`;
+      : `${kindLabel ? `${kindLabel} · ` : ""}${liveStage || "处理中"}${liveProgress}` +
+        `${voiceDraftFailed ? " · 草稿未生成" : ""}${elapsed}`;
     li.classList.toggle("job-failed", j.status === "failed");
     li.innerHTML =
       `<span class="j-name" title="${esc(j.id)}">${esc(name)}</span>` +

@@ -87,7 +87,7 @@ def publish_voice_draft(mdir: Path) -> dict:
         shutil.copy2(evidence, mdir / "minutes.voice-draft.evidence.json")
     claims = len(_read_json(evidence, {}).get("claims", []))
     state = update(mdir, "voice_draft", voice_draft_revision=artifact.file_revision(minutes),
-                   voice_draft_claims=claims)
+                   voice_draft_claims=claims, voice_draft_rc=None)
     print(f"[meta] 语音草稿已可阅读 | 结论 {claims} 条 | 正在补充屏幕资料", flush=True)
     return state
 

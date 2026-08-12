@@ -112,6 +112,11 @@ check("首页显式展示结论审计和章节脉络入口且禁止缓存旧壳"
       and b'utility-panel' in page and b'pane-resizer' in page
       and b'export-preflight' in page and b'href="/static/product.html"' in page
       and "no-store" in cache_control)
+s, _, app_js = req("GET", "/static/app.js", raw=True)
+check("渐进纪要失败时明确等待终稿，不把空纪要误报为草稿可读",
+      s == 200 and "语音草稿生成失败".encode() in app_js
+      and "草稿失败，生成终稿".encode() in app_js
+      and b'(m.has_minutes ?' in app_js)
 s, product_headers, product_page = req("GET", "/product", raw=True)
 product_cache = next((value for key, value in product_headers.items()
                       if key.lower() == "cache-control"), "")

@@ -133,6 +133,9 @@ def main() -> int:
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": args.max_tokens,
         "temperature": 0.2,
+        # 语音草稿需要尽快给用户可读正文。Qwen thinking 打开时可能把整个
+        # completion budget 用在 reasoning_content，最终 content 为空。
+        "chat_template_kwargs": {"enable_thinking": False},
     }).encode("utf-8")
 
     t0 = time.time()
@@ -142,14 +145,14 @@ def main() -> int:
         with urllib.request.urlopen(req, timeout=1800) as resp:
             data = json.loads(resp.read())
     except Exception as e:
-        print(f"请求本地路由失败({ROUTER}): {e}", file=sys.stderr)
+        print(f"[error] 请求本地路由失败({ROUTER}): {e}", file=sys.stderr)
         return 2
     elapsed = time.time() - t0
 
     msg = data["choices"][0]["message"]
     minutes = normalize_minutes_markdown((msg.get("content") or "").strip())
     if not minutes:
-        print("模型返回为空(可能 token 全耗在推理上)", file=sys.stderr)
+        print("[error] 模型返回为空（正文输出预算耗尽）", file=sys.stderr)
         return 3
 
     out_dir = args.out or args.transcript.parent
