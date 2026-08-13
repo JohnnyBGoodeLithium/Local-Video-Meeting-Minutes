@@ -41,9 +41,11 @@ const state = {
   selectedTopicId: null,
   selectedTopicNodeId: null,
   selectedVisualId: null,
-  focus: { mode: "overview", time: null, ranges: [], topicId: null, nodeId: null,
+  focus: { mode: "overview", time: null, ranges: [], topicId: null, nodeId: null, person: null,
     turnIds: [], claimIds: [], pageIds: [], source: "overview" },
   screenPreview: { visualId: null, zoomIndex: 0, returnFocus: null },
+  speakerZoom: null,
+  speakerColorCache: null,
   visualFilter: "useful",
   uiLanguage: UI_LANGUAGES.has(workspaceState.uiLanguage) ? workspaceState.uiLanguage : "zh-CN",
   minutesTranslation: null,
@@ -102,6 +104,9 @@ const UI_COPY = {
     expanding: "展开画面", collapsing: "收起画面", sourceMinutes: "正在显示原始语言纪要",
     translatingMinutes: "正在生成中文纪要，完成后自动切换", minutesFailed: "中文纪要生成失败，可再次切换重试",
     translatingOutline: "正在生成中文会议脉络，完成后自动切换", outlineFailed: "中文会议脉络生成失败，可再次切换重试",
+    personFocus: "人物聚焦", personFocusTip: "点击聚焦此发言人，再点一次取消",
+    legendBind: "未绑定声纹：在逐字稿中点击该姓名可绑定人员",
+    zoomHint: "双击展开细节", zoomClose: "收起", gapTip: "论点未覆盖，点击跳转",
   },
   en: {
     title: "Meeting Minutes", brand: "🎙 Meeting Minutes", meetings: "Meetings", product: "Product", settings: "Settings",
@@ -116,6 +121,10 @@ const UI_COPY = {
     minutesFailed: "English minutes generation failed; switch again to retry",
     translatingOutline: "Generating the English meeting map; this view will update automatically",
     outlineFailed: "English meeting-map generation failed; switch again to retry",
+    personFocus: "Person focus", personFocusTip: "Click to focus this speaker; click again to clear",
+    legendBind: "No voiceprint bound: click this name in the transcript to bind a person",
+    zoomHint: "Double-click for details", zoomClose: "Collapse",
+    gapTip: "Not covered by topics; click to jump",
   },
 };
 
@@ -129,22 +138,9 @@ function fmt(sec) {
   return h ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
 }
 
-function detectTurnLanguage(text) {
-  const value = String(text || "");
-  const cjk = (value.match(/[\u3400-\u9fff]/g) || []).length;
-  const latin = (value.match(/[A-Za-z]/g) || []).length;
-  if (cjk && latin >= 4) return "mixed";
-  if (cjk) return "zh";
-  if (latin) return "en";
-  return "unknown";
-}
-
-function recommendedTranslationTarget(turns) {
-  const languages = (turns || []).map(turn => detectTurnLanguage(turn.text))
-    .filter(language => language !== "unknown");
-  if (languages.length && languages.every(language => language === "zh")) return "en";
-  if (languages.length && languages.every(language => language === "en")) return "zh-CN";
-  return TRANSLATION_TARGETS.has(state.translationTarget) ? state.translationTarget : "zh-CN";
+function defaultTranslationTarget() {
+  // 译文目标默认值跟随界面语言；用户手动改过后写入 workspace.translationTargets，不再跟随。
+  return state.uiLanguage === "en" ? "en" : "zh-CN";
 }
 
 function translationTargetLabel(target = state.translationTarget) {
@@ -384,6 +380,10 @@ async function deleteMeeting(ev, slug) {
     $("#visuals").innerHTML = '<p class="placeholder">选择会议后可查看屏幕内容</p>';
     $("#player-holder").innerHTML = '<p class="placeholder">选择会议后可回放</p>';
     $("#timeline").innerHTML = "";
+    $("#speaker-legend").innerHTML = "";
+    $("#speaker-zoom").innerHTML = "";
+    state.speakerZoom = null;
+    state.speakerColorCache = null;
     $("#current-chapter").classList.add("hidden");
     $("#regen-btn").disabled = true;
     $("#refine-btn").disabled = true;
@@ -475,7 +475,7 @@ async function loadMeeting(slug) {
   state.bundle = b;
   const savedTarget = state.workspace.translationTargets[slug];
   state.translationTarget = TRANSLATION_TARGETS.has(savedTarget)
-    ? savedTarget : recommendedTranslationTarget(b.transcript);
+    ? savedTarget : defaultTranslationTarget();
   state.workspace.lastSlug = slug;
   saveWorkspaceState();
   state.quality = null;
@@ -486,9 +486,11 @@ async function loadMeeting(slug) {
   state.selectedTopicId = null;
   state.selectedTopicNodeId = null;
   state.selectedVisualId = b.structure?.visuals?.[0]?.id || null;
-  state.focus = { mode: "overview", time: null, ranges: [], topicId: null, nodeId: null,
+  state.focus = { mode: "overview", time: null, ranges: [], topicId: null, nodeId: null, person: null,
     turnIds: [], claimIds: [], pageIds: [], source: "overview" };
   state.focusSignature = null;
+  state.speakerZoom = null;
+  state.speakerColorCache = null;
   state.visualFilter = "useful";
   state.expandedOriginals.clear();
   state.evidenceBilingual.clear();
@@ -581,9 +583,9 @@ function renderPlayer() {
   updateFocusPresentation(true);
 }
 
-/* ---------- 时间轴（页区间分段 + 刻度 + 议题标记） ---------- */
+/* ---------- 时间轴（Topic 全覆盖车道 + 说话人泳道 + 刻度） ---------- */
 
-const PAGE_COLORS = ["#4f7cff", "#22a06b", "#e2a13c", "#c25050", "#8a5cd6", "#2ba3b8", "#b8609a"];
+const SPEAKER_COLORS = ["#5e9dff", "#34c98e", "#f0a13f", "#e06a6a", "#a97ef0", "#3cc0d8", "#e07fb5", "#9fbd4a"];
 const VISUAL_VALUE_LABELS = {
   "zh-CN": { high: "核心", medium: "参考", low: "低信息", unknown: "待解析" },
   en: { high: "Key", medium: "Reference", low: "Low information", unknown: "Pending" },
@@ -738,7 +740,7 @@ function claimsForTurn(index) {
 }
 
 function setOverviewFocus() {
-  state.focus = { mode: "overview", time: null, ranges: [], topicId: null, nodeId: null,
+  state.focus = { mode: "overview", time: null, ranges: [], topicId: null, nodeId: null, person: null,
     turnIds: [], claimIds: [], pageIds: [], source: "overview" };
   state.selectedTopicId = null;
   state.selectedTopicNodeId = null;
@@ -749,7 +751,7 @@ function setOverviewFocus() {
 function setTopicFocus(topic, node = topic) {
   if (!topic || !node) return;
   state.focus = { mode: "topic", time: null, ranges: node.ranges || topic.ranges || [],
-    topicId: topic.id, nodeId: node.id, turnIds: node.turn_ids || topic.turn_ids || [],
+    topicId: topic.id, nodeId: node.id, person: null, turnIds: node.turn_ids || topic.turn_ids || [],
     claimIds: node.claim_ids || topic.claim_ids || [], pageIds: node.page_ids || topic.page_ids || [],
     source: "topic" };
   state.selectedTopicId = topic.id;
@@ -769,7 +771,7 @@ function syncTimeFocus(time, explicit = false) {
   const turnSource = (state.bundle?.evidence?.sources?.transcript || []).find(item => item.index === index);
   const signature = `${index}|${visual?.id || ""}|${topic?.id || ""}|${range.join("-")}`;
   state.focus = { mode: "time", time: value, ranges: range.length ? [range] : [],
-    topicId: topic?.id || null, nodeId: topic?.id || null,
+    topicId: topic?.id || null, nodeId: topic?.id || null, person: null,
     turnIds: turnSource ? [turnSource.id] : [], claimIds: claimsForTurn(index),
     pageIds: visual?.id ? [visual.id] : [], source: explicit ? "jump" : "playback" };
   if (signature !== state.focusSignature || explicit) {
@@ -820,7 +822,10 @@ function updateTimelineFocus() {
 
 function updateFocusedTurns(explicit = false) {
   const indexes = state.focus.mode === "time" ? [currentTurnIndex(state.focus.time || 0)]
-    : turnIndexesForIds(state.focus.turnIds);
+    : state.focus.mode === "person"
+      ? (state.bundle?.transcript || []).map((turn, index) => turn.speaker === state.focus.person ? index : -1)
+        .filter(index => index >= 0)
+      : turnIndexesForIds(state.focus.turnIds);
   $$(".turn.focus-related").forEach(item => item.classList.remove("focus-related"));
   for (const index of indexes) $(`#turn-${index}`)?.classList.add("focus-related");
   const target = indexes.find(index => index >= 0);
@@ -856,6 +861,14 @@ function updateFocusSummary() {
         `${(focus.ranges || []).length} 个时间范围 · ${focus.claimIds.length} 条相关结论`}</small>` +
       (focus.claimIds.length ? `<button type="button" id="focus-show-claims">${isEnglishUi() ? "View conclusions" : "查看结论"}</button>` : "") +
       `<button type="button" id="focus-clear">${isEnglishUi() ? "Back to overview" : "返回整场"}</button>`;
+  } else if (focus.mode === "person") {
+    const count = (state.bundle.transcript || []).filter(turn => turn.speaker === focus.person).length;
+    box.innerHTML = `<span>${ui("personFocus")}</span>` +
+      `<b>${esc(focus.person)}</b>` +
+      `<small>${isEnglishUi() ? `${count} turns · ${focus.claimIds.length} related conclusions`
+        : `${count} 轮发言 · ${focus.claimIds.length} 条相关结论`}</small>` +
+      (focus.claimIds.length ? `<button type="button" id="focus-show-claims">${isEnglishUi() ? "View conclusions" : "查看结论"}</button>` : "") +
+      `<button type="button" id="focus-clear">${isEnglishUi() ? "Back to overview" : "返回整场"}</button>`;
   } else {
     const visual = visualForTime(focus.time || 0);
     box.innerHTML = `<span>${isEnglishUi() ? "Located at" : "已定位"} ${fmt(focus.time)}</span>` +
@@ -880,10 +893,11 @@ function updateFocusPresentation(explicit = false) {
   updateFocusedTurns(explicit);
   updateFocusedClaims();
   updateFocusSummary();
+  applySpeakerFocus();
 }
 
 function buildTimeline(duration) {
-  const b = state.bundle || { slides: [], topics: [] };
+  const b = state.bundle || { transcript: [], slides: [] };
   const tl = $("#timeline");
   tl.innerHTML = "";
   if (!duration) duration = b.duration || 1;
@@ -893,7 +907,7 @@ function buildTimeline(duration) {
   played.className = "tl-played";
   tl.appendChild(played);
 
-  // 上层：LLM 归并后的语义论点出现区间。页面/参会人变化只留在下层视觉片段。
+  // 上层 Topic 车道：LLM 归并后的语义论点出现区间，未覆盖时间用灰色间隙块铺满。
   const topicReady = topicMapReady();
   const timelineTopics = topicReady
     ? readingTopicMap().topics.flatMap((topic, index) => (topic.ranges || []).map(range => ({
@@ -905,8 +919,10 @@ function buildTimeline(duration) {
           id: chapter.id, title: chapter.title, summary: chapter.summary, index,
           start: chapter.start, end: chapter.end, chapter,
         })) : []);
+  const covered = [];
   for (const item of timelineTopics) {
     if (item.end <= item.start) continue;
+    covered.push([item.start, item.end]);
     const block = document.createElement("div");
     block.className = "tl-chapter";
     block.dataset.topicId = item.id;
@@ -927,32 +943,50 @@ function buildTimeline(duration) {
     });
     tl.appendChild(block);
   }
+  // 间隙块：寒暄/等待/未被论点覆盖的时间，点击只 seek。
+  const appendGap = (start, end) => {
+    if (end - start < 0.5) return;
+    const gap = document.createElement("div");
+    gap.className = "tl-gap";
+    gap.style.left = (start / duration * 100) + "%";
+    gap.style.width = ((end - start) / duration * 100) + "%";
+    gap.title = `${fmt(start)}–${fmt(end)} ${ui("gapTip")}`;
+    gap.addEventListener("click", event => {
+      event.stopPropagation();
+      seek((start + end) / 2);
+    });
+    tl.appendChild(gap);
+  };
+  let cursor = 0;
+  for (const [start, end] of covered.sort((a, b2) => a[0] - b2[0])) {
+    appendGap(cursor, start);
+    cursor = Math.max(cursor, end);
+  }
+  appendGap(cursor, duration);
 
-  // 下层：每次连续出现的页面/摄像头视觉片段。
-  for (const p of b.slides) {
-    const color = p.kind === "camera" ? "#666" : PAGE_COLORS[(p.page - 1) % PAGE_COLORS.length];
-    for (const [s, e] of (p.ranges || [])) {
-      const seg = document.createElement("div");
-      seg.className = "tl-seg";
-      seg.style.left = (s / duration * 100) + "%";
-      seg.style.width = Math.max(0.5, (e - s) / duration * 100) + "%";
-      seg.style.background = color;
-      seg.dataset.start = s;
-      const occurrence = (b.structure?.segments || []).find(item =>
-        item.kind === (p.kind || "slide") && item.page === (p.page ?? null)
-        && Math.abs(item.start - s) < .05 && Math.abs(item.end - e) < .05);
-      if (occurrence?.information_value === "low") seg.classList.add("low-information");
-      const label = p.kind === "camera" ? (isEnglishUi() ? "Camera" : "画面")
-        : (isEnglishUi() ? `Page ${p.page}` : `第${p.page}页`);
-      seg.addEventListener("mouseenter", ev => showTip(ev, p, label, s, occurrence));
-      seg.addEventListener("mousemove", ev => moveTip(ev));
-      seg.addEventListener("mouseleave", hideTip);
-      seg.addEventListener("click", event => {
-        event.stopPropagation();
-        seek(s);
-      });
-      tl.appendChild(seg);
-    }
+  // 下层说话人车道：相邻同说话人轮次合并成块；点击 seek，双击展开区域细节。
+  for (const run of speakerRuns()) {
+    if (run.end <= run.start) continue;
+    const block = document.createElement("div");
+    block.className = "tl-speaker";
+    block.dataset.speaker = run.speaker;
+    block.style.left = (run.start / duration * 100) + "%";
+    block.style.width = Math.max(.5, (run.end - run.start) / duration * 100) + "%";
+    block.style.background = speakerColor(run.speaker);
+    block.addEventListener("mouseenter", event => showSpeakerTip(event, run));
+    block.addEventListener("mousemove", moveTip);
+    block.addEventListener("mouseleave", hideTip);
+    block.addEventListener("click", event => {
+      event.stopPropagation();
+      hideTip();
+      seek(run.start);
+    });
+    block.addEventListener("dblclick", event => {
+      event.stopPropagation();
+      hideTip();
+      openSpeakerZoom((run.start + run.end) / 2);
+    });
+    tl.appendChild(block);
   }
   // 分钟刻度
   const step = duration > 5400 ? 600 : duration > 1500 ? 300 : 60;
@@ -972,6 +1006,9 @@ function buildTimeline(duration) {
   tl.appendChild(head);
   updateActiveChapter(player()?.currentTime || 0);
   updateTimelineFocus();
+  renderSpeakerLegend();
+  if (state.speakerZoom) renderSpeakerZoom();
+  applySpeakerFocus();
   // 空白处点击 seek
   tl.addEventListener("click", ev => {
     if (ev.target !== tl) return;
@@ -980,16 +1017,174 @@ function buildTimeline(duration) {
   });
 }
 
-function showTip(ev, page, label, start = page.first, occurrence = null) {
-  const tip = $("#tl-tip");
-  let html = `<div class="tip-title">${esc(label)} · ${fmt(start)}` +
-    `${occurrence ? ` · ${esc(visualValueLabel(occurrence))}` : ""}</div>`;
-  if (page.image) {
-    html += `<img src="/api/meetings/${encodeURIComponent(state.slug)}/file?path=${encodeURIComponent("slides/" + page.image)}">`;
+// 说话人确定性取色：按首次发言顺序从固定调色板分配，图例/泳道/逐字稿 chip 共用。
+function speakerColorMap() {
+  const transcript = state.bundle?.transcript || [];
+  const cacheKey = `${state.slug}|${state.bundle?.transcript_revision || ""}|${transcript.length}`;
+  if (state.speakerColorCache?.key !== cacheKey) {
+    const order = [];
+    for (const turn of transcript) {
+      if (turn.speaker && !order.includes(turn.speaker)) order.push(turn.speaker);
+    }
+    state.speakerColorCache = { key: cacheKey,
+      map: new Map(order.map((name, index) => [name, SPEAKER_COLORS[index % SPEAKER_COLORS.length]])) };
   }
-  tip.innerHTML = html;
+  return state.speakerColorCache.map;
+}
+
+function speakerColor(speaker) {
+  return speakerColorMap().get(speaker) || "#8a93a8";
+}
+
+// 相邻同说话人轮次合并为连续块；turn 缺 end 时用下一轮开始或整场时长补齐。
+function speakerRuns() {
+  const transcript = state.bundle?.transcript || [];
+  const duration = Number(state.bundle?.duration || 0);
+  const runs = [];
+  transcript.forEach((turn, index) => {
+    const start = Number(turn.start) || 0;
+    const end = Number(turn.end ?? transcript[index + 1]?.start ?? duration) || start;
+    const last = runs[runs.length - 1];
+    if (last && last.speaker === turn.speaker) last.end = Math.max(last.end, end);
+    else runs.push({ speaker: turn.speaker || (isEnglishUi() ? "Unknown" : "未知"), start, end });
+  });
+  return runs;
+}
+
+function showSpeakerTip(ev, run) {
+  const tip = $("#tl-tip");
+  const transcript = state.bundle?.transcript || [];
+  const stats = new Map();
+  let total = 0;
+  transcript.forEach((turn, index) => {
+    const start = Number(turn.start) || 0;
+    const end = Number(turn.end ?? transcript[index + 1]?.start ?? run.end) || start;
+    const overlap = Math.min(run.end, end) - Math.max(run.start, start);
+    if (overlap > 0) {
+      stats.set(turn.speaker, (stats.get(turn.speaker) || 0) + overlap);
+      total += overlap;
+    }
+  });
+  if (!total) {  // 轮次没有 end 时按窗口内轮次数估算构成
+    for (const turn of transcript) {
+      const start = Number(turn.start) || 0;
+      if (start >= run.start && start < run.end) {
+        stats.set(turn.speaker, (stats.get(turn.speaker) || 0) + 1);
+        total += 1;
+      }
+    }
+  }
+  const parts = [...stats.entries()].sort((a, b2) => b2[1] - a[1])
+    .map(([name, share]) => `${esc(name)} ${Math.round(share / (total || 1) * 100)}%`).join(" · ");
+  tip.innerHTML = `<div class="tip-title">${fmt(run.start)}–${fmt(run.end)} · ${ui("zoomHint")}</div>` +
+    `<b class="tip-heading">${esc(run.speaker)}</b>` +
+    (parts ? `<p class="tip-summary">${parts}</p>` : "");
   tip.classList.remove("hidden");
   moveTip(ev);
+}
+
+/* ---------- 人物图例与人物 Focus ---------- */
+
+function renderSpeakerLegend() {
+  const box = $("#speaker-legend");
+  if (!box) return;
+  const transcript = state.bundle?.transcript || [];
+  box.innerHTML = "";
+  if (!transcript.length) { box.classList.add("hidden"); return; }
+  const duration = Number(state.bundle?.duration || 0);
+  const stats = new Map();
+  transcript.forEach((turn, index) => {
+    const start = Number(turn.start) || 0;
+    const end = Number(turn.end ?? transcript[index + 1]?.start ?? duration) || start;
+    stats.set(turn.speaker, (stats.get(turn.speaker) || 0) + Math.max(0, end - start));
+  });
+  const total = [...stats.values()].reduce((sum, value) => sum + value, 0) || 1;
+  for (const [speaker, color] of speakerColorMap()) {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "speaker-chip";
+    chip.dataset.speaker = speaker;
+    const pct = Math.round((stats.get(speaker) || 0) / total * 100);
+    chip.innerHTML = `<i style="background:${color}"></i>${esc(speaker)}<small>${pct}%</small>`;
+    chip.title = speaker.includes("(声音") ? ui("legendBind") : ui("personFocusTip");
+    chip.addEventListener("click", () => setPersonFocus(speaker));
+    box.appendChild(chip);
+  }
+  box.classList.remove("hidden");
+}
+
+function setPersonFocus(speaker) {
+  if (!state.bundle) return;
+  if (state.focus.mode === "person" && state.focus.person === speaker) {
+    setOverviewFocus();
+    renderChapters();
+    return;
+  }
+  const transcript = state.bundle.transcript || [];
+  const wanted = new Set(transcript.map((turn, index) => turn.speaker === speaker ? index : -1)
+    .filter(index => index >= 0));
+  if (!wanted.size) return;
+  const claimIds = (state.bundle.evidence?.claims || [])
+    .filter(claim => (claim.turn_indexes || []).some(index => wanted.has(index)))
+    .map(claim => claim.id);
+  const ranges = speakerRuns().filter(run => run.speaker === speaker).map(run => [run.start, run.end]);
+  state.focus = { mode: "person", person: speaker, time: null, ranges, topicId: null, nodeId: null,
+    turnIds: [], claimIds, pageIds: [], source: "person" };
+  state.selectedTopicId = null;
+  state.selectedTopicNodeId = null;
+  state.focusSignature = null;
+  updateFocusPresentation(true);
+}
+
+function applySpeakerFocus() {
+  const person = state.focus.mode === "person" ? state.focus.person : null;
+  $("#timeline")?.classList.toggle("person-focus", Boolean(person));
+  $$("#timeline .tl-speaker").forEach(block =>
+    block.classList.toggle("dimmed", Boolean(person) && block.dataset.speaker !== person));
+  $$("#speaker-legend .speaker-chip").forEach(chip =>
+    chip.classList.toggle("active", Boolean(person) && chip.dataset.speaker === person));
+}
+
+/* ---------- 说话人车道区域放大镜 ---------- */
+
+function openSpeakerZoom(center) {
+  const duration = Number($("#timeline")?.dataset.dur || state.bundle?.duration || 1);
+  state.speakerZoom = { start: Math.max(0, center - 60), end: Math.min(duration, center + 60) };
+  renderSpeakerZoom();
+}
+
+function renderSpeakerZoom() {
+  const box = $("#speaker-zoom");
+  if (!box) return;
+  const zoom = state.speakerZoom;
+  if (!zoom) { box.classList.add("hidden"); box.innerHTML = ""; return; }
+  box.classList.remove("hidden");
+  const span = Math.max(1, zoom.end - zoom.start);
+  box.innerHTML = `<div class="speaker-zoom-head"><span>${fmt(zoom.start)}–${fmt(zoom.end)}</span>` +
+    `<button type="button" id="speaker-zoom-close">${ui("zoomClose")}</button></div>` +
+    `<div class="speaker-zoom-lane"></div>`;
+  const lane = $(".speaker-zoom-lane", box);
+  const transcript = state.bundle?.transcript || [];
+  transcript.forEach((turn, index) => {
+    const start = Number(turn.start) || 0;
+    const end = Number(turn.end ?? transcript[index + 1]?.start ?? zoom.end) || start;
+    if (end <= zoom.start || start >= zoom.end) return;
+    const block = document.createElement("div");
+    block.className = "tl-zoom-turn";
+    block.style.left = ((Math.max(start, zoom.start) - zoom.start) / span * 100) + "%";
+    block.style.width = Math.max(.8,
+      (Math.min(end, zoom.end) - Math.max(start, zoom.start)) / span * 100) + "%";
+    block.style.background = speakerColor(turn.speaker);
+    block.title = `${fmt(start)} ${turn.speaker}`;
+    block.addEventListener("click", () => seek(start));
+    lane.appendChild(block);
+  });
+  $("#speaker-zoom-close").addEventListener("click", closeSpeakerZoom);
+}
+
+function closeSpeakerZoom() {
+  state.speakerZoom = null;
+  renderSpeakerZoom();
 }
 
 function showSemanticTip(ev, item) {
@@ -1139,12 +1334,25 @@ function renderTranscript(preserveScroll = true) {
     textHtml += "</span>";
     div.innerHTML =
       `<span class="tc" title="点击跳转">[${fmt(t.start)}]</span>` +
-      `<span class="${chipCls}" title="${esc(t.speaker)} · ${t.voice ? "点击绑定说话人" : "无对应声纹"}" ` +
+      `<span class="${chipCls}" style="border-left: 3px solid ${speakerColor(t.speaker)}" ` +
+      `title="${esc(t.speaker)} · ${t.voice ? "点击绑定说话人" : "无对应声纹"}" ` +
       `aria-label="说话人：${esc(t.speaker)}">${esc(t.speaker)}</span>` +
       textHtml +
       `<button type="button" class="quote-turn" title="引用这一轮到会议助手">引用</button>`;
-    $(".tc", div).onclick = () => seek(t.start);
-    if (t.voice) $(".chip", div).onclick = () => openBind(t.voice, t.speaker);
+    $(".tc", div).onclick = ev => {
+      ev.stopPropagation();
+      seek(t.start);
+    };
+    $(".chip", div).onclick = ev => {
+      ev.stopPropagation();
+      if (t.voice) openBind(t.voice, t.speaker);
+    };
+    // 整块轮次点击 seek；选中文字时不触发，保留复制能力。
+    div.addEventListener("click", () => {
+      const selection = window.getSelection();
+      if (selection && !selection.isCollapsed && String(selection)) return;
+      seek(t.start);
+    });
     $(".quote-turn", div).onclick = ev => {
       ev.stopPropagation();
       addReferenceRange(i, i);
@@ -1496,6 +1704,17 @@ async function setUiLanguage(language) {
   state.topicMapTranslationJob = null;
   saveWorkspaceState();
   applyUiLanguage();
+  if (state.slug && !state.workspace.translationTargets[state.slug] && !state.translationJob) {
+    const target = defaultTranslationTarget();
+    if (target !== state.translationTarget) {
+      state.translationTarget = target;
+      state.translation = null;
+      state.translationProgress = { done: 0, total: 0 };
+      updateTranslationTargetControl();
+      updateTranslationState();
+      await loadTranscriptTranslation();
+    }
+  }
   renderMeetingList();
   renderMeetingHeaderMeta();
   renderMeetingStatuses();
@@ -2993,6 +3212,10 @@ function init() {
   });
   $("#translation-target").onchange = event => setTranslationTarget(event.target.value);
   document.addEventListener("keydown", qualityShortcut);
+  document.addEventListener("keydown", event => {
+    if (event.key === "Escape" && state.speakerZoom
+        && $("#screen-preview-mask")?.classList.contains("hidden")) closeSpeakerZoom();
+  });
   $("#bind-cancel").onclick = closeBind;
   $("#bind-mask").addEventListener("click", e => { if (e.target.id === "bind-mask") closeBind(); });
 

@@ -17,7 +17,7 @@
 
 ## 已处理
 
-- 完成 `web/server.py` 拆分（P1）：约 1900 行单文件按域拆为 `web/deps.py`（路径/环境常量、锁、共享会议助手）、`web/job_store.py`（JOBS/EXEC、作业持久化、管线与翻译 runner）和 `web/routers/` 下 10 个路由模块（pages/meetings/quality/translations/export/assistant/media/speakers/orgchart/jobs），`server.py` 收敛为约 55 行装配入口；入口命令、路由路径、请求/响应 schema 与处理逻辑逐字节不变，新旧路由表 50 条逐条 diff 一致。完整 `make check` 与 116/116 隔离 Web 回归通过（commit `8321f2a`）。遗留：`/api` schema 版本化仍在 P3，前端 `app.js` 单文件迁移 Vue 3 仍在 P3，纪要生成路径向统一 LLM 客户端的迁移继续按既有节奏推进。
+- 完成时间轴“Topic 全覆盖车道 + 说话人泳道 + 人物 Focus”重构（本次提交）：上层一级论点区间铺满整场，未覆盖时间以灰色间隙块填充（点击只 seek），使 Topic 提取的覆盖缺口在 UI 上可见；下层相邻同说话人轮次合并成色块，按首次发言顺序从独立调色板确定性取色，悬停 tooltip 显示该窗口发言构成，双击展开 ±60 秒轮次级区域放大镜（关闭按钮 / Esc）。时间轴下方人物图例进入 person 模式 Focus：高亮而非过滤（泳道降透明度、逐字稿 `focus-related`、focus-summary 显示轮数与相关结论），与 overview/topic/time 共用 `updateFocusPresentation` 管线；说话人颜色在图例、泳道和逐字稿 chip 左边框间一致，全部从 canonical `transcript`（speaker/start/end/voice）确定性派生，无新资产、无 `/api` 变更。同时完成：逐字稿整轮点击 seek（`window.getSelection()` 有选中时保留复制）、≤820px 两行轮次与逐字稿工具条折行、译文目标默认值跟随界面语言（手动选择写入 `translationTargets` 后不再跟随）。离线 `meetingpack_viewer.html` 在 scrub 条下方同步双车道与人物图例，Focus 语义一致，保持单文件无依赖。验证：`make check` 与 116/116 隔离 Web 回归通过。遗留：Topic Map 提取质量未动，灰色间隙块先用于暴露覆盖缺口，提取改进需真实会议验证后单列推进。- 完成 `web/server.py` 拆分（P1）：约 1900 行单文件按域拆为 `web/deps.py`（路径/环境常量、锁、共享会议助手）、`web/job_store.py`（JOBS/EXEC、作业持久化、管线与翻译 runner）和 `web/routers/` 下 10 个路由模块（pages/meetings/quality/translations/export/assistant/media/speakers/orgchart/jobs），`server.py` 收敛为约 55 行装配入口；入口命令、路由路径、请求/响应 schema 与处理逻辑逐字节不变，新旧路由表 50 条逐条 diff 一致。完整 `make check` 与 116/116 隔离 Web 回归通过（commit `8321f2a`）。遗留：`/api` schema 版本化仍在 P3，前端 `app.js` 单文件迁移 Vue 3 仍在 P3，纪要生成路径向统一 LLM 客户端的迁移继续按既有节奏推进。
 - 修复真实长会议“待办无论据、议题板块散乱”：该次总体合并输出 25 行待办但全部缺少 evidence marker，同时输出 23 条不符合前端契约的议题文本；canonical evidence 中只有 5 条行动具备逐字稿依据。Web 与 MeetingPack 现在从 evidence actions 确定性重建“可核验待办”并提供依据跳转，原 25 行不删除而进入默认收起、明确不计为正式任务的 `action_candidates`；常规纪要不再重复显示模型议题列表。生成 Prompt 增加硬数量上限，长会 map 目标从 22k 调为 38k tokens，Topic Map 处理窗调为约 15 分钟且局部/全局坏 JSON 都可安全修复。合成单元测试、完整 `make check` 和 103/103 隔离 Web 回归通过。
 - 修复真实超长录屏会议“36/36 页 VL 完成后仍失败”：总体终稿请求约 88,166 tokens，超过本机 65,536 上下文；四个逐页分组最高约 39,575 tokens，未超限。新 `meeting_core.minutes_overview` 只对总体部分执行保留 T/P ID 的 map/reduce，短会维持直出。Web 重生成携带原视频、复用缓存并只补空 VL 页，成功后正式 finalize 并刷新 Topic Map，避免子进程完成但文档仍停留 processing。
 - 修复真实会议屏幕页被误标“低信息”：该页包含表格、follow-up 和负责人，但 VL 生成日志有 token、reasoning 清洗后的缓存正文却为空；旧逻辑又以“说明少于 70 字”直接判 low，并把空字符串当成功缓存。现在空/缺失结果为 `unknown/待解析`，旧空缓存会补算且失败后不落成功项，短说明不再成为 low 依据；页面价值与是否有讨论继续分开。隔离测试覆盖补算成功、连续空正文和旧缓存迁移，完整 Web smoke 为 103/103。
@@ -79,7 +79,7 @@
 ### P2
 
 - 助手支持 SSE 流式响应、停止生成、稳定来源编号和“检索/核对/组织回答”阶段状态。
-- 用真实会议验证 Chapter 边界和重复页面返回场景，继续校准 Topic/思维导图的数据模型；在线与离线统一“纪要优先、脉络理解、屏幕核查”的信息架构。会议库增加重复候选、回收站、项目/标签和待核对筛选。
+- 用真实会议验证 Chapter 边界和重复页面返回场景，继续校准 Topic/思维导图的数据模型；在线与离线统一“纪要优先、脉络理解、屏幕核查”的信息架构（2026-08-13 进展：两端时间轴已统一为“Topic 全覆盖车道 + 说话人泳道 + 人物 Focus”，Topic 提取质量校准仍在进行）。会议库增加重复候选、回收站、项目/标签和待核对筛选。
 - Web 服务增加有界优雅退出；区分普通浏览连接、同步 LLM 请求和后台作业，部署时明确显示等待对象并在超时后安全退出。
 - 支持纪要选区作为明确修改目标，以及逐字稿人工修订和“纪要已过期”状态。
 - 根据真实试用反馈补充翻译术语表、语气/术语错误反馈和单轮人工改译；在确认阅读交互前不扩展到多语言纪要重写。
