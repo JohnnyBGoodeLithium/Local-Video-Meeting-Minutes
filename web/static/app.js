@@ -48,6 +48,8 @@ const state = {
   legendShowAll: false,
   personLanes: false,
   personLanesAll: false,
+  speakerPin: null,
+  speakerHover: null,
   visualFilter: "useful",
   uiLanguage: UI_LANGUAGES.has(workspaceState.uiLanguage) ? workspaceState.uiLanguage : "zh-CN",
   minutesTranslation: null,
@@ -106,10 +108,10 @@ const UI_COPY = {
     expanding: "展开画面", collapsing: "收起画面", sourceMinutes: "正在显示原始语言纪要",
     translatingMinutes: "正在生成中文纪要，完成后自动切换", minutesFailed: "中文纪要生成失败，可再次切换重试",
     translatingOutline: "正在生成中文会议脉络，完成后自动切换", outlineFailed: "中文会议脉络生成失败，可再次切换重试",
-    personFocus: "人物聚焦", personFocusTip: "点击聚焦此发言人，再点一次取消",
-    gapTip: "论点未覆盖，点击跳转",
+    speakerPinTip: "悬停在主时间轴只看他的发言，点击钉住",
+    gapTip: "议题未覆盖，点击跳转",
     seekHint: "点击跳转；悬停查看发言构成", othersChip: "其他", collapseChip: "收起",
-    expandLanes: "展开各人车道", collapseLanes: "收起各人车道", expandRestLanes: "展开其余",
+    expandLanes: "说话人视图 ▸", collapseLanes: "说话人视图 ▾", expandRestLanes: "展开其余",
     bindAction: "绑定", legendBindAction: "未绑定声纹：点「绑定」为其指定人员",
     lowValueHint: "过渡或低讨论密度时段", continued: "继续",
   },
@@ -126,10 +128,10 @@ const UI_COPY = {
     minutesFailed: "English minutes generation failed; switch again to retry",
     translatingOutline: "Generating the English meeting map; this view will update automatically",
     outlineFailed: "English meeting-map generation failed; switch again to retry",
-    personFocus: "Person focus", personFocusTip: "Click to focus this speaker; click again to clear",
+    speakerPinTip: "Hover to isolate this speaker on the timeline; click to pin",
     gapTip: "Not covered by topics; click to jump",
     seekHint: "Click to jump; hover for speaker mix", othersChip: "Others", collapseChip: "Collapse",
-    expandLanes: "Show per-person lanes", collapseLanes: "Hide per-person lanes",
+    expandLanes: "Speaker view ▸", collapseLanes: "Speaker view ▾",
     expandRestLanes: "Show the remaining", bindAction: "Bind",
     legendBindAction: "No voiceprint bound: use “Bind” to assign a person",
     lowValueHint: "Transitional or low-density segment", continued: "cont.",
@@ -393,6 +395,8 @@ async function deleteMeeting(ev, slug) {
     $("#person-lanes").classList.add("hidden");
     state.personLanes = false;
     state.personLanesAll = false;
+    state.speakerPin = null;
+    state.speakerHover = null;
     state.legendShowAll = false;
     state.speakerColorCache = null;
     $("#current-chapter").classList.add("hidden");
@@ -502,6 +506,8 @@ async function loadMeeting(slug) {
   state.focusSignature = null;
   state.personLanes = false;
   state.personLanesAll = false;
+  state.speakerPin = null;
+  state.speakerHover = null;
   state.legendShowAll = false;
   state.speakerColorCache = null;
   state.visualFilter = "useful";
@@ -599,6 +605,11 @@ function renderPlayer() {
 /* ---------- 时间轴（Topic 全覆盖车道 + 说话人泳道 + 刻度） ---------- */
 
 const SPEAKER_COLORS = ["#5e9dff", "#34c98e", "#f0a13f", "#e06a6a", "#a97ef0", "#3cc0d8", "#e07fb5", "#9fbd4a"];
+// 议题配色：一级议题按序号取色，时间轴块与右侧脉络"议题 NN"标签同色；low_value 保持灰蓝弱化。
+const TOPIC_COLORS = ["#4f7cff", "#8b5cf6", "#14b8a6", "#e8873a", "#e05d7b", "#22a06b", "#0ea5e9", "#b8a425"];
+function topicColor(index) {
+  return TOPIC_COLORS[index % TOPIC_COLORS.length];
+}
 const VISUAL_VALUE_LABELS = {
   "zh-CN": { high: "核心", medium: "参考", low: "低信息", unknown: "待解析" },
   en: { high: "Key", medium: "Reference", low: "Low information", unknown: "Pending" },
@@ -809,7 +820,7 @@ function updateContentStage(visual = null, semantic = false) {
   if (expand) expand.classList.toggle("hidden", !url);
   if (title) title.textContent = source?.title || (isEnglishUi()
     ? "No static screen content at this position" : "这一位置没有静态屏幕资料");
-  if (kicker) kicker.textContent = semantic ? (isEnglishUi() ? "Topic screen" : "论点代表画面") : source
+  if (kicker) kicker.textContent = semantic ? (isEnglishUi() ? "Topic screen" : "议题代表画面") : source
     ? `${fmt(state.focus.time ?? source.first)} · ${source.kind === "slide"
       ? (isEnglishUi() ? `Page ${source.page}` : `第${source.page}页`)
       : (isEnglishUi() ? "Dynamic screen" : "动态画面")}`
@@ -835,10 +846,7 @@ function updateTimelineFocus() {
 
 function updateFocusedTurns(explicit = false) {
   const indexes = state.focus.mode === "time" ? [currentTurnIndex(state.focus.time || 0)]
-    : state.focus.mode === "person"
-      ? (state.bundle?.transcript || []).map((turn, index) => turn.speaker === state.focus.person ? index : -1)
-        .filter(index => index >= 0)
-      : turnIndexesForIds(state.focus.turnIds);
+    : turnIndexesForIds(state.focus.turnIds);
   $$(".turn.focus-related").forEach(item => item.classList.remove("focus-related"));
   for (const index of indexes) $(`#turn-${index}`)?.classList.add("focus-related");
   const target = indexes.find(index => index >= 0);
@@ -862,24 +870,16 @@ function updateFocusSummary() {
   if (focus.mode === "overview") {
     const topics = topicMapReady() ? readingTopicMap().topics.length : 0;
     box.innerHTML = `<span>${isEnglishUi() ? "Meeting overview" : "整场概览"}</span>` +
-      `<b>${topics ? (isEnglishUi() ? `${topics} primary topics` : `${topics} 个一级论点`)
+      `<b>${topics ? (isEnglishUi() ? `${topics} primary topics` : `${topics} 个一级议题`)
         : (isEnglishUi() ? "Browse by time" : "按时间浏览会议")}</b>` +
       `<small>${isEnglishUi() ? "Select a topic to focus; click a time to play" :
-        "选择论点聚焦内容；点击时间才会播放"}</small>`;
+        "选择议题聚焦内容；点击时间才会播放"}</small>`;
   } else if (focus.mode === "topic") {
     const [topic, node] = topicNode(focus.topicId, focus.nodeId);
     box.innerHTML = `<span>${isEnglishUi() ? "Semantic focus" : "语义聚焦"}</span>` +
-      `<b>${esc(node?.title || topic?.title || (isEnglishUi() ? "Meeting topic" : "会议论点"))}</b>` +
+      `<b>${esc(node?.title || topic?.title || (isEnglishUi() ? "Meeting topic" : "会议议题"))}</b>` +
       `<small>${isEnglishUi() ? `${(focus.ranges || []).length} time ranges · ${focus.claimIds.length} related conclusions` :
         `${(focus.ranges || []).length} 个时间范围 · ${focus.claimIds.length} 条相关结论`}</small>` +
-      (focus.claimIds.length ? `<button type="button" id="focus-show-claims">${isEnglishUi() ? "View conclusions" : "查看结论"}</button>` : "") +
-      `<button type="button" id="focus-clear">${isEnglishUi() ? "Back to overview" : "返回整场"}</button>`;
-  } else if (focus.mode === "person") {
-    const count = (state.bundle.transcript || []).filter(turn => turn.speaker === focus.person).length;
-    box.innerHTML = `<span>${ui("personFocus")}</span>` +
-      `<b>${esc(focus.person)}</b>` +
-      `<small>${isEnglishUi() ? `${count} turns · ${focus.claimIds.length} related conclusions`
-        : `${count} 轮发言 · ${focus.claimIds.length} 条相关结论`}</small>` +
       (focus.claimIds.length ? `<button type="button" id="focus-show-claims">${isEnglishUi() ? "View conclusions" : "查看结论"}</button>` : "") +
       `<button type="button" id="focus-clear">${isEnglishUi() ? "Back to overview" : "返回整场"}</button>`;
   } else {
@@ -920,7 +920,7 @@ function buildTimeline(duration) {
   played.className = "tl-played";
   tl.appendChild(played);
 
-  // 上层 Topic 车道：LLM 归并后的语义论点出现区间，未覆盖时间用灰色间隙块铺满。
+  // 上层 Topic 车道：LLM 归并后的语义议题出现区间，未覆盖时间用灰色间隙块铺满。
   const topicReady = topicMapReady();
   const timelineTopics = topicReady
     ? readingTopicMap().topics.flatMap((topic, index) => (topic.ranges || []).map(range => ({
@@ -938,6 +938,7 @@ function buildTimeline(duration) {
     covered.push([item.start, item.end]);
     const block = document.createElement("div");
     block.className = "tl-chapter" + (item.topic?.low_value ? " tl-chapter-low" : "");
+    if (!item.topic?.low_value) block.style.background = topicColor(item.index) + "b8";
     block.dataset.topicId = item.id;
     block.style.left = (item.start / duration * 100) + "%";
     const chapterWidth = (item.end - item.start) / duration * 100;
@@ -957,7 +958,7 @@ function buildTimeline(duration) {
     });
     tl.appendChild(block);
   }
-  // 间隙块：寒暄/等待/未被论点覆盖的时间，点击只 seek。
+  // 间隙块：寒暄/等待/未被议题覆盖的时间，点击只 seek。
   const appendGap = (start, end) => {
     if (end - start < 0.5) return;
     const gap = document.createElement("div");
@@ -1160,8 +1161,13 @@ function legendChip(speaker, pct) {
   chip.className = "speaker-chip";
   chip.dataset.speaker = speaker;
   chip.innerHTML = `<i style="background:${speakerColor(speaker)}"></i>${esc(speaker)}<small>${pct}%</small>`;
-  chip.title = ui("personFocusTip");
-  chip.addEventListener("click", () => setPersonFocus(speaker));
+  chip.title = ui("speakerPinTip");
+  chip.addEventListener("mouseenter", () => { state.speakerHover = speaker; applySpeakerFocus(); });
+  chip.addEventListener("mouseleave", () => { state.speakerHover = null; applySpeakerFocus(); });
+  chip.addEventListener("click", () => {
+    state.speakerPin = state.speakerPin === speaker ? null : speaker;
+    applySpeakerFocus();
+  });
   return chip;
 }
 
@@ -1200,7 +1206,12 @@ function renderSpeakerLegend() {
     chip.dataset.speaker = name;
     chip.title = ui("legendBindAction");
     chip.innerHTML = `<i></i>${esc(name)}<small>${pct(name)}%</small>`;
-    chip.addEventListener("click", () => setPersonFocus(name));
+    chip.addEventListener("mouseenter", () => { state.speakerHover = name; applySpeakerFocus(); });
+    chip.addEventListener("mouseleave", () => { state.speakerHover = null; applySpeakerFocus(); });
+    chip.addEventListener("click", () => {
+      state.speakerPin = state.speakerPin === name ? null : name;
+      applySpeakerFocus();
+    });
     const turn = transcript.find(item => item.speaker === name && item.voice);
     if (turn) {
       const bind = document.createElement("button");
@@ -1295,31 +1306,9 @@ function renderPersonLanes() {
   box.classList.remove("hidden");
 }
 
-function setPersonFocus(speaker) {
-  if (!state.bundle) return;
-  if (state.focus.mode === "person" && state.focus.person === speaker) {
-    setOverviewFocus();
-    renderChapters();
-    return;
-  }
-  const transcript = state.bundle.transcript || [];
-  const wanted = new Set(transcript.map((turn, index) => turn.speaker === speaker ? index : -1)
-    .filter(index => index >= 0));
-  if (!wanted.size) return;
-  const claimIds = (state.bundle.evidence?.claims || [])
-    .filter(claim => (claim.turn_indexes || []).some(index => wanted.has(index)))
-    .map(claim => claim.id);
-  const ranges = speakerRuns().filter(run => run.speaker === speaker).map(run => [run.start, run.end]);
-  state.focus = { mode: "person", person: speaker, time: null, ranges, topicId: null, nodeId: null,
-    turnIds: [], claimIds, pageIds: [], source: "person" };
-  state.selectedTopicId = null;
-  state.selectedTopicNodeId = null;
-  state.focusSignature = null;
-  updateFocusPresentation(true);
-}
-
+// 说话人隔离：悬停临时预览、点击钉住；只调暗主时间轴与他人车道，不动逐字稿滚动与 Focus 摘要。
 function applySpeakerFocus() {
-  const person = state.focus.mode === "person" ? state.focus.person : null;
+  const person = state.speakerHover || state.speakerPin;
   $("#timeline")?.classList.toggle("person-focus", Boolean(person));
   $$("#timeline .tl-spk-seg").forEach(block =>
     block.classList.toggle("dimmed", Boolean(person) && block.dataset.speaker !== person));
@@ -1337,7 +1326,7 @@ function showSemanticTip(ev, item) {
   const visual = (source.page_ids || []).map(id => visuals.find(visual => visual.id === id))
     .find(visual => visual?.image && visual.information_value !== "low");
   const image = visualImageUrl(visual);
-  tip.innerHTML = `<div class="tip-title">${isEnglishUi() ? "Topic" : "论点"} ${String(item.index + 1).padStart(2, "0")} · ` +
+  tip.innerHTML = `<div class="tip-title">${isEnglishUi() ? "Topic" : "议题"} ${String(item.index + 1).padStart(2, "0")} · ` +
     `${fmt(item.start)}–${fmt(item.end)}</div>` +
     `<b class="tip-heading">${esc(item.title)}</b>` +
     `<p class="tip-summary">${esc(item.summary || (isEnglishUi()
@@ -1422,7 +1411,7 @@ function updateActiveChapter(time) {
   const label = $("#current-chapter");
   label.classList.toggle("hidden", !current);
   label.textContent = current ? current.title : "";
-  label.title = current ? `${topic ? (isEnglishUi() ? "Current topic" : "当前论点")
+  label.title = current ? `${topic ? (isEnglishUi() ? "Current topic" : "当前议题")
     : (isEnglishUi() ? "Current chapter" : "当前章节")} · ${current.title}` : "";
 }
 
@@ -2084,7 +2073,7 @@ function topicMapBranch(topic, index, selectedNodeId) {
   return `<section class="topic-map-branch ${selected ? "selected" : ""}" ` +
     `data-topic-branch="${esc(topic.id)}"><button type="button" class="topic-map-topic-node ` +
     `${selectedNodeId === topic.id ? "active" : ""}" data-topic-select="${esc(topic.id)}">` +
-    `<small>${isEnglishUi() ? "Topic" : "论点"} ${String(index + 1).padStart(2, "0")} · ` +
+    `<small style="color:${topicColor(index)}">${isEnglishUi() ? "Topic" : "议题"} ${String(index + 1).padStart(2, "0")} · ` +
     `${outcome || (isEnglishUi() ? `${topic.children?.length || 0} structured nodes` : `${topic.children?.length || 0} 个结构节点`)}</small>` +
     `<b>${esc(topic.title)}</b><span>${esc(topic.summary)}</span>` +
     `<em>${esc(topicRangeText(topic.ranges))}</em></button>` +
@@ -2113,7 +2102,7 @@ function topicMapDetail(topic, node, pageMap) {
   const ranges = node.ranges || topic.ranges || [];
   const claims = (node.claim_ids || []).map(flowClaim).filter(Boolean).join("");
   return `<section class="topic-map-detail"><header><div><span>${esc(
-    node.id === topic.id ? (isEnglishUi() ? "Primary topic" : "一级论点") :
+    node.id === topic.id ? (isEnglishUi() ? "Primary topic" : "一级议题") :
       topicNodeLabel(node.type, isEnglishUi() ? "Structured node" : "结构节点"))}</span>` +
     `<h3>${esc(node.title)}</h3></div><small>${esc(topic.title)}</small></header>` +
     `<p>${esc(node.summary || topic.summary)}</p>` +
@@ -2160,7 +2149,7 @@ function renderChapters() {
         `<p>Tables, figures, and screen context are still being added. The map is generated after the final evidence stabilizes.</p></div>`
       : `<div class="topic-map-empty"><span>语音草稿已可阅读</span>` +
         `<h3>会议脉络将在多模态终稿后生成</h3>` +
-        `<p>系统正在补充屏幕表格、数字和视觉上下文。为避免基于不完整资料提前固化论点，` +
+        `<p>系统正在补充屏幕表格、数字和视觉上下文。为避免基于不完整资料提前固化观点，` +
         `Topic Map 会在终稿证据稳定后自动生成。</p></div>`;
     return;
   }
@@ -2172,10 +2161,10 @@ function renderChapters() {
         ? (stale ? "Meeting content changed; update the map" : invalid
           ? `${topics.length} primary topics need to be synthesized again` : "No meeting-wide semantic map yet")
         : (stale ? "会议内容变化，需要更新脉络" : invalid
-          ? `当前有 ${topics.length} 个一级论点，需要重新归纳` : "还没有整场会议语义脉络")}</h3>` +
+          ? `当前有 ${topics.length} 个一级议题，需要重新归纳` : "还没有整场会议语义脉络")}</h3>` +
       `<p>${isEnglishUi()
         ? "The system synthesizes the transcript, speakers, conclusion evidence, and screen content into 3–8 primary topics. Screenshot or attendee changes do not become nodes by themselves."
-        : "系统会读取逐字稿、说话人、结论依据和屏幕资料，先做大尺度内容归纳，再合并为 3–8 个一级论点。截图和参会人变化不会直接成为节点。"}</p>` +
+        : "系统会读取逐字稿、说话人、结论依据和屏幕资料，先做大尺度内容归纳，再合并为 3–8 个一级议题。截图和参会人变化不会直接成为节点。"}</p>` +
       `<button type="button" id="topic-map-generate" class="primary">${isEnglishUi()
         ? (stale || invalid ? "Update meeting map" : "Generate meeting map")
         : (stale || invalid ? "更新会议脉络" : "生成会议脉络")}</button></div>`;
@@ -2195,11 +2184,11 @@ function renderChapters() {
     : state.topicMapTranslation?.state === "failed"
       ? `<div class="minutes-language-banner"><b>${esc(ui("outlineFailed"))}</b></div>` : "";
   box.innerHTML = languageBanner + `<article class="topic-map-view"><header class="topic-map-head"><div>` +
-    `<span>${isEnglishUi() ? `AI meeting-wide synthesis · ${topics.length} primary topics` : `AI 全场语义归纳 · ${topics.length} 个一级论点`}</span>` +
+    `<span>${isEnglishUi() ? `AI meeting-wide synthesis · ${topics.length} primary topics` : `AI 全场语义归纳 · ${topics.length} 个一级议题`}</span>` +
     `<h2>${esc(state.bundle?.title || (isEnglishUi() ? "Meeting map" : "会议脉络"))}</h2>` +
     `<p>${esc(topicMap.meeting_summary || (isEnglishUi()
       ? "Organized by arguments, disagreements, decisions, and actions; screens remain evidence."
-      : "按整场会议的论点、分歧、结论和行动组织；页面只作为证据。"))}</p>` +
+      : "按整场会议的议题、分歧、结论和行动组织；页面只作为证据。"))}</p>` +
     `<div class="topic-overview-stats"><button type="button" data-overview-target="minutes">` +
     `<b>${confirmed}</b><span>${isEnglishUi() ? "Confirmed conclusions" : "已确认结论"}</span></button><button type="button" data-overview-target="minutes">` +
     `<b>${actions}</b><span>${isEnglishUi() ? "Verifiable actions" : "可核验待办"}</span></button><button type="button" data-overview-target="minutes">` +
@@ -2208,11 +2197,11 @@ function renderChapters() {
     `<div class="topic-map-canvas"><div class="topic-map-root-wrap"><button type="button" class="topic-map-root" id="topic-map-overview">` +
     `<small>${isEnglishUi() ? "Whole meeting" : "整场会议"}</small><b>${esc(state.bundle?.title || (isEnglishUi() ? "Meeting" : "会议"))}</b>` +
     `<span>${isEnglishUi() ? `${topics.length} topics · ${topicMap.stats?.children || 0} structured nodes` :
-      `${topics.length} 个论点 · ${topicMap.stats?.children || 0} 个结构节点`}</span></button></div>` +
+      `${topics.length} 个议题 · ${topicMap.stats?.children || 0} 个结构节点`}</span></button></div>` +
     `<div class="topic-map-branches">${topics.map((topic, index) =>
       topicMapBranch(topic, index, selectedNode?.id)).join("")}</div></div>` +
     (selectedTopic && selectedNode ? topicMapDetail(selectedTopic, selectedNode, pageMap) :
-      `<div class="topic-overview-hint"><b>${isEnglishUi() ? "Scan the whole structure, then select a topic" : "先看整场结构，再选择一个论点"}</b>` +
+      `<div class="topic-overview-hint"><b>${isEnglishUi() ? "Scan the whole structure, then select a topic" : "先看整场结构，再选择一个议题"}</b>` +
       `<span>${isEnglishUi() ? "Selecting a node focuses its transcript, screens, and conclusions without starting playback." :
         "选择节点只聚焦相关逐字稿、画面和结论；不会自动播放。"}</span></div>`) + `</article>`;
   $$('[data-topic-select]', box).forEach(button => button.onclick = () => {
@@ -3270,7 +3259,7 @@ function renderJobs(jobs) {
     const liveProgress = vlPage && vlTotal ? ` ${vlPage[1]}/${vlTotal[1]}` : (progress || step);
     const liveStage = /语音草稿|voice draft/i.test(lastLog) ? "生成语音草稿"
       : /多模态纪要|升级多模态|补充屏幕资料/i.test(lastLog) ? "升级多模态纪要"
-      : /topic map|会议脉络|论点/i.test(lastLog) ? "构建会议脉络"
+      : /topic map|会议脉络|议题/i.test(lastLog) ? "构建会议脉络"
       : /抽屏幕|逻辑页/.test(lastLog) ? "提取共享画面"
       : /生成按页纪要|生成.*纪要|结构化输入|总体摘要|页块|分页详情/.test(lastLog) ? "生成会议纪要"
       : /声纹库|声纹/.test(lastLog) ? "确认人员身份"

@@ -14,7 +14,7 @@
 1. 导入音频、录屏，或带 VTT 的 Teams 录制。
 2. 先完成转写和说话人识别，尽快发布可阅读的语音草稿。
 3. 后台继续抽取逻辑页面、理解共享画面、生成多模态终稿和整场会议脉络。
-4. 用户从会议脉络进入某个论点；时间操作改变播放位置，右侧节点选择只改变阅读 Focus。
+4. 用户从会议脉络进入某个议题；时间操作改变播放位置，右侧节点选择只改变阅读 Focus。
 5. 在纪要、逐字稿与画面之间核对证据，确认人员身份，追问或预览纪要修改。
 6. 导出一个 `viewer.html + README.txt + assets/` 的 MeetingPack；收件人无需 GPU、LLM 或本机服务。
 
@@ -113,7 +113,7 @@ meeting-minutes/
 | `transcript.spk.json` | 带稳定 T ID 语义的具名逐字稿来源 | 代价高，视为 canonical |
 | `minutes.md` | 正式可读纪要 | 可由来源重算，但保留版本 |
 | `minutes.evidence.json` | claim ↔ T/P linkage 与结构化行动项 | 可由纪要和来源重建 |
-| `meeting.topic-map.json` | 3–8 个整场论点及证据范围 | 可重建，输入变更即 stale |
+| `meeting.topic-map.json` | 3–8 个整场议题及证据范围 | 可重建，输入变更即 stale |
 | `slides.json` + `slides/` | 逻辑页、出现区间和阅读缩略图 | 可从视频重建 |
 | `page_desc.json` | VL 对每个逻辑页的详细说明 | 可重建，成本较高 |
 | `.rag/` | 本地 embedding/reranker 索引 | 是 |

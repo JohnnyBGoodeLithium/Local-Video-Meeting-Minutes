@@ -456,10 +456,10 @@ body.resizing-panes { cursor: col-resize; user-select: none; }
 .tl-chapter span { pointer-events: none; }
 .tl-chapter-index { flex: 0 0 auto; padding: 0 4px; background: rgba(9, 12, 18, .22); font: 8px/19px ui-monospace, monospace; }
 .tl-chapter-title { min-width: 0; overflow: hidden; padding: 0 5px; text-overflow: ellipsis; }
-.tl-chapter:hover, .tl-chapter.active { z-index: 2; opacity: 1; background: var(--accent); }
+.tl-chapter:hover, .tl-chapter.active { z-index: 2; opacity: 1; filter: brightness(1.18); }
 .tl-chapter.active { box-shadow: inset 0 0 0 1px #fff; }
 .tl-chapter.selected:not(.active) { opacity: 1; box-shadow: inset 0 0 0 1px rgba(255,255,255,.65); }
-/* low_value 论点(过渡与杂项):浅色块 + 弱化标题,与灰隙区分 */
+/* low_value 议题(过渡与杂项):浅色块 + 弱化标题,与灰隙区分 */
 .tl-chapter.tl-chapter-low { background: rgba(79, 124, 255, .28); color: rgba(219, 229, 255, .7); }
 .tl-chapter.tl-chapter-low:hover, .tl-chapter.tl-chapter-low.active { background: rgba(79, 124, 255, .5); color: #dbe5ff; }
 .tl-played {
@@ -657,7 +657,7 @@ body.resizing-panes { cursor: col-resize; user-select: none; }
 .meeting-flow-visual small { color: var(--dim); font: 8px ui-monospace, monospace; }
 .chapter-low-info { width: 100%; margin-top: 6px; border-style: dashed; color: var(--dim); font-size: 9px; }
 
-/* LLM 全场语义 Topic Map：根节点 → 一级论点 → 结构化子节点 */
+/* LLM 全场语义 Topic Map：根节点 → 一级议题 → 结构化子节点 */
 .topic-map-view { height: 100%; overflow-y: auto; padding: 20px 22px 70px; }
 .topic-map-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; max-width: 1050px; margin: 0 auto 18px; padding-bottom: 14px; border-bottom: 1px solid var(--border); }
 .topic-map-head > div { min-width: 0; }
