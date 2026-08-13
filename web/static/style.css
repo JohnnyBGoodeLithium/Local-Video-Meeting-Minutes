@@ -461,20 +461,29 @@ body.resizing-panes { cursor: col-resize; user-select: none; }
 /* low_value 论点(过渡与杂项):浅色块 + 弱化标题,与灰隙区分 */
 .tl-chapter.tl-chapter-low { background: rgba(79, 124, 255, .16); color: rgba(219, 229, 255, .55); }
 .tl-chapter.tl-chapter-low:hover, .tl-chapter.tl-chapter-low.active { background: rgba(79, 124, 255, .45); color: #dbe5ff; }
-/* 结论/待办菱形刻度 */
+/* 结论/待办菱形刻度:18px 透明热区 + 居中可见菱形 */
 .tl-claim {
   position: absolute;
   z-index: 2;
-  top: 2px;
+  top: -3px;
+  width: 18px;
+  height: 18px;
+  margin-left: -9px;
+  cursor: pointer;
+}
+.tl-claim::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 5px;
   width: 8px;
   height: 8px;
-  margin-left: -4px;
   transform: rotate(45deg);
   border-radius: 2px;
   background: #ffd166;
-  cursor: pointer;
 }
-.tl-claim:hover { z-index: 3; box-shadow: 0 0 0 2px rgba(255, 209, 102, .4); }
+.tl-claim:hover { z-index: 3; }
+.tl-claim:hover::after { box-shadow: 0 0 0 2px rgba(255, 209, 102, .4); }
 .tl-played {
   position: absolute;
   z-index: 2;
