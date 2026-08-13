@@ -11,6 +11,7 @@ git show <commit>
 
 ## 未发布
 
+- 纯结构重构：`web/server.py`（约 1900 行）拆分为 `deps.py`（路径/锁/共享助手）、`job_store.py`（作业状态与管线 runner）和 `routers/` 下 10 个按域划分的路由模块；`server.py` 收敛为约 55 行装配入口。所有路由路径、请求/响应 schema 与处理逻辑逐字节不变。
 - 新增“中文 / EN”阅读语言开关：在线界面与会议纪要同步切换；纪要译文采用不覆盖原文、revision-bound、保留 evidence marker 的分块 sidecar。MeetingPack 升级 v5，可离线携带并切换导出前已生成的双语纪要。
 - 补齐会议脉络双语阅读：Topic Map 的全场摘要、一级论点与子节点使用同构 sidecar 翻译，节点 ID、类型、时间范围及 T/P/C linkage 永远取 canonical；在线脉络 UI 全量本地化，MeetingPack 同步携带导出前已生成的脉络语言版本。
 - 修复英文脉络视图仍出现中文辅助标签：时间轴悬浮层、整场/语义 Focus、结构节点与出现区间统计、当前论点提示和无视频屏幕舞台现均随阅读语言切换；MeetingPack 同步。

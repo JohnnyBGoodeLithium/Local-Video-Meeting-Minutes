@@ -72,7 +72,7 @@
 
 ### P1
 
-- 抽出 `meeting_core`，把 `web/server.py` 拆为版本化 meetings/jobs/speakers/orgchart/assistant/quality/export routers 与 services；旧 `/api` 保持兼容。
+- `web/server.py` 已按域拆为 `deps.py`、`job_store.py` 与 `routers/`（pages/meetings/quality/translations/export/assistant/media/speakers/orgchart/jobs），行为不变；`/api` 仍未版本化，前端 `app.js` 仍是单文件。
 - 给所有既有纪要生成路径统一接入多版本历史和版本浏览，并让 minutes/evidence 成套比较与恢复。
 - 用 3–5 场代表性会议完成首轮真实人工验收，汇总引用准确性、决定/提议误判、虚构负责人/期限和无证据内容，再决定 prompt/model 调整；不得直接用标签自动改写正式纪要。
 

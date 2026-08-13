@@ -10,7 +10,7 @@
 
 ```mermaid
 flowchart LR
-    UI[会议回顾工作台] --> API[FastAPI web/server.py]
+    UI[会议回顾工作台] --> API[FastAPI web/server.py + routers/]
     API --> JOBS[串行作业执行器]
     JOBS --> AUDIO[录音管线 run_all.py]
     JOBS --> VIDEO[普通视频 video_minutes.py]
