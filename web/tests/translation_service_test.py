@@ -96,4 +96,32 @@ with tempfile.TemporaryDirectory(prefix="translation-service-test-") as tmp:
         mdir, "Synthetic Meeting", minutes_source, {}, target="zh-CN")
     assert chinese["state"] == "ready" and chinese["is_source"]
 
-print("Transcript and minutes translation: zh/en targets, priority, cancel, and resume passed")
+    topic_map = {
+        "schema": "meeting-topic-map/v1", "state": "ready",
+        "meeting_summary": "虚构的全场摘要。", "stats": {"topics": 1, "children": 1},
+        "topics": [{
+            "id": "M0001", "title": "虚构论点", "summary": "虚构论点摘要。",
+            "ranges": [[12.0, 44.0]], "turn_ids": ["T000001"],
+            "claim_ids": ["C0001"], "page_ids": ["P0001"],
+            "children": [{"id": "M0001-N01", "type": "decision", "title": "虚构决定",
+                          "summary": "虚构决定摘要。", "ranges": [[20.0, 30.0]],
+                          "turn_ids": ["T000002"], "claim_ids": ["C0001"],
+                          "page_ids": ["P0001"]}],
+        }],
+    }
+    (mdir / "meeting.topic-map.json").write_text(
+        json.dumps(topic_map, ensure_ascii=False, indent=2), encoding="utf-8")
+    topic_before = translation.topic_map_translation_payload(mdir, topic_map, target="en")
+    assert topic_before["state"] == "missing" and topic_before["source_language"] == "zh"
+    translation.translate_topic_map(
+        mdir, "Synthetic Meeting", topic_map, dry_run=True, target="en")
+    topic_ready = translation.topic_map_translation_payload(mdir, topic_map, target="en")
+    translated_map = topic_ready["topic_map"]
+    assert topic_ready["state"] == "ready" and translated_map["topics"][0]["title"].startswith("English:")
+    assert translated_map["topics"][0]["id"] == topic_map["topics"][0]["id"]
+    assert translated_map["topics"][0]["ranges"] == topic_map["topics"][0]["ranges"]
+    assert translated_map["topics"][0]["children"][0]["claim_ids"] == ["C0001"]
+    topic_chinese = translation.topic_map_translation_payload(mdir, topic_map, target="zh-CN")
+    assert topic_chinese["state"] == "ready" and topic_chinese["is_source"]
+
+print("Transcript, minutes, and Topic Map translation: structure and revisions passed")

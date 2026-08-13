@@ -129,7 +129,7 @@ check("时间码跳转只滚动内容面板，不带动整页丢失播放器",
 check("在线屏幕舞台支持放大、缩放和相邻屏幕键盘导航",
       b'id="screen-preview-mask"' in page and b'openScreenPreview' in app_js
       and b'navigateScreenPreview' in app_js and b'SCREEN_PREVIEW_ZOOMS' in app_js
-      and b'20260813p18' in page)
+      and b'20260813p19' in page)
 check("结论审计默认聚焦重点结论并保留全部证据入口",
       "重点结论".encode() in app_js and "全部证据".encode() in app_js
       and b'qualityScope' in app_js and b'audit_priority' in app_js)
@@ -335,6 +335,22 @@ check("纪要目标语言与原文一致时即时返回且不制造冗余 sideca
       s == 200 and minutes_zh.get("state") == "ready" and minutes_zh.get("is_source") is True
       and not (SMOKE / "minutes.translation.zh-CN.json").exists())
 
+s, _, topic_en_before = req("GET", "/api/meetings/_smoke/translations/topic-map?target=en")
+s2, _, topic_en_job = req("POST", "/api/meetings/_smoke/translations/topic-map?target=en")
+topic_en_done = poll_job(topic_en_job.get("id")) if topic_en_job.get("id") else topic_en_job
+s3, _, topic_en = req("GET", "/api/meetings/_smoke/translations/topic-map?target=en")
+canonical_topic = json.loads((SMOKE / "meeting.topic-map.json").read_text())
+translated_topic = topic_en.get("topic_map") or {}
+check("会议脉络英语译文保持节点、时间与证据 linkage，不覆盖 canonical",
+      s == 200 and topic_en_before.get("state") == "missing"
+      and s2 == 200 and topic_en_done.get("status") == "done" and s3 == 200
+      and topic_en.get("state") == "ready"
+      and translated_topic.get("topics", [{}])[0].get("title", "").startswith("English:")
+      and translated_topic.get("topics", [{}])[0].get("id") == canonical_topic["topics"][0]["id"]
+      and translated_topic.get("topics", [{}])[0].get("ranges") == canonical_topic["topics"][0]["ranges"]
+      and translated_topic.get("topics", [{}])[0].get("claim_ids") == canonical_topic["topics"][0]["claim_ids"]
+      and (SMOKE / "meeting.topic-map.translation.en.json").is_file())
+
 # 2f. MeetingPack 默认不带媒体，解压后 viewer.html 可直接 file:// 打开
 evidence_before_export = (SMOKE / "minutes.evidence.json").read_bytes()
 s, _, preflight = req("GET", "/api/meetings/_smoke/export/preflight")
@@ -388,6 +404,10 @@ check("viewer 为无外链、自包含且可浏览逐字稿/媒体/脉络/屏幕
 check("MeetingPack 携带已生成双语纪要并可离线切换",
       "assets/minutes.en.md" in names and "assets/minutes.zh-CN.md" in names
       and "Meeting Minutes" in viewer and "data-language=\"en\"" in viewer)
+check("MeetingPack 携带结构化会议脉络译文并同步本地化脉络 UI",
+      "assets/topic-map.en.json" in names and "assets/topic-map.zh-CN.json" in names
+      and "topic_map_languages" in viewer and "Related conclusions and evidence" in viewer
+      and "English:" in viewer)
 check("Viewer 只保留三个阅读入口，合格会议脉络默认且层级最高",
       "管理层 ·" not in viewer and "执行层 ·" not in viewer
       and "{id:'topic_map',title:u('会议脉络','Meeting map'),primary:ready}" in viewer

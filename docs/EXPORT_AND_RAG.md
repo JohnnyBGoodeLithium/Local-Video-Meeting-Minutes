@@ -2,7 +2,7 @@
 
 本规范定义同一份会议资料如何生成可读纪要、离线分享包和后续 RAG 记录。核心目标是：读者看到的是简洁纪要，系统保留的是可追溯证据；三种产物不能各自维护一套事实关系。
 
-MeetingPack v5 可携带导出时已经生成且仍绑定当前纪要 revision 的中文/英文纪要。Viewer 右上角离线切换界面和纪要；离线端不调用 LLM，未提前生成的语言明确不可选。`assets/minutes.md` 保持兼容入口，语言版本另存为 `assets/minutes.zh-CN.md` / `assets/minutes.en.md`。
+MeetingPack v5 可携带导出时已经生成且仍绑定当前 revision 的中文/英文纪要与会议脉络。Viewer 右上角离线切换界面、纪要和脉络；离线端不调用 LLM，未提前生成的语言明确不可选。`assets/minutes.md` 与 `assets/topic-map.json` 保持兼容入口，语言版本另存为 `assets/minutes.{language}.md` 与 `assets/topic-map.{language}.json`。
 
 ## 1. 结论策略
 

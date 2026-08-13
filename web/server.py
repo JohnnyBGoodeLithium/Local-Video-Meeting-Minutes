@@ -730,6 +730,13 @@ def _minutes_translation_payload(slug: str, mdir: Path, target: str) -> dict:
     return payload
 
 
+def _topic_map_translation_payload(slug: str, mdir: Path, target: str) -> dict:
+    state, topic_map = meeting_topic_map.load_current_topic_map(mdir)
+    if state != "ready" or not topic_map:
+        raise HTTPException(404, "没有可翻译的会议脉络")
+    return translation.topic_map_translation_payload(mdir, topic_map, target=target)
+
+
 def _run_translation(job: dict, mdir: Path, title: str, target: str) -> None:
     """同一串行 worker 内执行本地翻译；作业日志只记录进度数字。"""
     if job.get("cancel_requested"):
@@ -820,6 +827,42 @@ def _run_minutes_translation(job: dict, mdir: Path, title: str, target: str) -> 
                         "dry_run": DRY_RUN})
 
 
+def _run_topic_map_translation(job: dict, mdir: Path, title: str, target: str) -> None:
+    if job.get("cancel_requested"):
+        return
+    state, topic_map = meeting_topic_map.load_current_topic_map(mdir)
+    if state != "ready" or not topic_map:
+        _set_status(job, "failed", finished=_now(), rc=None)
+        return
+    target_label = translation.TARGETS[target]["label"]
+    _set_status(job, "running", started=_now(), stage=f"生成{target_label}会议脉络",
+                progress={"done": 0, "total": 1})
+
+    def cancelled() -> bool:
+        return bool(job.get("cancel_requested"))
+
+    try:
+        translation.translate_topic_map(
+            mdir, title, topic_map, dry_run=DRY_RUN,
+            should_cancel=cancelled, target=target)
+    except translation.TranslationCancelled:
+        if job.get("status") != "cancelled":
+            _set_status(job, "cancelled", finished=_now(), rc=None)
+        return
+    except (translation.TranslationError, assistant.AssistantError):
+        job.setdefault("log", []).append("[error] 会议脉络翻译失败")
+        _set_status(job, "failed", finished=_now(), rc=None)
+        return
+    if cancelled():
+        if job.get("status") != "cancelled":
+            _set_status(job, "cancelled", finished=_now(), rc=None)
+        return
+    _set_status(job, "done", finished=_now(), rc=0,
+                progress={"done": 1, "total": 1},
+                result={"target_language": target, "artifact": "topic_map",
+                        "dry_run": DRY_RUN})
+
+
 @app.get("/api/meetings/{slug}/translations/transcript")
 def get_transcript_translation(
         slug: str, target: str = Query("zh-CN", pattern="^(zh-CN|en)$")):
@@ -900,6 +943,36 @@ def create_minutes_translation(
                    translation_artifact="minutes", progress={"done": 0, "total": 0})
     response = dict(job)
     EXEC.submit(_run_minutes_translation, job, mdir, _meeting_identity(slug)["title"], target)
+    return response
+
+
+@app.get("/api/meetings/{slug}/translations/topic-map")
+def get_topic_map_translation(
+        slug: str, target: str = Query("zh-CN", pattern="^(zh-CN|en)$")):
+    mdir = _mdir(slug)
+    return _topic_map_translation_payload(slug, mdir, target)
+
+
+@app.post("/api/meetings/{slug}/translations/topic-map")
+def create_topic_map_translation(
+        slug: str, target: str = Query("zh-CN", pattern="^(zh-CN|en)$"), force: bool = False):
+    mdir = _mdir(slug)
+    current = _topic_map_translation_payload(slug, mdir, target)
+    if current["state"] == "ready" and not force:
+        return {"id": None, "kind": "translation", "status": "done", "cached": True,
+                "meeting": slug, "target_language": target,
+                "translation_artifact": "topic_map"}
+    existing = next((job for job in JOBS.values()
+                     if job.get("kind") == "translation" and job.get("meeting") == slug
+                     and job.get("target_language") == target
+                     and job.get("translation_artifact") == "topic_map"
+                     and job.get("status") in {"queued", "running"}), None)
+    if existing:
+        return dict(existing)
+    job = _new_job("translation", meeting=slug, target_language=target,
+                   translation_artifact="topic_map", progress={"done": 0, "total": 1})
+    response = dict(job)
+    EXEC.submit(_run_topic_map_translation, job, mdir, _meeting_identity(slug)["title"], target)
     return response
 
 

@@ -49,6 +49,9 @@ const state = {
   minutesTranslation: null,
   minutesTranslationJob: null,
   minutesTranslationPoller: null,
+  topicMapTranslation: null,
+  topicMapTranslationJob: null,
+  topicMapTranslationPoller: null,
   transcriptMode: ["original", "translated", "comparison"].includes(savedTranscriptMode)
     ? savedTranscriptMode : "original",
   translationTarget: TRANSLATION_TARGETS.has(workspaceState.translationTarget)
@@ -98,6 +101,7 @@ const UI_COPY = {
     ask: "问这场会议，或告诉我如何修改纪要…", launcher: "问这场会议，或修改纪要…",
     expanding: "展开画面", collapsing: "收起画面", sourceMinutes: "正在显示原始语言纪要",
     translatingMinutes: "正在生成中文纪要，完成后自动切换", minutesFailed: "中文纪要生成失败，可再次切换重试",
+    translatingOutline: "正在生成中文会议脉络，完成后自动切换", outlineFailed: "中文会议脉络生成失败，可再次切换重试",
   },
   en: {
     title: "Meeting Minutes", brand: "🎙 Meeting Minutes", meetings: "Meetings", product: "Product", settings: "Settings",
@@ -110,6 +114,8 @@ const UI_COPY = {
     expanding: "Expand screen", collapsing: "Collapse screen", sourceMinutes: "Showing minutes in their original language",
     translatingMinutes: "Generating English minutes; this view will update automatically",
     minutesFailed: "English minutes generation failed; switch again to retry",
+    translatingOutline: "Generating the English meeting map; this view will update automatically",
+    outlineFailed: "English meeting-map generation failed; switch again to retry",
   },
 };
 
@@ -460,6 +466,9 @@ async function loadMeeting(slug) {
     if (state.minutesTranslationPoller) clearInterval(state.minutesTranslationPoller);
     state.minutesTranslationPoller = null;
     state.minutesTranslationJob = null;
+    if (state.topicMapTranslationPoller) clearInterval(state.topicMapTranslationPoller);
+    state.topicMapTranslationPoller = null;
+    state.topicMapTranslationJob = null;
   }
   renderMeetingList();
   const b = await jget(`/api/meetings/${encodeURIComponent(slug)}/bundle`);
@@ -472,6 +481,7 @@ async function loadMeeting(slug) {
   state.quality = null;
   state.translation = null;
   state.minutesTranslation = null;
+  state.topicMapTranslation = null;
   state.selectedChapterId = b.structure?.chapters?.[0]?.id || null;
   state.selectedTopicId = null;
   state.selectedTopicNodeId = null;
@@ -515,6 +525,7 @@ async function loadMeeting(slug) {
   setReviewMode(state.viewMode);
   restoreReadingPosition();
   await loadTranscriptTranslation();
+  await loadTopicMapTranslation(true);
   await loadMinutesTranslation(true);
   if (!isDraft) await loadQualityReview();
   else {
@@ -584,12 +595,13 @@ function visualImageUrl(visual) {
 }
 
 function topicMapReady() {
-  const topics = state.bundle?.topic_map?.topics || [];
-  return state.bundle?.topic_map?.state === "ready" && topics.length >= 3 && topics.length <= 8;
+  const topicMap = readingTopicMap();
+  const topics = topicMap.topics || [];
+  return topicMap.state === "ready" && topics.length >= 3 && topics.length <= 8;
 }
 
 function topicNode(topicId, nodeId = topicId) {
-  const topic = (state.bundle?.topic_map?.topics || []).find(item => item.id === topicId);
+  const topic = (readingTopicMap().topics || []).find(item => item.id === topicId);
   if (!topic) return [null, null];
   return [topic, nodeId === topic.id ? topic : (topic.children || []).find(item => item.id === nodeId) || topic];
 }
@@ -744,7 +756,7 @@ function syncTimeFocus(time, explicit = false) {
   const value = Math.max(0, Math.min(Number(state.bundle?.duration || time), Number(time) || 0));
   const index = currentTurnIndex(value);
   const visual = visualForTime(value);
-  const topic = topicMapReady() ? (state.bundle.topic_map.topics || []).find(item =>
+  const topic = topicMapReady() ? (readingTopicMap().topics || []).find(item =>
     (item.ranges || []).some(([start, end]) => Number(start) <= value && value < Number(end))) : null;
   const range = (topic?.ranges || []).find(([start, end]) => Number(start) <= value && value < Number(end))
     || (visual?.ranges || []).find(([start, end]) => Number(start) <= value && value < Number(end)) || [];
@@ -821,7 +833,7 @@ function updateFocusSummary() {
   if (!box || !state.bundle) return;
   const focus = state.focus;
   if (focus.mode === "overview") {
-    const topics = topicMapReady() ? state.bundle.topic_map.topics.length : 0;
+    const topics = topicMapReady() ? readingTopicMap().topics.length : 0;
     box.innerHTML = `<span>整场概览</span><b>${topics ? `${topics} 个一级论点` : "按时间浏览会议"}</b>` +
       `<small>选择论点聚焦内容；点击时间才会播放</small>`;
   } else if (focus.mode === "topic") {
@@ -868,7 +880,7 @@ function buildTimeline(duration) {
   // 上层：LLM 归并后的语义论点出现区间。页面/参会人变化只留在下层视觉片段。
   const topicReady = topicMapReady();
   const timelineTopics = topicReady
-    ? b.topic_map.topics.flatMap((topic, index) => (topic.ranges || []).map(range => ({
+    ? readingTopicMap().topics.flatMap((topic, index) => (topic.ranges || []).map(range => ({
         id: topic.id, title: topic.title, summary: topic.summary, index,
         start: Number(range[0]), end: Number(range[1]), topic,
       })))
@@ -1038,7 +1050,7 @@ function onTimeUpdate() {
 }
 
 function updateActiveChapter(time) {
-  const topics = topicMapReady() ? state.bundle.topic_map.topics || [] : [];
+  const topics = topicMapReady() ? readingTopicMap().topics || [] : [];
   const topic = topics.find(item => (item.ranges || []).some(([start, end]) =>
     Number(start) <= time && time < Number(end)));
   const chapters = (!topics.length && state.bundle?.structure?.chapter_source === "minutes_topic"
@@ -1387,6 +1399,70 @@ async function startMinutesTranslation() {
   }
 }
 
+function readingTopicMap() {
+  const translated = state.topicMapTranslation?.target_language === state.uiLanguage
+    && state.topicMapTranslation?.state === "ready"
+    && state.topicMapTranslation?.topic_map;
+  return translated || state.bundle?.topic_map || {};
+}
+
+async function loadTopicMapTranslation(autoStart = false) {
+  if (!state.slug || state.bundle?.topic_map?.state !== "ready") {
+    state.topicMapTranslation = null;
+    return;
+  }
+  const target = state.uiLanguage;
+  try {
+    const payload = await jget(
+      `/api/meetings/${encodeURIComponent(state.slug)}/translations/topic-map?target=${encodeURIComponent(target)}`);
+    if (target !== state.uiLanguage) return;
+    state.topicMapTranslation = payload;
+    renderChapters();
+    buildTimeline(state.bundle?.duration || player()?.duration || 0);
+    updateFocusSummary();
+    if (autoStart && ["missing", "stale", "failed", "cancelled"].includes(payload.state))
+      await startTopicMapTranslation();
+  } catch (_) {
+    state.topicMapTranslation = null;
+    renderChapters();
+  }
+}
+
+async function startTopicMapTranslation() {
+  if (!state.slug || state.topicMapTranslationJob || state.bundle?.topic_map?.state !== "ready") return;
+  const target = state.uiLanguage;
+  try {
+    const response = await api(
+      `/api/meetings/${encodeURIComponent(state.slug)}/translations/topic-map?target=${encodeURIComponent(target)}`,
+      { method: "POST" });
+    const job = await response.json();
+    if (!response.ok) throw new Error(job.detail || response.status);
+    if (!job.id) {
+      await loadTopicMapTranslation(false);
+      return;
+    }
+    state.topicMapTranslationJob = job.id;
+    renderChapters();
+    if (state.topicMapTranslationPoller) clearInterval(state.topicMapTranslationPoller);
+    const check = async () => {
+      try {
+        const current = await jget(`/api/jobs/${job.id}`);
+        if (!["done", "failed", "cancelled"].includes(current.status)) return;
+        clearInterval(state.topicMapTranslationPoller);
+        state.topicMapTranslationPoller = null;
+        state.topicMapTranslationJob = null;
+        await loadTopicMapTranslation(false);
+      } catch (_) { /* 下一轮继续 */ }
+    };
+    state.topicMapTranslationPoller = setInterval(check, 1800);
+    check();
+  } catch (_) {
+    state.topicMapTranslationJob = null;
+    state.topicMapTranslation = { ...(state.topicMapTranslation || {}), state: "failed" };
+    renderChapters();
+  }
+}
+
 async function setUiLanguage(language) {
   if (!UI_LANGUAGES.has(language) || language === state.uiLanguage) return;
   state.uiLanguage = language;
@@ -1394,6 +1470,10 @@ async function setUiLanguage(language) {
   if (state.minutesTranslationPoller) clearInterval(state.minutesTranslationPoller);
   state.minutesTranslationPoller = null;
   state.minutesTranslationJob = null;
+  state.topicMapTranslation = null;
+  if (state.topicMapTranslationPoller) clearInterval(state.topicMapTranslationPoller);
+  state.topicMapTranslationPoller = null;
+  state.topicMapTranslationJob = null;
   saveWorkspaceState();
   applyUiLanguage();
   renderMeetingList();
@@ -1405,6 +1485,7 @@ async function setUiLanguage(language) {
   if (state.viewMode === "visuals") renderVisuals();
   if (state.viewMode === "quality") renderQualityReview();
   updateFocusSummary();
+  await loadTopicMapTranslation(true);
   await loadMinutesTranslation(true);
 }
 
@@ -1507,14 +1588,22 @@ function flowClaim(id) {
     (state.bundle?.evidence?.actions || []).find(item => item.claim_id === claim.id)) : null;
   return `<button type="button" class="meeting-flow-claim" data-structure-claim="${esc(id)}">` +
     `<b>${esc(action?.text || claim.text)}</b>` +
-    `${claim.start != null ? `<small>${fmt(claim.start)} · 核对依据</small>` : "<small>核对依据</small>"}` +
+    `${claim.start != null ? `<small>${fmt(claim.start)} · ${isEnglishUi() ? "Verify evidence" : "核对依据"}</small>` :
+      `<small>${isEnglishUi() ? "Verify evidence" : "核对依据"}</small>`}` +
     `</button>`;
 }
 
 const TOPIC_NODE_LABELS = {
-  context: "背景", argument: "观点", counterpoint: "反方/约束", decision: "决定",
-  action: "行动", open_question: "待确认", risk: "风险", evidence: "依据", discussion: "讨论",
+  "zh-CN": { context: "背景", argument: "观点", counterpoint: "反方/约束", decision: "决定",
+    action: "行动", open_question: "待确认", risk: "风险", evidence: "依据", discussion: "讨论" },
+  en: { context: "Context", argument: "Argument", counterpoint: "Constraint", decision: "Decision",
+    action: "Action", open_question: "Open question", risk: "Risk", evidence: "Evidence", discussion: "Discussion" },
 };
+
+function topicNodeLabel(type, fallback = null) {
+  return TOPIC_NODE_LABELS[state.uiLanguage]?.[type]
+    || fallback || (isEnglishUi() ? "Discussion" : "讨论");
+}
 
 function revealTopic(topicId, behavior = "smooth") {
   requestAnimationFrame(() => {
@@ -1524,7 +1613,7 @@ function revealTopic(topicId, behavior = "smooth") {
 }
 
 function openTopic(topicId, play = false, reveal = false, at = null) {
-  const topic = state.bundle?.topic_map?.topics?.find(item => item.id === topicId);
+  const topic = readingTopicMap().topics?.find(item => item.id === topicId);
   if (!topic) return;
   setTopicFocus(topic, topic);
   setReviewMode("chapters");
@@ -1534,9 +1623,10 @@ function openTopic(topicId, play = false, reveal = false, at = null) {
 
 function topicRangeText(ranges) {
   const rows = ranges || [];
-  if (!rows.length) return "没有可用时间范围";
+  if (!rows.length) return isEnglishUi() ? "No time range" : "没有可用时间范围";
   const visible = rows.slice(0, 3).map(([start, end]) => `${fmt(start)}–${fmt(end)}`);
-  return visible.join(" · ") + (rows.length > 3 ? ` · 另 ${rows.length - 3} 段` : "");
+  return visible.join(" · ") + (rows.length > 3
+    ? ` · ${isEnglishUi() ? `+${rows.length - 3} more` : `另 ${rows.length - 3} 段`}` : "");
 }
 
 function topicMapBranch(topic, index, selectedNodeId) {
@@ -1545,20 +1635,21 @@ function topicMapBranch(topic, index, selectedNodeId) {
     result[child.type] = (result[child.type] || 0) + 1;
     return result;
   }, {});
-  const outcome = [counts.decision ? `${counts.decision} 决定` : "",
-    counts.action ? `${counts.action} 行动` : "",
-    (counts.risk || counts.open_question) ? `${(counts.risk || 0) + (counts.open_question || 0)} 未决/风险` : ""]
+  const outcome = [counts.decision ? `${counts.decision} ${isEnglishUi() ? "decisions" : "决定"}` : "",
+    counts.action ? `${counts.action} ${isEnglishUi() ? "actions" : "行动"}` : "",
+    (counts.risk || counts.open_question) ? `${(counts.risk || 0) + (counts.open_question || 0)} ${isEnglishUi() ? "open/risks" : "未决/风险"}` : ""]
     .filter(Boolean).join(" · ");
   return `<section class="topic-map-branch ${selected ? "selected" : ""}" ` +
     `data-topic-branch="${esc(topic.id)}"><button type="button" class="topic-map-topic-node ` +
     `${selectedNodeId === topic.id ? "active" : ""}" data-topic-select="${esc(topic.id)}">` +
-    `<small>论点 ${String(index + 1).padStart(2, "0")} · ${outcome || `${topic.children?.length || 0} 个结构节点`}</small>` +
+    `<small>${isEnglishUi() ? "Topic" : "论点"} ${String(index + 1).padStart(2, "0")} · ` +
+    `${outcome || (isEnglishUi() ? `${topic.children?.length || 0} structured nodes` : `${topic.children?.length || 0} 个结构节点`)}</small>` +
     `<b>${esc(topic.title)}</b><span>${esc(topic.summary)}</span>` +
     `<em>${esc(topicRangeText(topic.ranges))}</em></button>` +
     (selected ? `<div class="topic-map-children">${(topic.children || []).map(child =>
       `<button type="button" class="topic-map-child ${esc(child.type)} ` +
       `${selectedNodeId === child.id ? "active" : ""}" data-topic-child="${esc(child.id)}" ` +
-      `data-topic-parent="${esc(topic.id)}"><small>${esc(TOPIC_NODE_LABELS[child.type] || "讨论")}</small>` +
+      `data-topic-parent="${esc(topic.id)}"><small>${esc(topicNodeLabel(child.type))}</small>` +
       `<b>${esc(child.title)}</b><span>${esc(child.summary)}</span></button>`).join("")}</div>` : "") +
     `</section>`;
 }
@@ -1566,12 +1657,12 @@ function topicMapBranch(topic, index, selectedNodeId) {
 function topicDetailVisuals(node, pageMap) {
   const pages = (node.page_ids || []).map(id => pageMap.get(id)).filter(Boolean).slice(0, 4);
   if (!pages.length) return "";
-  return `<section class="topic-detail-section"><h4>相关屏幕资料 <span>${node.page_ids.length}</span></h4>` +
+  return `<section class="topic-detail-section"><h4>${isEnglishUi() ? "Related screen content" : "相关屏幕资料"} <span>${node.page_ids.length}</span></h4>` +
     `<div class="topic-detail-visuals">${pages.map(page => {
       const image = visualImageUrl(page);
       const at = Number(page.ranges?.[0]?.[0] || page.first || 0);
       return `<button type="button" data-visual-id="${esc(page.id)}" data-visual-time="${at}">` +
-        (image ? `<img src="${image}" alt="">` : `<span>无截图</span>`) +
+        (image ? `<img src="${image}" alt="">` : `<span>${isEnglishUi() ? "No image" : "无截图"}</span>`) +
         `<b>${esc(page.title)}</b></button>`;
     }).join("")}</div></section>`;
 }
@@ -1580,13 +1671,14 @@ function topicMapDetail(topic, node, pageMap) {
   const ranges = node.ranges || topic.ranges || [];
   const claims = (node.claim_ids || []).map(flowClaim).filter(Boolean).join("");
   return `<section class="topic-map-detail"><header><div><span>${esc(
-    node.id === topic.id ? "一级论点" : TOPIC_NODE_LABELS[node.type] || "结构节点")}</span>` +
+    node.id === topic.id ? (isEnglishUi() ? "Primary topic" : "一级论点") :
+      topicNodeLabel(node.type, isEnglishUi() ? "Structured node" : "结构节点"))}</span>` +
     `<h3>${esc(node.title)}</h3></div><small>${esc(topic.title)}</small></header>` +
     `<p>${esc(node.summary || topic.summary)}</p>` +
     `<div class="topic-detail-ranges">${ranges.map(([start, end], index) =>
       `<button type="button" data-topic-play="${start}">▶ ${fmt(start)}–${fmt(end)}` +
-      `${index === 0 ? " 从这里播放" : ""}</button>`).join("")}</div>` +
-    (claims ? `<section class="topic-detail-section"><h4>相关结论与依据 <span>${node.claim_ids.length}</span></h4>` +
+      `${index === 0 ? (isEnglishUi() ? " Play from here" : " 从这里播放") : ""}</button>`).join("")}</div>` +
+    (claims ? `<section class="topic-detail-section"><h4>${isEnglishUi() ? "Related conclusions and evidence" : "相关结论与依据"} <span>${node.claim_ids.length}</span></h4>` +
       `<div class="topic-detail-claims">${claims}</div></section>` : "") +
     topicDetailVisuals(node, pageMap) + `</section>`;
 }
@@ -1598,44 +1690,53 @@ async function startTopicMapGeneration(button) {
   const job = await response.json();
   if (!response.ok) {
     button.disabled = false;
-    toast(`生成会议脉络失败：${job.detail || response.status}`);
+    toast(`${isEnglishUi() ? "Meeting-map generation failed" : "生成会议脉络失败"}：${job.detail || response.status}`);
     return;
   }
-  button.textContent = "正在归纳整场会议…";
-  toast(`会议脉络作业 ${job.id} 已排队`);
+  button.textContent = isEnglishUi() ? "Synthesizing the whole meeting…" : "正在归纳整场会议…";
+  toast(isEnglishUi() ? `Meeting-map job ${job.id} queued` : `会议脉络作业 ${job.id} 已排队`);
   pollJob(job.id, async current => {
     if (current.status === "done") {
-      toast("整场会议脉络已生成");
+      toast(isEnglishUi() ? "Meeting map generated" : "整场会议脉络已生成");
       await loadMeeting(state.slug);
     } else if (["failed", "cancelled"].includes(current.status)) {
       button.disabled = false;
-      button.textContent = "重新生成会议脉络";
-      toast(`会议脉络作业 ${current.status}`);
+      button.textContent = isEnglishUi() ? "Regenerate meeting map" : "重新生成会议脉络";
+      toast(isEnglishUi() ? `Meeting-map job ${current.status}` : `会议脉络作业 ${current.status}`);
     }
   });
 }
 
 function renderChapters() {
   const box = $("#chapters");
-  const topicMap = state.bundle?.topic_map || {};
+  const topicMap = readingTopicMap();
   const topics = topicMap.topics || [];
   if (state.bundle?.document_state === "draft") {
-    box.innerHTML = `<div class="topic-map-empty"><span>语音草稿已可阅读</span>` +
-      `<h3>会议脉络将在多模态终稿后生成</h3>` +
-      `<p>系统正在补充屏幕表格、数字和视觉上下文。为避免基于不完整资料提前固化论点，` +
-      `Topic Map 会在终稿证据稳定后自动生成。</p></div>`;
+    box.innerHTML = isEnglishUi()
+      ? `<div class="topic-map-empty"><span>Voice draft is ready</span>` +
+        `<h3>The meeting map will follow the multimodal final minutes</h3>` +
+        `<p>Tables, figures, and screen context are still being added. The map is generated after the final evidence stabilizes.</p></div>`
+      : `<div class="topic-map-empty"><span>语音草稿已可阅读</span>` +
+        `<h3>会议脉络将在多模态终稿后生成</h3>` +
+        `<p>系统正在补充屏幕表格、数字和视觉上下文。为避免基于不完整资料提前固化论点，` +
+        `Topic Map 会在终稿证据稳定后自动生成。</p></div>`;
     return;
   }
   if (!topicMapReady()) {
     const stale = topicMap.state === "stale";
     const invalid = topicMap.state === "ready" && topics.length;
-    box.innerHTML = `<div class="topic-map-empty"><span>AI 语义归纳</span>` +
-      `<h3>${stale ? "会议内容变化，需要更新脉络" : invalid
-        ? `当前有 ${topics.length} 个一级论点，需要重新归纳` : "还没有整场会议语义脉络"}</h3>` +
-      `<p>系统会读取逐字稿、说话人、结论依据和屏幕资料，先做大尺度内容归纳，再合并为 ` +
-      `3–8 个一级论点。截图和参会人变化不会直接成为节点。</p>` +
-      `<button type="button" id="topic-map-generate" class="primary">${stale || invalid
-        ? "更新会议脉络" : "生成会议脉络"}</button></div>`;
+    box.innerHTML = `<div class="topic-map-empty"><span>${isEnglishUi() ? "AI semantic synthesis" : "AI 语义归纳"}</span>` +
+      `<h3>${isEnglishUi()
+        ? (stale ? "Meeting content changed; update the map" : invalid
+          ? `${topics.length} primary topics need to be synthesized again` : "No meeting-wide semantic map yet")
+        : (stale ? "会议内容变化，需要更新脉络" : invalid
+          ? `当前有 ${topics.length} 个一级论点，需要重新归纳` : "还没有整场会议语义脉络")}</h3>` +
+      `<p>${isEnglishUi()
+        ? "The system synthesizes the transcript, speakers, conclusion evidence, and screen content into 3–8 primary topics. Screenshot or attendee changes do not become nodes by themselves."
+        : "系统会读取逐字稿、说话人、结论依据和屏幕资料，先做大尺度内容归纳，再合并为 3–8 个一级论点。截图和参会人变化不会直接成为节点。"}</p>` +
+      `<button type="button" id="topic-map-generate" class="primary">${isEnglishUi()
+        ? (stale || invalid ? "Update meeting map" : "Generate meeting map")
+        : (stale || invalid ? "更新会议脉络" : "生成会议脉络")}</button></div>`;
     $("#topic-map-generate", box).onclick = event => startTopicMapGeneration(event.currentTarget);
     return;
   }
@@ -1647,22 +1748,31 @@ function renderChapters() {
   const confirmed = claims.filter(item => item.status === "confirmed").length;
   const actions = state.bundle?.evidence?.actions?.length || 0;
   const unresolved = claims.filter(item => item.status === "open" || item.kind === "open_question").length;
-  box.innerHTML = `<article class="topic-map-view"><header class="topic-map-head"><div>` +
-    `<span>AI 全场语义归纳 · ${topics.length} 个一级论点</span><h2>${esc(state.bundle?.title || "会议脉络")}</h2>` +
-    `<p>${esc(topicMap.meeting_summary || "按整场会议的论点、分歧、结论和行动组织；页面只作为证据。")}</p>` +
+  const languageBanner = state.topicMapTranslationJob
+    ? `<div class="minutes-language-banner"><b>${esc(ui("translatingOutline"))}</b><span>…</span></div>`
+    : state.topicMapTranslation?.state === "failed"
+      ? `<div class="minutes-language-banner"><b>${esc(ui("outlineFailed"))}</b></div>` : "";
+  box.innerHTML = languageBanner + `<article class="topic-map-view"><header class="topic-map-head"><div>` +
+    `<span>${isEnglishUi() ? `AI meeting-wide synthesis · ${topics.length} primary topics` : `AI 全场语义归纳 · ${topics.length} 个一级论点`}</span>` +
+    `<h2>${esc(state.bundle?.title || (isEnglishUi() ? "Meeting map" : "会议脉络"))}</h2>` +
+    `<p>${esc(topicMap.meeting_summary || (isEnglishUi()
+      ? "Organized by arguments, disagreements, decisions, and actions; screens remain evidence."
+      : "按整场会议的论点、分歧、结论和行动组织；页面只作为证据。"))}</p>` +
     `<div class="topic-overview-stats"><button type="button" data-overview-target="minutes">` +
-    `<b>${confirmed}</b><span>已确认结论</span></button><button type="button" data-overview-target="minutes">` +
-    `<b>${actions}</b><span>可核验待办</span></button><button type="button" data-overview-target="minutes">` +
-    `<b>${unresolved}</b><span>未决问题</span></button></div>` +
-    `</div><button type="button" id="topic-map-refresh">重新归纳</button></header>` +
+    `<b>${confirmed}</b><span>${isEnglishUi() ? "Confirmed conclusions" : "已确认结论"}</span></button><button type="button" data-overview-target="minutes">` +
+    `<b>${actions}</b><span>${isEnglishUi() ? "Verifiable actions" : "可核验待办"}</span></button><button type="button" data-overview-target="minutes">` +
+    `<b>${unresolved}</b><span>${isEnglishUi() ? "Open questions" : "未决问题"}</span></button></div>` +
+    `</div><button type="button" id="topic-map-refresh">${isEnglishUi() ? "Regenerate" : "重新归纳"}</button></header>` +
     `<div class="topic-map-canvas"><div class="topic-map-root-wrap"><button type="button" class="topic-map-root" id="topic-map-overview">` +
-    `<small>整场会议</small><b>${esc(state.bundle?.title || "会议")}</b>` +
-    `<span>${topics.length} 个论点 · ${topicMap.stats?.children || 0} 个结构节点</span></button></div>` +
+    `<small>${isEnglishUi() ? "Whole meeting" : "整场会议"}</small><b>${esc(state.bundle?.title || (isEnglishUi() ? "Meeting" : "会议"))}</b>` +
+    `<span>${isEnglishUi() ? `${topics.length} topics · ${topicMap.stats?.children || 0} structured nodes` :
+      `${topics.length} 个论点 · ${topicMap.stats?.children || 0} 个结构节点`}</span></button></div>` +
     `<div class="topic-map-branches">${topics.map((topic, index) =>
       topicMapBranch(topic, index, selectedNode?.id)).join("")}</div></div>` +
     (selectedTopic && selectedNode ? topicMapDetail(selectedTopic, selectedNode, pageMap) :
-      `<div class="topic-overview-hint"><b>先看整场结构，再选择一个论点</b>` +
-      `<span>选择节点只聚焦相关逐字稿、画面和结论；不会自动播放。</span></div>`) + `</article>`;
+      `<div class="topic-overview-hint"><b>${isEnglishUi() ? "Scan the whole structure, then select a topic" : "先看整场结构，再选择一个论点"}</b>` +
+      `<span>${isEnglishUi() ? "Selecting a node focuses its transcript, screens, and conclusions without starting playback." :
+        "选择节点只聚焦相关逐字稿、画面和结论；不会自动播放。"}</span></div>`) + `</article>`;
   $$('[data-topic-select]', box).forEach(button => button.onclick = () => {
     const topic = topics.find(item => item.id === button.dataset.topicSelect);
     setTopicFocus(topic, topic);

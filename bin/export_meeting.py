@@ -193,6 +193,33 @@ def _minutes_languages(mdir: Path, minutes_path: Path, reading_minutes: str,
     return source_language, languages, assets
 
 
+def _topic_map_languages(mdir: Path, topic_map: dict) -> tuple[dict[str, dict], dict[str, bytes]]:
+    """收集与当前 Topic Map revision 一致的结构化译文；不在导出阶段调用模型。"""
+    source_language = _document_language("\n".join(
+        [str(topic_map.get("meeting_summary") or "")] +
+        [str(value) for topic in topic_map.get("topics", [])
+         for value in (topic.get("title", ""), topic.get("summary", ""))] +
+        [str(value) for topic in topic_map.get("topics", []) for child in topic.get("children", [])
+         for value in (child.get("title", ""), child.get("summary", ""))]))
+    languages = {source_language: topic_map}
+    assets = {f"assets/topic-map.{source_language}.json":
+              json.dumps(topic_map, ensure_ascii=False, indent=2).encode("utf-8")}
+    source_path = mdir / "meeting.topic-map.json"
+    source_revision = hashlib.sha256(source_path.read_bytes()).hexdigest()[:16] if source_path.is_file() else None
+    for target in ("zh-CN", "en"):
+        sidecar = _read_json(mdir / f"meeting.topic-map.translation.{target}.json", {})
+        translated = sidecar.get("topic_map")
+        if (sidecar.get("schema") != "meeting-topic-map-translation/v1"
+                or sidecar.get("status") != "complete"
+                or sidecar.get("source_revision") != source_revision
+                or not isinstance(translated, dict)):
+            continue
+        languages[target] = translated
+        assets[f"assets/topic-map.{target}.json"] = json.dumps(
+            translated, ensure_ascii=False, indent=2).encode("utf-8")
+    return languages, assets
+
+
 def _readme(media_mode: str) -> str:
     media_note = {
         "none": "本包未包含源音视频；时间戳仍可用于回到原系统定位。",
@@ -273,7 +300,8 @@ $('#search').oninput=e=>{let q=e.target.value.trim().toLowerCase(),box=$('#resul
 def _viewer_html(title: str, date: str, minutes_html: str, evidence: dict, integrity: dict,
                  topic_map: dict, media_path: str | None, media_kind: str | None,
                  source_language: str = "zh-CN",
-                 minutes_languages: dict[str, dict] | None = None) -> bytes:
+                 minutes_languages: dict[str, dict] | None = None,
+                 topic_map_languages: dict[str, dict] | None = None) -> bytes:
     duration = max((float(t.get("end", 0)) for t in evidence["sources"]["transcript"]), default=0)
     payload = {
         "title": title,
@@ -285,6 +313,7 @@ def _viewer_html(title: str, date: str, minutes_html: str, evidence: dict, integ
         "evidence": evidence,
         "integrity": integrity,
         "topic_map": topic_map,
+        "topic_map_languages": topic_map_languages or {},
         "media_path": media_path,
         "media_kind": media_kind,
     }
@@ -356,6 +385,7 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
     minutes_html = MD.render(linked_markdown)
     source_language, minutes_languages, minutes_language_assets = _minutes_languages(
         mdir, minutes_path, reading_minutes, evidence)
+    topic_map_languages, topic_map_language_assets = _topic_map_languages(mdir, topic_map)
     records = rag_records(evidence, reading_minutes)
     rag_bytes = ("\n".join(json.dumps(r, ensure_ascii=False, separators=(",", ":"))
                            for r in records) + "\n").encode("utf-8")
@@ -380,10 +410,12 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
 
         small_files = {
             "viewer.html": _viewer_html(title, date, minutes_html, evidence, integrity, topic_map,
-                                        media_arc, media_kind, source_language, minutes_languages),
+                                        media_arc, media_kind, source_language, minutes_languages,
+                                        topic_map_languages),
             "README.txt": _readme(media_mode).encode("utf-8"),
             "assets/minutes.md": reading_minutes.encode("utf-8"),
             **minutes_language_assets,
+            **topic_map_language_assets,
             "assets/transcript.json": json.dumps(turns, ensure_ascii=False, indent=2).encode("utf-8"),
             "assets/transcript.md": _transcript_markdown(turns).encode("utf-8"),
             "assets/evidence.json": evidence_bytes,
