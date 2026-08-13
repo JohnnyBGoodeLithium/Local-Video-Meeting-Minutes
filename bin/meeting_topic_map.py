@@ -24,7 +24,10 @@ import meeting_structure
 from meeting_core.llm import validated_api_base
 
 
-SCHEMA = "meeting-topic-map/v1"
+SCHEMA = "meeting-topic-map/v2"
+# v1 旧图 revisions 匹配时仍视为 ready(UI 无 coverage 字段时按灰隙显示);新生成写 v2。
+LEGACY_SCHEMAS = frozenset({"meeting-topic-map/v1"})
+ACCEPTED_SCHEMAS = LEGACY_SCHEMAS | {SCHEMA}
 ROUTER = validated_api_base(os.environ.get(
     "MEETING_LLM_API", "http://127.0.0.1:11435/v1")) + "/chat/completions"
 MODEL = os.environ.get("MEETING_LLM_MODEL", "qwen3.6-35b-a3b-operator")
@@ -37,13 +40,18 @@ CHUNK_PROMPT = """你负责整理一段会议的局部语义，不要按截图�
 输入是 meeting-topic-chunk-input/v1 JSON。请识别这一时间窗真正讨论的 1–5 个候选论点，
 保留观点、分歧、决定、行动和未决问题的区别。页面标题只能辅助理解，不能单独证明决定。
 
+覆盖要求：本窗口的每个 turn 都必须有去向。有讨论内容的归入某个候选论点的 turn_ids；
+确实不构成讨论内容的（如寒暄、等待、调试设备、纯翻页展示）列入 uncovered_turn_ids，
+并用 uncovered_reason 一句话说明。没有本窗口 turn 支撑的候选论点不要输出。
+
 只输出 JSON：
-{{"summary":"本段推进", "candidate_topics":[
+{{"summary":"本段推进", "uncovered_turn_ids":["T..."], "uncovered_reason":"可选说明",
+ "candidate_topics":[
   {{"title":"候选论点", "summary":"本段如何推进它", "turn_ids":["T..."],
    "claim_ids":["C..."], "page_ids":["P..."]}}
 ]}}
 
-所有 ID 必须来自输入；没有证据的候选不要输出。输入：
+所有 ID 必须来自输入。输入：
 {context}
 """
 
@@ -54,6 +62,8 @@ REDUCE_PROMPT = """你负责生成整场会议的逻辑思维导图，而不是�
 同一个 topic，并保留多个证据范围。每个 topic 下用 2–7 个结构化子节点说明背景、主要观点、
 反方/约束、决定、行动、风险或未决问题。不要把页面、时间窗或说话人直接当成论点。
 决定/行动状态必须服从输入 claim，页面展示不能被升级为会议结论。
+覆盖要求：一级论点必须覆盖全部窗口的候选论点材料，不得整窗丢弃；寒暄、过渡、等待、
+纯展示等弱价值内容至多归入一个“过渡与杂项”类论点，并只为该论点携带 "low_value": true。
 
 只输出 JSON：
 {{"meeting_summary":"一句话说明整场推进", "topics":[
@@ -94,12 +104,13 @@ def current_revisions(mdir: Path) -> dict:
 
 
 def load_current_topic_map(mdir: Path) -> tuple[str, dict]:
-    """返回 (ready|stale|missing, map)。stale 不向前端暴露旧节点。"""
+    """返回 (ready|stale|missing, map)。v1/v2 均接受,revisions 匹配即 ready;stale 不暴露旧节点。"""
     path = Path(mdir) / "meeting.topic-map.json"
     if not path.is_file():
         return "missing", {}
     value = _read_json(path, {})
-    if value.get("schema") != SCHEMA or value.get("revisions") != current_revisions(Path(mdir)):
+    if (value.get("schema") not in ACCEPTED_SCHEMAS
+            or value.get("revisions") != current_revisions(Path(mdir))):
         return "stale", {}
     return "ready", value
 
@@ -257,6 +268,7 @@ def _sanitize_map(raw: dict, evidence: dict, revisions: dict, *, model: str,
             "id": topic_id,
             "title": _plain(raw_topic.get("title"), 100) or f"论点 {len(topics) + 1}",
             "summary": _plain(raw_topic.get("summary"), 500),
+            "low_value": bool(raw_topic.get("low_value")),
             "turn_ids": topic_turns, "claim_ids": topic_claims, "page_ids": topic_pages,
             "ranges": topic_ranges,
             "start": topic_ranges[0][0] if topic_ranges else None,
@@ -265,6 +277,50 @@ def _sanitize_map(raw: dict, evidence: dict, revisions: dict, *, model: str,
         })
     if not topics:
         raise ValueError("模型没有生成带有效证据的 Topic")
+
+    # 确定性兜底:寒暄/过渡/纯展示等弱讨论时段常被模型丢弃,这里把未被任何 topic 挂接的
+    # 连续 turn 段按时间邻接挂到最近的 topic。只扩展 turn_ids/ranges,不改写任何模型文本。
+    covered_turns = {turn_id for topic in topics for turn_id in topic["turn_ids"]}
+    gap_groups: list[list[dict]] = []
+    previous_uncovered = False
+    for turn in source_turns:
+        if turn["id"] in covered_turns:
+            previous_uncovered = False
+            continue
+        if not previous_uncovered:
+            gap_groups.append([])
+        gap_groups[-1].append(turn)
+        previous_uncovered = True
+
+    def gap_distance(topic: dict, start: float, end: float) -> float:
+        distance = float("inf")
+        for range_start, range_end in topic["ranges"]:
+            if start <= range_end and range_start <= end:
+                return 0.0
+            distance = min(distance, abs(start - range_end), abs(range_start - end))
+        return distance
+
+    for group in gap_groups:
+        group_start = float(group[0].get("start", 0))
+        group_end = float(group[-1].get("end", 0))
+        target = min(topics,
+                     key=lambda topic: gap_distance(topic, group_start, group_end))
+        target["turn_ids"] = list(dict.fromkeys(
+            target["turn_ids"] + [turn["id"] for turn in group]))
+        target["ranges"] = _merge_ranges(
+            target["ranges"]
+            + [[float(turn.get("start", 0)), float(turn.get("end", 0))] for turn in group])
+        target["start"] = target["ranges"][0][0]
+        target["end"] = target["ranges"][-1][1]
+
+    # coverage = topic ranges 并集时长 ÷ 会议时长(由 turns 起止推算),供管线诊断。
+    union_ranges = _merge_ranges(
+        [bounds for topic in topics for bounds in topic["ranges"]], gap=0.0)
+    covered_seconds = sum(end - start for start, end in union_ranges)
+    meeting_start = min((float(turn.get("start", 0)) for turn in source_turns), default=0.0)
+    meeting_end = max((float(turn.get("end", 0)) for turn in source_turns), default=0.0)
+    duration = meeting_end - meeting_start
+    coverage = round(min(1.0, covered_seconds / duration), 4) if duration > 0 else 0.0
     return {
         "schema": SCHEMA,
         "state": "ready",
@@ -275,7 +331,8 @@ def _sanitize_map(raw: dict, evidence: dict, revisions: dict, *, model: str,
         "meeting_summary": _plain(raw.get("meeting_summary"), 600),
         "topics": topics,
         "stats": {"topics": len(topics),
-                  "children": sum(len(topic["children"]) for topic in topics)},
+                  "children": sum(len(topic["children"]) for topic in topics),
+                  "coverage": coverage},
     }
 
 
@@ -339,13 +396,19 @@ def generate_topic_map(mdir: Path, *, llm: Callable[[str, int], object] | None =
         }
         prompt = CHUNK_PROMPT.format(context=json.dumps(payload, ensure_ascii=False,
                                                         separators=(",", ":")))
-        chunk_text = call(prompt, 1400)
+        chunk_text = call(prompt, 2000)
         try:
             chunk_result = _model_json(chunk_text)
         except (json.JSONDecodeError, ValueError):
             print(f"[meta] Topic Map 局部归纳 {index}/{len(windows)} JSON 无效，正在修复格式",
                   flush=True)
-            chunk_result = _repair_model_json(call, chunk_text, max_tokens=2200)
+            try:
+                chunk_result = _repair_model_json(call, chunk_text, max_tokens=2600)
+            except (json.JSONDecodeError, ValueError):
+                # 单窗修复仍失败不再丢整场：空归纳交给 coverage 兜底做邻接分配。
+                print(f"[warn] Topic Map 局部归纳 {index}/{len(windows)} 修复仍失败，"
+                      "本窗按未覆盖处理", flush=True)
+                chunk_result = {"summary": "", "candidate_topics": []}
         summaries.append(chunk_result)
         checkpoint_value = {
             "schema": "meeting-topic-map-work/v1", "revisions": revisions,
@@ -370,13 +433,18 @@ def generate_topic_map(mdir: Path, *, llm: Callable[[str, int], object] | None =
     }
     final_prompt = REDUCE_PROMPT.format(
         context=json.dumps(reduce_payload, ensure_ascii=False, separators=(",", ":")))
-    reduce_text = call(final_prompt, 5000)
+    reduce_text = call(final_prompt, 8000)
     try:
         raw = _model_json(reduce_text)
     except (json.JSONDecodeError, ValueError):
         # 只让本机模型修复上一次结果的语法，不重新归纳内容，也不打印原输出。
         print("[meta] Topic Map 全场归并 JSON 无效，正在修复输出格式", flush=True)
-        raw = _repair_model_json(call, reduce_text)
+        try:
+            raw = _repair_model_json(call, reduce_text, max_tokens=12000)
+        except (json.JSONDecodeError, ValueError):
+            # 修复仍失败（多为输出截断）：完整重试一次归并，再失败才放弃本场。
+            print("[meta] Topic Map 全场归并修复仍失败，重试一次", flush=True)
+            raw = _model_json(call(final_prompt, 8000))
     result = _sanitize_map(raw, evidence, revisions, model=model,
                            window_count=len(windows), chunk_seconds=chunk_seconds)
     path = mdir / "meeting.topic-map.json"
@@ -397,6 +465,7 @@ def generate_for_pipeline(mdir: Path) -> dict | None:
         return None
     print(f"[meta] Topic Map: {result['stats']['topics']} 个论点 / "
           f"{result['stats']['children']} 个子节点 / "
+          f"覆盖 {result['stats'].get('coverage', 0) * 100:.1f}% / "
           f"{result['generation']['window_count']} 个处理窗 / {time.time()-started:.1f}s", flush=True)
     return result
 
@@ -414,6 +483,7 @@ def main() -> int:
         return 1
     print(f"[meta] Topic Map: {result['stats']['topics']} 个论点 / "
           f"{result['stats']['children']} 个子节点 / "
+          f"覆盖 {result['stats'].get('coverage', 0) * 100:.1f}% / "
           f"{result['generation']['window_count']} 个处理窗 / {time.time()-started:.1f}s", flush=True)
     print(f"[meta] Topic Map 输出: {path}", flush=True)
     return 0
