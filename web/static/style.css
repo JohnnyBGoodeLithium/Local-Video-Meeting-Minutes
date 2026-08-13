@@ -409,7 +409,7 @@ body.resizing-panes { cursor: col-resize; user-select: none; }
   cursor: pointer;
   overflow: visible;
 }
-/* 说话人节奏条：像素桶主导人着色，桶数与会议长度无关 */
+/* 说话人节奏条：像素桶主导人着色，桶数与会议长度无关；底色兜底空桶/像素缝，避免露出杂乱白线 */
 .tl-spk-lane {
   position: absolute;
   left: 0;
@@ -418,6 +418,7 @@ body.resizing-panes { cursor: col-resize; user-select: none; }
   bottom: 2px;
   border-radius: 2px;
   overflow: hidden;
+  background: rgba(255, 255, 255, .07);
 }
 .tl-spk-seg {
   position: absolute;
@@ -432,9 +433,9 @@ body.resizing-panes { cursor: col-resize; user-select: none; }
   top: 5px;
   height: 19px;
   border-radius: 2px;
-  background: rgba(255, 255, 255, .05);
+  background: rgba(255, 255, 255, .09);
 }
-.tl-gap:hover { background: rgba(255, 255, 255, .13); }
+.tl-gap:hover { background: rgba(255, 255, 255, .18); }
 .timeline.person-focus .tl-gap { opacity: .35; }
 .tl-chapter {
   position: absolute;
@@ -444,13 +445,13 @@ body.resizing-panes { cursor: col-resize; user-select: none; }
   height: 19px;
   overflow: hidden;
   border-right: 1px solid rgba(10, 12, 16, .7);
-  background: rgba(79, 124, 255, .42);
-  color: #dbe5ff;
+  background: rgba(79, 124, 255, .62);
+  color: #e6edff;
   font-size: 9px;
   line-height: 19px;
   white-space: nowrap;
   text-overflow: ellipsis;
-  opacity: .8;
+  opacity: .95;
 }
 .tl-chapter span { pointer-events: none; }
 .tl-chapter-index { flex: 0 0 auto; padding: 0 4px; background: rgba(9, 12, 18, .22); font: 8px/19px ui-monospace, monospace; }
@@ -459,31 +460,8 @@ body.resizing-panes { cursor: col-resize; user-select: none; }
 .tl-chapter.active { box-shadow: inset 0 0 0 1px #fff; }
 .tl-chapter.selected:not(.active) { opacity: 1; box-shadow: inset 0 0 0 1px rgba(255,255,255,.65); }
 /* low_value 论点(过渡与杂项):浅色块 + 弱化标题,与灰隙区分 */
-.tl-chapter.tl-chapter-low { background: rgba(79, 124, 255, .16); color: rgba(219, 229, 255, .55); }
-.tl-chapter.tl-chapter-low:hover, .tl-chapter.tl-chapter-low.active { background: rgba(79, 124, 255, .45); color: #dbe5ff; }
-/* 结论/待办菱形刻度:18px 透明热区 + 居中可见菱形 */
-.tl-claim {
-  position: absolute;
-  z-index: 2;
-  top: -3px;
-  width: 18px;
-  height: 18px;
-  margin-left: -9px;
-  cursor: pointer;
-}
-.tl-claim::after {
-  content: "";
-  position: absolute;
-  left: 5px;
-  top: 5px;
-  width: 8px;
-  height: 8px;
-  transform: rotate(45deg);
-  border-radius: 2px;
-  background: #ffd166;
-}
-.tl-claim:hover { z-index: 3; }
-.tl-claim:hover::after { box-shadow: 0 0 0 2px rgba(255, 209, 102, .4); }
+.tl-chapter.tl-chapter-low { background: rgba(79, 124, 255, .28); color: rgba(219, 229, 255, .7); }
+.tl-chapter.tl-chapter-low:hover, .tl-chapter.tl-chapter-low.active { background: rgba(79, 124, 255, .5); color: #dbe5ff; }
 .tl-played {
   position: absolute;
   z-index: 2;
@@ -502,8 +480,8 @@ body.resizing-panes { cursor: col-resize; user-select: none; }
 .speaker-chip small { color: var(--dim); }
 .speaker-chip:hover { border-color: var(--accent); }
 .speaker-chip.active { border-color: #fff; background: rgba(255, 255, 255, .08); }
-.legend-toggle, .legend-more { border-style: dashed; color: var(--dim); }
-.legend-toggle:hover, .legend-more:hover { color: var(--accent); }
+.legend-more { border-style: dashed; color: var(--dim); }
+.legend-more:hover { color: var(--accent); }
 /* 未绑定/会议机 chip:灰色斜纹,固定沉底 */
 .speaker-chip.unbound { cursor: pointer; }
 .speaker-chip.unbound i { border-radius: 2px; background: repeating-linear-gradient(45deg, #8a93a8 0 2px, rgba(138, 147, 168, .25) 2px 4px); }
@@ -520,6 +498,10 @@ body.resizing-panes { cursor: col-resize; user-select: none; }
 .person-lanes.person-focus .person-lane.dimmed { opacity: .25; }
 .person-lanes-more { justify-self: start; padding: 0 8px; border: 1px dashed var(--border); border-radius: 9px; background: transparent; color: var(--dim); font-size: 10px; }
 .person-lanes-more:hover { color: var(--accent); border-color: var(--accent); }
+/* 逐人车道开关：独立按钮条，固定在车道区块右下角，与人物 chips 区分 */
+.person-lanes-bar { display: flex; justify-content: flex-end; margin-top: 4px; }
+.person-lanes-toggle { padding: 1px 10px; border: 1px dashed var(--border); border-radius: 9px; background: transparent; color: var(--dim); font-size: 10px; }
+.person-lanes-toggle:hover { color: var(--accent); border-color: var(--accent); }
 /* 长轮次后续子块:缩进 + 弱化"继续"标记 */
 .turn-cont { opacity: .92; }
 .turn-cont .cont-mark { justify-self: end; font-style: normal; }

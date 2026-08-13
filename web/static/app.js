@@ -978,33 +978,6 @@ function buildTimeline(duration) {
   }
   appendGap(cursor, duration);
 
-  // 结论/待办菱形刻度：formal_action 与 status=confirmed 的 claim 投影到其时间起点；
-  // 旧会议没有 claims 时不画刻度，不报错。
-  const transcript = b.transcript || [];
-  const actions = b.evidence?.actions || [];
-  for (const claim of b.evidence?.claims || []) {
-    const isMarker = claim.status === "confirmed" || (claim.kind === "action" && claim.formal_action);
-    if (!isMarker) continue;
-    let at = Number(claim.start);
-    if (!Number.isFinite(at)) {
-      const firstTurn = (claim.turn_indexes || [])[0];
-      at = Number(transcript[firstTurn]?.start);
-    }
-    if (!Number.isFinite(at) || at < 0 || at > duration) continue;
-    const text = claim.action?.text
-      || actions.find(item => item.claim_id === claim.id)?.text || claim.text || "";
-    const marker = document.createElement("div");
-    marker.className = "tl-claim";
-    marker.style.left = (at / duration * 100) + "%";
-    marker.title = `${fmt(at)} ${text}`;
-    marker.addEventListener("click", event => {
-      event.stopPropagation();
-      hideTip();
-      revealTimelineClaim(claim, at);
-    });
-    tl.appendChild(marker);
-  }
-
   // 下层说话人节奏条：像素桶主导人着色，桶数与会议长度无关。
   renderSpeakerLane(tl, duration);
   // 分钟刻度
@@ -1113,7 +1086,7 @@ function renderSpeakerLane(tl, duration) {
     seg.className = "tl-spk-seg";
     seg.dataset.speaker = dominant;
     seg.style.left = (i / bucketCount * 100) + "%";
-    seg.style.width = (100 / bucketCount + 0.05) + "%";  // 轻微重叠避免桶间白缝
+    seg.style.width = (100 / bucketCount + 0.2) + "%";  // 重叠覆盖桶间像素缝，避免白线
     seg.style.background = speakerColor(dominant);
     seg.addEventListener("mouseenter", event =>
       showSpeakerTip(event, { speaker: dominant, start: winStart, end: winEnd }));
@@ -1204,19 +1177,7 @@ function renderSpeakerLegend() {
   const direct = bound.filter((name, index) => index < LEGEND_TOP_N || (stats.get(name) || 0) / total >= 0.05);
   const rest = bound.filter(name => !direct.includes(name));
 
-  // 逐人车道开关
-  const toggle = document.createElement("button");
-  toggle.type = "button";
-  toggle.className = "speaker-chip legend-toggle";
-  toggle.textContent = state.personLanes ? ui("collapseLanes") : ui("expandLanes");
-  toggle.addEventListener("click", () => {
-    state.personLanes = !state.personLanes;
-    renderSpeakerLegend();
-    renderPersonLanes();
-    applySpeakerFocus();
-  });
-  box.appendChild(toggle);
-
+  // 逐人车道开关已移到车道区块右下角的独立按钮（renderLanesToggle），不再混入图例 chips。
   for (const name of direct) box.appendChild(legendChip(name, pct(name)));
   if (rest.length) {
     if (state.legendShowAll) for (const name of rest) box.appendChild(legendChip(name, pct(name)));
@@ -1255,6 +1216,24 @@ function renderSpeakerLegend() {
     box.appendChild(chip);
   }
   box.classList.remove("hidden");
+  renderLanesToggle();
+}
+
+// 逐人车道开关：独立按钮，固定在车道区块右下角（收起时贴在图例行下方），与人物 chips 视觉区分。
+function renderLanesToggle() {
+  const bar = $("#person-lanes-bar");
+  const btn = $("#person-lanes-toggle");
+  if (!bar || !btn) return;
+  if (!(state.bundle?.transcript || []).length) { bar.classList.add("hidden"); return; }
+  btn.textContent = state.personLanes ? ui("collapseLanes") : ui("expandLanes");
+  btn.setAttribute("aria-expanded", String(state.personLanes));
+  btn.onclick = () => {
+    state.personLanes = !state.personLanes;
+    renderLanesToggle();
+    renderPersonLanes();
+    applySpeakerFocus();
+  };
+  bar.classList.remove("hidden");
 }
 
 // 逐人展开车道：每人一行 mini 车道，只画该人发言块，点击 seek；会议机行沉底。
@@ -1349,16 +1328,6 @@ function applySpeakerFocus() {
     row.classList.toggle("dimmed", Boolean(person) && row.dataset.speaker !== person));
   $$("#speaker-legend .speaker-chip").forEach(chip =>
     chip.classList.toggle("active", Boolean(person) && chip.dataset.speaker === person));
-}
-
-// 时间轴菱形刻度点击：复用 focus-show-claims 语义——seek 后在纪要里高亮该结论。
-function revealTimelineClaim(claim, at) {
-  seek(at);
-  state.focus.claimIds = [claim.id];
-  updateFocusedClaims();
-  setReviewMode("minutes");
-  requestAnimationFrame(() => scrollInside(
-    $("#minutes"), $("#minutes .focus-related"), "center", true));
 }
 
 function showSemanticTip(ev, item) {
