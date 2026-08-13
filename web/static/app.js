@@ -542,9 +542,9 @@ function renderPlayer() {
   const hasVisualStage = !b.has_video && (b.structure?.visuals || []).some(item => item.image);
   if (hasVisualStage) {
     holder.innerHTML = `<div id="content-stage" class="content-stage"><img id="content-stage-image" alt="">` +
-      `<button id="content-stage-expand" class="content-stage-expand" type="button">⌕ 放大查看</button>` +
-      `<div class="content-stage-caption"><span id="content-stage-kicker">当前屏幕</span>` +
-      `<b id="content-stage-title">正在定位屏幕内容</b></div></div>`;
+      `<button id="content-stage-expand" class="content-stage-expand" type="button">⌕ ${isEnglishUi() ? "Expand" : "放大查看"}</button>` +
+      `<div class="content-stage-caption"><span id="content-stage-kicker">${isEnglishUi() ? "Current screen" : "当前屏幕"}</span>` +
+      `<b id="content-stage-title">${isEnglishUi() ? "Locating screen content" : "正在定位屏幕内容"}</b></div></div>`;
     wireContentStage();
   }
   if (b.has_video) {
@@ -556,7 +556,9 @@ function renderPlayer() {
     el.src = `/api/meetings/${encodeURIComponent(state.slug)}/media/audio`;
     el.controls = true;
   } else {
-    if (!hasVisualStage) holder.innerHTML = '<p class="placeholder">无媒体文件，可通过时间轴定位逐字稿与纪要</p>';
+    if (!hasVisualStage) holder.innerHTML = `<p class="placeholder">${isEnglishUi()
+      ? "No media file; use the timeline to locate the transcript and minutes"
+      : "无媒体文件，可通过时间轴定位逐字稿与纪要"}</p>`;
     buildTimeline(0);
     $("#playback-time").textContent = `00:00 / ${fmt(b.duration || 0)}`;
     $("#player-toggle").classList.add("hidden");
@@ -582,10 +584,14 @@ function renderPlayer() {
 /* ---------- 时间轴（页区间分段 + 刻度 + 议题标记） ---------- */
 
 const PAGE_COLORS = ["#4f7cff", "#22a06b", "#e2a13c", "#c25050", "#8a5cd6", "#2ba3b8", "#b8609a"];
-const VISUAL_VALUE_LABELS = { high: "核心", medium: "参考", low: "低信息", unknown: "待解析" };
+const VISUAL_VALUE_LABELS = {
+  "zh-CN": { high: "核心", medium: "参考", low: "低信息", unknown: "待解析" },
+  en: { high: "Key", medium: "Reference", low: "Low information", unknown: "Pending" },
+};
 
 function visualValueLabel(visual) {
-  return visual?.value_label || VISUAL_VALUE_LABELS[visual?.information_value] || "待判断";
+  return VISUAL_VALUE_LABELS[state.uiLanguage]?.[visual?.information_value]
+    || visual?.value_label || (isEnglishUi() ? "Pending review" : "待判断");
 }
 
 function visualImageUrl(visual) {
@@ -786,10 +792,13 @@ function updateContentStage(visual = null, semantic = false) {
   stage.classList.toggle("empty", !url);
   if (image) image.src = url || "";
   if (expand) expand.classList.toggle("hidden", !url);
-  if (title) title.textContent = source?.title || "这一位置没有静态屏幕资料";
-  if (kicker) kicker.textContent = semantic ? "论点代表画面" : source
-    ? `${fmt(state.focus.time ?? source.first)} · ${source.kind === "slide" ? `第${source.page}页` : "动态画面"}`
-    : "当前屏幕";
+  if (title) title.textContent = source?.title || (isEnglishUi()
+    ? "No static screen content at this position" : "这一位置没有静态屏幕资料");
+  if (kicker) kicker.textContent = semantic ? (isEnglishUi() ? "Topic screen" : "论点代表画面") : source
+    ? `${fmt(state.focus.time ?? source.first)} · ${source.kind === "slide"
+      ? (isEnglishUi() ? `Page ${source.page}` : `第${source.page}页`)
+      : (isEnglishUi() ? "Dynamic screen" : "动态画面")}`
+    : (isEnglishUi() ? "Current screen" : "当前屏幕");
   if (!$("#screen-preview-mask")?.classList.contains("hidden") && source)
     updateScreenPreview(source);
 }
@@ -834,19 +843,26 @@ function updateFocusSummary() {
   const focus = state.focus;
   if (focus.mode === "overview") {
     const topics = topicMapReady() ? readingTopicMap().topics.length : 0;
-    box.innerHTML = `<span>整场概览</span><b>${topics ? `${topics} 个一级论点` : "按时间浏览会议"}</b>` +
-      `<small>选择论点聚焦内容；点击时间才会播放</small>`;
+    box.innerHTML = `<span>${isEnglishUi() ? "Meeting overview" : "整场概览"}</span>` +
+      `<b>${topics ? (isEnglishUi() ? `${topics} primary topics` : `${topics} 个一级论点`)
+        : (isEnglishUi() ? "Browse by time" : "按时间浏览会议")}</b>` +
+      `<small>${isEnglishUi() ? "Select a topic to focus; click a time to play" :
+        "选择论点聚焦内容；点击时间才会播放"}</small>`;
   } else if (focus.mode === "topic") {
     const [topic, node] = topicNode(focus.topicId, focus.nodeId);
-    box.innerHTML = `<span>语义聚焦</span><b>${esc(node?.title || topic?.title || "会议论点")}</b>` +
-      `<small>${(focus.ranges || []).length} 个时间范围 · ${focus.claimIds.length} 条相关结论</small>` +
-      (focus.claimIds.length ? `<button type="button" id="focus-show-claims">查看结论</button>` : "") +
-      `<button type="button" id="focus-clear">返回整场</button>`;
+    box.innerHTML = `<span>${isEnglishUi() ? "Semantic focus" : "语义聚焦"}</span>` +
+      `<b>${esc(node?.title || topic?.title || (isEnglishUi() ? "Meeting topic" : "会议论点"))}</b>` +
+      `<small>${isEnglishUi() ? `${(focus.ranges || []).length} time ranges · ${focus.claimIds.length} related conclusions` :
+        `${(focus.ranges || []).length} 个时间范围 · ${focus.claimIds.length} 条相关结论`}</small>` +
+      (focus.claimIds.length ? `<button type="button" id="focus-show-claims">${isEnglishUi() ? "View conclusions" : "查看结论"}</button>` : "") +
+      `<button type="button" id="focus-clear">${isEnglishUi() ? "Back to overview" : "返回整场"}</button>`;
   } else {
     const visual = visualForTime(focus.time || 0);
-    box.innerHTML = `<span>已定位 ${fmt(focus.time)}</span><b>${esc(visual?.title || "逐字稿位置")}</b>` +
-      `<small>${focus.claimIds.length ? `关联 ${focus.claimIds.length} 条结论` : "当前没有直接关联结论"}</small>` +
-      (focus.claimIds.length ? `<button type="button" id="focus-show-claims">查看结论</button>` : "");
+    box.innerHTML = `<span>${isEnglishUi() ? "Located at" : "已定位"} ${fmt(focus.time)}</span>` +
+      `<b>${esc(visual?.title || (isEnglishUi() ? "Transcript position" : "逐字稿位置"))}</b>` +
+      `<small>${focus.claimIds.length ? (isEnglishUi() ? `${focus.claimIds.length} related conclusions` : `关联 ${focus.claimIds.length} 条结论`)
+        : (isEnglishUi() ? "No directly related conclusions" : "当前没有直接关联结论")}</small>` +
+      (focus.claimIds.length ? `<button type="button" id="focus-show-claims">${isEnglishUi() ? "View conclusions" : "查看结论"}</button>` : "");
   }
   box.classList.remove("hidden");
   $("#focus-clear")?.addEventListener("click", () => { setOverviewFocus(); renderChapters(); });
@@ -926,7 +942,8 @@ function buildTimeline(duration) {
         item.kind === (p.kind || "slide") && item.page === (p.page ?? null)
         && Math.abs(item.start - s) < .05 && Math.abs(item.end - e) < .05);
       if (occurrence?.information_value === "low") seg.classList.add("low-information");
-      const label = p.kind === "camera" ? "画面" : `第${p.page}页`;
+      const label = p.kind === "camera" ? (isEnglishUi() ? "Camera" : "画面")
+        : (isEnglishUi() ? `Page ${p.page}` : `第${p.page}页`);
       seg.addEventListener("mouseenter", ev => showTip(ev, p, label, s, occurrence));
       seg.addEventListener("mousemove", ev => moveTip(ev));
       seg.addEventListener("mouseleave", hideTip);
@@ -982,12 +999,14 @@ function showSemanticTip(ev, item) {
   const visual = (source.page_ids || []).map(id => visuals.find(visual => visual.id === id))
     .find(visual => visual?.image && visual.information_value !== "low");
   const image = visualImageUrl(visual);
-  tip.innerHTML = `<div class="tip-title">论点 ${String(item.index + 1).padStart(2, "0")} · ` +
+  tip.innerHTML = `<div class="tip-title">${isEnglishUi() ? "Topic" : "论点"} ${String(item.index + 1).padStart(2, "0")} · ` +
     `${fmt(item.start)}–${fmt(item.end)}</div>` +
     `<b class="tip-heading">${esc(item.title)}</b>` +
-    `<p class="tip-summary">${esc(item.summary || "点击播放并定位到会议语义脉络。")}</p>` +
-    (item.topic ? `<div class="tip-metrics">${item.topic.children?.length || 0} 个结构节点 · ` +
-      `${item.topic.ranges?.length || 0} 个出现区间</div>` : "") +
+    `<p class="tip-summary">${esc(item.summary || (isEnglishUi()
+      ? "Click to play and locate this topic in the meeting map." : "点击播放并定位到会议语义脉络。"))}</p>` +
+    (item.topic ? `<div class="tip-metrics">${isEnglishUi()
+      ? `${item.topic.children?.length || 0} structured nodes · ${item.topic.ranges?.length || 0} occurrences`
+      : `${item.topic.children?.length || 0} 个结构节点 · ${item.topic.ranges?.length || 0} 个出现区间`}</div>` : "") +
     (image ? `<img src="${image}" alt="">` : "");
   tip.classList.remove("hidden");
   moveTip(ev);
@@ -1065,7 +1084,8 @@ function updateActiveChapter(time) {
   const label = $("#current-chapter");
   label.classList.toggle("hidden", !current);
   label.textContent = current ? current.title : "";
-  label.title = current ? `${topic ? "当前论点" : "当前章节"} · ${current.title}` : "";
+  label.title = current ? `${topic ? (isEnglishUi() ? "Current topic" : "当前论点")
+    : (isEnglishUi() ? "Current chapter" : "当前章节")} · ${current.title}` : "";
 }
 
 /* ---------- 转写区 ---------- */
@@ -1484,7 +1504,7 @@ async function setUiLanguage(language) {
   if (state.viewMode === "chapters") renderChapters();
   if (state.viewMode === "visuals") renderVisuals();
   if (state.viewMode === "quality") renderQualityReview();
-  updateFocusSummary();
+  updateFocusPresentation(false);
   await loadTopicMapTranslation(true);
   await loadMinutesTranslation(true);
 }

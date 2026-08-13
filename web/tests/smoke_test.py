@@ -129,7 +129,11 @@ check("时间码跳转只滚动内容面板，不带动整页丢失播放器",
 check("在线屏幕舞台支持放大、缩放和相邻屏幕键盘导航",
       b'id="screen-preview-mask"' in page and b'openScreenPreview' in app_js
       and b'navigateScreenPreview' in app_js and b'SCREEN_PREVIEW_ZOOMS' in app_js
-      and b'20260813p19' in page)
+      and b'20260813p20' in page)
+check("英文会议脉络同步本地化时间轴悬浮层与 Focus 辅助文案",
+      b'"Meeting overview"' in app_js and b'"Semantic focus"' in app_js
+      and b'structured nodes' in app_js and b'occurrences' in app_js
+      and b'"Topic screen"' in app_js and b'"View conclusions"' in app_js)
 check("结论审计默认聚焦重点结论并保留全部证据入口",
       "重点结论".encode() in app_js and "全部证据".encode() in app_js
       and b'qualityScope' in app_js and b'audit_priority' in app_js)
