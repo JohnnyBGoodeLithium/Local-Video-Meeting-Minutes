@@ -241,7 +241,8 @@ def _claim_groups(claims: list[dict], turn_indexes: list[int], page_ids: list[st
         claim_pages = set(claim.get("page_ids", []))
         if claim_turns.intersection(turn_set) or (not claim_turns and claim_pages.intersection(page_set)):
             linked.append(claim)
-    actions = [claim["id"] for claim in linked if claim.get("kind") == "action"]
+    actions = [claim["id"] for claim in linked
+               if claim.get("formal_action", claim.get("kind") == "action")]
     open_items = [claim["id"] for claim in linked
                   if claim.get("status") in {"proposal", "open"}
                   or claim.get("kind") in {"risk", "open_question", "proposal"}]

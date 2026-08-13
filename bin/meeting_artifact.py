@@ -20,6 +20,10 @@ RAG_SCHEMA = "meeting-minutes-rag/v1"
 MARKER_RE = re.compile(r"<!--\s*mm:evidence\s+([^<>]*?)\s*-->")
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.M)
 TABLE_SEPARATOR_CELL_RE = re.compile(r"^:?-{3,}:?$")
+FORMAL_ACTION_SECTIONS = {
+    "待办事项", "行动项", "后续行动", "后续事项",
+    "actionitem", "actionitems", "nextstep", "nextsteps", "followup", "followups",
+}
 
 CONCLUSION_POLICY = {
     "version": "conclusion-policy/v1",
@@ -317,8 +321,12 @@ def _grounded_actions_table(evidence: dict) -> str:
         "open": "待确认",
         "informational": "记录",
     }
+    # 旧 sidecar 可能把逐页详情里的 `kind=action` 全部保存为 actions；读取时也要
+    # 从 claims 重新投影，不能因历史缓存继续污染正式待办。
+    actions = (action_items_from_claims(evidence.get("claims", []))
+               if "claims" in evidence else evidence.get("actions", []))
     rows, seen = [], set()
-    for action in evidence.get("actions", []):
+    for action in actions:
         claim_id = str(action.get("claim_id") or "").strip()
         text = _markdown_cell(action.get("text"))
         turn_ids = [str(value) for value in action.get("turn_ids", []) if str(value)]
@@ -409,11 +417,26 @@ def _action_fields(value: str) -> dict:
     }
 
 
+def is_formal_action_claim(claim: dict) -> bool:
+    """判断 claim 是否有资格进入正式待办，而不是普通过程记录。
+
+    模型仍可在逐页详情中产生 action 线索，但正式任务只由整场待办章节投影。
+    这样既保留原始 claim，又不会把“确认到会/介绍议程/汇报数字”算成待办。
+    """
+    section = re.sub(r"[\s_\-:：/]+", "", str(claim.get("section") or "")).casefold()
+    return (
+        claim.get("kind") == "action"
+        and section in FORMAL_ACTION_SECTIONS
+        and claim.get("status") != "informational"
+        and bool(claim.get("turn_ids"))
+    )
+
+
 def action_items_from_claims(claims: list[dict]) -> list[dict]:
     """把有证据的 action claim 投影为稳定字段，供 Web、导出和 RAG 共用。"""
     actions = []
     for claim in claims:
-        if claim.get("kind") != "action":
+        if not is_formal_action_claim(claim):
             continue
         fields = dict(claim.get("action") or _action_fields(str(claim.get("text", ""))))
         if not fields.get("text"):
@@ -430,6 +453,22 @@ def action_items_from_claims(claims: list[dict]) -> list[dict]:
             "start": claim.get("start"),
         })
     return actions
+
+
+def project_action_semantics(evidence: dict, minutes: str | None = None) -> dict:
+    """为新旧 evidence 统一重建正式待办，并标记未晋级的 action claim。"""
+    claims = evidence.get("claims", [])
+    for claim in claims:
+        claim["formal_action"] = is_formal_action_claim(claim)
+    actions = action_items_from_claims(claims)
+    evidence["actions"] = actions
+    if minutes is not None:
+        evidence["action_candidates"] = action_candidates_from_minutes(minutes, actions)
+    linkage = evidence.setdefault("linkage", {})
+    linkage["formal_action_count"] = len(actions)
+    linkage["nonformal_action_claim_count"] = sum(
+        claim.get("kind") == "action" and not claim.get("formal_action") for claim in claims)
+    return evidence
 
 
 def action_candidates_from_minutes(minutes: str, grounded_actions: list[dict] | None = None) -> list[dict]:
@@ -573,9 +612,7 @@ def build_evidence_document(mdir: Path, minutes: str, turns: list[dict], pages: 
         claim["end"] = max((t["end"] for t in linked), default=None)
         claim["speakers"] = list(dict.fromkeys(t["speaker"] for t in linked))
         claim["person_ids"] = list(dict.fromkeys(t["person_id"] for t in linked if t.get("person_id")))
-    actions = action_items_from_claims(claims)
-    action_candidates = action_candidates_from_minutes(minutes, actions)
-    return {
+    document = {
         "schema": EVIDENCE_SCHEMA,
         "meeting_id": meeting_uid,
         "artifact_id": artifact_uid,
@@ -591,14 +628,15 @@ def build_evidence_document(mdir: Path, minutes: str, turns: list[dict], pages: 
         "speaker_profiles": profiles,
         "sources": {"transcript": turn_sources, "pages": page_sources},
         "claims": claims,
-        "actions": actions,
-        "action_candidates": action_candidates,
+        "actions": [],
+        "action_candidates": [],
         "linkage": {
             "claim_count": len(claims),
             "claims_with_transcript": sum(bool(c["turn_ids"]) for c in claims),
             "claims_with_pages": sum(bool(c["page_ids"]) for c in claims),
         },
     }
+    return project_action_semantics(document, minutes)
 
 
 def write_evidence_document(mdir: Path, minutes: str, turns: list[dict], pages: list[dict],
@@ -667,9 +705,11 @@ def rag_records(evidence: dict, minutes: str) -> list[dict]:
             "evidence_ids": claim["evidence_ids"],
             "turn_ids": claim["turn_ids"],
             "page_ids": claim["page_ids"],
-            "retrieval_priority": 1.0 if claim["kind"] in {"decision", "action"} else 0.8,
+            "formal_action": bool(claim.get("formal_action")),
+            "retrieval_priority": 1.0 if (
+                claim["kind"] == "decision" or claim.get("formal_action")) else 0.8,
         }
-        if claim["kind"] == "action":
+        if claim.get("formal_action"):
             record["action"] = claim.get("action") or _action_fields(claim.get("text", ""))
         records.append(record)
     for turn in evidence.get("sources", {}).get("transcript", []):

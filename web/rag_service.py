@@ -11,10 +11,16 @@ import hashlib
 import json
 import math
 import re
+import sys
 from collections import Counter
 from pathlib import Path
 
 import retrieval_models
+
+BIN_DIR = Path(__file__).resolve().parents[1] / "bin"
+if str(BIN_DIR) not in sys.path:
+    sys.path.insert(0, str(BIN_DIR))
+from meeting_artifact import project_action_semantics
 
 
 RAG_VERSION = "meeting-rag/evidence-hybrid-v1"
@@ -94,7 +100,8 @@ def _valid_evidence(mdir: Path, minutes_path: Path | None) -> dict:
         return {}
     if revisions.get("minutes") != _revision(minutes_path):
         return {}
-    return evidence
+    return project_action_semantics(
+        evidence, minutes_path.read_text(encoding="utf-8"))
 
 
 def meeting_records(mdir: Path) -> tuple[list[dict], dict]:
@@ -133,6 +140,7 @@ def meeting_records(mdir: Path) -> tuple[list[dict], dict]:
             "text": str(claim.get("text") or ""),
             "section": str(claim.get("section") or ""),
             "kind": str(claim.get("kind") or "discussion"),
+            "formal_action": bool(claim.get("formal_action")),
             "status": str(claim.get("status") or "informational"),
             "confidence": str(claim.get("confidence") or "medium"),
             "turn_indexes": [item["turn_indexes"][0] for item in linked],
@@ -192,7 +200,7 @@ def _intent_boost(query: str, record: dict) -> float:
         if rtype == "claim":
             boost *= 1.35 if record.get("kind") in {"decision", "alignment"} else 1.12
     if re.search(r"行动|待办|谁负责|截止|follow.?up|action|owner|deadline", q):
-        if rtype == "claim" and record.get("kind") == "action":
+        if rtype == "claim" and record.get("formal_action"):
             boost *= 1.5
     if re.search(r"ppt|页面|幻灯片|图表|deck|slide", q) and rtype == "slide":
         boost *= 1.55

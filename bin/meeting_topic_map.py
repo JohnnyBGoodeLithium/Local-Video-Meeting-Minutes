@@ -227,6 +227,9 @@ def _sanitize_map(raw: dict, evidence: dict, revisions: dict, *, model: str,
             child_type = str(raw_child.get("type") or "discussion")
             if child_type not in ALLOWED_CHILD_TYPES:
                 child_type = "discussion"
+            if child_type == "action" and not any(
+                    claim_by_id[item].get("formal_action") for item in child_claims):
+                child_type = "discussion"
             children.append({
                 "id": "", "type": child_type,
                 "title": _plain(raw_child.get("title"), 80) or "讨论要点",

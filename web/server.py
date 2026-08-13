@@ -300,7 +300,8 @@ def _current_evidence(mdir: Path) -> dict:
         return {}
     if revisions.get("minutes") != assistant.revision(minutes):
         return {}
-    return evidence
+    return artifact.project_action_semantics(
+        evidence, minutes.read_text(encoding="utf-8"))
 
 
 def _evidence_state(mdir: Path, evidence: dict | None = None) -> str:
@@ -601,8 +602,7 @@ def get_bundle(slug: str):
                       "phase": "ready" if minutes_html else "processing", "inferred": True}
     document_state = meeting_generation.document_state(
         mdir, bool(transcript and minutes_html))
-    actions = evidence.get("actions") or artifact.action_items_from_claims(
-        evidence.get("claims", []))
+    actions = artifact.action_items_from_claims(evidence.get("claims", []))
     action_candidates = evidence.get("action_candidates")
     if action_candidates is None and minutes_path:
         action_candidates = artifact.action_candidates_from_minutes(

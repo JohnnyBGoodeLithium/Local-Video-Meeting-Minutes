@@ -11,6 +11,7 @@ git show <commit>
 
 ## 未发布
 
+- 正式待办与模型 action claim 分层：只有整场待办章节、非 informational 且有逐字稿依据的 action 进入 Web、MeetingPack、章节行动组和 RAG 行动加权；逐页误标保留为证据但不再污染待办。结论审计默认显示重点结论，并可切换查看全部证据。
 - 在线工作台和 MeetingPack 的当前屏幕增加沉浸式放大、125%–300% 缩放、双击放大及前后逻辑页导航；切页更新播放时间和共享 Focus，但不自动开始播放。
 - 新增硬件适配层和无 GPU 回归：PyTorch 自动区分 CUDA/ROCm/CPU，旧 NVIDIA 自动从 BF16 回退 FP16；ASR、aligner、pyannote、文本/VL 模型路径及端口改为环境变量。
 - README 从“钉钉闪记本地版”重写为本地多模态会议知识工作台，补充产品核心、架构、目录、数据资产和文档地图；同时新增跨机器部署/NVIDIA 验收矩阵、2 小时实测成本模型、无凭据部署模板和仓库级 `AGENTS.md`。

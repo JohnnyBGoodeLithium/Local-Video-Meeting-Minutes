@@ -33,6 +33,7 @@ const state = {
   assistantNextIntent: null,
   quality: null,
   qualityFilter: "pending",
+  qualityScope: "priority",
   viewMode: ["minutes", "chapters", "visuals", "quality"].includes(requestedView)
     ? requestedView : "minutes",
   selectedChapterId: null,
@@ -1631,8 +1632,9 @@ function qualityLabelName(id) {
 }
 
 function updateQualityIndicators() {
-  const pending = state.quality?.summary?.pending || 0;
-  const total = state.quality?.summary?.total || 0;
+  const summary = state.quality?.priority_summary || state.quality?.summary || {};
+  const pending = summary.pending || 0;
+  const total = summary.total || 0;
   const evidenceReady = state.quality?.evidence_state === "ready";
   $("#quality-badge").textContent = pending;
   $("#quality-badge").classList.toggle("hidden", pending === 0);
@@ -1655,6 +1657,7 @@ async function loadQualityReview() {
 }
 
 function qualityClaimVisible(claim) {
+  if (state.qualityScope === "priority" && !claim.audit_priority) return false;
   const filter = state.qualityFilter;
   if (filter === "pending") return !claim.review;
   if (filter === "issues") {
@@ -1663,6 +1666,12 @@ function qualityClaimVisible(claim) {
   }
   if (filter === "passed") return claim.review?.label === "correct";
   return true;
+}
+
+function qualityClaimKind(claim) {
+  if (claim.kind === "action" && !claim.formal_action)
+    return claim.status === "informational" ? "过程记录" : "行动线索（未入待办）";
+  return qualityKindNames[claim.kind] || claim.kind;
 }
 
 function renderQualityReview() {
@@ -1677,13 +1686,15 @@ function renderQualityReview() {
       `<p class="dim">请先重新生成纪要；审计界面不会调用模型，也不会修改正式纪要。</p></div>`;
     return;
   }
-  const s = quality.summary || {};
-  if (!s.total) {
+  const allSummary = quality.summary || {};
+  const prioritySummary = quality.priority_summary || allSummary;
+  if (!allSummary.total) {
     box.innerHTML = `<div class="quality-empty"><h3>还没有可审计的结构化结论</h3>` +
       `<p>这份旧纪要没有 claim 级依据标记，需要重新生成一次带依据的纪要。</p>` +
       `<p class="dim">打开结论审计不会运行模型，也不会改变现有纪要。</p></div>`;
     return;
   }
+  const s = state.qualityScope === "priority" ? prioritySummary : allSummary;
   const pct = s.total ? Math.round((s.reviewed / s.total) * 100) : 0;
   const filters = [
     ["pending", `待审计 ${s.pending || 0}`],
@@ -1693,26 +1704,33 @@ function renderQualityReview() {
   ];
   let html = `<section class="quality-summary">` +
     `<div class="quality-summary-head"><div><b>会议结论审计</b>` +
-    `<p>逐条确认结论是否被原文和画面支持；只保存人工判断，不改写正式纪要。</p></div>` +
+    `<p>默认只核对决定、共识、正式行动、风险与未决问题；背景记录仍保留在“全部证据”。</p></div>` +
     `<strong>${s.reviewed || 0}/${s.total || 0}</strong></div>` +
     `<div class="quality-progress"><i style="width:${pct}%"></i></div>` +
     `<div class="quality-metrics"><span>完成 ${pct}%</span><span class="issue">问题 ${s.issues || 0}</span>` +
     `<span>待定 ${s.uncertain || 0}</span><span>过期 ${s.stale || 0}</span>` +
     `<span>逐字稿依据 ${s.with_transcript_evidence || 0}/${s.total || 0}</span></div>` +
+    `<div class="quality-scope"><button type="button" data-quality-scope="priority" ` +
+    `class="${state.qualityScope === "priority" ? "active" : ""}">重点结论 ${prioritySummary.total || 0}</button>` +
+    `<button type="button" data-quality-scope="all" class="${state.qualityScope === "all" ? "active" : ""}">` +
+    `全部证据 ${allSummary.total || 0}</button></div>` +
     `<div class="quality-filters">${filters.map(([id, label]) =>
       `<button type="button" data-quality-filter="${id}" class="${state.qualityFilter === id ? "active" : ""}">${label}</button>`
     ).join("")}</div></section>`;
 
   const claims = quality.claims.filter(qualityClaimVisible);
   if (!claims.length) {
-    html += `<div class="quality-empty"><h3>${state.qualityFilter === "pending" ? "这一轮结论已经审计完成" : "此筛选下没有条目"}</h3>` +
-      `<p class="dim">可以切换上方筛选查看已记录的审计判断。</p></div>`;
+    const emptyTitle = state.qualityScope === "priority" && !(prioritySummary.total || 0)
+      ? "没有需要优先审计的重点结论"
+      : state.qualityFilter === "pending" ? "这一轮结论已经审计完成" : "此筛选下没有条目";
+    html += `<div class="quality-empty"><h3>${emptyTitle}</h3>` +
+      `<p class="dim">可以切换范围或筛选，查看保留的背景事实与既有判断。</p></div>`;
   }
   for (const claim of claims) {
     const review = claim.review;
     const stale = claim.previous_review;
     const status = qualityStatusNames[claim.status] || claim.status;
-    const kind = qualityKindNames[claim.kind] || claim.kind;
+    const kind = qualityClaimKind(claim);
     html += `<article class="quality-card ${review ? `reviewed label-${esc(review.label)}` : ""}" data-quality-claim="${esc(claim.id)}">` +
       `<div class="quality-card-head"><div class="quality-tags"><span>${esc(status)}</span><span>${esc(kind)}</span>` +
       `<span class="${claim.has_transcript_evidence ? "has-evidence" : "missing-evidence"}">` +
@@ -1733,6 +1751,12 @@ function renderQualityReview() {
       `</article>`;
   }
   box.innerHTML = html;
+  $$('[data-quality-scope]', box).forEach(button => {
+    button.onclick = () => {
+      state.qualityScope = button.dataset.qualityScope;
+      renderQualityReview();
+    };
+  });
   $$('[data-quality-filter]', box).forEach(button => {
     button.onclick = () => {
       state.qualityFilter = button.dataset.qualityFilter;

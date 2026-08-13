@@ -75,6 +75,9 @@ EVIDENCE_RULES = """
    `<!-- mm:evidence kind=decision status=confirmed confidence=high turns=T000001,T000003 pages=P0002 -->`
    turns/pages 只能写输入中真实存在的 ID；没有页面依据时省略 pages，没有逐字稿依据的页面事实只能用
    kind=slide_fact status=informational，绝不能标成 decision/action。
+7. `kind=action` 只允许出现在整场 `### 待办事项` 表格。逐页详情中的设备调试、确认到会、
+   等人加入、介绍议程、汇报数字和会议流程都不是会后待办；即使句子含“确认/安排”，也必须按
+   discussion/informational/proposal 等真实语义标注，不能写成 action。
 """
 
 SUM_PROMPT = """你是一名严谨的会议纪要编辑。你收到的是 `meeting-minutes-prompt/v1` JSON，

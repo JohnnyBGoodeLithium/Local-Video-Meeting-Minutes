@@ -25,10 +25,17 @@ minutes = """# 会议纪要
 
 ## 总体摘要
 
-- **待办事项**：
+### 待办事项
+
 | 事项 | 负责人 | 期限 | 状态 |
 | --- | --- | --- | --- |
 | 完成合成验证 <!-- mm:evidence kind=action status=open confidence=high turns=T000001 --> | Alex Example | 周五 | 进行中 |
+
+## 分页详情
+
+### 第1页 [00:01] 合成开场
+
+- 确认音频连接正常。 <!-- mm:evidence kind=action status=informational confidence=high turns=T000001 -->
 """
 
 normalized = normalize_minutes_markdown(minutes)
@@ -52,6 +59,10 @@ with tempfile.TemporaryDirectory(prefix="minutes-markdown-test-") as tmp:
     assert action["status"] == "进行中"
     assert action["claim_id"] == "C00001"
     assert action["turn_ids"] == ["T000001"]
+    false_action = next(claim for claim in evidence["claims"] if claim["id"] == "C00002")
+    assert false_action["kind"] == "action" and false_action["formal_action"] is False
+    assert evidence["linkage"]["formal_action_count"] == 1
+    assert evidence["linkage"]["nonformal_action_claim_count"] == 1
 
 fullwidth = "｜事项｜负责人｜\n｜---｜---｜\n｜合成事项｜待确认｜\n"
 assert sum(token.type == "table_open" for token in MarkdownIt("default").parse(

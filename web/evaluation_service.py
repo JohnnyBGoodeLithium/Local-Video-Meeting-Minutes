@@ -26,6 +26,16 @@ LABELS = [
 ]
 VALID_LABELS = {item["id"] for item in LABELS}
 LABEL_GROUPS = {item["id"]: item["group"] for item in LABELS}
+PRIORITY_KINDS = {"decision", "alignment", "proposal", "action", "risk", "open_question"}
+
+
+def audit_priority(claim: dict) -> bool:
+    """默认审计真正影响结论/执行的内容；全部证据仍可由前端展开。"""
+    if claim.get("status") == "informational":
+        return False
+    if claim.get("kind") == "action":
+        return bool(claim.get("formal_action"))
+    return claim.get("kind") in PRIORITY_KINDS
 
 
 def empty_store(slug: str) -> dict:
@@ -147,6 +157,7 @@ def build_payload(slug: str, evidence: dict, store: dict, evidence_state: str) -
         claim["previous_review"] = latest if latest and current is None else None
         claim["has_transcript_evidence"] = bool(claim.get("turn_ids"))
         claim["has_page_evidence"] = bool(claim.get("page_ids"))
+        claim["audit_priority"] = audit_priority(claim)
         claims.append(claim)
 
     reviewed = [claim for claim in claims if claim.get("review")]
@@ -174,6 +185,21 @@ def build_payload(slug: str, evidence: dict, store: dict, evidence_state: str) -
         "with_page_evidence": sum(bool(claim.get("page_ids")) for claim in claims),
         "counts": counts,
     }
+    priority_claims = [claim for claim in claims if claim.get("audit_priority")]
+    priority_reviewed = [claim for claim in priority_claims if claim.get("review")]
+    priority_groups = [LABEL_GROUPS.get(claim["review"]["label"])
+                       for claim in priority_reviewed]
+    priority_summary = {
+        "total": len(priority_claims),
+        "reviewed": len(priority_reviewed),
+        "pending": len(priority_claims) - len(priority_reviewed),
+        "passed": priority_groups.count("pass"),
+        "issues": priority_groups.count("issue"),
+        "uncertain": priority_groups.count("uncertain"),
+        "stale": sum(bool(claim.get("review_stale")) for claim in priority_claims),
+        "with_transcript_evidence": sum(bool(claim.get("turn_ids")) for claim in priority_claims),
+        "with_page_evidence": sum(bool(claim.get("page_ids")) for claim in priority_claims),
+    }
     return {
         "schema": SCHEMA,
         "meeting_slug": slug,
@@ -181,6 +207,7 @@ def build_payload(slug: str, evidence: dict, store: dict, evidence_state: str) -
         "artifact_id": evidence.get("artifact_id"),
         "labels": LABELS,
         "summary": summary,
+        "priority_summary": priority_summary,
         "claims": claims,
         "updated_at": store.get("updated_at"),
     }

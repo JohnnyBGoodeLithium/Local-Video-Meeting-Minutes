@@ -125,7 +125,10 @@ check("在线端以合格会议脉络为第一眼，并共享时间聚焦状态"
 check("在线屏幕舞台支持放大、缩放和相邻屏幕键盘导航",
       b'id="screen-preview-mask"' in page and b'openScreenPreview' in app_js
       and b'navigateScreenPreview' in app_js and b'SCREEN_PREVIEW_ZOOMS' in app_js
-      and b'20260812p16' in page)
+      and b'20260813p17' in page)
+check("结论审计默认聚焦重点结论并保留全部证据入口",
+      "重点结论".encode() in app_js and "全部证据".encode() in app_js
+      and b'qualityScope' in app_js and b'audit_priority' in app_js)
 s, product_headers, product_page = req("GET", "/product", raw=True)
 product_cache = next((value for key, value in product_headers.items()
                       if key.lower() == "cache-control"), "")
@@ -210,6 +213,7 @@ check("结论审计初始为 3 条待判断",
       s == 200 and quality.get("evidence_state") == "ready"
       and quality.get("summary", {}).get("total") == 3
       and quality.get("summary", {}).get("pending") == 3
+      and quality.get("priority_summary", {}).get("total") == 0
       and quality.get("labels", [])[0].get("label") == "结论与依据一致")
 first = quality_claims[0] if quality_claims else {}
 s, _, quality = req("PUT", "/api/meetings/_smoke/quality/claims/C00001", {

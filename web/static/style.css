@@ -740,6 +740,9 @@ body.resizing-panes { cursor: col-resize; user-select: none; }
 .quality-filters { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
 .quality-filters button { padding: 2px 9px; font-size: 11px; }
 .quality-filters button.active { border-color: var(--accent); color: var(--accent); background: rgba(79, 124, 255, .1); }
+.quality-scope { display: flex; gap: 5px; margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--line); }
+.quality-scope button { padding: 4px 10px; font-size: 11px; }
+.quality-scope button.active { border-color: var(--accent); color: #fff; background: var(--accent); }
 .quality-card {
   margin-bottom: 10px;
   padding: 12px;
