@@ -11,6 +11,8 @@ git show <commit>
 
 ## 未发布
 
+- 新增“中文 / EN”阅读语言开关：在线界面与会议纪要同步切换；纪要译文采用不覆盖原文、revision-bound、保留 evidence marker 的分块 sidecar。MeetingPack 升级 v5，可离线携带并切换导出前已生成的双语纪要。
+- 服务中断后的 `visual_enrichment` 可在确认无活动 writer 时复用 transcript、slides 与 VL cache 阶段级续跑，不再要求重新上传或从头理解全部页面。
 - 正式待办与模型 action claim 分层：只有整场待办章节、非 informational 且有逐字稿依据的 action 进入 Web、MeetingPack、章节行动组和 RAG 行动加权；逐页误标保留为证据但不再污染待办。结论审计默认显示重点结论，并可切换查看全部证据。
 - 在线工作台和 MeetingPack 的当前屏幕增加沉浸式放大、125%–300% 缩放、双击放大及前后逻辑页导航；切页更新播放时间和共享 Focus，但不自动开始播放。
 - 新增硬件适配层和无 GPU 回归：PyTorch 自动区分 CUDA/ROCm/CPU，旧 NVIDIA 自动从 BF16 回退 FP16；ASR、aligner、pyannote、文本/VL 模型路径及端口改为环境变量。

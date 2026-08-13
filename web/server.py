@@ -529,6 +529,22 @@ def _minutes_html(mdir: Path, slug: str):
     return html, topics
 
 
+def _minutes_reading_source(mdir: Path) -> tuple[str, dict]:
+    minutes_path = _minutes_file(mdir)
+    if minutes_path is None:
+        return "", _current_evidence(mdir)
+    evidence = _current_evidence(mdir)
+    full_text = artifact.normalize_minutes_markdown(minutes_path.read_text(encoding="utf-8"))
+    return artifact.minutes_reading_markdown(
+        full_text, evidence, include_topic_section=False), evidence
+
+
+def _render_minutes_language(markdown: str, evidence: dict, target: str) -> str:
+    linked = artifact.markdown_with_evidence_links(
+        markdown, evidence, label="Evidence" if target == "en" else "依据")
+    return MD.render(linked)
+
+
 @app.post("/api/meetings/{slug}/delete")
 def delete_meeting(slug: str):
     """删除整个会议目录, 并清掉声纹库 sources 里对它的引用。"""
@@ -704,6 +720,16 @@ def _translation_payload(slug: str, mdir: Path, target: str) -> dict:
         mdir, ident["title"], _current_evidence(mdir), target=target)
 
 
+def _minutes_translation_payload(slug: str, mdir: Path, target: str) -> dict:
+    ident = _meeting_identity(slug)
+    source, evidence = _minutes_reading_source(mdir)
+    payload = translation.minutes_translation_payload(
+        mdir, ident["title"], source, evidence, target=target)
+    if payload.get("state") == "ready" and payload.get("markdown"):
+        payload["html"] = _render_minutes_language(payload["markdown"], evidence, target)
+    return payload
+
+
 def _run_translation(job: dict, mdir: Path, title: str, target: str) -> None:
     """同一串行 worker 内执行本地翻译；作业日志只记录进度数字。"""
     if job.get("cancel_requested"):
@@ -755,6 +781,45 @@ def _run_translation(job: dict, mdir: Path, title: str, target: str) -> None:
                 "total": document.get("total", 0), "dry_run": DRY_RUN})
 
 
+def _run_minutes_translation(job: dict, mdir: Path, title: str, target: str) -> None:
+    if job.get("cancel_requested"):
+        return
+    target_label = translation.TARGETS[target]["label"]
+    source, evidence = _minutes_reading_source(mdir)
+    _set_status(job, "running", started=_now(), stage=f"生成{target_label}纪要",
+                progress={"done": 0, "total": 0})
+
+    def cancelled() -> bool:
+        return bool(job.get("cancel_requested"))
+
+    def progress(done: int, total: int) -> None:
+        if cancelled():
+            return
+        with BANK_LOCK:
+            job["progress"] = {"done": done, "total": total}
+            job["log"] = [line for line in job.get("log", [])
+                          if not line.startswith("[meta] 纪要翻译进度")]
+            job["log"].append(f"[meta] 纪要翻译进度 {done}/{total}")
+            _save_job(job)
+
+    try:
+        document = translation.translate_minutes(
+            mdir, title, source, evidence, dry_run=DRY_RUN, on_progress=progress,
+            should_cancel=cancelled, target=target)
+    except translation.TranslationCancelled:
+        if job.get("status") != "cancelled":
+            _set_status(job, "cancelled", finished=_now(), rc=None)
+        return
+    except (translation.TranslationError, assistant.AssistantError):
+        job.setdefault("log", []).append("[error] 纪要翻译失败")
+        _set_status(job, "failed", finished=_now(), rc=None)
+        return
+    _set_status(job, "done", finished=_now(), rc=0,
+                result={"target_language": target, "artifact": "minutes",
+                        "done": document.get("done", 1), "total": document.get("total", 1),
+                        "dry_run": DRY_RUN})
+
+
 @app.get("/api/meetings/{slug}/translations/transcript")
 def get_transcript_translation(
         slug: str, target: str = Query("zh-CN", pattern="^(zh-CN|en)$")):
@@ -787,6 +852,7 @@ def create_transcript_translation(
     existing = next((job for job in JOBS.values()
                      if job.get("kind") == "translation" and job.get("meeting") == slug
                      and job.get("target_language") == target
+                     and job.get("translation_artifact", "transcript") == "transcript"
                      and job.get("status") in {"queued", "running"}), None)
     if existing:
         if focus_indexes:
@@ -796,10 +862,44 @@ def create_transcript_translation(
                 _save_job(existing)
         return dict(existing)
     job = _new_job("translation", meeting=slug, target_language=target,
+                   translation_artifact="transcript",
                    focus_turn_indexes=focus_indexes,
                    progress={"done": len(current.get("turns", [])), "total": total_turns})
     response = dict(job)
     EXEC.submit(_run_translation, job, mdir, _meeting_identity(slug)["title"], target)
+    return response
+
+
+@app.get("/api/meetings/{slug}/translations/minutes")
+def get_minutes_translation(
+        slug: str, target: str = Query("zh-CN", pattern="^(zh-CN|en)$")):
+    mdir = _mdir(slug)
+    if _minutes_file(mdir) is None:
+        raise HTTPException(404, "没有会议纪要")
+    return _minutes_translation_payload(slug, mdir, target)
+
+
+@app.post("/api/meetings/{slug}/translations/minutes")
+def create_minutes_translation(
+        slug: str, target: str = Query("zh-CN", pattern="^(zh-CN|en)$"), force: bool = False):
+    mdir = _mdir(slug)
+    if _minutes_file(mdir) is None:
+        raise HTTPException(400, "没有会议纪要，无法翻译")
+    current = _minutes_translation_payload(slug, mdir, target)
+    if current["state"] == "ready" and not force:
+        return {"id": None, "kind": "translation", "status": "done", "cached": True,
+                "meeting": slug, "target_language": target, "translation_artifact": "minutes"}
+    existing = next((job for job in JOBS.values()
+                     if job.get("kind") == "translation" and job.get("meeting") == slug
+                     and job.get("target_language") == target
+                     and job.get("translation_artifact") == "minutes"
+                     and job.get("status") in {"queued", "running"}), None)
+    if existing:
+        return dict(existing)
+    job = _new_job("translation", meeting=slug, target_language=target,
+                   translation_artifact="minutes", progress={"done": 0, "total": 0})
+    response = dict(job)
+    EXEC.submit(_run_minutes_translation, job, mdir, _meeting_identity(slug)["title"], target)
     return response
 
 
@@ -1578,8 +1678,19 @@ async def upload(files: list[UploadFile] = File(...), no_vl: str = Form("")):
 @app.post("/api/meetings/{slug}/regen_minutes")
 def regen_minutes(slug: str, refine: str = Query("")):
     mdir = _mdir(slug)
+    active = any(job.get("meeting") == slug and job.get("status") in {"queued", "running"}
+                 for job in JOBS.values())
+    if active:
+        raise HTTPException(409, "这场会议仍有处理作业，不能并发重生成")
+    generation = meeting_generation.load(mdir)
     if meeting_generation.document_state(mdir, _minutes_file(mdir) is not None) == "draft":
-        raise HTTPException(409, "语音草稿仍在补充屏幕资料，暂不能重新生成")
+        # 服务或模型中断后允许复用已有 transcript/slides/VL cache 续跑视觉补充；
+        # 正常运行时由上面的 active 检查阻止第二个 writer。
+        resumable = (generation.get("phase") == "visual_enrichment"
+                     and (mdir / "slides.json").is_file()
+                     and (mdir / "transcript.spk.json").is_file())
+        if not resumable:
+            raise HTTPException(409, "语音草稿仍在补充屏幕资料，暂不能重新生成")
     if not (mdir / "transcript.spk.json").is_file():
         raise HTTPException(400, "没有逐字稿，无法重生成")
     cmd = [str(PY), str(ROOT / "bin" / "minutes_by_page.py"), str(mdir), "--publish"]

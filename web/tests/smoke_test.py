@@ -108,6 +108,7 @@ check("首页显式展示结论审计和会议脉络入口且禁止缓存旧壳"
       and "屏幕内容".encode() in page and "完整纪要".encode() not in page
       and b'data-transcript-mode="comparison"' in page
       and b'id="translation-target"' in page
+      and b'id="ui-language"' in page and b'data-ui-language="en"' in page
       and b'id="chapters-tab"' in page and b'id="visuals-tab"' in page
       and b'utility-panel' in page and b'pane-resizer' in page
       and b'export-preflight' in page and b'href="/static/product.html"' in page
@@ -122,10 +123,13 @@ check("在线端以合格会议脉络为第一眼，并共享时间聚焦状态"
       b'requestedViewExplicit' in app_js and b'setTopicFocus' in app_js
       and b'id="focus-summary"' in page
       and b'updateFocusPresentation' in app_js and b'content-stage' in app_js)
+check("时间码跳转只滚动内容面板，不带动整页丢失播放器",
+      b'function scrollInside' in app_js and b'function scrollTranscriptTurn' in app_js
+      and b'scrollIntoView' not in app_js)
 check("在线屏幕舞台支持放大、缩放和相邻屏幕键盘导航",
       b'id="screen-preview-mask"' in page and b'openScreenPreview' in app_js
       and b'navigateScreenPreview' in app_js and b'SCREEN_PREVIEW_ZOOMS' in app_js
-      and b'20260813p17' in page)
+      and b'20260813p18' in page)
 check("结论审计默认聚焦重点结论并保留全部证据入口",
       "重点结论".encode() in app_js and "全部证据".encode() in app_js
       and b'qualityScope' in app_js and b'audit_priority' in app_js)
@@ -266,6 +270,11 @@ try:
           and draft_quality.get("summary", {}).get("total") == 0
           and se == 409 and st == 409 and sx == 409
           and sp == 200 and draft_preflight.get("document_state") == "draft")
+    s_resume, _, resume_job = req("POST", "/api/meetings/_smoke/regen_minutes")
+    resume_done = poll_job(resume_job.get("id")) if resume_job.get("id") else resume_job
+    check("服务中断后的视觉补充阶段可复用现有资产续跑",
+          s_resume == 200 and resume_job.get("kind") == "regen"
+          and resume_done.get("status") == "done")
 finally:
     generation_path.unlink(missing_ok=True)
 
@@ -308,7 +317,25 @@ check("逐字稿支持独立的英语目标语言 sidecar",
       and len(english.get("turns", [])) == 3
       and (SMOKE / "transcript.translation.en.json").is_file())
 
-# 2e. MeetingPack 默认不带媒体，解压后 viewer.html 可直接 file:// 打开
+# 2e. 阅读语言：界面语言与 revision-bound 纪要译文一起切换。
+minutes_before_translation = (SMOKE / "minutes.md").read_text()
+s, _, minutes_en_before = req("GET", "/api/meetings/_smoke/translations/minutes?target=en")
+s2, _, minutes_en_job = req("POST", "/api/meetings/_smoke/translations/minutes?target=en")
+minutes_en_done = poll_job(minutes_en_job.get("id")) if minutes_en_job.get("id") else minutes_en_job
+s3, _, minutes_en = req("GET", "/api/meetings/_smoke/translations/minutes?target=en")
+check("纪要英语译文独立生成、保留依据链接且不覆盖 canonical 纪要",
+      s == 200 and minutes_en_before.get("state") == "missing"
+      and s2 == 200 and minutes_en_done.get("status") == "done" and s3 == 200
+      and minutes_en.get("state") == "ready" and "Meeting Minutes" in minutes_en.get("html", "")
+      and "#mm-C00001" in minutes_en.get("html", "")
+      and (SMOKE / "minutes.md").read_text() == minutes_before_translation
+      and (SMOKE / "minutes.translation.en.json").is_file())
+s, _, minutes_zh = req("GET", "/api/meetings/_smoke/translations/minutes?target=zh-CN")
+check("纪要目标语言与原文一致时即时返回且不制造冗余 sidecar",
+      s == 200 and minutes_zh.get("state") == "ready" and minutes_zh.get("is_source") is True
+      and not (SMOKE / "minutes.translation.zh-CN.json").exists())
+
+# 2f. MeetingPack 默认不带媒体，解压后 viewer.html 可直接 file:// 打开
 evidence_before_export = (SMOKE / "minutes.evidence.json").read_bytes()
 s, _, preflight = req("GET", "/api/meetings/_smoke/export/preflight")
 check("导出预检只返回内容状态、数量、媒体和预计体积",
@@ -340,8 +367,8 @@ if pack:
     rag = [json.loads(line) for line in pack.read("assets/rag/records.jsonl").decode("utf-8").splitlines()]
 else:
     manifest, evidence, exported_topic_map, viewer, rag = {}, {}, {}, "", []
-check("MeetingPack v4 manifest/evidence/RAG/Topic Map 共享稳定 linkage",
-      manifest.get("schema") == "meetingpack/v4"
+check("MeetingPack v5 manifest/evidence/RAG/Topic Map 共享稳定 linkage",
+      manifest.get("schema") == "meetingpack/v5"
       and evidence.get("schema") == "meeting-minutes-evidence/v1"
       and evidence.get("claims", [{}])[0].get("turn_ids") == ["T000001", "T000002"]
       and any(r.get("record_type") == "claim" and r.get("evidence_ids") for r in rag)
@@ -356,10 +383,14 @@ check("viewer 为无外链、自包含且可浏览逐字稿/媒体/脉络/屏幕
       and "http://" not in viewer and "https://" not in viewer
       and 'id="transcript"' in viewer and 'id="scrub"' in viewer
       and "会议脉络" in viewer and "屏幕内容" in viewer
-      and "candidatePanel" in viewer)
+      and "candidatePanel" in viewer and 'id="language-switch"' in viewer
+      and "minutes_languages" in viewer)
+check("MeetingPack 携带已生成双语纪要并可离线切换",
+      "assets/minutes.en.md" in names and "assets/minutes.zh-CN.md" in names
+      and "Meeting Minutes" in viewer and "data-language=\"en\"" in viewer)
 check("Viewer 只保留三个阅读入口，合格会议脉络默认且层级最高",
       "管理层 ·" not in viewer and "执行层 ·" not in viewer
-      and "{id:'topic_map',title:'会议脉络',primary:ready}" in viewer
+      and "{id:'topic_map',title:u('会议脉络','Meeting map'),primary:ready}" in viewer
       and "function topicMapReady" in viewer and "if(topicReady)renderTopicMap();else renderMinutes();" in viewer)
 check("Viewer 无视频也用屏幕舞台联动时间、逐字稿和结论 Focus",
       "media-stage" in viewer and "focusbar" in viewer and "focus-ranges" in viewer

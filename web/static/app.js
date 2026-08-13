@@ -19,6 +19,7 @@ const requestedViewExplicit = ["minutes", "chapters", "visuals", "quality"].incl
 const savedTranscriptMode = ({ zh: "translated", bilingual: "comparison" })[
   workspaceState.transcriptMode] || workspaceState.transcriptMode;
 const TRANSLATION_TARGETS = new Set(["zh-CN", "en"]);
+const UI_LANGUAGES = new Set(["zh-CN", "en"]);
 
 const state = {
   meetings: [],
@@ -44,6 +45,10 @@ const state = {
     turnIds: [], claimIds: [], pageIds: [], source: "overview" },
   screenPreview: { visualId: null, zoomIndex: 0, returnFocus: null },
   visualFilter: "useful",
+  uiLanguage: UI_LANGUAGES.has(workspaceState.uiLanguage) ? workspaceState.uiLanguage : "zh-CN",
+  minutesTranslation: null,
+  minutesTranslationJob: null,
+  minutesTranslationPoller: null,
   transcriptMode: ["original", "translated", "comparison"].includes(savedTranscriptMode)
     ? savedTranscriptMode : "original",
   translationTarget: TRANSLATION_TARGETS.has(workspaceState.translationTarget)
@@ -82,6 +87,35 @@ function esc(s) {
     c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+const UI_COPY = {
+  "zh-CN": {
+    title: "会议纪要", brand: "🎙 会议纪要", meetings: "会议", product: "产品介绍", settings: "设置",
+    import: "＋ 导入会议", drop: "或把视频、VTT、音频拖到这里", importSettings: "导入设置",
+    skipVl: "快速处理，不分析共享画面", search: "搜索会议…", transcript: "逐字稿",
+    original: "原文", translated: "译文", comparison: "对照", translateTo: "译为", follow: "跟随",
+    outline: "会议脉络", minutes: "会议纪要", screens: "屏幕内容", audit: "结论审计",
+    assistant: "AI 对话", evidence: "证据", send: "发送",
+    ask: "问这场会议，或告诉我如何修改纪要…", launcher: "问这场会议，或修改纪要…",
+    expanding: "展开画面", collapsing: "收起画面", sourceMinutes: "正在显示原始语言纪要",
+    translatingMinutes: "正在生成中文纪要，完成后自动切换", minutesFailed: "中文纪要生成失败，可再次切换重试",
+  },
+  en: {
+    title: "Meeting Minutes", brand: "🎙 Meeting Minutes", meetings: "Meetings", product: "Product", settings: "Settings",
+    import: "+ Import meeting", drop: "Drop video, VTT, or audio here", importSettings: "Import settings",
+    skipVl: "Fast processing; skip shared-screen analysis", search: "Search meetings…", transcript: "Transcript",
+    original: "Original", translated: "Translation", comparison: "Side by side", translateTo: "Translate to", follow: "Follow",
+    outline: "Meeting map", minutes: "Minutes", screens: "Screen content", audit: "Conclusion audit",
+    assistant: "AI chat", evidence: "Evidence", send: "Send",
+    ask: "Ask about this meeting or request a minutes edit…", launcher: "Ask about or edit this meeting…",
+    expanding: "Expand screen", collapsing: "Collapse screen", sourceMinutes: "Showing minutes in their original language",
+    translatingMinutes: "Generating English minutes; this view will update automatically",
+    minutesFailed: "English minutes generation failed; switch again to retry",
+  },
+};
+
+function ui(key) { return UI_COPY[state.uiLanguage]?.[key] || UI_COPY["zh-CN"][key] || key; }
+function isEnglishUi() { return state.uiLanguage === "en"; }
+
 function fmt(sec) {
   sec = Math.max(0, Math.floor(sec || 0));
   const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
@@ -108,6 +142,7 @@ function recommendedTranslationTarget(turns) {
 }
 
 function translationTargetLabel(target = state.translationTarget) {
+  if (isEnglishUi()) return target === "en" ? "English" : "Chinese";
   return target === "en" ? "英语" : "中文";
 }
 
@@ -130,6 +165,27 @@ function toast(msg) {
   $("#job-status").textContent = msg;
 }
 
+function scrollInside(container, element, block = "center", smooth = true) {
+  if (!container || !element) return;
+  const containerBounds = container.getBoundingClientRect();
+  const elementBounds = element.getBoundingClientRect();
+  const top = elementBounds.top - containerBounds.top + container.scrollTop;
+  const bottom = top + elementBounds.height;
+  let target = top;
+  if (block === "center") target = top - (container.clientHeight - elementBounds.height) / 2;
+  else if (block === "nearest") {
+    const visibleTop = container.scrollTop;
+    const visibleBottom = visibleTop + container.clientHeight;
+    if (top >= visibleTop && bottom <= visibleBottom) return;
+    target = top < visibleTop ? top : bottom - container.clientHeight;
+  }
+  container.scrollTo({ top: Math.max(0, target), behavior: smooth ? "smooth" : "auto" });
+}
+
+function scrollTranscriptTurn(index, block = "center", smooth = true) {
+  scrollInside($("#transcript"), $(`#turn-${index}`), block, smooth);
+}
+
 let workspaceSaveTimer = null;
 function saveWorkspaceState() {
   clearTimeout(workspaceSaveTimer);
@@ -137,6 +193,7 @@ function saveWorkspaceState() {
     try {
       localStorage.setItem(WORKSPACE_KEY, JSON.stringify({
         lastSlug: state.workspace.lastSlug,
+        uiLanguage: state.uiLanguage,
         transcriptMode: state.transcriptMode,
         translationTarget: state.translationTarget,
         paneRatio: state.workspace.paneRatio,
@@ -148,6 +205,57 @@ function saveWorkspaceState() {
       }));
     } catch (_) { /* 私密浏览或存储已满时不阻断阅读 */ }
   }, 120);
+}
+
+function applyUiLanguage() {
+  const english = isEnglishUi();
+  document.documentElement.lang = state.uiLanguage;
+  document.title = ui("title");
+  const text = (selector, value) => { const el = $(selector); if (el) el.textContent = value; };
+  text(".brand", ui("brand"));
+  text("#library-toggle", ui("meetings"));
+  text("#product-link", ui("product"));
+  text("#settings-link", ui("settings"));
+  text("#pick-btn", ui("import"));
+  text("#drop-hint", ui("drop"));
+  text("#import-settings-label", ui("importSettings"));
+  text("#skip-vl-label", ui("skipVl"));
+  text("#transcript-heading", ui("transcript"));
+  text('[data-transcript-mode="original"]', ui("original"));
+  text('[data-transcript-mode="translated"]', ui("translated"));
+  text('[data-transcript-mode="comparison"]', ui("comparison"));
+  text("#translation-target-caption", ui("translateTo"));
+  text("#follow-label", ui("follow"));
+  text("#chapters-tab", ui("outline"));
+  text("#minutes-tab", ui("minutes"));
+  text("#visuals-tab", ui("screens"));
+  const qualityTab = $("#quality-tab");
+  if (qualityTab) qualityTab.childNodes[0].textContent = `${ui("audit")} `;
+  text('[data-utility-tab="assistant"]', ui("assistant"));
+  text('[data-utility-tab="evidence"]', ui("evidence"));
+  text("#assistant-send", ui("send"));
+  const input = $("#assistant-input");
+  if (input) input.placeholder = ui("ask");
+  const launcher = $("#assistant-launcher span:last-child");
+  if (launcher) launcher.textContent = ui("launcher");
+  const search = $("#search");
+  if (search) search.placeholder = ui("search");
+  $$('[data-ui-language]').forEach(button =>
+    button.classList.toggle("active", button.dataset.uiLanguage === state.uiLanguage));
+  $("#ui-language")?.setAttribute("aria-label", english
+    ? "Interface and minutes language" : "界面与纪要语言");
+}
+
+function renderMeetingHeaderMeta() {
+  const b = state.bundle;
+  if (!b) return;
+  $("#meeting-meta").textContent = [
+    b.date,
+    b.duration ? (isEnglishUi() ? `${fmt(b.duration)} duration` : `${fmt(b.duration)} 时长`) : null,
+    b.speaker_count ? (isEnglishUi() ? `${b.speaker_count} speakers` : `${b.speaker_count} 位发言人`) : null,
+    b.transcript?.length ? (isEnglishUi()
+      ? `${b.transcript.length} transcript segments` : `${b.transcript.length} 段逐字稿`) : null,
+  ].filter(Boolean).join(" · ") || (isEnglishUi() ? "Meeting record" : "会议记录");
 }
 
 function meetingAnchor() {
@@ -184,19 +292,19 @@ function restoreReadingPosition() {
   const anchor = state.workspace.anchors[state.slug] || {};
   requestAnimationFrame(() => {
     if (anchor.transcript?.revision === state.bundle?.transcript_revision) {
-      $("#turn-" + Number(anchor.transcript.index))?.scrollIntoView({ block: "start" });
+      scrollTranscriptTurn(Number(anchor.transcript.index), "start", false);
     } else {
       $("#transcript").scrollTop = 0;
     }
     const minutesBox = $("#minutes");
     if (anchor.minutes?.revision === state.bundle?.minutes_revision) {
       const heading = anchor.minutes.heading && document.getElementById(anchor.minutes.heading);
-      if (heading) heading.scrollIntoView({ block: "start" });
+      if (heading) scrollInside($("#minutes"), heading, "start", false);
       else minutesBox.scrollTop = Number(anchor.minutes.scrollTop) || 0;
     } else {
       const sameHeading = anchor.minutes?.headingText && $$('[data-reading-heading]', minutesBox)
         .find(item => item.textContent.trim() === anchor.minutes.headingText);
-      if (sameHeading) sameHeading.scrollIntoView({ block: "start" });
+      if (sameHeading) scrollInside($("#minutes"), sameHeading, "start", false);
       else minutesBox.scrollTop = 0;
     }
   });
@@ -225,9 +333,12 @@ function renderMeetingList() {
     const meta = [
       m.date,
       m.duration ? fmt(m.duration) : null,
-      m.speaker_count ? `${m.speaker_count} 人` : null,
+      m.speaker_count ? (isEnglishUi() ? `${m.speaker_count} people` : `${m.speaker_count} 人`) : null,
       m.generation_phase && ["voice_draft_generating", "voice_draft", "visual_enrichment"].includes(m.generation_phase)
-        ? (m.has_minutes ? "语音草稿可读" : "终稿生成中") : m.has_minutes ? "可回顾" : "待生成纪要",
+        ? (m.has_minutes ? (isEnglishUi() ? "Voice draft ready" : "语音草稿可读")
+          : (isEnglishUi() ? "Generating final minutes" : "终稿生成中"))
+        : m.has_minutes ? (isEnglishUi() ? "Ready to review" : "可回顾")
+          : (isEnglishUi() ? "Minutes pending" : "待生成纪要"),
     ].filter(Boolean).join(" · ");
     li.innerHTML =
       `<div class="m-title">${esc(m.title || m.slug)}</div>` +
@@ -276,7 +387,7 @@ async function deleteMeeting(ev, slug) {
     $("#chapters-tab").disabled = true;
     $("#visuals-tab").disabled = true;
     $("#quality-entry-btn").disabled = true;
-    $("#quality-entry-btn").textContent = "审计会议结论";
+    $("#quality-entry-btn").textContent = ui("audit");
     $$('[data-transcript-mode]').forEach(button => button.disabled = true);
     $("#translation-target").disabled = true;
     state.translation = null;
@@ -313,21 +424,26 @@ function renderMeetingStatuses() {
   const voiceDraft = b.document_state === "draft";
   const voiceDraftFailed = !b.has_minutes && Number(b.generation?.voice_draft_rc || 0) !== 0;
   const evidenceState = b.evidence?.state || "partial";
-  const evidenceLabel = evidenceState === "ready" ? "可核证"
-    : evidenceState === "stale" ? "已过期" : "部分证据";
+  const evidenceLabel = evidenceState === "ready" ? (isEnglishUi() ? "Traceable" : "可核证")
+    : evidenceState === "stale" ? (isEnglishUi() ? "Stale" : "已过期")
+      : (isEnglishUi() ? "Partial evidence" : "部分证据");
   const evidenceTone = evidenceState === "ready" ? "good"
     : evidenceState === "stale" ? "warn" : "neutral";
   const shareReady = documentReady && Boolean(b.transcript?.length);
   box.innerHTML = [
-    statusChip("资料", voiceDraft ? "语音草稿可读" : voiceDraftFailed ? "草稿失败，生成终稿"
-      : active ? (active.stage || "处理中")
-      : (documentReady ? "可阅读" : "处理中"),
+    statusChip(isEnglishUi() ? "Document" : "资料",
+      voiceDraft ? (isEnglishUi() ? "Voice draft ready" : "语音草稿可读")
+      : voiceDraftFailed ? (isEnglishUi() ? "Draft failed; final running" : "草稿失败，生成终稿")
+      : active ? (active.stage || (isEnglishUi() ? "Processing" : "处理中"))
+      : (documentReady ? (isEnglishUi() ? "Ready" : "可阅读") : (isEnglishUi() ? "Processing" : "处理中")),
       voiceDraftFailed ? "warn" : voiceDraft || active ? "working" : (documentReady ? "good" : "neutral"),
       voiceDraft ? "口头内容已经可读，屏幕表格、数字和画面资料仍在补充"
         : voiceDraftFailed ? "文本模型没有返回可读正文；系统没有停住，正在继续生成多模态终稿" : ""),
-    statusChip("证据", evidenceLabel, evidenceTone,
+    statusChip(isEnglishUi() ? "Evidence" : "证据", evidenceLabel, evidenceTone,
       evidenceState === "ready" ? "结论可回到逐字稿或共享画面核对" : "重新生成纪要后可补齐结构化依据"),
-    statusChip("分享", shareReady ? "可导出" : "待补齐", shareReady ? "good" : "neutral",
+    statusChip(isEnglishUi() ? "Share" : "分享",
+      shareReady ? (isEnglishUi() ? "Export ready" : "可导出") : (isEnglishUi() ? "Incomplete" : "待补齐"),
+      shareReady ? "good" : "neutral",
       b.has_video || b.has_audio ? "可选择是否随包包含媒体" : "当前只能导出文字与屏幕内容"),
   ].join("");
 }
@@ -341,6 +457,9 @@ async function loadMeeting(slug) {
     if (state.translationPoller) clearInterval(state.translationPoller);
     state.translationPoller = null;
     state.translationJob = null;
+    if (state.minutesTranslationPoller) clearInterval(state.minutesTranslationPoller);
+    state.minutesTranslationPoller = null;
+    state.minutesTranslationJob = null;
   }
   renderMeetingList();
   const b = await jget(`/api/meetings/${encodeURIComponent(slug)}/bundle`);
@@ -352,6 +471,7 @@ async function loadMeeting(slug) {
   saveWorkspaceState();
   state.quality = null;
   state.translation = null;
+  state.minutesTranslation = null;
   state.selectedChapterId = b.structure?.chapters?.[0]?.id || null;
   state.selectedTopicId = null;
   state.selectedTopicNodeId = null;
@@ -363,12 +483,7 @@ async function loadMeeting(slug) {
   state.expandedOriginals.clear();
   state.evidenceBilingual.clear();
   $("#meeting-title").textContent = b.title || slug;
-  $("#meeting-meta").textContent = [
-    b.date,
-    b.duration ? `${fmt(b.duration)} 时长` : null,
-    b.speaker_count ? `${b.speaker_count} 位发言人` : null,
-    b.transcript?.length ? `${b.transcript.length} 段逐字稿` : null,
-  ].filter(Boolean).join(" · ") || "会议记录";
+  renderMeetingHeaderMeta();
   renderPlayer();
   renderTranscript(false);
   renderMinutes();
@@ -391,7 +506,8 @@ async function loadMeeting(slug) {
   $("#chapters-tab").disabled = !(b.transcript?.length);
   $("#visuals-tab").disabled = !(b.structure?.visuals?.length);
   $("#quality-entry-btn").disabled = isDraft;
-  if (isDraft) $("#quality-entry-btn").textContent = "终稿后审计结论";
+  if (isDraft) $("#quality-entry-btn").textContent = isEnglishUi()
+    ? "Audit after final minutes" : "终稿后审计结论";
   $$('[data-transcript-mode]').forEach(button => button.disabled = false);
   $("#translation-target").disabled = false;
   $("#translation-target").value = state.translationTarget;
@@ -399,6 +515,7 @@ async function loadMeeting(slug) {
   setReviewMode(state.viewMode);
   restoreReadingPosition();
   await loadTranscriptTranslation();
+  await loadMinutesTranslation(true);
   if (!isDraft) await loadQualityReview();
   else {
     state.quality = null;
@@ -439,7 +556,7 @@ function renderPlayer() {
   box.classList.toggle("compact", b.has_video && !state.workspace.videoExpanded);
   const toggle = $("#player-toggle");
   toggle.classList.toggle("hidden", !b.has_video);
-  toggle.textContent = state.workspace.videoExpanded ? "收起画面" : "展开画面";
+  toggle.textContent = state.workspace.videoExpanded ? ui("collapsing") : ui("expanding");
   toggle.setAttribute("aria-expanded", String(state.workspace.videoExpanded));
   el.addEventListener("loadedmetadata", () => {
     buildTimeline(el.duration);
@@ -686,7 +803,7 @@ function updateFocusedTurns(explicit = false) {
   $$(".turn.focus-related").forEach(item => item.classList.remove("focus-related"));
   for (const index of indexes) $(`#turn-${index}`)?.classList.add("focus-related");
   const target = indexes.find(index => index >= 0);
-  if (explicit && target != null) $(`#turn-${target}`)?.scrollIntoView({ block: "center", behavior: "smooth" });
+  if (explicit && target != null) scrollTranscriptTurn(target, "center", true);
 }
 
 function updateFocusedClaims() {
@@ -723,7 +840,8 @@ function updateFocusSummary() {
   $("#focus-clear")?.addEventListener("click", () => { setOverviewFocus(); renderChapters(); });
   $("#focus-show-claims")?.addEventListener("click", () => {
     setReviewMode("minutes");
-    requestAnimationFrame(() => $("#minutes .focus-related")?.scrollIntoView({ block: "center", behavior: "smooth" }));
+    requestAnimationFrame(() => scrollInside(
+      $("#minutes"), $("#minutes .focus-related"), "center", true));
   });
 }
 
@@ -905,7 +1023,7 @@ function onTimeUpdate() {
     const el = $(`#turn-${cur}`);
     if (el) {
       el.classList.add("playing");
-      if ($("#follow").checked) el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      if ($("#follow").checked) scrollTranscriptTurn(cur, "nearest", true);
     }
     if (state.translationJob && cur !== state.lastTranslationFocus
         && Date.now() - state.lastTranslationFocusAt > 2500) {
@@ -1005,7 +1123,7 @@ function renderTranscript(preserveScroll = true) {
       if (state.expandedOriginals.has(i)) state.expandedOriginals.delete(i);
       else state.expandedOriginals.add(i);
       renderTranscript();
-      $(`#turn-${i}`)?.scrollIntoView({ block: "center" });
+      scrollTranscriptTurn(i, "center", false);
     };
     box.appendChild(div);
   });
@@ -1054,20 +1172,21 @@ function updateTranslationState(message = null) {
     const translation = state.translation;
     if (!state.slug || !visible) el.textContent = "";
     else if (state.translationJob) el.textContent = total
-      ? `${translationTargetLabel()}翻译 ${done}/${total}` : "准备语境…";
-    else if (!translation || translation.state === "missing") el.textContent = "尚未生成";
-    else if (["stale", "context_stale"].includes(translation.state)) el.textContent = "译文需更新";
+      ? `${translationTargetLabel()} ${isEnglishUi() ? "translation" : "翻译"} ${done}/${total}`
+      : (isEnglishUi() ? "Preparing context…" : "准备语境…");
+    else if (!translation || translation.state === "missing") el.textContent = isEnglishUi() ? "Not generated" : "尚未生成";
+    else if (["stale", "context_stale"].includes(translation.state)) el.textContent = isEnglishUi() ? "Update needed" : "译文需更新";
     else if (translation.state === "ready") el.textContent =
-      `${translationTargetLabel()}译文 ${translation.translated}/${translation.total}`;
-    else if (translation.state === "cancelled") el.textContent = `已停止 ${done}/${total}`;
-    else if (translation.state === "failed") el.textContent = `失败 ${done}/${total}`;
-    else el.textContent = total ? `翻译中 ${done}/${total}` : "翻译中";
+      `${translationTargetLabel()} ${isEnglishUi() ? "translation" : "译文"} ${translation.translated}/${translation.total}`;
+    else if (translation.state === "cancelled") el.textContent = `${isEnglishUi() ? "Stopped" : "已停止"} ${done}/${total}`;
+    else if (translation.state === "failed") el.textContent = `${isEnglishUi() ? "Failed" : "失败"} ${done}/${total}`;
+    else el.textContent = total ? `${isEnglishUi() ? "Translating" : "翻译中"} ${done}/${total}` : (isEnglishUi() ? "Translating" : "翻译中");
   }
   if (state.translationJob) {
-    control.textContent = "停止";
+    control.textContent = isEnglishUi() ? "Stop" : "停止";
     control.classList.remove("hidden");
   } else if (visible && state.translation?.state !== "ready") {
-    control.textContent = done ? "继续" : "生成";
+    control.textContent = done ? (isEnglishUi() ? "Resume" : "继续") : (isEnglishUi() ? "Generate" : "生成");
     control.classList.remove("hidden");
   } else {
     control.classList.add("hidden");
@@ -1216,30 +1335,117 @@ function expandEvidenceBilingual(indexes) {
 
 /* ---------- 纪要区 ---------- */
 
+async function loadMinutesTranslation(autoStart = false) {
+  if (!state.slug || !state.bundle?.has_minutes) return;
+  const target = state.uiLanguage;
+  try {
+    const payload = await jget(
+      `/api/meetings/${encodeURIComponent(state.slug)}/translations/minutes?target=${encodeURIComponent(target)}`);
+    if (target !== state.uiLanguage) return;
+    state.minutesTranslation = payload;
+    renderMinutes();
+    if (autoStart && ["missing", "stale", "context_stale", "failed", "cancelled"].includes(payload.state))
+      await startMinutesTranslation();
+  } catch (_) {
+    state.minutesTranslation = null;
+    renderMinutes();
+  }
+}
+
+async function startMinutesTranslation() {
+  if (!state.slug || state.minutesTranslationJob || !state.bundle?.has_minutes) return;
+  const target = state.uiLanguage;
+  try {
+    const response = await api(
+      `/api/meetings/${encodeURIComponent(state.slug)}/translations/minutes?target=${encodeURIComponent(target)}`,
+      { method: "POST" });
+    const job = await response.json();
+    if (!response.ok) throw new Error(job.detail || response.status);
+    if (!job.id) {
+      await loadMinutesTranslation(false);
+      return;
+    }
+    state.minutesTranslationJob = job.id;
+    renderMinutes();
+    if (state.minutesTranslationPoller) clearInterval(state.minutesTranslationPoller);
+    const check = async () => {
+      try {
+        const current = await jget(`/api/jobs/${job.id}`);
+        if (!["done", "failed", "cancelled"].includes(current.status)) return;
+        clearInterval(state.minutesTranslationPoller);
+        state.minutesTranslationPoller = null;
+        state.minutesTranslationJob = null;
+        await loadMinutesTranslation(false);
+      } catch (_) { /* 下一轮继续 */ }
+    };
+    state.minutesTranslationPoller = setInterval(check, 1800);
+    check();
+  } catch (error) {
+    state.minutesTranslationJob = null;
+    state.minutesTranslation = { ...(state.minutesTranslation || {}), state: "failed" };
+    renderMinutes();
+  }
+}
+
+async function setUiLanguage(language) {
+  if (!UI_LANGUAGES.has(language) || language === state.uiLanguage) return;
+  state.uiLanguage = language;
+  state.minutesTranslation = null;
+  if (state.minutesTranslationPoller) clearInterval(state.minutesTranslationPoller);
+  state.minutesTranslationPoller = null;
+  state.minutesTranslationJob = null;
+  saveWorkspaceState();
+  applyUiLanguage();
+  renderMeetingList();
+  renderMeetingHeaderMeta();
+  renderMeetingStatuses();
+  renderTranscript();
+  renderMinutes();
+  if (state.viewMode === "chapters") renderChapters();
+  if (state.viewMode === "visuals") renderVisuals();
+  if (state.viewMode === "quality") renderQualityReview();
+  updateFocusSummary();
+  await loadMinutesTranslation(true);
+}
+
 function renderMinutes() {
   const box = $("#minutes");
   const draft = state.bundle?.document_state === "draft";
   const phase = state.bundle?.generation?.phase;
   const draftFailed = !state.bundle?.has_minutes
     && Number(state.bundle?.generation?.voice_draft_rc || 0) !== 0;
-  const banner = draft ? `<section class="minutes-draft-banner"><div><span>语音草稿 · 已可阅读</span>` +
-    `<b>${phase === "visual_enrichment" ? "正在补充屏幕资料" : "正在准备屏幕分析"}</b>` +
-    `<p>当前结论来自逐字稿和说话人；页面数字、表格和画面上下文会在多模态终稿中补充。` +
-    `草稿期间可以播放、搜索和追问，暂不支持修改或导出。</p></div><i></i></section>` : "";
+  const banner = draft ? (isEnglishUi()
+    ? `<section class="minutes-draft-banner"><div><span>Voice draft · Ready to read</span>` +
+      `<b>${phase === "visual_enrichment" ? "Adding screen context" : "Preparing screen analysis"}</b>` +
+      `<p>This draft uses the transcript and speaker identities. Tables, figures, and visual context will be added to the multimodal final version. Playback, search, and Q&A are available; editing and export remain disabled.</p></div><i></i></section>`
+    : `<section class="minutes-draft-banner"><div><span>语音草稿 · 已可阅读</span>` +
+      `<b>${phase === "visual_enrichment" ? "正在补充屏幕资料" : "正在准备屏幕分析"}</b>` +
+      `<p>当前结论来自逐字稿和说话人；页面数字、表格和画面上下文会在多模态终稿中补充。` +
+      `草稿期间可以播放、搜索和追问，暂不支持修改或导出。</p></div><i></i></section>`) : "";
   const pending = draftFailed
     ? '<section class="minutes-draft-banner"><div><span>语音草稿生成失败</span><b>正在继续生成多模态终稿</b>' +
       '<p>文本模型没有返回可读正文，因此这次无法提前展示草稿；逐字稿仍可阅读和播放，终稿完成后会自动出现。</p></div><i></i></section>'
     : '<p class="placeholder">暂无纪要</p>';
-  box.innerHTML = banner + (state.bundle.minutes_html || pending);
+  const translated = state.minutesTranslation?.target_language === state.uiLanguage
+    && state.minutesTranslation?.state === "ready" && state.minutesTranslation?.html;
+  const languageBanner = state.minutesTranslationJob
+    ? `<div class="minutes-language-banner"><b>${esc(ui("translatingMinutes"))}</b><span>…</span></div>`
+    : state.minutesTranslation?.state === "failed"
+      ? `<div class="minutes-language-banner"><b>${esc(ui("minutesFailed"))}</b></div>` : "";
+  box.innerHTML = languageBanner + banner + (translated || state.bundle.minutes_html || pending);
   const candidates = state.bundle?.evidence?.action_candidates || [];
   if (candidates.length) {
     const candidateHtml = `<details class="action-candidate-panel"><summary>` +
-      `<span>待核实候选</span><b>另有 ${candidates.length} 条生成线索</b>` +
-      `<small>尚未绑定逐字稿依据，不代表已确认；展开后可完整保留查看。</small></summary>` +
+      `<span>${isEnglishUi() ? "Unverified candidates" : "待核实候选"}</span>` +
+      `<b>${isEnglishUi() ? `${candidates.length} generated clues` : `另有 ${candidates.length} 条生成线索`}</b>` +
+      `<small>${isEnglishUi() ? "Not linked to transcript evidence and not confirmed. Expand to inspect the original clues."
+        : "尚未绑定逐字稿依据，不代表已确认；展开后可完整保留查看。"}</small></summary>` +
       `<div class="action-candidate-list">${candidates.map((item, index) =>
         `<article><i>${String(index + 1).padStart(2, "0")}</i><div><b>${esc(item.text)}</b>` +
-        `<small>负责人：${esc(item.owner || "待确认")} · 期限：${esc(item.deadline || "待确认")} · ` +
-        `原状态：${esc(item.original_status || "待确认")}</small></div><span>待绑定依据</span></article>`
+        `<small>${isEnglishUi() ? "Owner" : "负责人"}：${esc(item.owner || (isEnglishUi() ? "Unconfirmed" : "待确认"))} · ` +
+        `${isEnglishUi() ? "Due" : "期限"}：${esc(item.deadline || (isEnglishUi() ? "Unconfirmed" : "待确认"))} · ` +
+        `${isEnglishUi() ? "Source status" : "原状态"}：${esc(item.original_status || (isEnglishUi() ? "Unconfirmed" : "待确认"))}</small>` +
+        `</div><span>${isEnglishUi() ? "Evidence needed" : "待绑定依据"}</span></article>`
       ).join("")}</div></details>`;
     const riskHeading = $$(`h3`, box).find(item => item.textContent.trim() === "风险/待确认");
     if (riskHeading) riskHeading.insertAdjacentHTML("beforebegin", candidateHtml);
@@ -1313,7 +1519,7 @@ const TOPIC_NODE_LABELS = {
 function revealTopic(topicId, behavior = "smooth") {
   requestAnimationFrame(() => {
     const branch = $(`.topic-map-branch[data-topic-branch="${topicId}"]`);
-    branch?.scrollIntoView({ block: "center", behavior });
+    scrollInside($("#chapters"), branch, "center", behavior === "smooth");
   });
 }
 
@@ -1639,9 +1845,11 @@ function updateQualityIndicators() {
   $("#quality-badge").textContent = pending;
   $("#quality-badge").classList.toggle("hidden", pending === 0);
   $("#quality-entry-btn").classList.toggle("evidence-missing", !evidenceReady);
-  $("#quality-entry-btn").textContent = !evidenceReady ? "结论依据待补全" : !total
-    ? "暂无可审计结论" : pending
-    ? `审计会议结论 · ${pending}` : (total ? "查看审计结果" : "结论审计");
+  $("#quality-entry-btn").textContent = !evidenceReady
+    ? (isEnglishUi() ? "Conclusion evidence incomplete" : "结论依据待补全") : !total
+    ? (isEnglishUi() ? "No conclusions to audit" : "暂无可审计结论") : pending
+    ? `${isEnglishUi() ? "Audit conclusions" : "审计会议结论"} · ${pending}`
+    : (total ? (isEnglishUi() ? "View audit results" : "查看审计结果") : ui("audit"));
 }
 
 async function loadQualityReview() {
@@ -2064,7 +2272,7 @@ function highlightTurns(indexes) {
   $$(".turn.referenced").forEach(el => el.classList.remove("referenced"));
   if (!indexes?.length) return;
   for (const i of indexes) $(`#turn-${i}`)?.classList.add("referenced");
-  $(`#turn-${indexes[0]}`)?.scrollIntoView({ block: "center", behavior: "smooth" });
+  scrollTranscriptTurn(indexes[0], "center", true);
 }
 
 function addAssistantMessage(message) {
@@ -2485,14 +2693,17 @@ function renderJobs(jobs) {
     .filter((job, index, all) => all.findIndex(item => item.id === job.id) === index);
   state.activeJobs = activeJobs;
   $("#jobs-panel").classList.toggle("hidden", visibleJobs.length === 0);
-  $(".jobs-head").textContent = activeJobs.length ? "正在处理" : "最近处理失败";
+  $(".jobs-head").textContent = activeJobs.length
+    ? (isEnglishUi() ? "Processing" : "正在处理") : (isEnglishUi() ? "Recent failures" : "最近处理失败");
   ul.innerHTML = "";
   for (const j of visibleJobs.slice(0, 8)) {
     const li = document.createElement("li");
     const active = j.status === "queued" || j.status === "running";
     const meeting = state.meetings.find(item => item.slug === j.meeting);
     const name = meeting?.title || j.meeting || "会议处理";
-    const kindLabel = j.kind === "translation" ? `${translationTargetLabel(j.target_language)}翻译`
+    const kindLabel = j.kind === "translation"
+      ? `${translationTargetLabel(j.target_language)} ${j.translation_artifact === "minutes"
+        ? (isEnglishUi() ? "minutes" : "纪要") : (isEnglishUi() ? "transcript" : "逐字稿")} ${isEnglishUi() ? "translation" : "翻译"}`
       : j.kind === "regen" ? "生成纪要" : j.kind === "topic_map" ? "生成会议脉络"
       : j.kind === "upload" ? "会议处理" : "";
     const progress = j.progress?.total
@@ -2627,6 +2838,9 @@ function screenPreviewShortcut(event) {
 }
 
 function init() {
+  applyUiLanguage();
+  $$('[data-ui-language]').forEach(button =>
+    button.onclick = () => setUiLanguage(button.dataset.uiLanguage));
   $("#search").addEventListener("input", renderMeetingList);
   $("#regen-btn").onclick = () => regenMinutes("");
   $("#refine-btn").onclick = () => {
@@ -2673,7 +2887,7 @@ function init() {
   $("#player-toggle").onclick = () => {
     state.workspace.videoExpanded = !state.workspace.videoExpanded;
     $("#player-box").classList.toggle("compact", !state.workspace.videoExpanded);
-    $("#player-toggle").textContent = state.workspace.videoExpanded ? "收起画面" : "展开画面";
+    $("#player-toggle").textContent = state.workspace.videoExpanded ? ui("collapsing") : ui("expanding");
     $("#player-toggle").setAttribute("aria-expanded", String(state.workspace.videoExpanded));
     saveWorkspaceState();
   };

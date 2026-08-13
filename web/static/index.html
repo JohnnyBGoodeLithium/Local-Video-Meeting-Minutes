@@ -4,15 +4,19 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>会议纪要</title>
-<link rel="stylesheet" href="/static/style.css?v=20260813p17">
+<link rel="stylesheet" href="/static/style.css?v=20260813p18">
 </head>
 <body class="page-index">
 <header class="topbar">
   <span class="brand">🎙 会议纪要</span>
   <button id="library-toggle" class="library-toggle" type="button" aria-expanded="false">会议</button>
   <span id="job-status" class="job-status"></span>
-  <a class="toplink" href="/static/product.html">产品介绍</a>
-  <a class="toplink" href="/admin">设置</a>
+  <div id="ui-language" class="ui-language" aria-label="界面与纪要语言">
+    <button type="button" data-ui-language="zh-CN" class="active">中文</button>
+    <button type="button" data-ui-language="en">EN</button>
+  </div>
+  <a id="product-link" class="toplink" href="/static/product.html">产品介绍</a>
+  <a id="settings-link" class="toplink" href="/admin">设置</a>
 </header>
 
 <main class="layout">
@@ -21,10 +25,10 @@
     <div id="dropzone">
       <input type="file" id="file-input" multiple hidden>
       <button id="pick-btn" class="primary import-button" type="button">＋ 导入会议</button>
-      <span class="drop-hint">或把视频、VTT、音频拖到这里</span>
+      <span id="drop-hint" class="drop-hint">或把视频、VTT、音频拖到这里</span>
       <details class="import-options">
-        <summary>导入设置</summary>
-        <label class="skip-vl"><input type="checkbox" id="skip-vl"> 快速处理，不分析共享画面</label>
+        <summary id="import-settings-label">导入设置</summary>
+        <label class="skip-vl"><input type="checkbox" id="skip-vl"> <span id="skip-vl-label">快速处理，不分析共享画面</span></label>
       </details>
     </div>
     <div id="jobs-panel" class="hidden">
@@ -72,7 +76,7 @@
             <div id="tl-tip" class="tl-tip hidden"></div>
           </div>
         <div class="col-header">
-          <span>逐字稿</span>
+          <span id="transcript-heading">逐字稿</span>
           <div class="transcript-head-tools">
             <div class="transcript-language" aria-label="逐字稿显示语言">
               <button type="button" data-transcript-mode="original" class="active" disabled>原文</button>
@@ -80,7 +84,7 @@
               <button type="button" data-transcript-mode="comparison" disabled>对照</button>
             </div>
             <label class="translation-target-label" title="选择逐字稿译文的目标语言">
-              <span>译为</span>
+              <span id="translation-target-caption">译为</span>
               <select id="translation-target" disabled>
                 <option value="zh-CN">中文</option>
                 <option value="en">English</option>
@@ -91,7 +95,7 @@
               <span class="translation-progress"><i id="translation-progress-bar"></i></span>
             </span>
             <button id="translation-control" class="translation-control hidden" type="button"></button>
-            <label class="follow"><input type="checkbox" id="follow" checked> 跟随</label>
+            <label class="follow"><input type="checkbox" id="follow" checked> <span id="follow-label">跟随</span></label>
           </div>
         </div>
         <div id="transcript" class="transcript"><p class="placeholder">← 选择一场会议</p></div>
@@ -230,6 +234,6 @@
   </section>
 </div>
 
-<script src="/static/app.js?v=20260813p17"></script>
+<script src="/static/app.js?v=20260813p18"></script>
 </body>
 </html>

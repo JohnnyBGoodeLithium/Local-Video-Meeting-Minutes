@@ -36,7 +36,7 @@ from meeting_structure import clean_model_text, visual_title
 import meeting_topic_map
 
 
-PACK_SCHEMA = "meetingpack/v4"
+PACK_SCHEMA = "meetingpack/v5"
 MD = MarkdownIt("default", {"html": False, "linkify": True})
 VIEWER_TEMPLATE_PATH = Path(__file__).with_name("meetingpack_viewer.html")
 
@@ -155,6 +155,44 @@ def _safe_json_script(value: dict) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":")).replace("<", "\\u003c")
 
 
+def _document_language(text: str) -> str:
+    visible = re.sub(r"<!--\s*mm:evidence\s+[^<>]*?\s*-->", "", text)
+    cjk = len(re.findall(r"[\u3400-\u9fff]", visible))
+    latin = len(re.findall(r"[A-Za-z]", visible))
+    if cjk >= max(20, latin * 0.35) or (cjk and not latin):
+        return "zh-CN"
+    return "en"
+
+
+def _minutes_languages(mdir: Path, minutes_path: Path, reading_minutes: str,
+                       evidence: dict) -> tuple[str, dict[str, dict], dict[str, bytes]]:
+    """收集已完成且仍绑定当前 canonical 纪要的译文；导出过程绝不调用模型。"""
+    source_language = _document_language(reading_minutes)
+    languages = {
+        source_language: {
+            "html": MD.render(markdown_with_evidence_links(
+                reading_minutes, evidence, label="Evidence" if source_language == "en" else "依据")),
+            "is_source": True,
+        }
+    }
+    assets = {f"assets/minutes.{source_language}.md": reading_minutes.encode("utf-8")}
+    source_revision = hashlib.sha256(minutes_path.read_bytes()).hexdigest()[:16]
+    for target in ("zh-CN", "en"):
+        sidecar = _read_json(mdir / f"minutes.translation.{target}.json", {})
+        markdown = str(sidecar.get("markdown") or "")
+        if (sidecar.get("schema") != "meeting-minutes-translation/v1"
+                or sidecar.get("status") != "complete"
+                or sidecar.get("source_revision") != source_revision or not markdown.strip()):
+            continue
+        languages[target] = {
+            "html": MD.render(markdown_with_evidence_links(
+                markdown, evidence, label="Evidence" if target == "en" else "依据")),
+            "is_source": False,
+        }
+        assets[f"assets/minutes.{target}.md"] = markdown.encode("utf-8")
+    return source_language, languages, assets
+
+
 def _readme(media_mode: str) -> str:
     media_note = {
         "none": "本包未包含源音视频；时间戳仍可用于回到原系统定位。",
@@ -168,6 +206,7 @@ def _readme(media_mode: str) -> str:
 2. 双击 viewer.html。它不需要安装服务，也不会调用 LLM 或联网。
 3. 纪要中的“依据”可打开对应逐字稿与页面证据。
 4. 左侧始终提供完整逐字稿；含媒体的包可点击任意时间码跳转播放。
+5. 右上角可切换中文 / EN；导出前已经生成的双语纪要会随包带入，离线端不会调用模型。
 
 内容
 - viewer.html：开箱即用的静态查看器（数据已内嵌，file:// 可用）
@@ -232,13 +271,17 @@ $('#search').oninput=e=>{let q=e.target.value.trim().toLowerCase(),box=$('#resul
 
 
 def _viewer_html(title: str, date: str, minutes_html: str, evidence: dict, integrity: dict,
-                 topic_map: dict, media_path: str | None, media_kind: str | None) -> bytes:
+                 topic_map: dict, media_path: str | None, media_kind: str | None,
+                 source_language: str = "zh-CN",
+                 minutes_languages: dict[str, dict] | None = None) -> bytes:
     duration = max((float(t.get("end", 0)) for t in evidence["sources"]["transcript"]), default=0)
     payload = {
         "title": title,
         "date": date,
         "duration": duration,
         "minutes_html": minutes_html,
+        "source_language": source_language,
+        "minutes_languages": minutes_languages or {},
         "evidence": evidence,
         "integrity": integrity,
         "topic_map": topic_map,
@@ -311,6 +354,8 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
         minutes, evidence, include_topic_section=False))
     linked_markdown = markdown_with_evidence_links(reading_minutes, evidence)
     minutes_html = MD.render(linked_markdown)
+    source_language, minutes_languages, minutes_language_assets = _minutes_languages(
+        mdir, minutes_path, reading_minutes, evidence)
     records = rag_records(evidence, reading_minutes)
     rag_bytes = ("\n".join(json.dumps(r, ensure_ascii=False, separators=(",", ":"))
                            for r in records) + "\n").encode("utf-8")
@@ -335,9 +380,10 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
 
         small_files = {
             "viewer.html": _viewer_html(title, date, minutes_html, evidence, integrity, topic_map,
-                                        media_arc, media_kind),
+                                        media_arc, media_kind, source_language, minutes_languages),
             "README.txt": _readme(media_mode).encode("utf-8"),
             "assets/minutes.md": reading_minutes.encode("utf-8"),
+            **minutes_language_assets,
             "assets/transcript.json": json.dumps(turns, ensure_ascii=False, indent=2).encode("utf-8"),
             "assets/transcript.md": _transcript_markdown(turns).encode("utf-8"),
             "assets/evidence.json": evidence_bytes,

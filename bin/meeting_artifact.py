@@ -649,7 +649,7 @@ def write_evidence_document(mdir: Path, minutes: str, turns: list[dict], pages: 
     return path, document
 
 
-def markdown_with_evidence_links(minutes: str, evidence: dict) -> str:
+def markdown_with_evidence_links(minutes: str, evidence: dict, *, label: str = "依据") -> str:
     """把不可见 marker 转成很轻的 Markdown“依据”链接；其余 marker 一律剥离。"""
     by_marker: dict[str, list[dict]] = {}
     for claim in evidence.get("claims", []):
@@ -658,7 +658,7 @@ def markdown_with_evidence_links(minutes: str, evidence: dict) -> str:
     def replace(match):
         queue = by_marker.get(match.group(0), [])
         claim = queue.pop(0) if queue else None
-        return f" [依据](#mm-{claim['id']})" if claim else ""
+        return f" [{label}](#mm-{claim['id']})" if claim else ""
 
     return MARKER_RE.sub(replace, minutes)
 

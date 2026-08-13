@@ -74,4 +74,26 @@ with tempfile.TemporaryDirectory(prefix="translation-service-test-") as tmp:
     assert translation.translation_payload(
         mdir, "Synthetic Meeting", {}, target="en")["state"] == "ready"
 
-print("Transcript translation: zh/en targets, priority, cancel, and resume passed")
+    minutes_source = """# 会议纪要
+
+## 总体摘要
+
+- 虚构结论。 <!-- mm:evidence kind=discussion status=informational confidence=high turns=T000001 -->
+"""
+    (mdir / "minutes.md").write_text(minutes_source, encoding="utf-8")
+    before = translation.minutes_translation_payload(
+        mdir, "Synthetic Meeting", minutes_source, {}, target="en")
+    assert before["state"] == "missing" and before["source_language"] == "zh"
+    minutes_document = translation.translate_minutes(
+        mdir, "Synthetic Meeting", minutes_source, {}, dry_run=True, target="en")
+    assert minutes_document["status"] == "complete"
+    assert "# Meeting Minutes" in minutes_document["markdown"]
+    assert "<!-- mm:evidence" in minutes_document["markdown"]
+    ready = translation.minutes_translation_payload(
+        mdir, "Synthetic Meeting", minutes_source, {}, target="en")
+    assert ready["state"] == "ready" and not ready["is_source"]
+    chinese = translation.minutes_translation_payload(
+        mdir, "Synthetic Meeting", minutes_source, {}, target="zh-CN")
+    assert chinese["state"] == "ready" and chinese["is_source"]
+
+print("Transcript and minutes translation: zh/en targets, priority, cancel, and resume passed")
