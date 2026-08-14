@@ -30,6 +30,17 @@
 - 保持 CUDA、ROCm 和 CPU 可移植性。PyTorch GPU 选择走 `meeting_core.hardware`；模型路径和端点用环境变量，不新增机器专属绝对路径。
 - NVIDIA 与 AMD 使用不同 PyTorch/llama.cpp 构建产物；不要把厂商运行时写进通用 Python 依赖。
 - 不覆盖用户未提交的无关改动，不使用破坏性 Git 命令，不以 `git add -f` 绕过私有数据 ignore。
+- 功能验证通过后及时 commit 并 push，不在本地积压未推送提交。
+- 每批用户可见改动同步递增前端构建号（`web/static/index.html` 的 `v=` 参数与 `web/tests/smoke_test.py` 断言），排查"用户看到的是哪个版本"不靠猜。
+
+## 排障与验证模式（真实事故沉淀）
+
+- 前端布局/滚动问题用 DOM 度量逐层验证 overflow 链（`?diag=1` 页面内浮层或 CDP 探针），不靠肉眼和猜测；探针必须覆盖用户真实环境的分支（如 ≥1500px 大屏智能栏入流布局），只在默认视口通过不算验证完成。
+- `node --check` 只查语法，拦不住 TDZ 类运行时错误；Viewer 模板或前端初始化顺序改动必须跑无头浏览器启动回归（`web/tests/viewer_boot_test.py`）。
+- 设计 token 化这类机械替换必须配"引用可解析"静态检查；`design_tokens_test.py`（无回退 `var()` 必须可解析、字号零字面值、花括号平衡）已在 `make check` 中，新增 token 引用照此约束。
+- 证据 marker 是"模型手写、代码解析"的协议：模型会发明反引号包裹、独占待办表格状态列等包装，所有消费点按"可能被任意 Markdown 语法包裹"做防御；修解析器时同步给存量 sidecar 留读路径重拆兜底，优先做免重生成的修复。
+- 小模型长输出会退化（自我修正循环烧光输出预算、截断尾部章节）：生成端必须有"检测 → `repeat_penalty` 重试 → 确定性清理"护栏，退化文本不得落盘；关键章节（总体摘要/待办）缺失或缺证据标记视为不合规并触发修复轮。
+- 用户报告的 UI 问题修复后，明确告知是否需要硬刷新、是否需要重新生成，以及构建号是多少。
 
 ## 修改时同步的文档
 
@@ -38,6 +49,7 @@
 - 导出、evidence、action 或 RAG 记录变化：更新 `docs/EXPORT_AND_RAG.md`。
 - 模型、显卡、环境变量或安装方式变化：更新 `docs/DEPLOYMENT.md` 和 `docs/MODELS.md`。
 - 重要功能或修复：更新 `CHANGELOG.md`。Git 提交仍是完整历史真源。
+- 工程事故的根因、修复与教训：更新 `docs/ENGINEERING_REVIEW.md` 已处理段。
 - README 只保留稳定入口、结构和文档地图，不复制每份深度文档的全部细节。
 
 ## 验证门槛

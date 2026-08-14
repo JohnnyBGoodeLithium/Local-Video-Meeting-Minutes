@@ -23,6 +23,12 @@ make run      # 127.0.0.1:8899
 
 `make smoke` 使用 `tempfile.TemporaryDirectory`。服务、上传、会议、声纹、作业 JSON 全在该目录内，结束后自动清理；它不会枚举或修改真实 `meetings/`。
 
+## 页面排障入口
+
+- `http://127.0.0.1:8899/?diag=1`：页面内布局链诊断浮层，逐层报告滚动容器的 scrollHeight/clientHeight/overflow/position，用于远程定位"滚动条消失/内容被裁"类问题。
+- `?meeting={slug}`：直达指定会议，便于分享复现链接。
+- 左上角 logo 悬停显示当前前端构建号（从 app.js 的 `v=` 参数读取），确认用户看到的版本不靠猜；每批可见改动随 `web/static/index.html` 与 `web/tests/smoke_test.py` 同步递增。
+
 ## 运行配置
 
 | 变量 | 默认值 | 用途 |
@@ -43,6 +49,7 @@ make run      # 127.0.0.1:8899
 | `MEETING_PYANNOTE_MODEL` | 用户模型缓存 | pyannote 路径 |
 | `MEETING_VL_MODEL` / `MEETING_VL_MMPROJ` | 用户模型缓存 | llama.cpp VL 模型和 projector |
 | `MEETING_VL_PORT` | `11436` | 按需 VL 服务端口 |
+| `MEETING_VL_WORKERS` | `2` | VL 逐页解读并发数；需与 VL 服务 `--parallel` 槽位匹配 |
 | `MEETING_VL_GPU_LAYERS` | `999` | VL GPU offload 层数 |
 | `MEETING_WEB_DRYRUN` | 未设置 | 测试时管线只执行 `--help` |
 

@@ -105,6 +105,8 @@ VL 页面理解和逐字稿承担不同职责：
 
 Web 和查看器把它显示成很轻的“依据”链接；原始 Markdown 仍可自然阅读。marker 中只能使用输入提供的 ID，服务端会过滤不存在的 ID。大模型全文精修只有在页结构完整且全部 marker 逐字、顺序不变时才会被接受。
 
+marker 是“模型手写、代码解析”的协议，模型会发明各种包装：包在反引号里（`` `<!-- mm:evidence … -->` ``）、或独占待办表格的状态列。所有消费端都必须先剥离这类包装再解析：`markdown_with_evidence_links` 用 `WRAPPED_MARKER_RE` 连带剥掉反引号，`_action_fields` 对“marker 占状态列”的三单元格行按事项/负责人/期限拆分、状态交 claim_status 兜底；修解析器时同步给存量 sidecar 留读路径重拆兜底，避免要求重跑模型。
+
 ## 3. Canonical sidecar
 
 每次生成纪要会同时写出 `minutes.evidence.json`（schema：`meeting-minutes-evidence/v1`）：
