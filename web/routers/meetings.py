@@ -2,9 +2,11 @@
 服务 schema：meeting-structure/v2、meeting-topic-map/v2（兼容 v1 旧图）、meeting-generation/v1、
 meeting-minutes-evidence/v1、meeting-storage/v1。"""
 
+import json
+import os
 import shutil
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Body, HTTPException, Query
 
 import meeting_generation
 import meeting_structure
@@ -44,6 +46,25 @@ def list_meetings():
                 "ready" if item["has_minutes"] else "processing")
             out.append(item)
     return {"meetings": out}
+
+
+@router.post("/api/meetings/{slug}/rename")
+def rename_meeting(slug: str, title: str = Body(..., embed=True)):
+    """网页端改名：写入 meta.json 的 title 字段（原子替换），不改目录名。
+    注意：title 参与翻译上下文 revision，改名后已有译文会被标记为过期。"""
+    mdir = _mdir(slug)
+    title = title.strip()
+    if not 1 <= len(title) <= 80:
+        raise HTTPException(400, "标题需为 1–80 个字符")
+    meta_path = mdir / "meta.json"
+    meta = _read_json(meta_path, {})
+    if not isinstance(meta, dict):
+        meta = {}
+    meta["title"] = title
+    tmp = meta_path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
+    os.replace(tmp, meta_path)
+    return {"ok": True, **_meeting_identity(slug)}
 
 
 @router.post("/api/meetings/{slug}/delete")
@@ -173,12 +194,19 @@ def regen_minutes(slug: str, refine: str = Query("")):
             raise HTTPException(409, "语音草稿仍在补充屏幕资料，暂不能重新生成")
     if not (mdir / "transcript.spk.json").is_file():
         raise HTTPException(400, "没有逐字稿，无法重生成")
-    cmd = [str(PY), str(ROOT / "bin" / "minutes_by_page.py"), str(mdir), "--publish"]
-    video = _video_path(mdir)
-    if video is not None:
-        cmd += ["--video", str(video)]
-    if refine:
-        cmd += ["--refine-model", refine]
+    if (mdir / "slides.json").is_file():
+        cmd = [str(PY), str(ROOT / "bin" / "minutes_by_page.py"), str(mdir), "--publish"]
+        video = _video_path(mdir)
+        if video is not None:
+            cmd += ["--video", str(video)]
+        if refine:
+            cmd += ["--refine-model", refine]
+    else:
+        # 纯音频会议(录音笔导入)没有分页资料, 走与 run_all 相同的整场纪要管线
+        if refine:
+            raise HTTPException(400, "纯音频会议不支持优化全文(无分页资料)")
+        cmd = [str(PY), str(ROOT / "bin" / "summarize.py"), str(mdir / "transcript.txt"),
+               "--spk", str(mdir / "transcript.spk.json"), "--max-tokens", "8192"]
     job = _new_job("regen", meeting=slug, cmd=cmd)
     resp = dict(job)
     EXEC.submit(_run_pipeline, job)

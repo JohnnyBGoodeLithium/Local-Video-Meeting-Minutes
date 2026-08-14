@@ -4,6 +4,7 @@
 流程：
     [1/3] 转写(Qwen3-ASR, GPU) 与 说话人分离(pyannote) 并行(两个进程)
     [2/3] 用分离时间段 + 字级时间戳合并出分说话人逐字稿
+    [2.5/3] 声纹入库(跨会议命中即具名; 失败只警告, 不中断)
     [3/3] 分说话人逐字稿 → 本地 Qwen3.6 → 纪要(待办归属到说话人)
 
 输出：meetings/<日期>_<录音时间或标题>/，每场会议自包含。
@@ -79,6 +80,13 @@ def main() -> int:
                         env=env).returncode
     if rc:
         return 1
+
+    print("[2.5/3] 声纹入库 ...", flush=True)
+    rc = subprocess.run([str(PY), str(BIN / "voice_enroll.py"), str(folder)],
+                        env=env).returncode
+    if rc:
+        print(f"警告：声纹入库失败(rc={rc})，不影响纪要生成；可稍后手动运行 "
+              f"bin/voice_enroll.py {folder}", file=sys.stderr)
 
     print("[3/3] 生成分说话人纪要 ...", flush=True)
     rc = subprocess.run([str(PY), str(BIN / "summarize.py"), str(folder / "transcript.txt"),
