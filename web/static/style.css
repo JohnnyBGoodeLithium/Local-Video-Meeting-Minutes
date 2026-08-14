@@ -285,7 +285,7 @@ body.page-index { overflow: hidden; }
 .more-menu > summary::-webkit-details-marker { display: none; }
 .more-menu-pop {
   position: absolute;
-  z-index: 20;
+  z-index: 40;  /* 高于右侧智能栏(.utility-panel z:25),打开 AI 对话后菜单不被盖住 */
   right: 0;
   top: calc(100% + 6px);
   display: grid;
