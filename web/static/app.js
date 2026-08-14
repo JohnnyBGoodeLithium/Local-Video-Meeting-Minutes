@@ -808,11 +808,25 @@ function renderPlayer() {
 
 /* ---------- 时间轴（Topic 全覆盖车道 + 说话人泳道 + 刻度） ---------- */
 
-const SPEAKER_COLORS = ["#5e9dff", "#34c98e", "#f0a13f", "#e06a6a", "#a97ef0", "#3cc0d8", "#e07fb5", "#9fbd4a"];
+// 调色板唯一真源是 style.css 的 --speaker-N / --topic-N token（theme.css 可整体覆盖）；
+// JS 用 getComputedStyle 读取，下面是读不到时的兜底值（与默认主题一致）。
+const SPEAKER_COLOR_FALLBACK = ["#5e9dff", "#34c98e", "#f0a13f", "#e06a6a", "#a97ef0", "#3cc0d8", "#e07fb5", "#9fbd4a"];
 // 议题配色：一级议题按序号取色，时间轴块与右侧脉络"议题 NN"标签同色；low_value 保持灰蓝弱化。
-const TOPIC_COLORS = ["#4f7cff", "#8b5cf6", "#14b8a6", "#e8873a", "#e05d7b", "#22a06b", "#0ea5e9", "#b8a425"];
+const TOPIC_COLOR_FALLBACK = ["#4f7cff", "#8b5cf6", "#14b8a6", "#e8873a", "#e05d7b", "#22a06b", "#0ea5e9", "#b8a425"];
+let paletteCache = null;
+function palettes() {
+  if (!paletteCache) {
+    const cs = getComputedStyle(document.documentElement);
+    const read = (prefix, fallback) =>
+      fallback.map((fb, i) => cs.getPropertyValue(`--${prefix}-${i + 1}`).trim() || fb);
+    paletteCache = { topics: read("topic", TOPIC_COLOR_FALLBACK),
+                     speakers: read("speaker", SPEAKER_COLOR_FALLBACK) };
+  }
+  return paletteCache;
+}
 function topicColor(index) {
-  return TOPIC_COLORS[index % TOPIC_COLORS.length];
+  const colors = palettes().topics;
+  return colors[index % colors.length];
 }
 const VISUAL_VALUE_LABELS = {
   "zh-CN": { high: "核心", medium: "参考", low: "低信息", unknown: "待解析" },
@@ -1250,8 +1264,9 @@ function speakerColorMap() {
   const cacheKey = `${state.slug}|${state.bundle?.transcript_revision || ""}|${transcript.length}`;
   if (state.speakerColorCache?.key !== cacheKey) {
     const { bound } = speakerOrderByShare();
+    const colors = palettes().speakers;
     state.speakerColorCache = { key: cacheKey,
-      map: new Map(bound.map((name, index) => [name, SPEAKER_COLORS[index % SPEAKER_COLORS.length]])) };
+      map: new Map(bound.map((name, index) => [name, colors[index % colors.length]])) };
   }
   return state.speakerColorCache.map;
 }

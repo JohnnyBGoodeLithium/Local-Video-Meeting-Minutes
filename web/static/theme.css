@@ -1,0 +1,21 @@
+/* 主题插槽：在 style.css 之后加载，只覆盖 :root 变量即可整体换肤。
+   所有组件只引用变量、不持有字面值，因此覆盖任意一项都不会破坏布局。
+   三层可覆盖：
+   1. 语义色：--bg / --panel / --panel2 / --border / --text / --dim / --accent / --success / --danger
+   2. 设计 token：--font-sans / --font-mono、--fs-8…--fs-22、--fw-400…--fw-600、
+      --sp-4…--sp-24、--r-2…--r-18、--topic-1…--topic-8、--speaker-1…--speaker-8
+      （议题与说话人配色同时被 JS 用 getComputedStyle 读取，改这里时间轴/逐字稿同步生效）
+   3. 组件级变量（各组件自有的设计出口，示例）：
+      --btn-bg --btn-color --btn-border --btn-radius --btn-pad --btn-fs --btn-hover-border
+      --btn-primary-bg --btn-primary-color --btn-danger-color --btn-danger-border
+      --input-bg --input-border --input-color --input-radius --input-pad
+      --chip-bg --chip-border --chip-radius --chip-pad --chip-fs
+      --dialog-bg --dialog-border --dialog-radius --dialog-pad --mask-bg
+      --tab-color --tab-active-color --tab-active-bg --tab-active-border
+
+   示例：换成浅色主题只需：
+   :root {
+     --bg: #f5f6f8; --panel: #ffffff; --panel2: #eef0f4;
+     --border: #d4d9e0; --text: #1d2129; --dim: #6b7280;
+   }
+*/

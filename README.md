@@ -123,6 +123,7 @@ meeting-minutes/
 | 文档 | 何时阅读 |
 |---|---|
 | [PRODUCT_UX.md](docs/PRODUCT_UX.md) | 理解产品定位、阅读旅程和交互原则 |
+| [DESIGN_TOKENS.md](docs/DESIGN_TOKENS.md) | 更换主题（字体/配色/间距/圆角）或定制组件外观 |
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | 理解处理流、canonical 数据和模块边界 |
 | [EXPORT_AND_RAG.md](docs/EXPORT_AND_RAG.md) | 实现证据 linkage、MeetingPack 或 RAG 消费方 |
 | [DEPLOYMENT.md](docs/DEPLOYMENT.md) | 在 NVIDIA、AMD 或 CPU 机器部署和验收 |
