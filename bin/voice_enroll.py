@@ -105,6 +105,31 @@ def cluster_embeddings(vecs: np.ndarray, threshold: float = 0.70) -> list:
     return assign
 
 
+def reassign_by_centroids(rest_vecs: np.ndarray, base_centroid: np.ndarray,
+                          new_centroids: list) -> list:
+    """半监督重排：rest 中每条向量分别与基准质心（原声纹校正后）和各新簇质心求
+    余弦相似度，若更接近某个新簇则返回该簇索引，否则返回 None（留在原声纹）。
+    长会议拆分只需用户标出少量样例轮次，其余按“离谁近归谁”自动重排。"""
+    if not len(rest_vecs):
+        return []
+    if not len(new_centroids):
+        return [None] * len(rest_vecs)
+    norm = rest_vecs / (np.linalg.norm(rest_vecs, axis=1, keepdims=True) + 1e-9)
+    base = np.asarray(base_centroid, dtype=np.float32)
+    base = base / (np.linalg.norm(base) + 1e-9)
+    cents = [np.asarray(c, dtype=np.float32) for c in new_centroids]
+    cents = [c / (np.linalg.norm(c) + 1e-9) for c in cents]
+    out = []
+    for v in norm:
+        best, best_sim = None, float(np.dot(v, base))
+        for k, c in enumerate(cents):
+            sim = float(np.dot(v, c))
+            if sim > best_sim:
+                best, best_sim = k, sim
+        out.append(best)
+    return out
+
+
 def enroll(name2vec: dict, slug: str, threshold: float = 0.70, bank_dir: Path = None):
     """匿名声纹入库/比对。返回 (显示名映射, voice_id映射, linked, new)。
     与 video_minutes 同一语义: 占位名(说话人K)不自动建 person, 等人工绑定。"""

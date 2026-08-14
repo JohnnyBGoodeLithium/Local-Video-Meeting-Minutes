@@ -6,7 +6,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "bin"))
 
-from voice_enroll import cluster_embeddings  # noqa: E402
+from voice_enroll import cluster_embeddings, reassign_by_centroids  # noqa: E402
 
 DIM = 192
 
@@ -52,5 +52,26 @@ assert cluster_embeddings(np.zeros((0, DIM), dtype=np.float32)) == []
 
 # 5. 单条 → 单簇
 assert cluster_embeddings(cluster_vec(9, seed=1).reshape(1, -1)) == [0]
+
+# 6. 半监督重排：一条 B 样例建立新质心后，rest 中混入的 B 组全部移出、A 组留守
+base = cluster_vec(0, seed=100)        # 原声纹校正质心（A）
+example = cluster_vec(1, seed=101)     # 用户标记的一条“不是 TA”样例（B）
+rest = np.vstack([cluster_vec(i % 2, seed=200 + i) for i in range(8)])  # ABAB…
+moves = reassign_by_centroids(rest, base, [example])
+assert moves == [None, 0, None, 0, None, 0, None, 0], moves
+
+# 7. rest 全部更像基准 → 无移动
+rest_same = np.vstack([cluster_vec(0, seed=300 + i) for i in range(5)])
+assert all(m is None for m in reassign_by_centroids(rest_same, base, [example]))
+
+# 8. 多新簇：两条样例各带一组
+ex2 = cluster_vec(2, seed=102)
+rest3 = np.vstack([cluster_vec(i % 3, seed=400 + i) for i in range(9)])  # ABCABC…
+moves3 = reassign_by_centroids(rest3, cluster_vec(0, seed=103), [example, ex2])
+assert moves3 == [None, 0, 1, None, 0, 1, None, 0, 1], moves3
+
+# 9. 空输入 / 无新簇
+assert reassign_by_centroids(np.zeros((0, DIM), dtype=np.float32), base, [example]) == []
+assert reassign_by_centroids(rest_same, base, []) == [None] * 5
 
 print("voice split clustering: synthetic partitions passed")

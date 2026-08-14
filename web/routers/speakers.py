@@ -322,7 +322,9 @@ def split_voice_turns(slug: str, req: SplitReq):
     remaining = [i for i, t in enumerate(turns)
                  if t.get("voice") == req.voice and i not in picked_set]
     if not remaining:
-        raise HTTPException(400, "不能拆分该声纹的全部轮次；整体改派请用绑定")
+        raise HTTPException(
+            400, f"这条声纹在本会议只有 {len(idx)} 轮且全部被选中，无需拆分："
+                 "点该轮的说话人 chip 直接绑定姓名即可整体改派")
     wav = _audio_path(mdir)
     if wav is None:
         raise HTTPException(400, "会议没有可用音频，无法重提声纹")
@@ -336,8 +338,16 @@ def split_voice_turns(slug: str, req: SplitReq):
         raise HTTPException(500, "声纹嵌入提取失败")
     clusters = ve.cluster_embeddings(picked)
     n_clusters = max(clusters) + 1
+    # 半监督重排：以标记轮次建立新簇质心，再把该声纹其余轮次按“离谁近归谁”
+    # 自动重排——长会议里用户只需标出少量样例，不必逐条找出所有错分轮次。
+    new_cents = [picked[[n for n, c in enumerate(clusters) if c == k]].mean(axis=0)
+                 for k in range(n_clusters)]
+    moves = ve.reassign_by_centroids(rest, rest.mean(axis=0), new_cents)
+    keep_rest = [n for n, mk in enumerate(moves) if mk is None]
+    if not keep_rest:
+        raise HTTPException(400, "重排后原声纹在本会议不再剩轮次；若它整体属于别人请改用绑定")
 
-    moved, results = 0, []
+    moved, reassigned, results = 0, 0, []
     with BANK_LOCK:
         bank = vb.load_bank(BANK_DIR)
         src = next((v for v in bank["voices"] if v["id"] == req.voice), None)
@@ -346,8 +356,12 @@ def split_voice_turns(slug: str, req: SplitReq):
         src_label = str(turns[idx[0]].get("speaker") or src.get("label_hint") or req.voice)
         for k in range(n_clusters):
             member_pos = [n for n, c in enumerate(clusters) if c == k]
-            members = [idx[n] for n in member_pos]
-            centroid = picked[member_pos].mean(axis=0)
+            moved_pos = [n for n, mk in enumerate(moves) if mk == k]
+            members = [idx[n] for n in member_pos] + [remaining[n] for n in moved_pos]
+            mats = [picked[member_pos]]
+            if moved_pos:
+                mats.append(rest[moved_pos])
+            centroid = np.vstack(mats).mean(axis=0)
             match, sim = _match_voice_excluding(BANK_DIR, bank, centroid, req.voice, 0.70)
             if match is None:
                 hint = f"{src_label}(拆分)" if n_clusters == 1 else f"{src_label}(拆分{k + 1})"
@@ -362,11 +376,12 @@ def split_voice_turns(slug: str, req: SplitReq):
                 turns[i]["voice"] = match["id"]
                 turns[i]["speaker"] = new_name
             moved += len(members)
+            reassigned += len(moved_pos)
             results.append({"voice": match["id"], "name": new_name,
                             "turns": len(members), "matched": matched,
                             "similarity": round(sim, 3)})
-        # 原声纹质心用剩余轮次重算，避免继续被混入的发音污染
-        new_centroid = rest.mean(axis=0).astype(np.float32)
+        # 原声纹质心用重排后剩余的轮次重算，避免继续被混入的发音污染
+        new_centroid = rest[keep_rest].mean(axis=0).astype(np.float32)
         np.save(Path(BANK_DIR) / src["emb"],
                 new_centroid / (np.linalg.norm(new_centroid) + 1e-9))
         vb.save_bank(BANK_DIR, bank)
@@ -378,4 +393,5 @@ def split_voice_turns(slug: str, req: SplitReq):
     _refresh_evidence(mdir)
     subprocess.run([str(PY), str(ROOT / "bin" / "voice_tool.py"), "sample", str(mdir)],
                    check=False, capture_output=True)
-    return {"ok": True, "moved": moved, "clusters": n_clusters, "voices": results}
+    return {"ok": True, "moved": moved, "reassigned": reassigned,
+            "clusters": n_clusters, "voices": results}

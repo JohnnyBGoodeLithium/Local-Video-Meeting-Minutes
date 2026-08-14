@@ -551,7 +551,7 @@ function startSplitMarking(voice, name) {
   state.splitMarks.clear();
   renderTranscript();
   updateSplitBar();
-  toast(`标记模式：点击逐字稿中不属于「${name}」的轮次，然后点底部操作条的「确认拆分」`);
+  toast(`标记模式：点击逐字稿中不属于「${name}」的轮次（少量样例即可，其余会自动重排），然后点底部操作条的「确认拆分」`);
 }
 
 function clearSplitMarking(rerender = true) {
@@ -564,7 +564,7 @@ function clearSplitMarking(rerender = true) {
 
 function tryToggleSplitMark(i, voice) {
   if (voice !== state.splitTarget) {
-    toast(`标记模式只针对「${state.splitTargetName}」的轮次；点底部“清除”退出`);
+    toast(`标记模式只针对「${state.splitTargetName}」的轮次；点底部“取消”退出`);
     return;
   }
   if (state.splitMarks.has(i)) state.splitMarks.delete(i);
@@ -597,15 +597,42 @@ async function applySplitMarks() {
     return;
   }
   const assign = ($("#split-name").value || "").trim();
-  if (!confirm(`将对标记的 ${state.splitMarks.size} 轮重新提取声纹并拆分（可能需要几十秒）。` +
-    (assign ? `拆分后全部具名为「${assign}」。` : "拆分出的声纹默认未绑定，可随后具名；") +
-    "原说话人的声纹会自动用剩余轮次校正。继续？")) return;
+  // 某条声纹的轮次被全部选中时无需拆分：填了“具名为”就直接整体改派，
+  // 否则提示（典型场景：同名碎片声纹只有一两轮，拆分对它没有意义）。
+  const bindDirect = [];
+  const splitGroups = {};
+  for (const [voice, ids] of Object.entries(groups)) {
+    const total = state.bundle.transcript.reduce((n, t) => n + (t.voice === voice ? 1 : 0), 0);
+    if (ids.length >= total) bindDirect.push([voice, ids.length]);
+    else splitGroups[voice] = ids;
+  }
+  if (bindDirect.length && !assign) {
+    toast(`选中声纹里有 ${bindDirect.length} 条在本会议只有 ${bindDirect.map(b => b[1]).join("/")} 轮` +
+      "且被全部选中，无需拆分：在“具名为”填姓名再确认即可整体改派（标记已保留）");
+    return;
+  }
+  const parts = [];
+  if (Object.keys(splitGroups).length)
+    parts.push(`对标记的 ${Object.values(splitGroups).flat().length} 轮重新提取声纹拆分，` +
+      "并以标记轮次为样例把该说话人本场其余轮次按相似度自动重排（可能需要几十秒）");
+  if (bindDirect.length)
+    parts.push(`${bindDirect.length} 条声纹全部被选中，直接整体改派为「${assign}」`);
+  if (!confirm(parts.join("；") + "。继续？")) return;
   $("#split-apply").disabled = true;
-  let moved = 0;
+  let moved = 0, reassigned = 0, boundDirect = 0;
   const names = [];
   const bindFailures = [];
   try {
-    for (const [voice, turns] of Object.entries(groups)) {
+    for (const [voice] of bindDirect) {
+      const br = await api(`/api/meetings/${encodeURIComponent(state.slug)}/bind`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ voice, name: assign, create: false }),
+      });
+      if (br.ok) boundDirect += 1;
+      else bindFailures.push(voice);
+    }
+    for (const [voice, turns] of Object.entries(splitGroups)) {
       const r = await api(`/api/meetings/${encodeURIComponent(state.slug)}/split`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -617,6 +644,7 @@ async function applySplitMarks() {
         return;
       }
       moved += j.moved;
+      reassigned += j.reassigned || 0;
       names.push(...(j.voices || []).map(v => v.name));
       if (assign) {
         for (const v of j.voices || []) {
@@ -638,13 +666,17 @@ async function applySplitMarks() {
   clearSplitMarking(false);  // loadMeeting 会重渲染, 无需先清类
   state.speakers = null;  // 库已变，刷新缓存
   resetAssistant();       // 逐字稿 revision 已变化，旧引用作废
-  if (assign && !bindFailures.length) {
-    toast(`已拆分 ${moved} 轮并具名为「${assign}」`);
-  } else if (assign) {
-    toast(`已拆分 ${moved} 轮，但具名失败（${bindFailures.join("、")}）：请点说话人 chip 手动具名`);
-  } else {
-    toast(`已拆分 ${moved} 轮 → ${[...new Set(names)].join("、")}（可点击说话人 chip 具名）`);
+  const done = [];
+  if (boundDirect) done.push(`整体改派 ${boundDirect} 条声纹为「${assign}」`);
+  if (moved) {
+    let s = `拆分 ${moved} 轮`;
+    if (reassigned) s += `（含按相似度自动重排的 ${reassigned} 轮）`;
+    if (assign && !bindFailures.length) s += `，具名为「${assign}」`;
+    else if (!assign) s += ` → ${[...new Set(names)].join("、")}（可点说话人 chip 具名）`;
+    done.push(s);
   }
+  if (bindFailures.length) done.push(`具名失败 ${bindFailures.length} 条，请点说话人 chip 手动具名`);
+  toast(done.join("；") || "未改动");
   await loadMeeting(state.slug);
 }
 
