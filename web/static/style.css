@@ -961,6 +961,8 @@ body.resizing-panes { cursor: col-resize; user-select: none; }
 .assistant-suggestions button { padding: 3px 8px; border-radius: 12px; color: #cbd6f3; font-size: 11px; text-align: left; }
 .assistant-thread {
   min-height: 0;
+  display: flex;
+  flex-direction: column;
   border: 1px solid var(--border);
   border-radius: 9px;
   background: var(--bg);
@@ -982,7 +984,7 @@ body.resizing-panes { cursor: col-resize; user-select: none; }
 .assistant-ref b { font-size: 12px; }
 .ref-excerpt { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .ref-remove { position: absolute; right: 3px; top: 3px; padding: 0 5px; border: none; }
-.assistant-messages { min-height: 0; overflow-y: auto; padding: 9px 12px; }
+.assistant-messages { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 9px 12px; }
 .assistant-msg { margin-bottom: 12px; }
 .assistant-msg.user { margin-left: 18%; }
 .assistant-msg.assistant { margin-right: 10%; }
