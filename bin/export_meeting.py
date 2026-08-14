@@ -240,6 +240,7 @@ def _readme(media_mode: str) -> str:
 内容
 - viewer.html：开箱即用的静态查看器（数据已内嵌，file:// 可用）
 - README.txt：本说明
+- AGENTS.md：给 AI agent 的数据使用指引（把包拖进 agent 会话时会用到）
 - assets/：其余全部依赖文件；可整体交给后续程序处理
   - minutes.md、transcript.*：常规纪要与完整逐字稿
   - evidence.json、topic-map.json：证据与整场语义脉络
@@ -250,6 +251,31 @@ def _readme(media_mode: str) -> str:
 媒体策略
 {media_note}
 PPT/VL 页面只能证明“页面展示了什么”，不能单独证明“会议决定了什么”。
+"""
+
+
+_AGENTS_MD = """# MeetingPack — Agent 使用指引
+
+这是一个离线会议数据包。回答问题时**不要只读 `assets/minutes.md`**——那只是给人看的摘要。
+按任务选择下面的数据源，事实性回答必须给出可核验依据。
+
+## 文件地图
+- `assets/evidence.json` — 结构化结论与待办（claims / actions），每条带 `turn_ids` / `page_ids` 依据。
+  核验"会议决定了什么、谁要做什么"先查这里；`status` 确定性：confirmed > working_alignment > proposal > open > informational。
+- `assets/transcript.json` — 完整逐字稿：`[{id: T000001, start, end, speaker, voice_id, page_id, text}]`。
+  引用发言用 T 编号 + 时间（秒）；`voice_id` 相同即同一人，未绑定声纹为占位名。
+- `assets/topic-map.json` — 整场语义脉络：议题树（topics → children），节点带 `turn_ids` / `ranges` / `page_ids`，
+  适合回答"会议讨论了哪些议题、某议题在什么时段"。
+- `assets/rag/records.jsonl` — 检索用记录（每行一条 JSON），可直接建向量/全文索引。
+- `assets/minutes.md` — 会议纪要（人读版）；结论/待办末尾的 `mm:evidence` 注释是机器可读依据标记。
+- `assets/slides/` — 屏幕页面图，`page_id`（P0001…）对应页面内容；页面只能证明"展示了什么"，不能单独证明"决定了什么"。
+- `assets/manifest.json` — 格式版本、文件清单与 sha256 校验。
+- `viewer.html` / `README.txt` — 人类查看器与说明，agent 无需读取。
+
+## 回答规则
+1. 事实性结论必须附依据：T 编号或 P 页码 + 时间戳；查不到依据就说"包内无此信息"，不要编。
+2. 纪要与逐字稿冲突时以逐字稿为准。
+3. 待办/行动以 evidence.json 中 `kind=action` 且带 turn_ids 的条目为准。
 """
 
 
@@ -415,6 +441,7 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
                                         media_arc, media_kind, source_language, minutes_languages,
                                         topic_map_languages),
             "README.txt": _readme(media_mode).encode("utf-8"),
+            "AGENTS.md": _AGENTS_MD.encode("utf-8"),
             "assets/minutes.md": reading_minutes.encode("utf-8"),
             **minutes_language_assets,
             **topic_map_language_assets,

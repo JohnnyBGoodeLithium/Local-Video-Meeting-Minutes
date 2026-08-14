@@ -131,6 +131,7 @@ Web 只在 sidecar 的逐字稿和纪要 revision 与当前文件一致时展示
 <meeting>.meetingpack.zip
 ├── viewer.html             # CSS/JS/数据内嵌的静态查看器
 ├── README.txt
+├── AGENTS.md               # 给 AI agent 的数据使用指引（文件地图 + 引用规则）
 └── assets/                 # 所有依赖统一收纳；顶层不再散落机器文件
     ├── manifest.json       # meetingpack/v4、文件哈希、证据与媒体策略
     ├── minutes.md          # 常规阅读版纪要 + 隐藏 marker

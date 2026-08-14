@@ -371,14 +371,14 @@ check("导出预检只返回内容状态、数量、媒体和预计体积",
 s, h, pack_bytes = req("GET", "/api/meetings/_smoke/export?media=none", raw=True)
 pack = zipfile.ZipFile(io.BytesIO(pack_bytes)) if s == 200 else None
 names = set(pack.namelist()) if pack else set()
-required = {"viewer.html", "README.txt", "assets/minutes.md", "assets/transcript.json",
+required = {"viewer.html", "README.txt", "AGENTS.md", "assets/minutes.md", "assets/transcript.json",
             "assets/transcript.md", "assets/evidence.json",
             "assets/topic-map.json", "assets/rag/records.jsonl", "assets/manifest.json",
             "assets/slides/p0001.webp", "assets/slides/p0002.webp"}
 check("导出 MeetingPack → 标准文件齐全且默认无音视频",
       s == 200 and required <= names and not any(n.startswith("assets/media/") for n in names)
       and "assets/views.json" not in names
-      and {name.split("/", 1)[0] for name in names} == {"viewer.html", "README.txt", "assets"})
+      and {name.split("/", 1)[0] for name in names} == {"viewer.html", "README.txt", "AGENTS.md", "assets"})
 if pack:
     manifest = json.loads(pack.read("assets/manifest.json"))
     evidence = json.loads(pack.read("assets/evidence.json"))
