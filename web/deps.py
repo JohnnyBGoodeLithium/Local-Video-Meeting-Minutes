@@ -288,7 +288,8 @@ def _slugify(name: str) -> str:
 
 
 def _meeting_identity(slug: str) -> dict:
-    """把目录 slug 转为面向用户的标题与日期；不读取会议正文。"""
+    """把目录 slug 转为面向用户的标题与日期；不读取会议正文。
+    `meta.json` 中的 title 覆盖 slug 派生名（用户在网页端改名）。"""
     match = re.match(r"^(\d{4}-\d{2}-\d{2})_(.+)$", slug)
     date, raw = (match.group(1), match.group(2)) if match else ("", slug)
     if re.fullmatch(r"\d{6}", raw):
@@ -296,7 +297,11 @@ def _meeting_identity(slug: str) -> dict:
     else:
         title = re.sub(r"[_-]+", " ", raw).strip()
         title = re.sub(r"\s+", " ", title)
-    return {"title": title or "未命名会议", "date": date}
+    ident = {"title": title or "未命名会议", "date": date}
+    custom = _read_json(MEETINGS / slug / "meta.json", {})
+    if isinstance(custom, dict) and str(custom.get("title", "")).strip():
+        ident["title"] = str(custom["title"]).strip()
+    return ident
 
 
 # ---------------------------------------------------------------- 纪要渲染

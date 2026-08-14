@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>会议纪要</title>
-<link rel="stylesheet" href="/static/style.css?v=20260813p25">
+<link rel="stylesheet" href="/static/style.css?v=20260813p27">
 </head>
 <body class="page-index">
 <header class="topbar">
@@ -43,6 +43,7 @@
     <header class="meeting-head">
       <div>
         <h1 id="meeting-title">选择一场会议</h1>
+        <button id="rename-btn" class="rename-btn hidden" type="button" title="修改会议名称">✎ 改名</button>
         <div id="meeting-meta" class="meeting-meta">阅读纪要、追问内容并修正记录</div>
         <div id="meeting-statuses" class="meeting-statuses" aria-live="polite"></div>
       </div>
@@ -81,6 +82,11 @@
         <div class="col-header">
           <span id="transcript-heading">逐字稿</span>
           <div class="transcript-head-tools">
+            <span class="transcript-search-wrap">
+              <input id="transcript-search" type="search" placeholder="搜索逐字稿" disabled
+                     aria-label="搜索逐字稿" title="Enter 下一个, Shift+Enter 上一个">
+              <span id="transcript-search-count" class="transcript-search-count"></span>
+            </span>
             <div class="transcript-language" aria-label="逐字稿显示语言">
               <button type="button" data-transcript-mode="original" class="active" disabled>原文</button>
               <button type="button" data-transcript-mode="translated" disabled>译文</button>
@@ -237,6 +243,6 @@
   </section>
 </div>
 
-<script src="/static/app.js?v=20260813p25"></script>
+<script src="/static/app.js?v=20260813p27"></script>
 </body>
 </html>

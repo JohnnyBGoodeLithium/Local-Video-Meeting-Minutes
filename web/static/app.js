@@ -50,6 +50,7 @@ const state = {
   personLanesAll: false,
   speakerPin: null,
   speakerHover: null,
+  transcriptSearch: null,
   visualFilter: "useful",
   uiLanguage: UI_LANGUAGES.has(workspaceState.uiLanguage) ? workspaceState.uiLanguage : "zh-CN",
   minutesTranslation: null,
@@ -383,6 +384,11 @@ async function deleteMeeting(ev, slug) {
     state.slug = null;
     state.bundle = null;
     $("#meeting-title").textContent = "选择一场会议";
+    $("#rename-btn").classList.add("hidden");
+    $("#transcript-search").value = "";
+    $("#transcript-search").disabled = true;
+    $("#transcript-search-count").textContent = "";
+    state.transcriptSearch = null;
     $("#meeting-meta").textContent = "阅读纪要、追问内容并修正记录";
     $("#transcript").innerHTML = '<p class="placeholder">← 选择一场会议</p>';
     $("#minutes").innerHTML = '<p class="placeholder">纪要内容</p>';
@@ -424,6 +430,107 @@ async function deleteMeeting(ev, slug) {
     resetAssistant();
   }
   loadMeetings();
+}
+
+/* ---------- 会议改名 ---------- */
+
+function startRename() {
+  if (!state.slug || !state.bundle) return;
+  const h1 = $("#meeting-title");
+  const btn = $("#rename-btn");
+  if ($("#rename-input")) return;
+  const current = state.bundle.title || state.slug;
+  const input = document.createElement("input");
+  input.id = "rename-input";
+  input.className = "rename-input";
+  input.type = "text";
+  input.maxLength = 80;
+  input.value = current;
+  h1.classList.add("hidden");
+  btn.classList.add("hidden");
+  h1.parentNode.insertBefore(input, h1.nextSibling);
+  input.focus();
+  input.select();
+  let done = false;
+  const finish = async (save) => {
+    if (done) return;
+    done = true;
+    const title = input.value.trim();
+    input.remove();
+    h1.classList.remove("hidden");
+    btn.classList.remove("hidden");
+    if (!save || !title || title === current) { h1.textContent = current; return; }
+    h1.textContent = title;  // 乐观更新, 失败回滚
+    const r = await api(`/api/meetings/${encodeURIComponent(state.slug)}/rename`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title }),
+    });
+    if (!r.ok) {
+      h1.textContent = current;
+      const err = await r.json().catch(() => null);
+      toast(`改名失败: ${err?.detail || r.status}`);
+      return;
+    }
+    state.bundle.title = title;
+    toast("已改名");
+    loadMeetings();
+  };
+  input.addEventListener("keydown", e => {
+    if (e.key === "Enter") { e.preventDefault(); finish(true); }
+    else if (e.key === "Escape") { e.preventDefault(); finish(false); }
+  });
+  input.addEventListener("blur", () => finish(true));
+}
+
+/* ---------- 逐字稿搜索 ---------- */
+
+function applyTranscriptSearch(keepCurrent = false) {
+  const input = $("#transcript-search");
+  const count = $("#transcript-search-count");
+  const query = (input?.value || "").trim().toLowerCase();
+  const previous = keepCurrent ? (state.transcriptSearch?.current ?? -1) : -1;
+  state.transcriptSearch = { query, hits: [], current: -1 };
+  $$("#transcript .turn.search-hit, #transcript .turn.search-current")
+    .forEach(el => el.classList.remove("search-hit", "search-current"));
+  if (!query || !state.bundle?.transcript?.length) {
+    if (count) count.textContent = "";
+    return;
+  }
+  state.bundle.transcript.forEach((t, i) => {
+    if (String(t.text || "").toLowerCase().includes(query))
+      state.transcriptSearch.hits.push(i);
+  });
+  const hits = state.transcriptSearch.hits;
+  hits.forEach(i => document.getElementById(`turn-${i}`)?.classList.add("search-hit"));
+  if (!hits.length) {
+    if (count) count.textContent = "无匹配";
+    return;
+  }
+  if (previous >= 0) {
+    // 重渲染后的重标记: 恢复命中位置, 不滚动打扰阅读。
+    state.transcriptSearch.current = Math.min(previous, hits.length - 1);
+    document.getElementById(`turn-${hits[state.transcriptSearch.current]}`)
+      ?.classList.add("search-current");
+    if (count) count.textContent = `${state.transcriptSearch.current + 1}/${hits.length}`;
+  } else {
+    stepTranscriptMatch(1);
+  }
+}
+
+function stepTranscriptMatch(direction) {
+  const search = state.transcriptSearch;
+  if (!search || !search.hits.length) return;
+  search.current = (search.current + direction + search.hits.length) % search.hits.length;
+  $$("#transcript .turn.search-current").forEach(el => el.classList.remove("search-current"));
+  const turnIndex = search.hits[search.current];
+  const el = document.getElementById(`turn-${turnIndex}`);
+  if (el) {
+    el.classList.add("search-current");
+    scrollInside($("#transcript"), el, "center", true);
+  }
+  const count = $("#transcript-search-count");
+  if (count) count.textContent = `${search.current + 1}/${search.hits.length}`;
 }
 
 /* ---------- 会议详情 ---------- */
@@ -514,6 +621,11 @@ async function loadMeeting(slug) {
   state.expandedOriginals.clear();
   state.evidenceBilingual.clear();
   $("#meeting-title").textContent = b.title || slug;
+  $("#rename-btn").classList.remove("hidden");
+  const transcriptSearch = $("#transcript-search");
+  transcriptSearch.disabled = !(b.transcript?.length);
+  if (changed) { transcriptSearch.value = ""; state.transcriptSearch = null;
+    $("#transcript-search-count").textContent = ""; }
   renderMeetingHeaderMeta();
   renderPlayer();
   renderTranscript(false);
@@ -593,7 +705,8 @@ function renderPlayer() {
   toggle.textContent = state.workspace.videoExpanded ? ui("collapsing") : ui("expanding");
   toggle.setAttribute("aria-expanded", String(state.workspace.videoExpanded));
   el.addEventListener("loadedmetadata", () => {
-    buildTimeline(el.duration);
+    // 媒体时长可能短于会议跨度(导出裁剪/音频抽离),时间轴始终覆盖逐字稿全程。
+    buildTimeline(Math.max(el.duration || 0, b.duration || 0));
     $("#playback-time").textContent = `${fmt(el.currentTime)} / ${fmt(el.duration)}`;
   });
   el.addEventListener("timeupdate", onTimeUpdate);
@@ -1571,6 +1684,8 @@ function renderTranscript(preserveScroll = true) {
     box.scrollTop = 0;
   }
   updateFocusedTurns(false);
+  // 重渲染后搜索高亮会随 DOM 重建丢失, 有查询词时重新标记(保持当前命中位置, 不滚动)。
+  if (state.transcriptSearch?.query) applyTranscriptSearch(true);
 }
 
 function updateTranscriptModeButtons() {
@@ -2098,10 +2213,10 @@ function topicDetailVisuals(node, pageMap) {
     }).join("")}</div></section>`;
 }
 
-function topicMapDetail(topic, node, pageMap) {
+function topicMapDetail(topic, node, pageMap, index = 0) {
   const ranges = node.ranges || topic.ranges || [];
   const claims = (node.claim_ids || []).map(flowClaim).filter(Boolean).join("");
-  return `<section class="topic-map-detail"><header><div><span>${esc(
+  return `<section class="topic-map-detail" style="border-left:3px solid ${topicColor(index)}"><header><div><span>${esc(
     node.id === topic.id ? (isEnglishUi() ? "Primary topic" : "一级议题") :
       topicNodeLabel(node.type, isEnglishUi() ? "Structured node" : "结构节点"))}</span>` +
     `<h3>${esc(node.title)}</h3></div><small>${esc(topic.title)}</small></header>` +
@@ -2199,8 +2314,10 @@ function renderChapters() {
     `<span>${isEnglishUi() ? `${topics.length} topics · ${topicMap.stats?.children || 0} structured nodes` :
       `${topics.length} 个议题 · ${topicMap.stats?.children || 0} 个结构节点`}</span></button></div>` +
     `<div class="topic-map-branches">${topics.map((topic, index) =>
-      topicMapBranch(topic, index, selectedNode?.id)).join("")}</div></div>` +
-    (selectedTopic && selectedNode ? topicMapDetail(selectedTopic, selectedNode, pageMap) :
+      topicMapBranch(topic, index, selectedNode?.id) +
+      (selectedTopic && selectedNode && topic.id === selectedTopic.id
+        ? topicMapDetail(selectedTopic, selectedNode, pageMap, index) : "")).join("")}</div></div>` +
+    (selectedTopic && selectedNode ? "" :
       `<div class="topic-overview-hint"><b>${isEnglishUi() ? "Scan the whole structure, then select a topic" : "先看整场结构，再选择一个议题"}</b>` +
       `<span>${isEnglishUi() ? "Selecting a node focuses its transcript, screens, and conclusions without starting playback." :
         "选择节点只聚焦相关逐字稿、画面和结论；不会自动播放。"}</span></div>`) + `</article>`;
@@ -3384,6 +3501,13 @@ function init() {
     button.onclick = () => setUiLanguage(button.dataset.uiLanguage));
   $("#search").addEventListener("input", renderMeetingList);
   $("#regen-btn").onclick = () => regenMinutes("");
+  $("#rename-btn").onclick = startRename;
+  $("#transcript-search").addEventListener("input", applyTranscriptSearch);
+  $("#transcript-search").addEventListener("keydown", e => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    stepTranscriptMatch(e.shiftKey ? -1 : 1);
+  });
   $("#refine-btn").onclick = () => {
     if (confirm("用 122B 大模型整体重写纪要？首次调用需加载模型(数分钟)，且会挤占常驻模型。"))
       regenMinutes("qwen3.5-122b-a10b-planner");
