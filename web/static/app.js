@@ -3880,4 +3880,31 @@ document.addEventListener("DOMContentLoaded", () => {
   if (SCRIPT_BUILD) document.querySelector(".brand")?.setAttribute("title", `构建 ${SCRIPT_BUILD}`);
 });
 
+
+/* 布局诊断：?diag=1 时在页面右下角叠加关键容器的滚动链路数据，供远程排障 */
+function showLayoutDiag() {
+  const q = s => {
+    const n = document.querySelector(s);
+    if (!n) return `${s}: 不存在`;
+    const cs = getComputedStyle(n);
+    const r = n.getBoundingClientRect();
+    return `${s}\n  sh=${n.scrollHeight} h=${Math.round(r.height)} ov=${cs.overflowY} pos=${cs.position}`;
+  };
+  const pre = document.createElement("pre");
+  pre.style.cssText = "position:fixed;right:8px;bottom:8px;z-index:9999;max-width:46vw;" +
+    "max-height:70vh;overflow:auto;background:#101318;color:#9fe8a9;border:1px solid #3a4;" +
+    "padding:10px;font:11px/1.5 ui-monospace,monospace;white-space:pre-wrap";
+  pre.textContent = [
+    `build=${SCRIPT_BUILD || "?"} inner=${innerWidth}x${innerHeight} dpr=${devicePixelRatio}`,
+    q(".layout"), q(".workspace"), q("#content-shell"), q(".review-grid"),
+    q(".minutes-pane"), q("#minutes"), q(".structure-view:not(.hidden)"),
+    q(".topic-map-view"), q("#utility-panel"), q(".assistant-pane"),
+    q(".assistant-thread"), q(".assistant-messages"),
+  ].join("\n");
+  document.body.appendChild(pre);
+}
+if (new URLSearchParams(location.search).get("diag")) {
+  setTimeout(showLayoutDiag, 2500);
+}
+
 document.addEventListener("DOMContentLoaded", init);
