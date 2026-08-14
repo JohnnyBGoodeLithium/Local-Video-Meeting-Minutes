@@ -1,8 +1,10 @@
-"""说话人与声纹库：绑定、改名、别名、合并与试听。
+"""说话人与声纹库：绑定、改名、别名、合并、拆分与试听。
 服务 schema：voice_bank bank schema v3、orgchart.json（无版本字段）。"""
 
 import json
 import re
+import subprocess
+import sys
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
@@ -10,8 +12,9 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 import voice_bank as vb
-from deps import (BANK_DIR, BANK_LOCK, MEETINGS, _hms, _mmss, _mdir,
-                  _read_json, _refresh_evidence, _safe)
+import voice_enroll as ve
+from deps import (BANK_DIR, BANK_LOCK, MEETINGS, PY, ROOT, _audio_path, _hms,
+                  _mmss, _mdir, _read_json, _refresh_evidence, _safe)
 
 router = APIRouter()
 
@@ -276,3 +279,103 @@ def unbind_voice(req: VoiceReq):
         voice["person_id"] = None
         vb.save_bank(BANK_DIR, bank)
         return {"ok": True}
+
+
+class SplitReq(BaseModel):
+    voice: str
+    turns: list[int]
+
+
+def _match_voice_excluding(bank_dir: Path, bank: dict, vec, exclude: str, threshold: float):
+    """match_voice 的排除版：拆分出的轮次永不再匹配回它来源的那条声纹。"""
+    import numpy as np
+    v = np.asarray(vec, dtype=np.float32)
+    v = v / (np.linalg.norm(v) + 1e-9)
+    best, best_sim = None, -1.0
+    for entry in bank["voices"]:
+        if entry["id"] == exclude:
+            continue
+        sim = float(np.dot(v, vb.vec_of(bank_dir, entry)))
+        if sim > best_sim:
+            best, best_sim = entry, sim
+    if best is not None and best_sim >= threshold:
+        return best, best_sim
+    return None, best_sim
+
+
+@router.post("/api/meetings/{slug}/split")
+def split_voice_turns(slug: str, req: SplitReq):
+    """把一条声纹在本会议中的部分轮次拆出（两位声音相近者被并入同一声纹时用）：
+    只对所选轮次的音频段重提嵌入 → 贪心聚类（可能不止一个人）→ 逐簇匹配库内
+    其他声纹或匿名新建 → 只改派这些轮次；原声纹质心用剩余轮次自动重算校正。"""
+    import numpy as np
+
+    mdir = _mdir(slug)
+    tp = mdir / "transcript.spk.json"
+    turns = _read_json(tp, [])
+    idx = sorted({i for i in req.turns if 0 <= i < len(turns)})
+    if not idx:
+        raise HTTPException(400, "没有有效轮次")
+    if any(turns[i].get("voice") != req.voice for i in idx):
+        raise HTTPException(400, "只能拆分同一条声纹的轮次")
+    picked_set = set(idx)
+    remaining = [i for i, t in enumerate(turns)
+                 if t.get("voice") == req.voice and i not in picked_set]
+    if not remaining:
+        raise HTTPException(400, "不能拆分该声纹的全部轮次；整体改派请用绑定")
+    wav = _audio_path(mdir)
+    if wav is None:
+        raise HTTPException(400, "会议没有可用音频，无法重提声纹")
+
+    # 嵌入提取可能耗时几十秒，在 BANK_LOCK 外做
+    ranges_of = lambda ids: [(float(turns[i].get("start", 0)),  # noqa: E731
+                              float(turns[i].get("end", 0))) for i in ids]
+    picked = ve.embed_ranges(wav, ranges_of(idx))
+    rest = ve.embed_ranges(wav, ranges_of(remaining))
+    if not len(picked) or not len(rest):
+        raise HTTPException(500, "声纹嵌入提取失败")
+    clusters = ve.cluster_embeddings(picked)
+    n_clusters = max(clusters) + 1
+
+    moved, results = 0, []
+    with BANK_LOCK:
+        bank = vb.load_bank(BANK_DIR)
+        src = next((v for v in bank["voices"] if v["id"] == req.voice), None)
+        if src is None:
+            raise HTTPException(404, "没有这条声纹")
+        src_label = str(turns[idx[0]].get("speaker") or src.get("label_hint") or req.voice)
+        for k in range(n_clusters):
+            member_pos = [n for n, c in enumerate(clusters) if c == k]
+            members = [idx[n] for n in member_pos]
+            centroid = picked[member_pos].mean(axis=0)
+            match, sim = _match_voice_excluding(BANK_DIR, bank, centroid, req.voice, 0.70)
+            if match is None:
+                hint = f"{src_label}(拆分)" if n_clusters == 1 else f"{src_label}(拆分{k + 1})"
+                match = vb.add_voice(BANK_DIR, bank, centroid, label_hint=hint, source=slug)
+                matched = False
+            else:
+                if slug not in match.setdefault("sources", []):
+                    match["sources"].append(slug)
+                matched = True
+            new_name = vb.display_name(bank, match)
+            for i in members:
+                turns[i]["voice"] = match["id"]
+                turns[i]["speaker"] = new_name
+            moved += len(members)
+            results.append({"voice": match["id"], "name": new_name,
+                            "turns": len(members), "matched": matched,
+                            "similarity": round(sim, 3)})
+        # 原声纹质心用剩余轮次重算，避免继续被混入的发音污染
+        new_centroid = rest.mean(axis=0).astype(np.float32)
+        np.save(Path(BANK_DIR) / src["emb"],
+                new_centroid / (np.linalg.norm(new_centroid) + 1e-9))
+        vb.save_bank(BANK_DIR, bank)
+
+    tmp = tp.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(turns, ensure_ascii=False, indent=1), encoding="utf-8")
+    tmp.replace(tp)
+    _rewrite_spk_md(mdir, slug, turns)
+    _refresh_evidence(mdir)
+    subprocess.run([str(PY), str(ROOT / "bin" / "voice_tool.py"), "sample", str(mdir)],
+                   check=False, capture_output=True)
+    return {"ok": True, "moved": moved, "clusters": n_clusters, "voices": results}

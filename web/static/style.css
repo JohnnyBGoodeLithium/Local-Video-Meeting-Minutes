@@ -385,6 +385,33 @@ body.resizing-panes { cursor: col-resize; user-select: none; }
   background: var(--panel);
 }
 .turn:hover .quote-turn, .quote-turn:focus { opacity: 1; }
+.turn-exclude {
+  position: absolute;
+  top: 5px;
+  right: 62px;
+  opacity: 0;
+  padding: 0 6px;
+  font-size: 11px;
+  color: var(--dim);
+  background: var(--panel);
+}
+.turn:hover .turn-exclude, .turn-exclude:focus { opacity: 1; }
+.turn.split-marked { background: rgba(226, 161, 60, .12); box-shadow: inset 3px 0 #e2a13c; }
+.turn.split-marked .turn-exclude { opacity: 1; color: #efbd67; }
+.split-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--border);
+  background: var(--panel2);
+  color: var(--dim);
+  font-size: 12px;
+}
+.split-bar.hidden { display: none; }
+.split-bar span { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+#split-apply { color: #efbd67; border-color: rgba(226, 161, 60, .55); }
 .quote-pop {
   position: fixed;
   z-index: 90;

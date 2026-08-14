@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>会议纪要</title>
-<link rel="stylesheet" href="/static/style.css?v=20260813p27">
+<link rel="stylesheet" href="/static/style.css?v=20260813p28">
 </head>
 <body class="page-index">
 <header class="topbar">
@@ -108,6 +108,11 @@
           </div>
         </div>
         <div id="transcript" class="transcript"><p class="placeholder">← 选择一场会议</p></div>
+        <div id="split-bar" class="split-bar hidden">
+          <span id="split-bar-text"></span>
+          <button id="split-apply" type="button">拆分为新说话人</button>
+          <button id="split-clear" type="button">清除</button>
+        </div>
         </section>
 
         <div id="pane-resizer" class="pane-resizer" role="separator" aria-label="调整逐字稿与纪要宽度" aria-orientation="vertical" tabindex="0"></div>
@@ -243,6 +248,6 @@
   </section>
 </div>
 
-<script src="/static/app.js?v=20260813p27"></script>
+<script src="/static/app.js?v=20260813p28"></script>
 </body>
 </html>

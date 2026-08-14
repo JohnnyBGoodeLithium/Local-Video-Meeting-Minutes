@@ -56,6 +56,55 @@ def centroids_from_segments(wav: Path, segments: list, device: str = None) -> di
     return out
 
 
+def embed_ranges(wav: Path, ranges: list, device: str = None) -> np.ndarray:
+    """按任意时间区间逐段提取 embedding。ranges: [(start, end), ...]，返回 (N, D) 矩阵。
+    用于声纹拆分：只对所选轮次的音频段推理，不再整音频滑窗。"""
+    import soundfile as sf
+    import torch
+    from pyannote.audio import Inference, Model
+
+    model = Model.from_pretrained(str(EMB_DIR))
+    inf = Inference(model, window="whole")
+    inf.to(torch.device(device or inference_device(torch)))
+    data, sr = sf.read(str(wav), dtype="float32", always_2d=True)
+    mono = torch.from_numpy(data.mean(axis=1))
+    min_len = int(0.4 * sr)
+    out = []
+    for start, end in ranges:
+        lo = max(0, int(float(start) * sr))
+        hi = min(mono.numel(), max(lo + 1, int(float(end) * sr)))
+        seg = mono[lo:hi]
+        if seg.numel() < min_len:
+            seg = torch.nn.functional.pad(seg, (0, min_len - seg.numel()))
+        vec = inf({"waveform": seg.unsqueeze(0), "sample_rate": sr})
+        out.append(np.asarray(vec, dtype=np.float32).reshape(-1))
+    return np.vstack(out) if out else np.zeros((0, 0), dtype=np.float32)
+
+
+def cluster_embeddings(vecs: np.ndarray, threshold: float = 0.70) -> list:
+    """贪心余弦聚类：每条向量归入第一个相似度达标的簇（质心取运行均值），否则开新簇。
+    返回与输入等长的簇索引列表。"""
+    if not len(vecs):
+        return []
+    norm = vecs / (np.linalg.norm(vecs, axis=1, keepdims=True) + 1e-9)
+    centroids, counts, assign = [], [], []
+    for v in norm:
+        best, best_sim = -1, threshold
+        for k, c in enumerate(centroids):
+            sim = float(np.dot(v, c))
+            if sim >= best_sim:
+                best, best_sim = k, sim
+        if best < 0:
+            centroids.append(v)
+            counts.append(1)
+            assign.append(len(centroids) - 1)
+        else:
+            counts[best] += 1
+            centroids[best] = centroids[best] + (v - centroids[best]) / counts[best]
+            assign.append(best)
+    return assign
+
+
 def enroll(name2vec: dict, slug: str, threshold: float = 0.70, bank_dir: Path = None):
     """匿名声纹入库/比对。返回 (显示名映射, voice_id映射, linked, new)。
     与 video_minutes 同一语义: 占位名(说话人K)不自动建 person, 等人工绑定。"""

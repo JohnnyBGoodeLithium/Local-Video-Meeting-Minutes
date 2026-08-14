@@ -129,7 +129,7 @@ check("时间码跳转只滚动内容面板，不带动整页丢失播放器",
 check("在线屏幕舞台支持放大、缩放和相邻屏幕键盘导航",
       b'id="screen-preview-mask"' in page and b'openScreenPreview' in app_js
       and b'navigateScreenPreview' in app_js and b'SCREEN_PREVIEW_ZOOMS' in app_js
-      and b'20260813p27' in page)
+      and b'20260813p28' in page)
 check("英文会议脉络同步本地化时间轴悬浮层与 Focus 辅助文案",
       b'"Meeting overview"' in app_js and b'"Semantic focus"' in app_js
       and b'structured nodes' in app_js and b'occurrences' in app_js
@@ -577,6 +577,25 @@ s, _, j = req("POST", "/api/meetings/_smoke/bind",
               {"voice": "v_9002", "name": "Charlie Example", "create": True})
 check("bind create=true → 新建并改当前会议", s == 200 and j.get("how") == "新建"
       and j.get("turns") == 1)
+
+# 8c. 声纹按轮拆分：负路径校验在嵌入提取之前，不加载模型、不写库
+s, _, bundle_for_split = req("GET", "/api/meetings/_smoke/bundle")
+turns_for_split = bundle_for_split.get("transcript", [])
+idx_by_voice = {}
+for n, t in enumerate(turns_for_split):
+    idx_by_voice.setdefault(t.get("voice"), []).append(n)
+s, _, _ = req("POST", "/api/meetings/_smoke/split", {"voice": "v_9001", "turns": []})
+check("split 空轮次 → 400", s == 400)
+s, _, _ = req("POST", "/api/meetings/_smoke/split",
+              {"voice": "v_9001",
+               "turns": [idx_by_voice["v_9001"][0], idx_by_voice["v_9002"][0]]})
+check("split 跨声纹轮次 → 400", s == 400)
+s, _, _ = req("POST", "/api/meetings/_smoke/split",
+              {"voice": "v_9002", "turns": idx_by_voice["v_9002"]})
+check("split 该声纹全部轮次 → 400（整体改派走绑定）", s == 400)
+bank_after_split = json.loads((FAKE_BANK / "bank.json").read_text())
+check("split 负路径不改写声纹库",
+      len(bank_after_split["voices"]) == 2)
 
 # 9. orgchart GET/PUT（假库）
 s, _, j = req("GET", "/api/orgchart")
