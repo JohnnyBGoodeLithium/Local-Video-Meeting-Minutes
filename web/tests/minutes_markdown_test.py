@@ -168,3 +168,28 @@ assert stale_actions[0]["owner"] == "Alex Example"
 assert stale_actions[0]["deadline"] == "周五"
 
 print("Minutes Markdown: marker-in-status-cell action rows passed")
+
+# 模型把 marker 包在反引号里：替换成“依据”链接时必须拆掉反引号，
+# 否则 markdown-it 渲染成行内代码，前端拿不到 a[href^="#mm-"]。
+from meeting_artifact import markdown_with_evidence_links  # noqa: E402
+backtick_minutes = (
+    "- 合成结论。`<!-- mm:evidence kind=discussion status=confirmed confidence=high turns=T000001 -->`\n"
+    "- 无标记普通行。\n"
+)
+backtick_evidence = {"claims": [{
+    "id": "C00001",
+    "marker": "<!-- mm:evidence kind=discussion status=confirmed confidence=high turns=T000001 -->",
+}]}
+linked = markdown_with_evidence_links(backtick_minutes, backtick_evidence)
+assert "`" not in linked
+assert "[依据](#mm-C00001)" in linked
+linked_html = MarkdownIt("default", {"html": False}).render(linked)
+assert '<a href="#mm-C00001">依据</a>' in linked_html
+assert "<code>" not in linked_html
+# 未包裹反引号的旧形态保持兼容
+plain = markdown_with_evidence_links(
+    "- 合成结论。 <!-- mm:evidence kind=discussion status=confirmed confidence=high turns=T000001 -->\n",
+    backtick_evidence)
+assert "[依据](#mm-C00001)" in plain
+
+print("Minutes Markdown: backtick-wrapped evidence markers passed")

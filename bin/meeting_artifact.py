@@ -665,6 +665,11 @@ def write_evidence_document(mdir: Path, minutes: str, turns: list[dict], pages: 
     return path, document
 
 
+# 模型常把 marker 包在反引号里（`<!-- mm:evidence … -->`）；不拆掉反引号的话，
+# 替换出的“依据”链接会被 Markdown 当成行内代码渲染成纯文本。
+WRAPPED_MARKER_RE = re.compile(r"`?[ \t]*(<!--\s*mm:evidence\s+[^<>]*?-->)[ \t]*`?")
+
+
 def markdown_with_evidence_links(minutes: str, evidence: dict, *, label: str = "依据") -> str:
     """把不可见 marker 转成很轻的 Markdown“依据”链接；其余 marker 一律剥离。"""
     by_marker: dict[str, list[dict]] = {}
@@ -672,11 +677,11 @@ def markdown_with_evidence_links(minutes: str, evidence: dict, *, label: str = "
         by_marker.setdefault(claim.get("marker", ""), []).append(claim)
 
     def replace(match):
-        queue = by_marker.get(match.group(0), [])
+        queue = by_marker.get(match.group(1), [])
         claim = queue.pop(0) if queue else None
         return f" [{label}](#mm-{claim['id']})" if claim else ""
 
-    return MARKER_RE.sub(replace, minutes)
+    return WRAPPED_MARKER_RE.sub(replace, minutes)
 
 
 def _minutes_sections(minutes: str) -> list[dict]:
