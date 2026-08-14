@@ -15,6 +15,7 @@ check:
 	$(PY) web/tests/minutes_policy_test.py
 	$(PY) web/tests/minutes_overview_test.py
 	$(PY) web/tests/minutes_degenerate_test.py
+	$(PY) web/tests/design_tokens_test.py
 	$(PY) web/tests/summarize_request_test.py
 	$(PY) web/tests/voice_draft_test.py
 	$(PY) web/tests/job_scheduler_test.py

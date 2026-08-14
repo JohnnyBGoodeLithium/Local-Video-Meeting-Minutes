@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 import time
 from dataclasses import dataclass
@@ -145,12 +146,68 @@ def _clean_degenerate(text: str) -> str:
     return "\n".join(out).strip()
 
 
+REPAIR_TODO_PROMPT = """上一份纪要草稿的待办章节不合规：每一行“事项”单元格末尾都必须原样带
+`kind=action` 且含真实 `turns=T...` 的证据标记，缺少标记的行不得保留。
+请只根据片段事实笔记重写待办事项，输出完整的“### 待办事项”章节本身，不要输出其他内容。
+确实没有任何合规待办时，只写“未形成明确待办”。
+
+{evidence_rules}
+
+片段事实笔记：
+{notes}
+
+上一份草稿的待办章节（供对照事项与负责人，证据标记必须来自笔记中的真实 T 编号）：
+```markdown
+{todo}
+```"""
+
+TODO_HEAD = "### 待办事项"
+TODO_MARKER_RE = re.compile(
+    r"<!--\s*mm:evidence\s+[^>]*?kind=action[^>]*?turns=T\d+")
+
+
+def _todo_section(text: str) -> str:
+    match = re.search(r"### 待办事项(.*?)(?=\n#{2,3} |\Z)", text, re.S)
+    return match.group(1) if match else ""
+
+
+def _todo_compliant(text: str) -> bool:
+    """待办章节的表格行必须逐行带 kind=action + turns 证据标记，否则前端无据可依。"""
+    section = _todo_section(text)
+    if not section.strip():
+        return False
+    if "未形成明确待办" in section:
+        return True
+    rows = [ln for ln in section.splitlines()
+            if ln.strip().startswith("|") and "---" not in ln and "事项" not in ln]
+    return bool(rows) and all(TODO_MARKER_RE.search(row) for row in rows)
+
+
+def _splice_todo_section(text: str, new_section: str) -> str:
+    new_section = new_section.strip()
+    if not new_section.startswith(TODO_HEAD):
+        new_section = f"{TODO_HEAD}\n\n{new_section}"
+    pattern = re.compile(r"### 待办事项.*?(?=\n#{2,3} |\Z)", re.S)
+    if pattern.search(text):
+        return pattern.sub(lambda _: new_section + "\n\n", text, count=1)
+    return text.rstrip() + "\n\n" + new_section + "\n"
+
+
+def _strip_fence(text: str) -> str:
+    stripped = text.strip()
+    match = re.fullmatch(r"```(?:markdown|md)?\s*(.*?)```", stripped, re.S)
+    return match.group(1).strip() if match else stripped
+
+
 def _complete_with_guard(client: LocalLLMClient, prompt: str, *,
                          max_tokens: int, temperature: float = 0.2,
-                         required: tuple = ()) -> Completion:
+                         required: tuple = (),
+                         validator: Callable[[str], bool] | None = None) -> Completion:
     """生成一次；退化或缺必需章节则用 repeat_penalty 重试，仍退化则确定性清理。"""
     def usable(text: str) -> bool:
-        return not _is_degenerate(text) and all(mark in text for mark in required)
+        if _is_degenerate(text) or not all(mark in text for mark in required):
+            return False
+        return validator(text) if validator else True
 
     first = client.complete(prompt, system=SYSTEM, max_tokens=max_tokens,
                             temperature=temperature)
@@ -161,7 +218,7 @@ def _complete_with_guard(client: LocalLLMClient, prompt: str, *,
     if usable(retry.content):
         return retry
     cleaned = _clean_degenerate(retry.content)
-    if cleaned:
+    if cleaned and cleaned != retry.content.strip():
         print("[minutes] 纪要模型输出退化，已重试并清理重复内容", file=sys.stderr)
         return Completion(content=cleaned, usage=retry.usage, elapsed=retry.elapsed)
     return retry
@@ -228,8 +285,25 @@ def generate(context: dict, policy: dict, evidence_rules: str, *,
             per_note //= 2
     final = _complete_with_guard(
         client, reduce_prompt, max_tokens=max_tokens,
-        required=("## 总体摘要", "### 待办事项"))
+        required=("## 总体摘要", "### 待办事项"), validator=_todo_compliant)
     completions.append(final)
+    if not _todo_compliant(final.content):
+        # 模型把待办写成了无证据标记的行：前端只展示有依据的待办，整表会被弃用。
+        # 定点修复一轮：只重写待办章节并拼接回终稿。
+        repair_prompt = REPAIR_TODO_PROMPT.format(
+            evidence_rules=evidence_rules, notes="\n".join(notes),
+            todo=_todo_section(final.content).strip() or "（空）")
+        repair = _complete_with_guard(client, repair_prompt, max_tokens=2048,
+                                      validator=_todo_compliant)
+        completions.append(repair)
+        repaired = _strip_fence(repair.content)
+        if _todo_compliant(repaired):
+            final = Completion(
+                content=_splice_todo_section(final.content, repaired),
+                usage=final.usage, elapsed=final.elapsed)
+            print("[minutes] 待办章节证据标记缺失，已定点修复", file=sys.stderr)
+        else:
+            print("[minutes] 待办章节证据标记缺失且修复未合规，保留原稿", file=sys.stderr)
     return OverviewResult(
         content=final.content, mode="map_reduce", chunks=len(chunks),
         elapsed=time.time() - started,

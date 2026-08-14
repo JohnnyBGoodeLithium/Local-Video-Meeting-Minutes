@@ -334,7 +334,9 @@ async function loadMeetings() {
   state.meetings = d.meetings;
   renderMeetingList();
   if (!state.slug && state.meetings.length) {
-    const remembered = state.meetings.find(m => m.slug === state.workspace.lastSlug);
+    const linked = new URLSearchParams(location.search).get("meeting");
+    const remembered = state.meetings.find(m => m.slug ===
+      (linked || state.workspace.lastSlug));
     await loadMeeting((remembered || state.meetings[0]).slug);
   }
 }

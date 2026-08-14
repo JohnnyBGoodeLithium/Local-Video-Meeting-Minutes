@@ -80,3 +80,54 @@ result = _complete_with_guard(client, "prompt", max_tokens=100,
 assert result.content == HEALTHY and len(client.calls) == 2
 
 print("Minutes degenerate guard: detect / retry / clean all pass")
+
+# ---- 待办章节证据标记合规 ----
+from meeting_core.minutes_overview import (  # noqa: E402
+    _splice_todo_section, _todo_compliant, generate)
+
+MARK = "<!-- mm:evidence kind=action status=confirmed confidence=high turns=T000101 -->"
+GOOD_TODO = ("### 待办事项\n\n| 事项 | 负责人 | 期限 | 状态 |\n| --- | --- | --- | --- |\n"
+             f"| 合成待办 {MARK} | 合成负责人 | 待确认 | open |\n")
+assert _todo_compliant("## 总体摘要\nx\n" + GOOD_TODO + "\n### 风险/待确认\n- 无")
+assert _todo_compliant("### 待办事项\n未形成明确待办\n")
+assert not _todo_compliant("### 待办事项\n\n| 事项 | 负责人 | 期限 | 状态 |\n"
+                           "| --- | --- | --- | --- |\n| 无标记待办 | 某人 | 待确认 | open |\n")
+assert not _todo_compliant("## 总体摘要\n没有待办章节")
+
+spliced = _splice_todo_section(
+    "## 总体摘要\n主旨\n### 待办事项\n\n旧表\n\n### 风险/待确认\n- 无\n", GOOD_TODO)
+assert GOOD_TODO.strip() in spliced and "旧表" not in spliced and "### 风险/待确认" in spliced
+
+# 端到端：reduce 待办不合规 → 触发定点修复并拼接
+class RepairClient:
+    def __init__(self):
+        self.kinds = []
+
+    def complete(self, prompt, **kwargs):
+        if "overview-chunk/v1" in prompt:
+            self.kinds.append("map")
+            return Completion(content="- 合成事实 T000101", usage={}, elapsed=0.01)
+        if "上一份纪要草稿的待办章节" in prompt:
+            self.kinds.append("repair")
+            return Completion(content="```markdown\n" + GOOD_TODO + "```",
+                              usage={}, elapsed=0.01)
+        self.kinds.append("reduce")
+        return Completion(
+            content=("## 总体摘要\n- **主旨**：合成。\n\n"
+                     "### 待办事项\n\n| 事项 | 负责人 | 期限 | 状态 |\n| --- | --- | --- | --- |\n"
+                     "| 无标记待办 | 某人 | 待确认 | open |\n\n"
+                     "### 风险/待确认\n- 无\n\n## 议题板块\n- 合成议题：合成。"),
+            usage={}, elapsed=0.01)
+
+turns = [{"id": "T000101", "index": 0, "start": 0.0, "end": 4.0,
+          "speaker": "合成说话人", "voice_id": None, "person_id": None,
+          "page_id": "P0001", "text": "合成待办来源。" * 3}]
+context = {"schema": "meeting-minutes-prompt/v1", "speaker_profiles": [],
+           "pages": [], "turns": turns}
+rc = RepairClient()
+out = generate(context, {"version": "synthetic/v1"}, "只使用合成证据。", client=rc)
+assert "reduce" in rc.kinds and "repair" in rc.kinds, rc.kinds
+assert _todo_compliant(out.content) and MARK in out.content
+assert "## 议题板块" in out.content
+
+print("Minutes todo compliance: validate / repair / splice all pass")
