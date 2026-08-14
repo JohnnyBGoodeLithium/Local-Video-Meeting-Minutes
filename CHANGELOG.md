@@ -11,6 +11,7 @@ git show <commit>
 
 ## 未发布
 
+- 修复大屏（≥1500px）打开智能栏后全页滚动链断裂：智能栏入流并排时 `.content-shell` 未声明行模板（auto 行按内容定高），`overflow:visible` 的智能栏把共享网格行顶到内容全高（实测 2317px），`.review-grid`/纪要/脉络/AI 对话全部跟着内容生长、滚动条集体消失、AI 输入框被顶出视口。修复：`.content-shell` 加 `grid-template-rows: minmax(0, 1fr)` 行约束，`.utility-panel` 加 `min-height: 0`。以用户真实环境（2480×1287 dpr1.5、面板打开、30 条长消息）经 ?diag=1 页面内测量验证：滚动链全层收敛，脉络与 AI 消息恢复溢出滚动。`?diag=1` 诊断浮层转为常驻排障特性。教训记入工程评审：此前探针全在 <1500px 视口跑（面板悬浮不入流），大屏入流分支从未被覆盖。
 - 诊断与 AI 气泡渲染：`?meeting={slug}` 深链之外，左上角 logo 悬停现在显示当前前端构建号（从 app.js 的 v= 参数自动读取，无需维护），排查"用户看到的是哪个版本"不再靠猜；AI 对话气泡支持 `**粗体**` 渲染（esc 之后转换，无注入面），模型输出的 markdown 强调不再显示原始星号。
 - MeetingPack 新增 `AGENTS.md`（包根目录）：给 AI agent 的数据使用指引——文件地图（evidence.json 查结论/待办、transcript.json 引用发言、topic-map.json 查议题时段、rag/records.jsonl 建索引、slides 页图只证展示不证决定）+ 回答规则（事实必附 T/P 依据、逐字稿优先于纪要、status 确定性分级）。整包拖进 agent 会话时不再只读 minutes.md。README 与 EXPORT_AND_RAG/ARCHITECTURE 文档同步，冒烟断言更新。
 - 待办章节证据标记合规校验 + 定点修复：真实 2 小时 PLM 会议换用带退化防护的新代码重生成后，模型把 9 行待办写进了表格但**全部不带** `kind=action`+`turns=` 证据标记（标记被写进了关键结论/风险章节）——正式待办只从有依据的 action claim 投影，前端整表显示为空。现在 reduce 输出增加合规校验（待办章节有表格行就必须逐行带合规标记，"未形成明确待办"除外），不合规先随退化防护重试一次，仍不合规则发起定点修复轮：只根据片段事实笔记重写待办章节（`REPAIR_TODO_PROMPT`），合规后拼接回终稿，不合规保留原稿并告警。合成数据单元回归覆盖校验/修复/拼接全链路。
