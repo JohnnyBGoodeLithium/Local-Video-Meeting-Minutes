@@ -151,6 +151,62 @@ def enroll(name2vec: dict, slug: str, threshold: float = 0.70, bank_dir: Path = 
     return rename, voice_of, linked, new
 
 
+def merge_fragment_voices(mdir: Path, bank_dir: Path = None, max_turns: int = 2,
+                          threshold: float = 0.80) -> dict:
+    """会后碎片声纹清理：本会议中轮次 ≤max_turns 且未被人工绑定（person_id 为空）
+    的声纹，用高于入库的阈值再匹配一次库内其他声纹；命中则把这些轮次并入目标
+    声纹。只来源于本会议的碎片条目同时从库中删除；多会议共用的保留条目只摘
+    source。返回 {"merged": 合并条数, "turns": 改派轮数}，不打印姓名。"""
+    from collections import Counter
+    bank_dir = Path(bank_dir or (ROOT / "speaker_bank"))
+    ts_path = mdir / "transcript.spk.json"
+    if not ts_path.is_file():
+        return {"merged": 0, "turns": 0}
+    turns = json.loads(ts_path.read_text(encoding="utf-8"))
+    counts = Counter(t.get("voice") for t in turns if t.get("voice"))
+    fragments = [v for v, c in counts.items() if 0 < c <= max_turns]
+    if not fragments:
+        return {"merged": 0, "turns": 0}
+    bank = vb.load_bank(bank_dir)
+    merged = moved = 0
+    for frag in fragments:
+        entry = next((v for v in bank["voices"] if v["id"] == frag), None)
+        if entry is None or entry.get("person_id"):
+            continue  # 库中不存在或已被人工绑定过的碎片不动
+        vec = vb.vec_of(bank_dir, entry)
+        best, best_sim = None, threshold
+        for other in bank["voices"]:
+            if other["id"] == frag:
+                continue
+            sim = float(np.dot(vec, vb.vec_of(bank_dir, other)))
+            if sim >= best_sim:
+                best, best_sim = other, sim
+        if best is None:
+            continue
+        name = vb.display_name(bank, best)
+        for t in turns:
+            if t.get("voice") == frag:
+                t["voice"] = best["id"]
+                t["speaker"] = name
+                moved += 1
+        if set(entry.get("sources", [])) <= {mdir.name}:
+            bank["voices"].remove(entry)
+            (bank_dir / entry["emb"]).unlink(missing_ok=True)
+        else:
+            entry["sources"] = [s for s in entry.get("sources", []) if s != mdir.name]
+        merged += 1
+    if not merged:
+        return {"merged": 0, "turns": 0}
+    vb.save_bank(bank_dir, bank)
+    tmp = ts_path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(turns, ensure_ascii=False, indent=1), encoding="utf-8")
+    tmp.replace(ts_path)
+    md = [f"# {mdir.name} 逐字稿(具名)\n"]
+    md += [f"[{mmss(t['start'])}] **{t['speaker']}**: {t['text']}\n" for t in turns]
+    (mdir / "transcript.spk.md").write_text("\n".join(md), encoding="utf-8")
+    return {"merged": merged, "turns": moved}
+
+
 def enroll_meeting(mdir: Path, threshold: float = 0.70, device: str = None) -> int:
     """对单个会议目录执行回填/入库。返回进程退出码。"""
     dia_path = mdir / "diarization.json"
@@ -177,6 +233,10 @@ def enroll_meeting(mdir: Path, threshold: float = 0.70, device: str = None) -> i
     md += [f"[{mmss(t['start'])}] **{t['speaker']}**: {t['text']}\n" for t in turns]
     (mdir / "transcript.spk.md").write_text("\n".join(md), encoding="utf-8")
     print(f"[meta] 声纹库: 新入库 {new} | 跨会议命中 {linked} | 轮次 {len(turns)}", flush=True)
+    frag = merge_fragment_voices(mdir)
+    if frag["merged"]:
+        print(f"[meta] 碎片声纹清理: 合并 {frag['merged']} 条 | 改派 {frag['turns']} 轮",
+              flush=True)
     subprocess.run([sys.executable, str(ROOT / "bin" / "voice_tool.py"), "sample", str(mdir)],
                    check=False, capture_output=True)
     return 0

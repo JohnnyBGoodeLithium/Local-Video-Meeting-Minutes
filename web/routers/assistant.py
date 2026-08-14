@@ -3,7 +3,10 @@
 meeting-generation/v1。"""
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+
+import json
 
 import meeting_generation
 from deps import DRY_RUN, assistant, _minutes_file, _mdir, _refresh_evidence
@@ -60,6 +63,40 @@ def assistant_chat(slug: str, req: AssistantChatReq):
             req.transcript_revision, req.history, DRY_RUN)
     except assistant.AssistantError as exc:
         _assistant_http_error(exc)
+
+
+@router.post("/api/meetings/{slug}/assistant/chat/stream")
+def assistant_chat_stream(slug: str, req: AssistantChatReq):
+    """SSE 流式问答：meta(证据/检索元数据) → delta* → done。
+    校验与检索在流开始前同步完成，冲突/错误仍走普通 HTTP 状态码。"""
+    mdir = _mdir(slug)
+    if not (mdir / "transcript.spk.json").is_file():
+        raise HTTPException(400, "没有逐字稿，无法进行会议问答")
+    try:
+        prepared = assistant.prepare_answer(
+            mdir, _assistant_message(req.message), req.turn_indexes,
+            req.transcript_revision)
+    except assistant.AssistantError as exc:
+        _assistant_http_error(exc)
+
+    def events():
+        meta = {"type": "meta", "sources": prepared["sources"],
+                "transcript_revision": prepared["revision"],
+                "retrieval": prepared["retrieval"]}
+        yield f"data: {json.dumps(meta, ensure_ascii=False)}\n\n"
+        full = []
+        try:
+            for delta in assistant.stream_answer(prepared, req.message, req.history, DRY_RUN):
+                full.append(delta)
+                yield f"data: {json.dumps({'type': 'delta', 'text': delta}, ensure_ascii=False)}\n\n"
+            done = {"type": "done", "answer": "".join(full)}
+            yield f"data: {json.dumps(done, ensure_ascii=False)}\n\n"
+        except assistant.AssistantError as exc:
+            err = {"type": "error", "message": str(exc)}
+            yield f"data: {json.dumps(err, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(events(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-store"})
 
 
 @router.post("/api/meetings/{slug}/rag/search")

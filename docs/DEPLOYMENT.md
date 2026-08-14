@@ -79,6 +79,7 @@ cmake --build build --config Release -j
 | `MEETING_VL_MODEL` | 当前用户 Miloco 路径 | VL GGUF |
 | `MEETING_VL_MMPROJ` | 当前用户 mmproj 路径 | VL projector |
 | `MEETING_VL_PORT` | `11436` | VL loopback 端口 |
+| `MEETING_VL_WORKERS` | `2` | VL 逐页解读的并发请求数；需与 VL 服务 `--parallel` 槽位匹配 |
 | `MEETING_VL_GPU_LAYERS` | `999` | llama.cpp GPU offload；显存不足可降低 |
 | `MEETING_DATA_ROOT` | 仓库根 | 私有会议数据根 |
 | `MEETING_PYTHON` | 当前解释器/Web venv | 作业子进程解释器 |
@@ -91,7 +92,15 @@ llama-server --model /models/text-model.gguf \
   --gpu-layers 999 --flash-attn auto --jinja --no-webui
 ```
 
-VL 默认在第一次需要时按配置自动拉起。如果显存不允许文本模型与 7B VL 同时驻留，应继续使用当前“串行作业 + VL 按需启动”的策略；不要为了常驻而让系统交换或 OOM。
+VL 服务示例（逐页解读默认 2 路并发，槽位数要配得上）：
+
+```bash
+llama-server --model /models/vl-model.gguf --mmproj /models/mmproj.gguf \
+  --host 127.0.0.1 --port 11436 --ctx-size 32768 --parallel 2 \
+  --gpu-layers 999 --flash-attn auto --jinja --no-webui
+```
+
+如果显存/统一内存不允许文本模型与 7B VL 双槽同时驻留，应退回 `--parallel 1` 并设 `MEETING_VL_WORKERS=1`（串行解读）；不要为了常驻而让系统交换或 OOM。
 
 ## 5. 首次验收
 

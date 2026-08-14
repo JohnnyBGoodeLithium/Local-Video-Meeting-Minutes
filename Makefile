@@ -14,18 +14,22 @@ check:
 	$(PY) web/tests/minutes_markdown_test.py
 	$(PY) web/tests/minutes_policy_test.py
 	$(PY) web/tests/minutes_overview_test.py
+	$(PY) web/tests/minutes_degenerate_test.py
 	$(PY) web/tests/summarize_request_test.py
 	$(PY) web/tests/voice_draft_test.py
 	$(PY) web/tests/job_scheduler_test.py
 	$(PY) web/tests/media_materialize_test.py
 	$(PY) web/tests/slide_pages_test.py
 	$(PY) web/tests/vl_cache_test.py
+	$(PY) web/tests/vl_describe_pages_test.py
 	$(PY) web/tests/meeting_generation_test.py
 	$(PY) web/tests/meeting_structure_test.py
 	$(PY) web/tests/meeting_topic_map_test.py
 	$(PY) web/tests/hardware_test.py
 	$(PY) web/tests/voice_split_test.py
+	$(PY) web/tests/voice_fragment_merge_test.py
 	$(PY) web/tests/translation_service_test.py
+	$(PY) web/tests/viewer_boot_test.py
 	@if command -v node >/dev/null 2>&1; then node --check web/static/app.js && node --check web/static/admin.js; else echo "Node unavailable: skipped JS syntax check"; fi
 	git diff --check
 

@@ -3286,7 +3286,7 @@ async function sendAssistant() {
   };
   const path = intent === "edit"
     ? `/api/meetings/${encodeURIComponent(state.slug)}/assistant/edit/preview`
-    : `/api/meetings/${encodeURIComponent(state.slug)}/assistant/chat`;
+    : `/api/meetings/${encodeURIComponent(state.slug)}/assistant/chat/stream`;
   const body = intent === "edit"
     ? { ...common, minutes_revision: state.bundle.minutes_revision }
     : { ...common, history: state.assistantHistory.slice(-8) };
@@ -3297,15 +3297,16 @@ async function sendAssistant() {
   state.assistantBusy = true;
   $("#assistant-send").disabled = true;
   $("#assistant-state").textContent = intent === "edit" ? "正在生成修改预览…" : "正在查找证据并回答…";
+  let streamMsg = null;
   try {
     const r = await api(path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    const j = await r.json();
-    if (!r.ok) throw new Error(assistantError(j.detail));
     if (intent === "edit") {
+      const j = await r.json();
+      if (!r.ok) throw new Error(assistantError(j.detail));
       addAssistantMessage({
         role: "assistant",
         content: "我整理了一项纪要更新，请确认后再保存。",
@@ -3313,12 +3314,55 @@ async function sendAssistant() {
         proposal: j,
       });
     } else {
-      addAssistantMessage({ role: "assistant", content: j.answer, sources: j.sources || [] });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error(assistantError(j.detail));
+      }
+      // SSE 流式渲染：meta 带证据 → delta 逐段追加到气泡 → done 后落历史并持久化
+      const msg = { role: "assistant", content: "", sources: [] };
+      streamMsg = msg;
+      addAssistantMessage(msg);
+      const bubble = () => $("#assistant-messages").lastElementChild?.querySelector(".msg-body");
+      const reader = r.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let sep;
+        while ((sep = buf.indexOf("\n\n")) >= 0) {
+          const frame = buf.slice(0, sep);
+          buf = buf.slice(sep + 2);
+          const line = frame.split("\n").find(l => l.startsWith("data:"));
+          if (!line) continue;
+          let ev;
+          try { ev = JSON.parse(line.slice(5).trim()); } catch (_) { continue; }
+          if (ev.type === "meta") {
+            msg.sources = ev.sources || [];
+            $("#assistant-state").textContent = "正在作答…";
+          } else if (ev.type === "delta") {
+            msg.content += ev.text;
+            const el = bubble();
+            if (el) el.textContent = msg.content;
+            const box = $("#assistant-messages");
+            if (box) box.scrollTop = box.scrollHeight;
+          } else if (ev.type === "error") {
+            throw new Error(ev.message || "生成失败");
+          }
+        }
+      }
+      if (!msg.content.trim()) throw new Error("空响应");
+      renderAssistantMessages();  // 全量重渲染一次:引用链接可点 + 持久化
       state.assistantHistory.push({ role: "user", content: message });
-      state.assistantHistory.push({ role: "assistant", content: j.answer });
+      state.assistantHistory.push({ role: "assistant", content: msg.content });
       state.assistantHistory = state.assistantHistory.slice(-8);
+      persistAssistant();
     }
   } catch (e) {
+    if (streamMsg && !streamMsg.content.trim()) {
+      state.assistantMessages = state.assistantMessages.filter(m => m !== streamMsg);
+    }  // 流式失败时撤掉空气泡
     addAssistantMessage({ role: "assistant", content: `无法完成：${e.message}`, sources: [] });
   } finally {
     state.assistantBusy = false;

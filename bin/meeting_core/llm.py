@@ -57,7 +57,8 @@ class LocalLLMClient:
         self.timeout = int(timeout)
 
     def complete(self, prompt: str, *, system: str | None = None,
-                 max_tokens: int = 4096, temperature: float = 0.2) -> Completion:
+                 max_tokens: int = 4096, temperature: float = 0.2,
+                 repeat_penalty: float | None = None) -> Completion:
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
@@ -67,6 +68,7 @@ class LocalLLMClient:
             "messages": messages,
             "max_tokens": int(max_tokens),
             "temperature": float(temperature),
+            "repeat_penalty": float(repeat_penalty or 1.0),
             "chat_template_kwargs": {"enable_thinking": False},
         }, ensure_ascii=False).encode("utf-8")
         request = urllib.request.Request(

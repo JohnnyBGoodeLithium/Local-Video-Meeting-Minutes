@@ -129,7 +129,7 @@ check("时间码跳转只滚动内容面板，不带动整页丢失播放器",
 check("在线屏幕舞台支持放大、缩放和相邻屏幕键盘导航",
       b'id="screen-preview-mask"' in page and b'openScreenPreview' in app_js
       and b'navigateScreenPreview' in app_js and b'SCREEN_PREVIEW_ZOOMS' in app_js
-      and b'20260814p35' in page)
+      and b'20260814p36' in page)
 check("英文会议脉络同步本地化时间轴悬浮层与 Focus 辅助文案",
       b'"Meeting overview"' in app_js and b'"Semantic focus"' in app_js
       and b'structured nodes' in app_js and b'occurrences' in app_js
@@ -730,6 +730,18 @@ check("assistant/chat → RAG 回答 + 可点击来源", s == 200 and "【R1】"
 stale = dict(chat_body, transcript_revision="stale-revision")
 s, _, _ = req("POST", "/api/meetings/_smoke/assistant/chat", stale)
 check("assistant/chat 拒绝过期逐字稿引用", s == 409)
+
+# 流式问答：SSE 帧序 meta → delta* → done，dry-run 回答一致；过期引用在流开始前 409
+s, _, raw = req("POST", "/api/meetings/_smoke/assistant/chat/stream", chat_body, raw=True)
+frames = [json.loads(line[5:].strip()) for line in raw.decode().splitlines()
+          if line.startswith("data:")]
+types = [f.get("type") for f in frames]
+check("assistant/chat/stream → SSE meta/delta/done",
+      s == 200 and types and types[0] == "meta" and "delta" in types
+      and types[-1] == "done" and "【R1】" in frames[-1].get("answer", "")
+      and bool(frames[0].get("sources")))
+s, _, _ = req("POST", "/api/meetings/_smoke/assistant/chat/stream", stale, raw=True)
+check("assistant/chat/stream 过期引用在流开始前 409", s == 409)
 
 # 17. 纪要修改必须 preview → revision 校验 → apply → 可安全撤销，并生成历史版本
 minutes_before_edit = (SMOKE / "minutes.md").read_text()

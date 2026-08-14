@@ -19,12 +19,14 @@ stdout 只打印元数据(字数/页数/tokens/耗时)，不打印任何会议�
 """
 import argparse
 import atexit
+import concurrent.futures
 import json
 import os
 import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import urllib.request
 from pathlib import Path
@@ -175,7 +177,9 @@ def ensure_vl_server(port: int = VL_PORT):
 
 
 def describe_pages(mdir: Path, pages, api: str, video: Path = None):
-    """逐页 VL 详细解读(带 page_desc.json 缓存, 重跑只补缺的页)。返回 {页码: 文本}。"""
+    """逐页 VL 详细解读(带 page_desc.json 缓存, 重跑只补缺的页)。返回 {页码: 文本}。
+    缺页用有界并发请求(MEETING_VL_WORKERS, 默认 2)，实际上限由 VL 服务的
+    --parallel 槽位数决定；每完成一页即原子落缓存，中断后续跑只补缺的。"""
     cache_p = mdir / "page_desc.json"
     cache = json.loads(cache_p.read_text(encoding="utf-8")) if cache_p.is_file() else {}
     descs = {}
@@ -191,49 +195,62 @@ def describe_pages(mdir: Path, pages, api: str, video: Path = None):
     with urllib.request.urlopen(f"{api}/models", timeout=10) as resp:
         mid = json.loads(resp.read())["data"][0]["id"]
     t0 = time.time()
-    for p in todo:
-        img = mdir / "slides" / p["image"]
-        if video:
-            img = mdir / "slides" / f"full_{p['page']:02d}.jpg"
-            grab_fullres(video, p.get("captured", p["first"]), img)
-        try:
-            raw, usage = chat_with_image(api, mid, img, VL_MAXTOK, DETAIL_PROMPT)
-            cleaned = clean_model_text(raw)
-            if not cleaned:
-                print(f"[meta] VL 第{p['page']}页详细正文为空，降级为紧凑读取", flush=True)
-                raw, retry_usage = chat_with_image(
-                    api, mid, img, 512, COMPACT_PAGE_PROMPT)
-                compact = parse_json_loose(clean_model_text(raw))
-                if compact:
-                    title = str(compact.get("title") or "").strip()
-                    page_type = str(compact.get("type") or "其他").strip()
-                    summary = str(compact.get("summary") or "").strip()
-                    if title or summary:
-                        fallback_title = title or f"第{p['page']}页屏幕内容"
-                        cleaned = (f"## 标题\n{fallback_title}\n"
-                                   f"## 页面内容\n- 页面类型：{page_type}\n"
-                                   f"- {summary or '紧凑视觉读取未提供摘要。'}")
-                usage = {
-                    "completion_tokens": int(usage.get("completion_tokens") or 0)
-                    + int(retry_usage.get("completion_tokens") or 0)
-                }
-            if not cleaned:
-                raise ValueError("empty_vl_content")
-            descs[p["page"]] = cleaned
-        except Exception as e:
-            print(f"[meta] VL 第{p['page']}页失败: {type(e).__name__}", flush=True)
-            # 把已存在的空缓存移除并原子覆盖当前成功结果；下次会继续补算。
-            descs.pop(p["page"], None)
-            temp = cache_p.with_suffix(".tmp")
-            temp.write_text(json.dumps({"model": mid, "desc": descs},
-                                       ensure_ascii=False, indent=1), encoding="utf-8")
-            temp.replace(cache_p)
-            continue
-        print(f"[meta] VL 第{p['page']}页 tokens={usage.get('completion_tokens','?')}", flush=True)
+    lock = threading.Lock()
+
+    def persist():
         temp = cache_p.with_suffix(".tmp")
         temp.write_text(json.dumps({"model": mid, "desc": descs},
                                    ensure_ascii=False, indent=1), encoding="utf-8")
         temp.replace(cache_p)
+
+    def work(p):
+        img = mdir / "slides" / p["image"]
+        if video:
+            img = mdir / "slides" / f"full_{p['page']:02d}.jpg"
+            grab_fullres(video, p.get("captured", p["first"]), img)
+        raw, usage = chat_with_image(api, mid, img, VL_MAXTOK, DETAIL_PROMPT)
+        cleaned = clean_model_text(raw)
+        if not cleaned:
+            print(f"[meta] VL 第{p['page']}页详细正文为空，降级为紧凑读取", flush=True)
+            raw, retry_usage = chat_with_image(
+                api, mid, img, 512, COMPACT_PAGE_PROMPT)
+            compact = parse_json_loose(clean_model_text(raw))
+            if compact:
+                title = str(compact.get("title") or "").strip()
+                page_type = str(compact.get("type") or "其他").strip()
+                summary = str(compact.get("summary") or "").strip()
+                if title or summary:
+                    fallback_title = title or f"第{p['page']}页屏幕内容"
+                    cleaned = (f"## 标题\n{fallback_title}\n"
+                               f"## 页面内容\n- 页面类型：{page_type}\n"
+                               f"- {summary or '紧凑视觉读取未提供摘要。'}")
+            usage = {
+                "completion_tokens": int(usage.get("completion_tokens") or 0)
+                + int(retry_usage.get("completion_tokens") or 0)
+            }
+        if not cleaned:
+            raise ValueError("empty_vl_content")
+        return p["page"], cleaned, usage
+
+    workers = max(1, int(os.environ.get("MEETING_VL_WORKERS", "2")))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(work, p): p for p in todo}
+        for fut in concurrent.futures.as_completed(futures):
+            p = futures[fut]
+            try:
+                page_no, cleaned, usage = fut.result()
+            except Exception as e:
+                print(f"[meta] VL 第{p['page']}页失败: {type(e).__name__}", flush=True)
+                # 把已存在的空缓存移除并原子覆盖当前成功结果；下次会继续补算。
+                with lock:
+                    descs.pop(p["page"], None)
+                    persist()
+                continue
+            with lock:
+                descs[page_no] = cleaned
+                persist()
+            print(f"[meta] VL 第{page_no}页 tokens={usage.get('completion_tokens','?')}",
+                  flush=True)
     print(f"[meta] VL 解读 {len(todo)} 页(累计 {len(descs)}/{len(pages)})"
           f" | {time.time()-t0:.0f}s", flush=True)
     return descs
