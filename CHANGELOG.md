@@ -11,6 +11,7 @@ git show <commit>
 
 ## 未发布
 
+- 声纹按轮拆分的可操作性与一步具名：用户实测标记轮次后未生效，排查确认服务端从未收到拆分请求——问题出在前端最后一步的可发现性与静默失败路径。底部操作条改为醒目的橙色常驻条，文案明示“已选 N 轮 → 点右侧「确认拆分」生效”，按钮从“拆分为新说话人”改名“确认拆分”并加底色；新增“具名为”输入框（复用人员 datalist）：填入已知人员姓名则拆分后对每条新声纹自动调用绑定，一步完成“这些轮次是某人的”；留空则维持未绑定。`applySplitMarks` 增加 try/catch 与失败 toast，网络异常、无声纹分组、接口报错均明确提示且保留标记可重试，不再静默清除标记。验证：`make check` 与 120/120 隔离 Web 回归通过。
 - 设计系统 token 化（P3 原子化第一阶段）：`style.css` 全部 `font-size`（181 处）/ 圆角（105 处）/ 间距（517 处）/ 字重收敛为 `:root` 自定义属性——字族 `--font-sans/--font-mono`、字号阶梯 `--fs-8…22`（变量名=像素值）、字重 `--fw-400/500/600`、间距 `--sp-4…24`、圆角 `--r-2…18`；议题与说话人调色板抽出为 `--topic-1…8` / `--speaker-1…8`，`app.js` 与 MeetingPack Viewer 的 JS 填色经 `getComputedStyle` 读同一组 token（读不到回退内置默认），改色一处生效全站。按钮/输入框/说话人 chip/视图切换 tab/弹窗增加组件级变量（`--btn-*`、`--input-*`、`--chip-*`、`--tab-*`、`--dialog-*`，均带回退值，可全局或局部覆盖）。新增 `web/static/theme.css` 主题插槽（注释模板 + 浅色主题示例，两个页面均在 style.css 后引入），换字体/配色/圆角只改此文件；定制合同与边界见 `docs/DESIGN_TOKENS.md`。修复窄屏（≤820px）逐字稿说话人姓名 chip 被顶到行右：`.turn` 网格改三列、chip `justify-self:start`，姓名回到时间码旁。验证：花括号平衡与零 font-size 字面值检查、`node --check`、桌面 1600px 与 390px 截图走查、`make check` 与 120/120 隔离 Web 回归通过。
 - 每场会议的 AI 对话在刷新/重开浏览器后保留：消息与最近 8 轮上下文按会议存入本浏览器 localStorage（上限 50 条），与该会议逐字稿 revision 绑定——逐字稿或身份变化（绑定/拆分/改名触发）后旧对话自动作废丢弃，避免引用错位；删除会议时同步清除。对话归属用 `assistantSlug` 跟踪，切会议的清空不会覆盖目标会议的存档。服务端重启后未写入的修改预览卡在应用时明确报失败（既有错误路径）。
 - 修复智能栏 AI 对话过长无滚动条：`.assistant-thread` 是块容器且 `overflow:hidden`，内部 `.assistant-messages` 高度 auto 随内容增长被整体裁掉；thread 改为 flex 列、messages `flex:1 1 auto` 获得确定高度后 `overflow-y:auto` 生效。静态夹具截图确认滚动条出现。

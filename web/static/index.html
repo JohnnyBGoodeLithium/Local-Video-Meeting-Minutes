@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>会议纪要</title>
-<link rel="stylesheet" href="/static/style.css?v=20260813p32">
-<link rel="stylesheet" href="/static/theme.css?v=20260813p32">
+<link rel="stylesheet" href="/static/style.css?v=20260814p33">
+<link rel="stylesheet" href="/static/theme.css?v=20260814p33">
 </head>
 <body class="page-index">
 <header class="topbar">
@@ -111,8 +111,10 @@
         <div id="transcript" class="transcript"><p class="placeholder">← 选择一场会议</p></div>
         <div id="split-bar" class="split-bar hidden">
           <span id="split-bar-text"></span>
-          <button id="split-apply" type="button">拆分为新说话人</button>
-          <button id="split-clear" type="button">清除</button>
+          <input id="split-name" list="person-list" placeholder="具名为（可留空）"
+                 title="拆分后直接把新声纹具名为此人；留空则保持未绑定，可事后点说话人 chip 具名">
+          <button id="split-apply" type="button">确认拆分</button>
+          <button id="split-clear" type="button">取消</button>
         </div>
         </section>
 
@@ -253,6 +255,6 @@
   </section>
 </div>
 
-<script src="/static/app.js?v=20260813p32"></script>
+<script src="/static/app.js?v=20260814p33"></script>
 </body>
 </html>

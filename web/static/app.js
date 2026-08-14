@@ -551,7 +551,7 @@ function startSplitMarking(voice, name) {
   state.splitMarks.clear();
   renderTranscript();
   updateSplitBar();
-  toast(`标记模式：点击逐字稿中不属于「${name}」的轮次，完成后在底部确认拆分`);
+  toast(`标记模式：点击逐字稿中不属于「${name}」的轮次，然后点底部操作条的「确认拆分」`);
 }
 
 function clearSplitMarking(rerender = true) {
@@ -581,7 +581,7 @@ function updateSplitBar() {
   if (!state.splitTarget) return;
   const n = state.splitMarks.size;
   $("#split-bar-text").textContent =
-    `标记不属于「${state.splitTargetName}」的轮次：已选 ${n} 轮`;
+    `已选 ${n} 轮（不属于「${state.splitTargetName}」）→ 点右侧「确认拆分」生效`;
   $("#split-apply").disabled = !n;
 }
 
@@ -592,32 +592,59 @@ async function applySplitMarks() {
     const voice = state.bundle.transcript[i]?.voice;
     if (voice) (groups[voice] = groups[voice] || []).push(i);
   }
-  if (!Object.keys(groups).length) { state.splitMarks.clear(); updateSplitBar(); return; }
+  if (!Object.keys(groups).length) {
+    toast("所选轮次没有可用声纹，无法拆分（标记已保留，可重选）");
+    return;
+  }
+  const assign = ($("#split-name").value || "").trim();
   if (!confirm(`将对标记的 ${state.splitMarks.size} 轮重新提取声纹并拆分（可能需要几十秒）。` +
-    "拆分出的声纹默认未绑定，可随后具名；原说话人的声纹会自动用剩余轮次校正。继续？")) return;
+    (assign ? `拆分后全部具名为「${assign}」。` : "拆分出的声纹默认未绑定，可随后具名；") +
+    "原说话人的声纹会自动用剩余轮次校正。继续？")) return;
   $("#split-apply").disabled = true;
   let moved = 0;
   const names = [];
-  for (const [voice, turns] of Object.entries(groups)) {
-    const r = await api(`/api/meetings/${encodeURIComponent(state.slug)}/split`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ voice, turns }),
-    });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) {
-      toast(`拆分失败: ${j.detail?.message || j.detail || r.status}`);
-      $("#split-apply").disabled = false;
-      return;
+  const bindFailures = [];
+  try {
+    for (const [voice, turns] of Object.entries(groups)) {
+      const r = await api(`/api/meetings/${encodeURIComponent(state.slug)}/split`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ voice, turns }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        toast(`拆分失败: ${j.detail?.message || j.detail || r.status}（标记已保留，可重试）`);
+        return;
+      }
+      moved += j.moved;
+      names.push(...(j.voices || []).map(v => v.name));
+      if (assign) {
+        for (const v of j.voices || []) {
+          const br = await api(`/api/meetings/${encodeURIComponent(state.slug)}/bind`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ voice: v.voice, name: assign, create: false }),
+          });
+          if (!br.ok) bindFailures.push(v.name);
+        }
+      }
     }
-    moved += j.moved;
-    names.push(...(j.voices || []).map(v => v.name));
+  } catch (e) {
+    toast(`拆分请求异常: ${e?.message || e}（标记已保留，可重试）`);
+    return;
+  } finally {
+    $("#split-apply").disabled = false;
   }
-  $("#split-apply").disabled = false;
   clearSplitMarking(false);  // loadMeeting 会重渲染, 无需先清类
   state.speakers = null;  // 库已变，刷新缓存
   resetAssistant();       // 逐字稿 revision 已变化，旧引用作废
-  toast(`已拆分 ${moved} 轮 → ${[...new Set(names)].join("、")}（可点击说话人 chip 具名）`);
+  if (assign && !bindFailures.length) {
+    toast(`已拆分 ${moved} 轮并具名为「${assign}」`);
+  } else if (assign) {
+    toast(`已拆分 ${moved} 轮，但具名失败（${bindFailures.join("、")}）：请点说话人 chip 手动具名`);
+  } else {
+    toast(`已拆分 ${moved} 轮 → ${[...new Set(names)].join("、")}（可点击说话人 chip 具名）`);
+  }
   await loadMeeting(state.slug);
 }
 
