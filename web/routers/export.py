@@ -37,7 +37,9 @@ def export_meeting_pack(slug: str, media: str = Query("none", pattern="^(none|au
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         archive.unlink(missing_ok=True)
         raise HTTPException(400, str(exc)) from exc
-    filename = f"{_safe(ident['title']) or 'meeting'}.meetingpack.zip"
+    base = _safe(ident["title"]) or "meeting"
+    filename = (f"{base}_{ident['date']}.meetingpack.zip" if ident.get("date")
+                else f"{base}.meetingpack.zip")
     return FileResponse(
         archive, media_type="application/zip", filename=filename,
         background=BackgroundTask(archive.unlink, missing_ok=True))
