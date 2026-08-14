@@ -122,3 +122,49 @@ assert len(candidates) == 1 and candidates[0]["text"] == "没有依据的模型�
 assert candidates[0]["verification_state"] == "unlinked"
 
 print("Minutes Markdown: legacy tables and structured actions passed")
+
+# marker 独占状态列（真实 PLM 纪要形态）：剥离后只剩 3 个非空单元格，
+# 负责人/期限仍须正确拆出，状态由 claim_status 兜底，事项里不得残留竖线。
+marker_status_minutes = """# 会议纪要
+
+## 总体摘要
+
+### 待办事项
+
+| 事项 | 负责人 | 期限 | 状态 |
+| --- | --- | --- | --- |
+| 合成事项甲 | Alex Example | 周五 | <!-- mm:evidence kind=action status=confirmed confidence=high turns=T000001 --> |
+"""
+with tempfile.TemporaryDirectory(prefix="minutes-marker-status-test-") as tmp:
+    mdir = Path(tmp) / "synthetic"
+    mdir.mkdir()
+    turns = [{"speaker": "Alex Example", "voice": "v_test", "start": 1, "end": 2,
+              "text": "请在周五前完成合成事项甲。"}]
+    (mdir / "transcript.spk.json").write_text(
+        json.dumps(turns, ensure_ascii=False), encoding="utf-8")
+    evidence = build_evidence_document(mdir, marker_status_minutes, turns, [], {}, [])
+    assert len(evidence["actions"]) == 1
+    action = evidence["actions"][0]
+    assert action["text"] == "合成事项甲"
+    assert action["owner"] == "Alex Example"
+    assert action["deadline"] == "周五"
+    reading = minutes_reading_markdown(marker_status_minutes, evidence)
+    row = next(line for line in reading.splitlines() if "合成事项甲" in line)
+    assert "| 合成事项甲 [依据](#mm-C00001) | Alex Example | 周五 | 已确认 |" == row
+
+# 旧 sidecar：claim["action"] 已按旧逻辑存成误判结果，读路径须用 claim 原文重拆。
+stale_claim = {
+    "id": "C00001", "kind": "action", "status": "confirmed", "confidence": "high",
+    "section": "待办事项",
+    "text": "| 合成事项甲 | Alex Example | 周五 |",
+    "action": {"text": "| 合成事项甲 | Alex Example | 周五 |",
+               "owner": None, "deadline": None, "status": None},
+    "turn_ids": ["T000001"], "page_ids": [], "evidence_ids": ["T000001"],
+}
+from meeting_artifact import action_items_from_claims  # noqa: E402
+stale_actions = action_items_from_claims([stale_claim])
+assert stale_actions[0]["text"] == "合成事项甲"
+assert stale_actions[0]["owner"] == "Alex Example"
+assert stale_actions[0]["deadline"] == "周五"
+
+print("Minutes Markdown: marker-in-status-cell action rows passed")

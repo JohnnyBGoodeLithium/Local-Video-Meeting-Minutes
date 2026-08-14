@@ -11,6 +11,7 @@ git show <commit>
 
 ## 未发布
 
+- 修复待办表格整行渲染错乱（真实 2 小时 PLM 会议）：模型的待办表格把 `mm:evidence` 标记独占在状态列（`| 事项 | 负责人 | 期限 | <!-- marker --> |`），`_action_fields` 剥离标记后全表过滤空单元格，4 列塌成 3 列、落入"纯文本"分支——事项格残留原始竖线、负责人/期限全部显示默认"待确认"，只有状态列（来自 claim_status 映射）正确。修复：只丢弃尾部空单元格，3 单元格行按"事项/负责人/期限"拆分、状态交 claim_status 兜底；`action_items_from_claims` 对旧 sidecar 中已误判的 claim（owner 为空且 text 含竖线）用原文重拆，**无需重新生成纪要即生效**。合成单元回归覆盖新解析与旧 sidecar 兼容两路径，并用真实 PLM evidence.json 验证 7 条待办全部正确拆列。
 - 修复大屏（≥1500px）打开智能栏后全页滚动链断裂：智能栏入流并排时 `.content-shell` 未声明行模板（auto 行按内容定高），`overflow:visible` 的智能栏把共享网格行顶到内容全高（实测 2317px），`.review-grid`/纪要/脉络/AI 对话全部跟着内容生长、滚动条集体消失、AI 输入框被顶出视口。修复：`.content-shell` 加 `grid-template-rows: minmax(0, 1fr)` 行约束，`.utility-panel` 加 `min-height: 0`。以用户真实环境（2480×1287 dpr1.5、面板打开、30 条长消息）经 ?diag=1 页面内测量验证：滚动链全层收敛，脉络与 AI 消息恢复溢出滚动。`?diag=1` 诊断浮层转为常驻排障特性。教训记入工程评审：此前探针全在 <1500px 视口跑（面板悬浮不入流），大屏入流分支从未被覆盖。
 - 诊断与 AI 气泡渲染：`?meeting={slug}` 深链之外，左上角 logo 悬停现在显示当前前端构建号（从 app.js 的 v= 参数自动读取，无需维护），排查"用户看到的是哪个版本"不再靠猜；AI 对话气泡支持 `**粗体**` 渲染（esc 之后转换，无注入面），模型输出的 markdown 强调不再显示原始星号。
 - MeetingPack 新增 `AGENTS.md`（包根目录）：给 AI agent 的数据使用指引——文件地图（evidence.json 查结论/待办、transcript.json 引用发言、topic-map.json 查议题时段、rag/records.jsonl 建索引、slides 页图只证展示不证决定）+ 回答规则（事实必附 T/P 依据、逐字稿优先于纪要、status 确定性分级）。整包拖进 agent 会话时不再只读 minutes.md。README 与 EXPORT_AND_RAG/ARCHITECTURE 文档同步，冒烟断言更新。

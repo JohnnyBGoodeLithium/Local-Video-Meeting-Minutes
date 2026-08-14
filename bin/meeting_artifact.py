@@ -400,7 +400,10 @@ def minutes_reading_markdown(minutes: str, evidence: dict | None = None, *,
 
 def _action_fields(value: str) -> dict:
     cells = [_clean_markdown_text(cell) for cell in _table_cells(value)]
-    cells = [cell for cell in cells if cell]
+    # 状态列常只放 evidence marker，剥离后留下尾部空单元格；只丢尾部空，
+    # 不能全表过滤，否则整行会退化成含竖线的纯文本。
+    while cells and not cells[-1]:
+        cells.pop()
     if len(cells) >= 4:
         # 事项中偶尔出现未转义的竖线；负责人/期限/状态从尾部稳定取值。
         return {
@@ -408,6 +411,14 @@ def _action_fields(value: str) -> dict:
             "owner": cells[-3],
             "deadline": cells[-2],
             "status": cells[-1],
+        }
+    if len(cells) == 3:
+        # marker 占了状态列（或模型没写状态列）；状态交给 claim_status 兜底。
+        return {
+            "text": cells[0],
+            "owner": cells[1],
+            "deadline": cells[2],
+            "status": None,
         }
     return {
         "text": _clean_markdown_text(value),
@@ -439,6 +450,11 @@ def action_items_from_claims(claims: list[dict]) -> list[dict]:
         if not is_formal_action_claim(claim):
             continue
         fields = dict(claim.get("action") or _action_fields(str(claim.get("text", ""))))
+        if fields.get("owner") is None and "|" in str(fields.get("text") or ""):
+            # 旧 sidecar 把“marker 占状态列”的表格行误判成纯文本；用 claim 原文重拆。
+            reparsed = _action_fields(str(claim.get("text", "")))
+            if reparsed.get("owner"):
+                fields = reparsed
         if not fields.get("text"):
             fields["text"] = str(claim.get("text") or "").strip()
         actions.append({
