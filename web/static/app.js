@@ -3146,8 +3146,10 @@ function addAssistantMessage(message) {
 
 function citedText(text, sources) {
   const ids = new Set((sources || []).map(s => s.id));
-  return esc(text).replace(/【([RT]\d+)】/g, (all, id) =>
-    ids.has(id) ? `<button type="button" class="source-link" data-source="${id}">${all}</button>` : all);
+  return esc(text)
+    .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+    .replace(/【([RT]\d+)】/g, (all, id) =>
+      ids.has(id) ? `<button type="button" class="source-link" data-source="${id}">${all}</button>` : all);
 }
 
 function showAssistantSource(source) {
@@ -3871,5 +3873,11 @@ function init() {
   setInterval(pollJobs, 4000);
   loadMeetings();
 }
+
+/* 构建号自检：脚本加载时读自身 v= 参数，DOM 就绪后挂到 logo */
+const SCRIPT_BUILD = (document.currentScript?.src || "").match(/[?&]v=([\w]+)/)?.[1];
+document.addEventListener("DOMContentLoaded", () => {
+  if (SCRIPT_BUILD) document.querySelector(".brand")?.setAttribute("title", `构建 ${SCRIPT_BUILD}`);
+});
 
 document.addEventListener("DOMContentLoaded", init);
