@@ -32,6 +32,7 @@ const state = {
   assistantMessages: [],
   assistantBusy: false,
   assistantNextIntent: null,
+  assistantSlug: null,
   quality: null,
   qualityFilter: "pending",
   qualityScope: "priority",
@@ -435,6 +436,7 @@ async function deleteMeeting(ev, slug) {
     $("#assistant-launcher").disabled = true;
     closeUtility();
     resetAssistant();
+    try { localStorage.removeItem(ASSISTANT_KEY_PREFIX + slug); } catch (_) { /* 忽略 */ }
   }
   loadMeetings();
 }
@@ -722,6 +724,7 @@ async function loadMeeting(slug) {
   renderVisuals();
   renderMeetingStatuses();
   renderAssistantSuggestions();
+  if (changed) restoreAssistant();  // 刷新/重开浏览器后恢复同 revision 的对话
   const isDraft = b.document_state === "draft";
   $("#regen-btn").disabled = isDraft;
   $("#refine-btn").disabled = isDraft;
@@ -2952,6 +2955,8 @@ function resetAssistant() {
   state.assistantMessages = [];
   state.assistantBusy = false;
   state.assistantNextIntent = null;
+  // 归属置空：切会议时的清空不得覆盖目标会议已保存的对话（persistAssistant 会跳过）。
+  state.assistantSlug = null;
   if ($("#assistant-refs")) renderAssistantRefs();
   if ($("#assistant-messages")) renderAssistantMessages();
   if ($("#assistant-input")) {
@@ -2959,6 +2964,37 @@ function resetAssistant() {
     $("#assistant-input").placeholder = "问这场会议，或告诉我如何修改纪要…";
   }
   renderAssistantSuggestions();
+}
+
+/* ---------- 对话持久化（本浏览器 localStorage，逐字稿 revision 绑定） ---------- */
+
+const ASSISTANT_KEY_PREFIX = "meeting-minutes:assistant:v1:";
+
+function persistAssistant() {
+  // 只写当前对话归属的会议；归属为空（刚切换/刚重置）时不写，避免覆盖目标会议的存档。
+  if (!state.slug || state.assistantSlug !== state.slug) return;
+  try {
+    localStorage.setItem(ASSISTANT_KEY_PREFIX + state.slug, JSON.stringify({
+      revision: state.bundle?.transcript_revision || null,
+      messages: state.assistantMessages.slice(-50),
+      history: state.assistantHistory.slice(-8),
+    }));
+  } catch (_) { /* 存储满时静默放弃持久化 */ }
+}
+
+function restoreAssistant() {
+  if (!state.slug || !state.bundle) return;
+  const key = ASSISTANT_KEY_PREFIX + state.slug;
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(key) || "null"); } catch (_) { /* 损坏即弃 */ }
+  if (saved && saved.revision === (state.bundle.transcript_revision || null)) {
+    state.assistantMessages = Array.isArray(saved.messages) ? saved.messages : [];
+    state.assistantHistory = Array.isArray(saved.history) ? saved.history : [];
+    state.assistantSlug = state.slug;
+  } else if (saved) {
+    localStorage.removeItem(key);  // 逐字稿已变，旧对话与引用作废
+  }
+  renderAssistantMessages();
 }
 
 function referenceGroups() {
@@ -3027,6 +3063,7 @@ function highlightTurns(indexes) {
 }
 
 function addAssistantMessage(message) {
+  if (!state.assistantSlug) state.assistantSlug = state.slug;
   state.assistantMessages.push(message);
   renderAssistantMessages();
 }
@@ -3062,6 +3099,7 @@ function renderAssistantMessages() {
   if (!box) return;
   if (!state.assistantMessages.length) {
     box.innerHTML = '<p class="placeholder">你可以直接追问整场会议；引用逐字稿后，回答和修改会优先使用这些内容。</p>';
+    persistAssistant();
     return;
   }
   box.innerHTML = "";
@@ -3131,6 +3169,7 @@ function renderAssistantMessages() {
     box.appendChild(el);
   }
   box.scrollTop = box.scrollHeight;
+  persistAssistant();
 }
 
 function inferAssistantIntent(message) {
