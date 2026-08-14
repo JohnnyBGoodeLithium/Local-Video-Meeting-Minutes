@@ -385,19 +385,12 @@ body.resizing-panes { cursor: col-resize; user-select: none; }
   background: var(--panel);
 }
 .turn:hover .quote-turn, .quote-turn:focus { opacity: 1; }
-.turn-exclude {
-  position: absolute;
-  top: 5px;
-  right: 62px;
-  opacity: 0;
-  padding: 0 6px;
-  font-size: 11px;
-  color: var(--dim);
-  background: var(--panel);
-}
-.turn:hover .turn-exclude, .turn-exclude:focus { opacity: 1; }
+.turn.split-candidate { cursor: crosshair; }
+.turn.split-candidate:hover { background: rgba(226, 161, 60, .07); }
 .turn.split-marked { background: rgba(226, 161, 60, .12); box-shadow: inset 3px 0 #e2a13c; }
-.turn.split-marked .turn-exclude { opacity: 1; color: #efbd67; }
+.bind-split-row { margin-top: 6px; }
+#bind-split { color: var(--dim); font-size: 11px; }
+#bind-split:hover { color: #efbd67; }
 .split-bar {
   flex: 0 0 auto;
   display: flex;

@@ -52,6 +52,8 @@ const state = {
   speakerHover: null,
   transcriptSearch: null,
   splitMarks: new Set(),
+  splitTarget: null,
+  splitTargetName: "",
   visualFilter: "useful",
   uiLanguage: UI_LANGUAGES.has(workspaceState.uiLanguage) ? workspaceState.uiLanguage : "zh-CN",
   minutesTranslation: null,
@@ -390,6 +392,8 @@ async function deleteMeeting(ev, slug) {
     $("#transcript-search").disabled = true;
     $("#transcript-search-count").textContent = "";
     state.transcriptSearch = null;
+    state.splitTarget = null;
+    state.splitTargetName = "";
     state.splitMarks.clear();
     updateSplitBar();
     $("#meeting-meta").textContent = "阅读纪要、追问内容并修正记录";
@@ -538,20 +542,45 @@ function stepTranscriptMatch(direction) {
 
 /* ---------- 声纹按轮拆分 ---------- */
 
-function toggleSplitMark(i) {
+function startSplitMarking(voice, name) {
+  closeBind();
+  state.splitTarget = voice;
+  state.splitTargetName = name;
+  state.splitMarks.clear();
+  renderTranscript();
+  updateSplitBar();
+  toast(`标记模式：点击逐字稿中不属于「${name}」的轮次，完成后在底部确认拆分`);
+}
+
+function clearSplitMarking(rerender = true) {
+  state.splitTarget = null;
+  state.splitTargetName = "";
+  state.splitMarks.clear();
+  if (rerender) renderTranscript();
+  updateSplitBar();
+}
+
+function tryToggleSplitMark(i, voice) {
+  if (voice !== state.splitTarget) {
+    toast(`标记模式只针对「${state.splitTargetName}」的轮次；点底部“清除”退出`);
+    return;
+  }
   if (state.splitMarks.has(i)) state.splitMarks.delete(i);
   else state.splitMarks.add(i);
-  document.getElementById(`turn-${i}`)?.classList.toggle("split-marked", state.splitMarks.has(i));
+  $$(`#transcript .turn[data-index="${i}"]`)
+    .forEach(el => el.classList.toggle("split-marked", state.splitMarks.has(i)));
   updateSplitBar();
 }
 
 function updateSplitBar() {
   const bar = $("#split-bar");
   if (!bar) return;
+  bar.classList.toggle("hidden", !state.splitTarget);
+  if (!state.splitTarget) return;
   const n = state.splitMarks.size;
-  bar.classList.toggle("hidden", !n);
-  if (n) $("#split-bar-text").textContent =
-    `已标记 ${n} 轮“不属于原说话人”，拆分时将重提声纹并自动归类`;
+  $("#split-bar-text").textContent =
+    `标记不属于「${state.splitTargetName}」的轮次：已选 ${n} 轮`;
+  $("#split-apply").disabled = !n;
 }
 
 async function applySplitMarks() {
@@ -583,7 +612,7 @@ async function applySplitMarks() {
     names.push(...(j.voices || []).map(v => v.name));
   }
   $("#split-apply").disabled = false;
-  state.splitMarks.clear();
+  clearSplitMarking(false);  // loadMeeting 会重渲染, 无需先清类
   state.speakers = null;  // 库已变，刷新缓存
   resetAssistant();       // 逐字稿 revision 已变化，旧引用作废
   toast(`已拆分 ${moved} 轮 → ${[...new Set(names)].join("、")}（可点击说话人 chip 具名）`);
@@ -683,6 +712,7 @@ async function loadMeeting(slug) {
   transcriptSearch.disabled = !(b.transcript?.length);
   if (changed) { transcriptSearch.value = ""; state.transcriptSearch = null;
     $("#transcript-search-count").textContent = "";
+    state.splitTarget = null; state.splitTargetName = "";
     state.splitMarks.clear(); updateSplitBar(); }
   renderMeetingHeaderMeta();
   renderPlayer();
@@ -1677,11 +1707,9 @@ function renderTranscript(preserveScroll = true) {
       `title="${esc(t.speaker)} · ${t.voice ? "点击绑定说话人" : "无对应声纹"}" ` +
       `aria-label="说话人：${esc(t.speaker)}">${esc(t.speaker)}</span>` +
       textHtml +
-      `<button type="button" class="quote-turn" title="引用这一轮到会议助手">引用</button>` +
-      (t.voice
-        ? `<button type="button" class="turn-exclude" title="这一轮不是这位说话人：标记后可在底部拆分">≠</button>`
-        : "");
+      `<button type="button" class="quote-turn" title="引用这一轮到会议助手">引用</button>`;
     if (state.splitMarks.has(i)) div.classList.add("split-marked");
+    if (state.splitTarget && t.voice === state.splitTarget) div.classList.add("split-candidate");
     $(".tc", div).onclick = ev => {
       ev.stopPropagation();
       seek(t.start);
@@ -1691,19 +1719,16 @@ function renderTranscript(preserveScroll = true) {
       if (t.voice) openBind(t.voice, t.speaker);
     };
     // 整块轮次点击 seek；选中文字时不触发，保留复制能力。
+    // 拆分标记模式下，点击该声纹的轮次改为标记/取消标记。
     div.addEventListener("click", () => {
       const selection = window.getSelection();
       if (selection && !selection.isCollapsed && String(selection)) return;
+      if (state.splitTarget) { tryToggleSplitMark(i, t.voice); return; }
       seek(t.start);
     });
     $(".quote-turn", div).onclick = ev => {
       ev.stopPropagation();
       addReferenceRange(i, i);
-    };
-    const excludeBtn = $(".turn-exclude", div);
-    if (excludeBtn) excludeBtn.onclick = ev => {
-      ev.stopPropagation();
-      toggleSplitMark(i);
     };
     const toggleOriginal = $(".toggle-turn-original", div);
     if (toggleOriginal) toggleOriginal.onclick = ev => {
@@ -1733,6 +1758,7 @@ function renderTranscript(preserveScroll = true) {
         cont.addEventListener("click", () => {
           const selection = window.getSelection();
           if (selection && !selection.isCollapsed && String(selection)) return;
+          if (state.splitTarget) { tryToggleSplitMark(i, t.voice); return; }
           seek(at);
         });
         box.appendChild(cont);
@@ -3303,6 +3329,7 @@ async function openBind(voice, name) {
   $("#bind-mask").classList.remove("hidden");
   $("#bind-input").focus();
   $("#bind-ok").onclick = () => doBind(voice);
+  $("#bind-split").onclick = () => startSplitMarking(voice, name);
 }
 
 function closeBind() { $("#bind-mask").classList.add("hidden"); }
@@ -3576,11 +3603,7 @@ function init() {
     stepTranscriptMatch(e.shiftKey ? -1 : 1);
   });
   $("#split-apply").onclick = applySplitMarks;
-  $("#split-clear").onclick = () => {
-    state.splitMarks.clear();
-    $$("#transcript .turn.split-marked").forEach(el => el.classList.remove("split-marked"));
-    updateSplitBar();
-  };
+  $("#split-clear").onclick = () => clearSplitMarking();
   $("#refine-btn").onclick = () => {
     if (confirm("用 122B 大模型整体重写纪要？首次调用需加载模型(数分钟)，且会挤占常驻模型。"))
       regenMinutes("qwen3.5-122b-a10b-planner");
