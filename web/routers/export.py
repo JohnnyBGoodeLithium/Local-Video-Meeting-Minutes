@@ -73,8 +73,8 @@ def export_meeting_preflight(slug: str):
         image = slides_dir / str(page.get("image") or "")
         if image.is_file() and image not in slide_images:
             slide_images.append(image)
-    # 导出会生成 960px WebP 阅读图，不把 full_* VL 工作帧放入包中。
-    base_bytes += sum(min(path.stat().st_size, max(8_000, int(path.stat().st_size * .42)))
+    # 导出会生成长边 1600px、quality 80 的 WebP 阅读图，不把 full_* VL 工作帧放入包中。
+    base_bytes += sum(min(path.stat().st_size, max(8_000, int(path.stat().st_size * .55)))
                       for path in slide_images)
     audio = meeting_export._media_source(mdir, "audio")
     video = _video_path(mdir)

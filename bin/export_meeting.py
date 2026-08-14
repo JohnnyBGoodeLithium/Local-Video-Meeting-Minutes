@@ -93,7 +93,9 @@ def _sha256_file(path: Path) -> str:
 
 
 def _viewer_slide_assets(mdir: Path, pages: list[dict], evidence: dict) -> dict[str, bytes]:
-    """生成仅供阅读的 960px WebP；不改会议目录中的原截图。"""
+    """生成仅供阅读的 WebP：长边上限 1600px、quality 80。
+    尺寸按 Viewer 放大预览窗（min(1500px,96vw) × min(940px,94vh)，支持 125–300% 缩放）
+    设计，不按小舞台缩略图；不改会议目录中的原截图。"""
     source_by_number = {int(page["page"]): page for page in pages if page.get("page") is not None}
     assets: dict[str, bytes] = {}
     for item in evidence.get("sources", {}).get("pages", []):
@@ -107,9 +109,9 @@ def _viewer_slide_assets(mdir: Path, pages: list[dict], evidence: dict) -> dict[
         try:
             with Image.open(image) as opened:
                 frame = opened.convert("RGB")
-                frame.thumbnail((960, 540), Image.Resampling.LANCZOS)
+                frame.thumbnail((1600, 1600), Image.Resampling.LANCZOS)
                 output = io.BytesIO()
-                frame.save(output, "WEBP", quality=72, method=4)
+                frame.save(output, "WEBP", quality=80, method=4)
                 assets[arcname] = output.getvalue()
                 item["image"] = arcname
         except (OSError, ValueError):
