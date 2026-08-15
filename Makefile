@@ -20,6 +20,7 @@ check:
 	$(PY) web/tests/voice_draft_test.py
 	$(PY) web/tests/job_scheduler_test.py
 	$(PY) web/tests/media_materialize_test.py
+	$(PY) web/tests/storage_service_test.py
 	$(PY) web/tests/slide_pages_test.py
 	$(PY) web/tests/vl_cache_test.py
 	$(PY) web/tests/vl_describe_pages_test.py

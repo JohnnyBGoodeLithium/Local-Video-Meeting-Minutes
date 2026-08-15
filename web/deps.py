@@ -7,7 +7,6 @@
 import json
 import os
 import re
-import shutil
 import sys
 import threading
 import time
@@ -127,100 +126,6 @@ def _video_path(mdir: Path) -> Path | None:
     candidates = sorted(mdir.glob("source_video.*"))
     return next((p for p in candidates if p.is_file()), None) or _source_path(
         mdir, "mp4", "video", "original_mp4")
-
-
-def _storage_file_size(paths: list[Path]) -> int:
-    return sum(path.stat().st_size for path in paths
-               if path.is_file() and not path.is_symlink())
-
-
-def _meeting_storage(mdir: Path) -> dict:
-    """按母版、阅读资产、可再生缓存返回逻辑大小，不暴露会议正文。"""
-    all_files = [path for path in mdir.rglob("*") if path.is_file() and not path.is_symlink()]
-    original = sorted({
-        *[path for pattern in ("source_video.*", "source_audio.*") for path in mdir.glob(pattern)
-          if path.is_file()],
-        *([mdir / "source.vtt"] if (mdir / "source.vtt").is_file() else []),
-    })
-    # 兼容旧录音会议：没有独立母版时，audio.wav 本身必须被保护。
-    if not any(path.name.startswith(("source_video.", "source_audio.")) for path in original):
-        if (mdir / "audio.wav").is_file():
-            original.append(mdir / "audio.wav")
-
-    canonical_media = any(path.name.startswith(("source_video.", "source_audio."))
-                          for path in original)
-    cache_groups: list[dict] = []
-    work_audio = mdir / "audio.wav"
-    if canonical_media and work_audio.is_file() and (mdir / "transcript.spk.json").is_file():
-        cache_groups.append({"id": "work_audio", "label": "模型 PCM 工作音轨",
-                             "files": [work_audio], "regenerates_from": "原始母版"})
-    full_frames = sorted((mdir / "slides").glob("full_*")) if (mdir / "slides").is_dir() else []
-    if full_frames and (mdir / "page_desc.json").is_file():
-        cache_groups.append({"id": "vl_frames", "label": "VL 高分辨率工作帧",
-                             "files": full_frames, "regenerates_from": "原始母版"})
-    rag_files = ([path for path in (mdir / ".rag").rglob("*")
-                  if path.is_file() and not path.is_symlink()]
-                 if (mdir / ".rag").is_dir() else [])
-    if rag_files:
-        cache_groups.append({"id": "rag", "label": "本地检索索引",
-                             "files": rag_files, "regenerates_from": "逐字稿与证据"})
-    topic_work = mdir / ".topic-map-work.json"
-    if topic_work.is_file():
-        cache_groups.append({"id": "topic_work", "label": "会议脉络生成检查点",
-                             "files": [topic_work], "regenerates_from": "逐字稿与证据"})
-
-    original_set = set(original)
-    cache_set = {path for group in cache_groups for path in group["files"]}
-    reading = [path for path in all_files if path not in original_set and path not in cache_set]
-    original_bytes = _storage_file_size(original)
-    reading_bytes = _storage_file_size(reading)
-    cache_bytes = _storage_file_size(list(cache_set))
-    return {
-        "schema": "meeting-storage/v1",
-        "logical_bytes": original_bytes + reading_bytes + cache_bytes,
-        "original": {"bytes": original_bytes, "files": len(original), "protected": True},
-        "reading": {"bytes": reading_bytes, "files": len(reading)},
-        "cache": {
-            "bytes": cache_bytes, "files": len(cache_set), "reclaimable": bool(cache_set),
-            "groups": [{"id": group["id"], "label": group["label"],
-                        "bytes": _storage_file_size(group["files"]),
-                        "files": len(group["files"]),
-                        "regenerates_from": group["regenerates_from"]}
-                       for group in cache_groups],
-        },
-        "policy": {
-            "original": "受保护，不会被智能清理删除",
-            "reading": "默认保留，支持离线阅读与证据核对",
-            "cache": "可从母版或文本证据重新生成；当前由用户触发清理",
-        },
-    }
-
-
-def _clean_meeting_cache(mdir: Path) -> dict:
-    before = _meeting_storage(mdir)
-    removed_files = 0
-    for group in before["cache"]["groups"]:
-        if group["id"] == "work_audio":
-            targets = [mdir / "audio.wav"]
-        elif group["id"] == "vl_frames":
-            targets = sorted((mdir / "slides").glob("full_*"))
-        elif group["id"] == "rag":
-            targets = [mdir / ".rag"]
-        elif group["id"] == "topic_work":
-            targets = [mdir / ".topic-map-work.json"]
-        else:
-            targets = []
-        for target in targets:
-            if target.is_dir() and target == mdir / ".rag":
-                removed_files += sum(1 for path in target.rglob("*") if path.is_file())
-                shutil.rmtree(target)
-            elif target.is_file() and target.is_relative_to(mdir):
-                target.unlink()
-                removed_files += 1
-    after = _meeting_storage(mdir)
-    return {"ok": True, "removed_files": removed_files,
-            "reclaimed_logical_bytes": max(0, before["logical_bytes"] - after["logical_bytes"]),
-            "storage": after}
 
 
 def _read_json(path: Path, default):

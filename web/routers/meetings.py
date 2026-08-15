@@ -14,10 +14,11 @@ import meeting_topic_map
 import voice_bank as vb
 from deps import (BANK_DIR, BANK_LOCK, EVALUATIONS_DIR, MEETINGS, MD, PY, ROOT,
                   STORAGE_LOCK, artifact, assistant, _audio_path,
-                  _clean_meeting_cache, _current_evidence, _evidence_state,
-                  _meeting_identity, _meeting_storage, _mdir, _minutes_file,
+                  _current_evidence, _evidence_state,
+                  _meeting_identity, _mdir, _minutes_file,
                   _minutes_html, _read_json, _source, _video_path)
 from job_store import EXEC, JOBS, _new_job, _run_pipeline
+from storage_service import clean_meeting_cache, meeting_storage as inspect_meeting_storage
 
 router = APIRouter()
 
@@ -95,7 +96,7 @@ def delete_meeting(slug: str):
 def meeting_storage(slug: str):
     """查看会议逻辑占用；原始母版、阅读资产和可再生缓存严格分开。"""
     with STORAGE_LOCK:
-        return _meeting_storage(_mdir(slug))
+        return inspect_meeting_storage(_mdir(slug))
 
 
 @router.post("/api/meetings/{slug}/storage/cleanup")
@@ -105,7 +106,7 @@ def clean_meeting_storage(slug: str):
            for job in JOBS.values()):
         raise HTTPException(409, "会议仍在处理，完成后才能清理缓存")
     with STORAGE_LOCK:
-        return _clean_meeting_cache(_mdir(slug))
+        return clean_meeting_cache(_mdir(slug))
 
 
 @router.get("/api/meetings/{slug}/bundle")
