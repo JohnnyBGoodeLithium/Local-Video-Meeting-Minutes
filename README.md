@@ -133,6 +133,7 @@ meeting-minutes/
 | [ENGINEERING_REVIEW.md](docs/ENGINEERING_REVIEW.md) | 查看工程风险、重构顺序和未完成项 |
 | [UX_REVIEW_AND_REFERENCES.md](docs/UX_REVIEW_AND_REFERENCES.md) | 查看 UX 走查、同类产品和开源参考 |
 | [CHANGELOG.md](CHANGELOG.md) | 按功能阅读变更历史 |
+| [HANDOFF.md](HANDOFF.md) | 代理/人类接手：当前基线、进行中任务和已定方案 |
 
 ## 配置与显卡兼容
 
