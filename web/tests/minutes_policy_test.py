@@ -53,6 +53,23 @@ with tempfile.TemporaryDirectory(prefix="minutes-policy-") as tmp:
                 "turns=T000001 pages=P0001 -->", {"completion_tokens": 100})
 
     mb.chat = fake_chat
+    from meeting_core.llm import Completion  # noqa: E402
+
+    def fake_overview_direct(prompt, notes):
+        seen_prompts.append(prompt)
+        return Completion(
+            content=("## 总体摘要\n"
+                     "- **主旨**：讨论一个待确认的试点建议。 "
+                     "<!-- mm:evidence kind=purpose status=informational confidence=high "
+                     "turns=T000001 pages=P0001 -->\n"
+                     "- **关键结论**：未形成已确认结论。\n\n"
+                     "## 议题板块\n"
+                     "- 试点讨论（第1页，00:00 起）：提出建议，待下周确认。 "
+                     "<!-- mm:evidence kind=discussion status=proposal confidence=high "
+                     "turns=T000001 pages=P0001 -->"),
+            usage={"completion_tokens": 100}, elapsed=0.01)
+
+    mb.overview_direct = fake_overview_direct
     mb.ensure_vl_server = lambda: ("synthetic://vl", None)
     mb.describe_pages = lambda *_args, **_kwargs: {
         1: "## 标题\n试点方案页。",

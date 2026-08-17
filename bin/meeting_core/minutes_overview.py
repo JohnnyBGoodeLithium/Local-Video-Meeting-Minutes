@@ -224,6 +224,44 @@ def _complete_with_guard(client: LocalLLMClient, prompt: str, *,
     return retry
 
 
+def _repair_todo(client: LocalLLMClient, final: Completion, evidence_rules: str,
+                 notes: str) -> Completion:
+    """待办章节不合规时定点重写该章节并拼接回终稿；修复仍不合规则保留原稿。"""
+    repair_prompt = REPAIR_TODO_PROMPT.format(
+        evidence_rules=evidence_rules, notes=notes,
+        todo=_todo_section(final.content).strip() or "（空）")
+    repair = _complete_with_guard(client, repair_prompt, max_tokens=2048,
+                                  validator=_todo_compliant)
+    usage = {key: int(final.usage.get(key) or 0) + int(repair.usage.get(key) or 0)
+             for key in set(final.usage) | set(repair.usage)}
+    repaired = _strip_fence(repair.content)
+    if _todo_compliant(repaired):
+        print("[minutes] 待办章节证据标记缺失，已定点修复", file=sys.stderr)
+        return Completion(content=_splice_todo_section(final.content, repaired),
+                          usage=usage, elapsed=final.elapsed + repair.elapsed)
+    print("[minutes] 待办章节证据标记缺失且修复未合规，保留原稿", file=sys.stderr)
+    return Completion(content=final.content, usage=usage,
+                      elapsed=final.elapsed + repair.elapsed)
+
+
+def generate_direct(prompt: str, evidence_rules: str, *, notes: str,
+                    client: LocalLLMClient | None = None,
+                    max_tokens: int = 6144) -> Completion:
+    """输入未超限时的单次直出总体纪要；与 map/reduce 共用同一套护栏。
+
+    直出同样可能退化、缺章节或写出无证据标记的待办表格（真实事故：77 分钟会议
+    直出稿的总体章节零 marker，正式待办整表为空）。notes 传入完整结构化上下文，
+    供待办定点修复轮引用真实 T 编号。
+    """
+    client = client or LocalLLMClient()
+    final = _complete_with_guard(
+        client, prompt, max_tokens=max_tokens,
+        required=("## 总体摘要", "### 待办事项"), validator=_todo_compliant)
+    if _todo_compliant(final.content):
+        return final
+    return _repair_todo(client, final, evidence_rules, notes)
+
+
 def _pages_for_rows(pages: list[dict], rows: list[dict]) -> list[dict]:
     ids = {str(row.get("page_id")) for row in rows if row.get("page_id")}
     return [page for page in pages if str(page.get("id")) in ids]
@@ -290,20 +328,7 @@ def generate(context: dict, policy: dict, evidence_rules: str, *,
     if not _todo_compliant(final.content):
         # 模型把待办写成了无证据标记的行：前端只展示有依据的待办，整表会被弃用。
         # 定点修复一轮：只重写待办章节并拼接回终稿。
-        repair_prompt = REPAIR_TODO_PROMPT.format(
-            evidence_rules=evidence_rules, notes="\n".join(notes),
-            todo=_todo_section(final.content).strip() or "（空）")
-        repair = _complete_with_guard(client, repair_prompt, max_tokens=2048,
-                                      validator=_todo_compliant)
-        completions.append(repair)
-        repaired = _strip_fence(repair.content)
-        if _todo_compliant(repaired):
-            final = Completion(
-                content=_splice_todo_section(final.content, repaired),
-                usage=final.usage, elapsed=final.elapsed)
-            print("[minutes] 待办章节证据标记缺失，已定点修复", file=sys.stderr)
-        else:
-            print("[minutes] 待办章节证据标记缺失且修复未合规，保留原稿", file=sys.stderr)
+        final = _repair_todo(client, final, evidence_rules, "\n".join(notes))
     return OverviewResult(
         content=final.content, mode="map_reduce", chunks=len(chunks),
         elapsed=time.time() - started,

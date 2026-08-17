@@ -45,6 +45,7 @@ from meeting_artifact import (
 from meeting_structure import clean_model_text
 from meeting_core.context_budget import ContextBudget
 from meeting_core.minutes_overview import generate as generate_overview
+from meeting_core.minutes_overview import generate_direct as generate_direct_overview
 import meeting_topic_map
 import meeting_generation
 from meeting_core.hardware import configured_path
@@ -256,6 +257,12 @@ def describe_pages(mdir: Path, pages, api: str, video: Path = None):
     return descs
 
 
+def overview_direct(summary_prompt: str, context_json: str):
+    """模块级接缝：直出总体纪要（与 map/reduce 共用护栏），测试可替换。"""
+    return generate_direct_overview(
+        summary_prompt, EVIDENCE_RULES, notes=context_json, max_tokens=6144)
+
+
 def chat(prompt: str, max_tokens: int = 8192, model: str = MODEL):
     body = json.dumps({"model": model, "temperature": 0.2, "max_tokens": max_tokens,
                        "chat_template_kwargs": {"enable_thinking": False},  # 思考模式会吃掉输出预算
@@ -432,7 +439,10 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
         context=context_json,
     )
     if ContextBudget(output_tokens=8192).fits(summary_prompt):
-        part1, u1 = chat(summary_prompt, max_tokens=6144)
+        # 直出与 map/reduce 共用同一套退化/章节/待办合规护栏（notes 传完整上下文供修复轮引用）。
+        completion = overview_direct(summary_prompt, context_json)
+        part1 = clean_model_text(completion.content)
+        u1 = completion.usage
         overview_mode, overview_chunks = "direct", 1
     else:
         overview = generate_overview(
