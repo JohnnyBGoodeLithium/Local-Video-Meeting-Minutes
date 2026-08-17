@@ -18,6 +18,7 @@ from meeting_artifact import (  # noqa: E402
     build_evidence_document,
     minutes_reading_markdown,
     normalize_minutes_markdown,
+    strip_visible_evidence_ids,
 )
 
 
@@ -193,3 +194,22 @@ plain = markdown_with_evidence_links(
 assert "[依据](#mm-C00001)" in plain
 
 print("Minutes Markdown: backtick-wrapped evidence markers passed")
+
+# T ID 是机器侧证据主键，不是员工身份；人读正文只保留依据 chip，括号尾注不应外露。
+visible_ids = "- 合成结论。（T000001, T000002） <!-- mm:evidence kind=decision status=confirmed confidence=high turns=T000001,T000002 -->"
+clean_visible = strip_visible_evidence_ids(visible_ids)
+assert "（T000001" not in clean_visible and "mm:evidence" in clean_visible
+with tempfile.TemporaryDirectory(prefix="minutes-visible-id-test-") as tmp:
+    mdir = Path(tmp) / "synthetic"
+    mdir.mkdir()
+    turns = [
+        {"speaker": "Alex Example", "start": 1, "end": 2, "text": "合成结论一。"},
+        {"speaker": "Bo Example", "start": 3, "end": 4, "text": "合成结论二。"},
+    ]
+    (mdir / "transcript.spk.json").write_text(json.dumps(turns), encoding="utf-8")
+    evidence = build_evidence_document(mdir, visible_ids, turns, [], {}, [])
+    assert evidence["claims"][0]["text"] == "合成结论。"
+    projected_ids = minutes_reading_markdown(visible_ids, evidence)
+    assert "（T000001" not in projected_ids and "turns=T000001,T000002" in projected_ids
+
+print("Minutes Markdown: machine turn IDs hidden from reading projection")

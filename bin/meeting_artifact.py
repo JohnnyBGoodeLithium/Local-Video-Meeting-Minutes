@@ -18,6 +18,11 @@ from pathlib import Path
 EVIDENCE_SCHEMA = "meeting-minutes-evidence/v1"
 RAG_SCHEMA = "meeting-minutes-rag/v1"
 MARKER_RE = re.compile(r"<!--\s*mm:evidence\s+([^<>]*?)\s*-->")
+# 模型偶尔会在可读正文里同时写一份 ``（T000001, T000002）`` 引用。T ID 是
+# evidence sidecar 的机器主键，不是员工/Teams ID；人读层只需要“依据 + 时间”。
+# 仅清理“括号内完全由 T ID 组成”的尾注，避免误删正文里对编号本身的讨论。
+VISIBLE_TURN_CITATION_RE = re.compile(
+    r"[ \t]*[（(]\s*T\d{6}(?:\s*[,，、;/；]\s*T\d{6})*\s*[）)]")
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.M)
 TABLE_SEPARATOR_CELL_RE = re.compile(r"^:?-{3,}:?$")
 FORMAL_ACTION_SECTIONS = {
@@ -240,11 +245,17 @@ def _ids(value: str, prefix: str) -> list[str]:
 
 def _clean_markdown_text(value: str) -> str:
     value = MARKER_RE.sub("", value)
+    value = strip_visible_evidence_ids(value)
     value = re.sub(r"!\[[^]]*]\([^)]*\)", "", value)
     value = re.sub(r"\[([^]]+)]\([^)]*\)", r"\1", value)
     value = re.sub(r"^[\s>*#-]+", "", value)
     value = value.replace("**", "").replace("__", "").replace("`", "")
     return " ".join(value.split()).strip()
+
+
+def strip_visible_evidence_ids(value: str) -> str:
+    """移除人读正文中的冗余 T-ID 尾注，隐藏 marker 与 sidecar linkage 保持不变。"""
+    return VISIBLE_TURN_CITATION_RE.sub("", str(value or ""))
 
 
 def _table_cells(line: str) -> list[str]:
@@ -395,7 +406,7 @@ def minutes_reading_markdown(minutes: str, evidence: dict | None = None, *,
     # 整场语义脉络已有独立视图；常规纪要不再重复铺一份容易失控的模型长列表。
     if not include_topic_section:
         reading = _remove_section(reading, "议题板块")
-    return reading
+    return strip_visible_evidence_ids(reading)
 
 
 def _action_fields(value: str) -> dict:

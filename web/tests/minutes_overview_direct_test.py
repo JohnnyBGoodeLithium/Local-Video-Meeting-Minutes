@@ -39,6 +39,12 @@ REPAIRED_TODO = ("### 待办事项\n\n"
                  "| 完成合成验证 | Alex Example | 周五 | "
                  "<!-- mm:evidence kind=action status=confirmed confidence=high turns=T000001 --> |\n")
 
+OUTSIDE_ACTION = ("## 总体摘要\n- **主旨**：合成会议。\n\n"
+                  "### 待办事项\n未形成明确待办\n\n"
+                  "### 风险/待确认\n- 无\n\n"
+                  "## 议题详情\n- 明确安排合成验证。 "
+                  "<!-- mm:evidence kind=action status=confirmed confidence=high turns=T000001 -->\n")
+
 
 class SequenceClient:
     def __init__(self, outputs):
@@ -85,5 +91,18 @@ result = generate_direct("合成直出 prompt", "只使用合成证据。", note
 assert result.content == GOOD
 assert len(client.calls) == 2
 assert client.calls[-1][1].get("repeat_penalty") == 1.2
+
+# 5. 待办写“无”但议题详情出现 action marker：这是漏投影而不是合规空待办，必须重试。
+client = SequenceClient([OUTSIDE_ACTION, GOOD])
+result = generate_direct("合成直出 prompt", "只使用合成证据。", notes="合成上下文含 T000001",
+                         client=client)
+assert result.content == GOOD and len(client.calls) == 2
+
+# 6. 重试仍漏投影时由修复轮补入正式待办；详情 marker 降为 discussion，避免双重 action。
+client = SequenceClient([OUTSIDE_ACTION, OUTSIDE_ACTION, REPAIRED_TODO])
+result = generate_direct("合成直出 prompt", "只使用合成证据。", notes="合成上下文含 T000001",
+                         client=client)
+assert result.content.count("kind=action") == 1
+assert "kind=discussion status=confirmed" in result.content
 
 print("Minutes overview direct: guard, retry and todo repair passed")

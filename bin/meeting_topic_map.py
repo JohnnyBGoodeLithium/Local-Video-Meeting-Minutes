@@ -39,6 +39,8 @@ ALLOWED_CHILD_TYPES = {
 CHUNK_PROMPT = """你负责整理一段会议的局部语义，不要按截图或页面变化分章。
 输入是 meeting-topic-chunk-input/v1 JSON。请识别这一时间窗真正讨论的 1–5 个候选论点，
 保留观点、分歧、决定、行动和未决问题的区别。页面标题只能辅助理解，不能单独证明决定。
+保持紧凑：summary 不超过 120 个汉字，每个候选 title 不超过 30 个汉字、summary 不超过
+160 个汉字；只列引用 ID，不复制逐字稿原文。
 
 覆盖要求：本窗口的每个 turn 都必须有去向。有讨论内容的归入某个候选论点的 turn_ids；
 确实不构成讨论内容的（如寒暄、等待、调试设备、纯翻页展示）列入 uncovered_turn_ids，
@@ -62,6 +64,9 @@ REDUCE_PROMPT = """你负责生成整场会议的逻辑思维导图，而不是�
 同一个 topic，并保留多个证据范围。每个 topic 下用 2–7 个结构化子节点说明背景、主要观点、
 反方/约束、决定、行动、风险或未决问题。不要把页面、时间窗或说话人直接当成论点。
 决定/行动状态必须服从输入 claim，页面展示不能被升级为会议结论。
+保持紧凑：meeting_summary 不超过 120 个汉字；topic title 不超过 30 个汉字、summary 不超过
+220 个汉字；child title 不超过 30 个汉字、summary 不超过 140 个汉字。只列引用 ID，不复制
+逐字稿或 claim 原文，不输出重复节点。
 覆盖要求：一级论点必须覆盖全部窗口的候选论点材料，不得整窗丢弃；寒暄、过渡、等待、
 纯展示等弱价值内容至多归入一个“过渡与杂项”类论点，并只为该论点携带 "low_value": true。
 
@@ -120,6 +125,10 @@ def _default_llm(prompt: str, max_tokens: int) -> str:
         "model": MODEL,
         "temperature": 0.15,
         "max_tokens": max_tokens,
+        # llama.cpp 的 OpenAI-compatible grammar 约束只保证 JSON 语法；字段、引用 ID 与
+        # 主归属仍由下方 schema/sanitizer 校验。相比“自由文本后再让 LLM 修 JSON”，它能
+        # 直接消除引号/尾逗号/截断前的格式漂移，并显著减少真实长会议的修复轮。
+        "response_format": {"type": "json_object"},
         "chat_template_kwargs": {"enable_thinking": False},
         "messages": [{"role": "user", "content": prompt}],
     }, ensure_ascii=False).encode("utf-8")
@@ -127,14 +136,16 @@ def _default_llm(prompt: str, max_tokens: int) -> str:
         ROUTER, data=body, headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(request, timeout=1800) as response:
         data = json.loads(response.read())
-    return meeting_structure.clean_model_text(
+    return meeting_structure.clean_reasoning_text(
         data["choices"][0]["message"].get("content", ""))
 
 
 def _model_json(value) -> dict:
     if isinstance(value, dict):
         return value
-    text = meeting_structure.clean_model_text(str(value or ""))
+    # JSON 不能经过面向 VL 展示文案的 clean_model_text：后者会删除独占一行的 `{`/`}`
+    # 和拆 LaTeX 包装。这里只剥 reasoning/special tokens，完整保留数据语法。
+    text = meeting_structure.clean_reasoning_text(str(value or ""))
     fenced = re.search(r"```(?:json)?\s*(\{.*\})\s*```", text, re.I | re.S)
     candidate = fenced.group(1) if fenced else text[text.find("{"):text.rfind("}") + 1]
     if not candidate:
@@ -165,11 +176,13 @@ def _fallback_reduce(summaries: list[dict]) -> dict:
     """
     groups: list[dict] = []
     by_title: dict[str, dict] = {}
+    explicitly_low_value: list[str] = []
 
     def extend_unique(target: list, values) -> None:
         target.extend(value for value in (values or []) if value not in target)
 
     for window in summaries:
+        extend_unique(explicitly_low_value, window.get("uncovered_turn_ids"))
         for candidate in window.get("candidate_topics") or []:
             if not isinstance(candidate, dict):
                 continue
@@ -200,6 +213,22 @@ def _fallback_reduce(summaries: list[dict]) -> dict:
                 "page_ids": list(candidate.get("page_ids") or []),
             })
 
+    # 只有局部模型明确判定为寒暄/等待/调试的轮次才进入低价值分支；未知且未归纳的
+    # 长区间不能被伪装成“离它最近”的业务议题。
+    if explicitly_low_value and len(groups) < 8:
+        groups.append({
+            "title": "过渡与杂项",
+            "summary_parts": ["寒暄、等待、设备调试或不形成业务推进的过渡内容。"],
+            "turn_ids": explicitly_low_value,
+            "claim_ids": [], "page_ids": [],
+            "children": [{
+                "type": "discussion", "title": "过渡与杂项",
+                "summary": "未形成业务推进的低讨论密度内容。",
+                "turn_ids": explicitly_low_value, "claim_ids": [], "page_ids": [],
+            }],
+            "low_value": True,
+        })
+
     if len(groups) > 8:
         overflow = groups[8:]
         groups = groups[:8]
@@ -218,6 +247,7 @@ def _fallback_reduce(summaries: list[dict]) -> dict:
             "claim_ids": group["claim_ids"],
             "page_ids": group["page_ids"],
             "children": group["children"][:7],
+            "low_value": bool(group.get("low_value")),
         })
     if not topics:
         raise ValueError("局部归纳也没有可用于兜底的候选主题")
@@ -228,6 +258,53 @@ def _fallback_reduce(summaries: list[dict]) -> dict:
         "topics": topics,
         "_deterministic_fallback": True,
     }
+
+
+def _expand_candidate_refs(raw: dict, summaries: list[dict]) -> dict:
+    """让整场议题继承已匹配局部候选的完整引用，而不是只保留 reduce 代表样本。
+
+    只有候选与最终议题至少共享一个 turn 才扩展，因此沿用的是模型已有语义映射，
+    不是按时间邻近猜测归属。
+    """
+    topics = [topic for topic in (raw.get("topics") or []) if isinstance(topic, dict)]
+    recovered: set[str] = set()
+    if not topics:
+        return raw
+
+    def topic_turns(topic: dict) -> set[str]:
+        values = set(topic.get("turn_ids") or [])
+        for child in topic.get("children") or []:
+            if isinstance(child, dict):
+                values.update(child.get("turn_ids") or [])
+        return values
+
+    for window in summaries:
+        for candidate in window.get("candidate_topics") or []:
+            if not isinstance(candidate, dict):
+                continue
+            candidate_turns = list(dict.fromkeys(candidate.get("turn_ids") or []))
+            if not candidate_turns:
+                continue
+            candidate_set = set(candidate_turns)
+            scores = [len(candidate_set.intersection(topic_turns(topic))) for topic in topics]
+            best_score = max(scores, default=0)
+            # 一个候选同时锚到多个最终 Topic 且没有唯一最佳项，说明 reduce 对它做了拆分；
+            # 此时不能把整段引用强塞给任一边。
+            if best_score <= 0 or scores.count(best_score) != 1:
+                continue
+            target = topics[scores.index(best_score)]
+            before = set(target.get("turn_ids") or [])
+            target["turn_ids"] = list(dict.fromkeys(
+                list(target.get("turn_ids") or []) + candidate_turns))
+            inherited = list(candidate_set - before)
+            target["_inherited_turn_ids"] = list(dict.fromkeys(
+                list(target.get("_inherited_turn_ids") or []) + inherited))
+            recovered.update(inherited)
+            for key in ("claim_ids", "page_ids"):
+                target[key] = list(dict.fromkeys(
+                    list(target.get(key) or []) + list(candidate.get(key) or [])))
+    raw["_candidate_turns_recovered"] = len(recovered)
+    return raw
 
 
 def _turn_windows(turns: list[dict], chunk_seconds: float, max_chars: int = 16000) -> list[list[dict]]:
@@ -302,11 +379,19 @@ def _sanitize_map(raw: dict, evidence: dict, revisions: dict, *, model: str,
     for raw_topic in list(raw.get("topics") or [])[:8]:
         if not isinstance(raw_topic, dict):
             continue
+        # 结论引用可能横跨相邻议题。先记住模型显式给每个议题/子节点分配的轮次，后续去重时
+        # 让显式分配优先于 claim 展开的间接轮次；否则前一议题的一条跨段 claim 会吞掉后一
+        # 议题唯一的锚点，导致整个节点消失。
+        inherited_turns = set(_clean_ids(raw_topic.get("_inherited_turn_ids"), valid_turns))
+        explicit_turns = [turn_id for turn_id in _clean_ids(
+            raw_topic.get("turn_ids"), valid_turns) if turn_id not in inherited_turns]
         topic_turns, topic_claims, topic_pages = refs(raw_topic)
         children = []
         for raw_child in list(raw_topic.get("children") or [])[:8]:
             if not isinstance(raw_child, dict):
                 continue
+            explicit_turns = list(dict.fromkeys(
+                explicit_turns + _clean_ids(raw_child.get("turn_ids"), valid_turns)))
             child_turns, child_claims, child_pages = refs(raw_child)
             if not (child_turns or child_claims or child_pages):
                 continue
@@ -344,6 +429,7 @@ def _sanitize_map(raw: dict, evidence: dict, revisions: dict, *, model: str,
             "title": _plain(raw_topic.get("title"), 100) or f"论点 {len(topics) + 1}",
             "summary": _plain(raw_topic.get("summary"), 500),
             "low_value": bool(raw_topic.get("low_value")),
+            "_explicit_turn_ids": explicit_turns,
             "turn_ids": topic_turns, "claim_ids": topic_claims, "page_ids": topic_pages,
             "ranges": topic_ranges,
             "start": topic_ranges[0][0] if topic_ranges else None,
@@ -353,8 +439,62 @@ def _sanitize_map(raw: dict, evidence: dict, revisions: dict, *, model: str,
     if not topics:
         raise ValueError("模型没有生成带有效证据的 Topic")
 
-    # 确定性兜底:寒暄/过渡/纯展示等弱讨论时段常被模型丢弃,这里把未被任何 topic 挂接的
-    # 连续 turn 段按时间邻接挂到最近的 topic。只扩展 turn_ids/ranges,不改写任何模型文本。
+    # 一级议题是整场阅读与时间轴的“主归属”，同一轮次/结论不能同时铺进多个一级议题。
+    # 模型仍可通过摘要表达关联，但时间引用由首次出现的一级议题持有，避免两个长条互相覆盖。
+    owned_turns: set[str] = set()
+    owned_claims: set[str] = set()
+    overlap_turns_removed = 0
+    primary_topics = []
+    preferred_turn_owner: dict[str, int] = {}
+    for topic_index, topic in enumerate(topics):
+        for turn_id in topic.pop("_explicit_turn_ids", []):
+            preferred_turn_owner.setdefault(turn_id, topic_index)
+    for topic_index, topic in enumerate(topics):
+        topic_turns = [
+            item for item in topic["turn_ids"]
+            if item not in owned_turns
+            and preferred_turn_owner.get(item, topic_index) == topic_index
+        ]
+        overlap_turns_removed += len(topic["turn_ids"]) - len(topic_turns)
+        topic_claims = [item for item in topic["claim_ids"] if item not in owned_claims]
+        if not topic_turns:
+            continue
+        owned_turns.update(topic_turns)
+        owned_claims.update(topic_claims)
+        topic_turn_set, topic_claim_set = set(topic_turns), set(topic_claims)
+        children = []
+        for child in topic["children"]:
+            child_turns = [item for item in child["turn_ids"] if item in topic_turn_set]
+            child_claims = [item for item in child["claim_ids"] if item in topic_claim_set]
+            if not (child_turns or child_claims):
+                continue
+            child = dict(child, turn_ids=child_turns, claim_ids=child_claims,
+                         ranges=ranges_for(child_turns, child.get("page_ids", [])))
+            children.append(child)
+        if not children:
+            children = [{
+                "id": "", "type": "discussion", "title": "主要讨论",
+                "summary": topic["summary"], "turn_ids": topic_turns,
+                "claim_ids": topic_claims, "page_ids": topic["page_ids"],
+                "ranges": ranges_for(topic_turns, topic["page_ids"]),
+            }]
+        topic_ranges = ranges_for(topic_turns, topic["page_ids"])
+        primary_topics.append(dict(
+            topic, turn_ids=topic_turns, claim_ids=topic_claims, children=children,
+            ranges=topic_ranges,
+            start=topic_ranges[0][0] if topic_ranges else None,
+            end=topic_ranges[-1][1] if topic_ranges else None,
+        ))
+    topics = primary_topics
+    for topic_index, topic in enumerate(topics, 1):
+        topic["id"] = topic_id = f"M{topic_index:02d}"
+        for child_index, child in enumerate(topic["children"], 1):
+            child["id"] = f"{topic_id}-{child_index:02d}"
+    if not topics:
+        raise ValueError("一级议题去重后没有可用的逐字稿依据")
+
+    # 确定性兜底只吸收很短的漏挂片段。过去会把十几分钟未知内容整段塞给最近议题，造成
+    # “标题只描述末尾几句话、父节点却吞掉半场会议”的假覆盖；长缺口现在诚实留在时间轴。
     covered_turns = {turn_id for topic in topics for turn_id in topic["turn_ids"]}
     gap_groups: list[list[dict]] = []
     previous_uncovered = False
@@ -378,6 +518,10 @@ def _sanitize_map(raw: dict, evidence: dict, revisions: dict, *, model: str,
     for group in gap_groups:
         group_start = float(group[0].get("start", 0))
         group_end = float(group[-1].get("end", 0))
+        spoken_seconds = sum(max(0.0, float(turn.get("end", 0)) - float(turn.get("start", 0)))
+                             for turn in group)
+        if len(group) > 3 or spoken_seconds > 45.0 or group_end - group_start > 120.0:
+            continue
         target = min(topics,
                      key=lambda topic: gap_distance(topic, group_start, group_end))
         target["turn_ids"] = list(dict.fromkeys(
@@ -388,28 +532,38 @@ def _sanitize_map(raw: dict, evidence: dict, revisions: dict, *, model: str,
         target["start"] = target["ranges"][0][0]
         target["end"] = target["ranges"][-1][1]
 
-    # coverage = topic ranges 并集时长 ÷ 会议时长(由 turns 起止推算),供管线诊断。
+    # coverage 只按真正持有的逐字稿轮次区间计算；展示 ranges 为可读性会合并短间隙，
+    # 不能拿来计算语义覆盖，否则密集会议会把未归纳的空隙也算成已覆盖。
+    final_covered_turns = {turn_id for topic in topics for turn_id in topic["turn_ids"]}
     union_ranges = _merge_ranges(
-        [bounds for topic in topics for bounds in topic["ranges"]], gap=0.0)
+        [[turn_by_id[item]["start"], turn_by_id[item]["end"]]
+         for item in final_covered_turns], gap=0.0)
     covered_seconds = sum(end - start for start, end in union_ranges)
     meeting_start = min((float(turn.get("start", 0)) for turn in source_turns), default=0.0)
     meeting_end = max((float(turn.get("end", 0)) for turn in source_turns), default=0.0)
     duration = meeting_end - meeting_start
     coverage = round(min(1.0, covered_seconds / duration), 4) if duration > 0 else 0.0
+    turn_coverage = round(len(final_covered_turns) / len(source_turns), 4) if source_turns else 0.0
     return {
         "schema": SCHEMA,
         "state": "ready",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "revisions": revisions,
         "generation": {"model": model,
-                       "strategy": ("map-reduce/local-candidates-fallback-v1"
-                                    if raw.get("_deterministic_fallback") else "map-reduce/v1"),
+                       "strategy": ("map-reduce/local-candidates-fallback-v2"
+                                    if raw.get("_deterministic_fallback") else
+                                    "map-reduce/compact-recovery-v1"
+                                    if raw.get("_compact_recovery") else "map-reduce/v1"),
                        "chunk_seconds": chunk_seconds, "window_count": window_count},
         "meeting_summary": _plain(raw.get("meeting_summary"), 600),
         "topics": topics,
         "stats": {"topics": len(topics),
                   "children": sum(len(topic["children"]) for topic in topics),
-                  "coverage": coverage},
+                  "coverage": coverage,
+                  "turn_coverage": turn_coverage,
+                  "unassigned_turns": len(source_turns) - len(final_covered_turns),
+                  "overlap_turns_removed": overlap_turns_removed,
+                  "candidate_turns_recovered": int(raw.get("_candidate_turns_recovered") or 0)},
     }
 
 
@@ -473,14 +627,16 @@ def generate_topic_map(mdir: Path, *, llm: Callable[[str, int], object] | None =
         }
         prompt = CHUNK_PROMPT.format(context=json.dumps(payload, ensure_ascii=False,
                                                         separators=(",", ":")))
-        chunk_text = call(prompt, 2000)
+        # 真实 20 分钟纯音频会议在约 10 分钟窗口内就可能包含 5 个候选及大量 T 引用；
+        # 2k 输出会在 JSON 尾部截断。保留充足余量，仍由 schema/sanitizer 控制节点数量。
+        chunk_text = call(prompt, 3500)
         try:
             chunk_result = _model_json(chunk_text)
         except (json.JSONDecodeError, ValueError):
             print(f"[meta] Topic Map 局部归纳 {index}/{len(windows)} JSON 无效，正在修复格式",
                   flush=True)
             try:
-                chunk_result = _repair_model_json(call, chunk_text, max_tokens=2600)
+                chunk_result = _repair_model_json(call, chunk_text, max_tokens=5000)
             except (json.JSONDecodeError, ValueError):
                 # 单窗修复仍失败不再丢整场：空归纳交给 coverage 兜底做邻接分配。
                 print(f"[warn] Topic Map 局部归纳 {index}/{len(windows)} 修复仍失败，"
@@ -519,15 +675,29 @@ def generate_topic_map(mdir: Path, *, llm: Callable[[str, int], object] | None =
         try:
             raw = _repair_model_json(call, reduce_text, max_tokens=12000)
         except (json.JSONDecodeError, ValueError):
-            # 修复仍失败（多为输出截断）：完整重试一次归并；再失败时直接投影
-            # 已有局部候选，避免整场脉络因为最终 JSON 包装失败而完全消失。
-            print("[meta] Topic Map 全场归并修复仍失败，重试一次", flush=True)
+            # 修复仍失败（多为输出截断）：去掉 valid_ids 大列表和无关 claim 后做一次紧凑归并；
+            # 比原样重放同一个超长 prompt 更可能得到完整 JSON。
+            print("[meta] Topic Map 全场归并修复仍失败，改用紧凑输入重试一次", flush=True)
+            referenced_claims = {
+                claim_id for window in summaries for candidate in window.get("candidate_topics", [])
+                if isinstance(candidate, dict) for claim_id in candidate.get("claim_ids", [])
+            }
+            compact_payload = {
+                "schema": "meeting-topic-reduce-input/v1",
+                "windows": summaries,
+                "claims": [claim for claim in reduce_payload["claims"]
+                           if claim.get("id") in referenced_claims],
+            }
+            compact_prompt = REDUCE_PROMPT.format(
+                context=json.dumps(compact_payload, ensure_ascii=False, separators=(",", ":")))
             try:
-                raw = _model_json(call(final_prompt, 8000))
+                raw = _model_json(call(compact_prompt, 8000))
+                raw["_compact_recovery"] = True
             except (json.JSONDecodeError, ValueError):
                 print("[warn] Topic Map 全场归并重试仍无合法 JSON，"
                       "改用局部候选确定性组装", flush=True)
                 raw = _fallback_reduce(summaries)
+    raw = _expand_candidate_refs(raw, summaries)
     result = _sanitize_map(raw, evidence, revisions, model=model,
                            window_count=len(windows), chunk_seconds=chunk_seconds)
     path = mdir / "meeting.topic-map.json"

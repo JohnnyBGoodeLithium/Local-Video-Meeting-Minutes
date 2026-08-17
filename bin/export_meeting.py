@@ -30,6 +30,7 @@ from meeting_artifact import (
     markdown_with_evidence_links,
     minutes_reading_markdown,
     rag_records,
+    strip_visible_evidence_ids,
 )
 from meeting_views import evidence_integrity
 from meeting_structure import clean_model_text, visual_title
@@ -181,7 +182,7 @@ def _minutes_languages(mdir: Path, minutes_path: Path, reading_minutes: str,
     source_revision = hashlib.sha256(minutes_path.read_bytes()).hexdigest()[:16]
     for target in ("zh-CN", "en"):
         sidecar = _read_json(mdir / f"minutes.translation.{target}.json", {})
-        markdown = str(sidecar.get("markdown") or "")
+        markdown = strip_visible_evidence_ids(str(sidecar.get("markdown") or ""))
         if (sidecar.get("schema") != "meeting-minutes-translation/v1"
                 or sidecar.get("status") != "complete"
                 or sidecar.get("source_revision") != source_revision or not markdown.strip()):
@@ -376,13 +377,13 @@ const media=()=>$('#media');
 function seek(t){if(!media())return;media().currentTime=t||0;media().play().catch(()=>{})}
 const turns=new Map(ev.sources.transcript.map(x=>[x.id,x])),pages=new Map(ev.sources.pages.map(x=>[x.id,x])),claims=new Map(ev.claims.map(x=>[x.id,x]));
 function showClaim(id){const c=claims.get(id);if(!c)return;let h=`<div class="claim"><b>${esc(c.text)}</b><div class="tags"><span class="tag">${esc(c.kind)}</span><span class="tag">${esc(c.status)}</span><span class="tag">置信度 ${esc(c.confidence)}</span></div></div>`;
- for(const tid of c.turn_ids){const t=turns.get(tid);if(!t)continue;h+=`<div class="source"><div class="source-head"><b>${esc(tid)} · ${esc(t.speaker)}</b><button class="seek" data-time="${t.start}">${fmt(t.start)}</button></div><div>${esc(t.text)}</div></div>`}
- for(const pid of c.page_ids){const p=pages.get(pid);if(!p)continue;h+=`<div class="source"><div class="source-head"><b>${esc(pid)} · 第${p.number}页</b><button class="seek" data-time="${p.first}">${fmt(p.first)}</button></div>${p.image?`<img src="${esc(p.image)}">`:''}<div>${esc(p.visual_description||'无页面文字说明')}</div></div>`}
+ for(const tid of c.turn_ids){const t=turns.get(tid);if(!t)continue;h+=`<div class="source"><div class="source-head"><b>逐字稿 · ${esc(t.speaker)}</b><button class="seek" data-time="${t.start}">${fmt(t.start)}</button></div><div>${esc(t.text)}</div></div>`}
+ for(const pid of c.page_ids){const p=pages.get(pid);if(!p)continue;h+=`<div class="source"><div class="source-head"><b>屏幕内容 · 第${p.number}页</b><button class="seek" data-time="${p.first}">${fmt(p.first)}</button></div>${p.image?`<img src="${esc(p.image)}">`:''}<div>${esc(p.visual_description||'无页面文字说明')}</div></div>`}
  $('#evidence').innerHTML=h;$('#drawer').classList.add('open');document.querySelectorAll('.seek').forEach(b=>b.onclick=()=>seek(Number(b.dataset.time)))}
 document.querySelectorAll('a[href^="#mm-"]').forEach(a=>a.onclick=e=>{e.preventDefault();showClaim(a.getAttribute('href').slice(4))});$('#close').onclick=()=>$('#drawer').classList.remove('open');
 document.querySelectorAll('#minutes h2,#minutes h3').forEach((h,i)=>{h.id='section-'+i;let a=document.createElement('a');a.href='#'+h.id;a.textContent=(h.tagName==='H3'?'　':'')+h.textContent;$('#nav').appendChild(a)});
 const records=[...ev.claims.map(x=>({type:'结论',id:x.id,text:x.text,sub:x.section})),...ev.sources.transcript.map(x=>({type:'逐字稿',id:x.id,text:x.text,sub:`${fmt(x.start)} · ${x.speaker}`})),...ev.sources.pages.filter(x=>x.visual_description).map(x=>({type:'页面',id:x.id,text:x.visual_description,sub:`第${x.number}页 · ${x.display_status==='display_only'?'仅展示':'有讨论'}`}))];
-$('#search').oninput=e=>{let q=e.target.value.trim().toLowerCase(),box=$('#results');if(!q){box.innerHTML='';return}let hit=records.filter(x=>(x.text+' '+x.sub).toLowerCase().includes(q)).slice(0,30);box.innerHTML='<div class="label">搜索结果</div>'+hit.map(x=>`<div class="result" data-id="${esc(x.id)}"><b>${esc(x.type)}</b> ${esc(x.text.slice(0,100))}<small>${esc(x.sub)}</small></div>`).join('');box.querySelectorAll('.result').forEach(el=>el.onclick=()=>{let id=el.dataset.id;if(id[0]==='C')showClaim(id);else if(id[0]==='T'){let t=turns.get(id);$('#evidence').innerHTML=`<div class="source"><div class="source-head"><b>${esc(id)} · ${esc(t.speaker)}</b><button class="seek" data-time="${t.start}">${fmt(t.start)}</button></div><div>${esc(t.text)}</div></div>`;$('#drawer').classList.add('open');document.querySelector('.seek').onclick=()=>seek(t.start)}else{let p=pages.get(id);$('#evidence').innerHTML=`<div class="source"><b>${esc(id)} · 第${p.number}页</b>${p.image?`<img src="${esc(p.image)}">`:''}<div>${esc(p.visual_description)}</div></div>`;$('#drawer').classList.add('open')}})};
+$('#search').oninput=e=>{let q=e.target.value.trim().toLowerCase(),box=$('#results');if(!q){box.innerHTML='';return}let hit=records.filter(x=>(x.text+' '+x.sub).toLowerCase().includes(q)).slice(0,30);box.innerHTML='<div class="label">搜索结果</div>'+hit.map(x=>`<div class="result" data-id="${esc(x.id)}"><b>${esc(x.type)}</b> ${esc(x.text.slice(0,100))}<small>${esc(x.sub)}</small></div>`).join('');box.querySelectorAll('.result').forEach(el=>el.onclick=()=>{let id=el.dataset.id;if(id[0]==='C')showClaim(id);else if(id[0]==='T'){let t=turns.get(id);$('#evidence').innerHTML=`<div class="source"><div class="source-head"><b>逐字稿 · ${esc(t.speaker)}</b><button class="seek" data-time="${t.start}">${fmt(t.start)}</button></div><div>${esc(t.text)}</div></div>`;$('#drawer').classList.add('open');document.querySelector('.seek').onclick=()=>seek(t.start)}else{let p=pages.get(id);$('#evidence').innerHTML=`<div class="source"><b>屏幕内容 · 第${p.number}页</b>${p.image?`<img src="${esc(p.image)}">`:''}<div>${esc(p.visual_description)}</div></div>`;$('#drawer').classList.add('open')}})};
 </script></body></html>'''
 
 

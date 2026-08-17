@@ -14,6 +14,15 @@ sys.path.insert(0, str(PROJECT / "bin"))
 import meeting_topic_map as topic_map  # noqa: E402
 
 
+# JSON 解析边界只能清 reasoning，不能复用会删除独占花括号的 VL 人读清洗器。
+assert topic_map._model_json('''```json
+{
+  "meeting_summary": "虚构格式回归",
+  "topics": []
+}
+```''')["meeting_summary"] == "虚构格式回归"
+
+
 with tempfile.TemporaryDirectory(prefix="meeting-topic-map-") as tmp:
     mdir = Path(tmp) / "meetings" / "synthetic"
     mdir.mkdir(parents=True)
@@ -299,10 +308,90 @@ with tempfile.TemporaryDirectory(prefix="meeting-topic-reduce-fallback-") as tmp
         mdir, llm=invalid_reduce_with_valid_candidates,
         model="synthetic-reduce-fallback", chunk_seconds=300)
     assert fallback["stats"]["topics"] == 3
-    assert fallback["generation"]["strategy"] == "map-reduce/local-candidates-fallback-v1"
+    assert fallback["generation"]["strategy"] == "map-reduce/local-candidates-fallback-v2"
     assert {turn_id for topic in fallback["topics"] for turn_id in topic["turn_ids"]} == {
         "T000001", "T000002", "T000003"}
     assert not (mdir / ".topic-map-work.json").exists()
+
+# 一级议题主归属必须互斥；长段未知内容不得为了“看起来全覆盖”硬塞给最近标题。
+source_turns = [{
+    "id": f"T{index + 1:06d}", "index": index,
+    "start": float(index * 60), "end": float(index * 60 + 10),
+    "speaker": "Synthetic", "text": f"虚构轮次 {index + 1}",
+} for index in range(10)]
+synthetic_evidence = {
+    "sources": {"transcript": source_turns, "pages": []},
+    "claims": [],
+}
+overlap_raw = {"meeting_summary": "虚构重叠。", "topics": [
+    {"title": "议题甲", "summary": "前段。",
+     "turn_ids": [f"T{i:06d}" for i in range(1, 5)], "claim_ids": [], "page_ids": [],
+     "children": []},
+    {"title": "议题乙", "summary": "后段。",
+     "turn_ids": [f"T{i:06d}" for i in range(3, 7)], "claim_ids": [], "page_ids": [],
+     "children": []},
+]}
+deduped = topic_map._sanitize_map(
+    overlap_raw, synthetic_evidence, {}, model="synthetic-overlap",
+    window_count=1, chunk_seconds=900)
+assert deduped["topics"][0]["turn_ids"] == [f"T{i:06d}" for i in range(1, 5)]
+assert deduped["topics"][1]["turn_ids"] == ["T000005", "T000006"]
+assert deduped["stats"]["overlap_turns_removed"] == 2
+assert not (set(deduped["topics"][0]["turn_ids"]) & set(deduped["topics"][1]["turn_ids"]))
+
+# 前一议题的跨段 claim 不得吞掉后一议题显式指定的唯一轮次。
+claim_spanning_evidence = {
+    "sources": {"transcript": source_turns[:3], "pages": []},
+    "claims": [{"id": "C00001", "turn_ids": ["T000001", "T000002"], "page_ids": []}],
+}
+claim_overlap_raw = {"meeting_summary": "虚构跨段结论。", "topics": [
+    {"title": "议题甲", "summary": "前段。", "turn_ids": ["T000001"],
+     "claim_ids": ["C00001"], "page_ids": [], "children": []},
+    {"title": "议题乙", "summary": "后段。", "turn_ids": ["T000002"],
+     "claim_ids": [], "page_ids": [], "children": []},
+]}
+claim_deduped = topic_map._sanitize_map(
+    claim_overlap_raw, claim_spanning_evidence, {}, model="synthetic-claim-overlap",
+    window_count=1, chunk_seconds=900)
+assert len(claim_deduped["topics"]) == 2
+assert claim_deduped["topics"][0]["turn_ids"] == ["T000001"]
+assert "T000002" in claim_deduped["topics"][1]["turn_ids"]
+assert "T000002" not in claim_deduped["topics"][0]["turn_ids"]
+
+# reduce 只保留代表 turn 时，继承已匹配局部候选的完整引用；无共享锚点的候选不猜归属。
+representative_raw = {"meeting_summary": "虚构代表引用。", "topics": [
+    {"title": "议题甲", "summary": "前段。", "turn_ids": ["T000001"],
+     "claim_ids": [], "page_ids": [], "children": []},
+    {"title": "议题乙", "summary": "后段。", "turn_ids": ["T000005"],
+     "claim_ids": [], "page_ids": [], "children": []},
+]}
+candidate_summaries = [{"candidate_topics": [
+    {"title": "候选甲", "turn_ids": ["T000001", "T000002", "T000003"],
+     "claim_ids": [], "page_ids": []},
+    {"title": "候选乙", "turn_ids": ["T000005", "T000006"],
+     "claim_ids": [], "page_ids": []},
+    {"title": "无锚候选", "turn_ids": ["T000009"], "claim_ids": [], "page_ids": []},
+]}]
+expanded = topic_map._expand_candidate_refs(representative_raw, candidate_summaries)
+assert expanded["topics"][0]["turn_ids"] == ["T000001", "T000002", "T000003"]
+assert expanded["topics"][1]["turn_ids"] == ["T000005", "T000006"]
+assert expanded["_candidate_turns_recovered"] == 3
+assert "T000009" not in {tid for topic in expanded["topics"] for tid in topic["turn_ids"]}
+
+gap_raw = {"meeting_summary": "虚构稀疏覆盖。", "topics": [
+    {"title": "锚点一", "summary": "开场。", "turn_ids": ["T000001"],
+     "claim_ids": [], "page_ids": [], "children": []},
+    {"title": "锚点二", "summary": "中段。", "turn_ids": ["T000005"],
+     "claim_ids": [], "page_ids": [], "children": []},
+    {"title": "锚点三", "summary": "收口。", "turn_ids": ["T000010"],
+     "claim_ids": [], "page_ids": [], "children": []},
+]}
+honest_gaps = topic_map._sanitize_map(
+    gap_raw, synthetic_evidence, {}, model="synthetic-gaps",
+    window_count=1, chunk_seconds=900)
+assert honest_gaps["stats"]["unassigned_turns"] == 7
+assert honest_gaps["stats"]["turn_coverage"] == 0.3
+assert "T000002" not in {tid for topic in honest_gaps["topics"] for tid in topic["turn_ids"]}
 
 print("Meeting Topic Map: map-reduce, evidence filtering, revisions, JSON repair, "
       "unrepairable chunk fallback, reduce retry/fallback, full coverage, low_value, "

@@ -3,21 +3,21 @@
 > 给接手 agent：先读本文件和 `AGENTS.md`，再看 `CHANGELOG.md` 未发布段了解最近改动。
 > 本文件在每次交接或大方向变化时更新；过期的进行中事项完成后删除对应段落。
 
-更新时间：2026-08-17（当前工作树构建号 20260817p45；上一已推送功能提交 = da6b422）
+更新时间：2026-08-17（当前工作树构建号 20260817p46；提交号以 `git log -1` 为准）
 
 ## 当前基线
 
-- 仓库：`/home/johnny-tcx_ultra/meeting-minutes`，分支 main，与 origin 同步。
-- 验证基线：`make check` 全绿、`make smoke` 125/125。
+- 仓库：`/home/johnny-tcx_ultra/meeting-minutes`，分支 main。
+- 验证基线：`make check` 全绿、`make smoke` 126/126。
 - 服务：端口 8899，`systemctl --user restart meeting-minutes-web` 重启（挂起 ~45s 是已知 P2 问题，见下）。
 - 隐私红线（详见 AGENTS.md）：不读真实会议正文，只看元数据/结构；上次已获用户授权诊断 Gate B 会议标题形态，新任务需重新授权。
 
-## 已交付：最新录音的证据跳转与 Topic Map 恢复
+## 已交付：纯音频纪要协议与 Topic Map 数据边界修复
 
-- 事故：纯音频会议已经有 ready evidence（6/6 claims 带逐字稿引用），但纪要“依据”需要二次点击侧栏时间，用户感知为不能跳转；Topic Map 最终归并、格式修复和完整重试连续返回非 JSON，作业失败后页面只见空脉络。
-- 修复：在线端与 MeetingPack 的依据 chip 显示第一条原文时间码并一键 seek；upload/regen/topic-map 完成后当前 bundle 自动刷新。Topic Map 最终 JSON 连续失败时只用已缓存局部候选及原引用确定性组装，不凭空补主题，仍走质量门槛。
-- 真实任务恢复（正文未读取）：`2026-08-17_165903` 已恢复为 ready，3 个一级议题 / 3 个子节点 / 99.4% 时间覆盖，strategy=`map-reduce/local-candidates-fallback-v1`；纪要 6 条 evidence link 均 ready。
-- 验证：`make check` 全绿；`make smoke` 126/126；服务已重启到 p45，health `ok` 且 active_jobs=0。
+- 纪要：语音草稿与多模态终稿共用待办合规护栏；明确行动只能存在于 canonical 待办章节，其他章节的错误 action marker 在修复后降为 discussion。人读纪要、翻译和证据抽屉隐藏 T 机器主键，sidecar/RAG 保留 linkage。
+- Topic Map：结构化 JSON 不再经过会删除独占花括号的 VL 人读清洗器；map/reduce 增加 `response_format=json_object` grammar、紧凑文案上限与独立 reasoning 清洗。一级议题互斥持有 turn/claim，跨段 claim 不得吞掉后一议题的显式锚点；长未知区间如实留空。
+- 获准的私有纯音频样本只在本机数据目录验证，不把目录名、正文、姓名或关系写进 Git：人读 T 尾注 0，正式有依据待办 6，待办外 action 0；Topic Map 6 个一级议题 / 14 个子节点 / 重复主归属 0。当前导航覆盖 38.8%，未用错误邻接填满；后续需把“每轮导航分类”与“代表事实证据”拆成两个字段。
+- 已生成无媒体轻量包和带压缩音频包供本机验收；路径与标题不进入项目文档。验证：虚构 grammar 实测、`make check` 全绿、`make smoke` 126/126、ZIP 完整性通过。
 
 ## 已交付：会议终稿就绪后自动补齐双语阅读层
 

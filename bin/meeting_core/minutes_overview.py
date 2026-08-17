@@ -149,7 +149,8 @@ def _clean_degenerate(text: str) -> str:
 REPAIR_TODO_PROMPT = """上一份纪要草稿的待办章节不合规：每一行“事项”单元格末尾都必须原样带
 `kind=action` 且含真实 `turns=T...` 的证据标记，缺少标记的行不得保留。
 请只根据片段事实笔记重写待办事项，输出完整的“### 待办事项”章节本身，不要输出其他内容。
-确实没有任何合规待办时，只写“未形成明确待办”。
+明确承诺执行、明确要求某人执行或已约定交付时间的动作必须进入待办；建议、探索方向、
+设备调试、到会确认和议程说明不得进入。确实没有任何合规待办时，才写“未形成明确待办”。
 
 {evidence_rules}
 
@@ -164,17 +165,44 @@ REPAIR_TODO_PROMPT = """上一份纪要草稿的待办章节不合规：每一�
 TODO_HEAD = "### 待办事项"
 TODO_MARKER_RE = re.compile(
     r"<!--\s*mm:evidence\s+[^>]*?kind=action[^>]*?turns=T\d+")
+ACTION_MARKER_RE = re.compile(
+    r"<!--\s*mm:evidence\s+[^<>]*?\bkind=action\b[^<>]*?-->")
+TODO_HEADING_RE = re.compile(r"^(?P<marks>#{2,4})\s+待办事项\s*$", re.M)
+
+
+def _todo_bounds(text: str) -> tuple[int, int, int] | None:
+    match = TODO_HEADING_RE.search(text)
+    if not match:
+        return None
+    level = len(match.group("marks"))
+    end = len(text)
+    for heading in re.finditer(r"^(#{1,6})\s+.+?\s*$", text[match.end():], re.M):
+        if len(heading.group(1)) <= level:
+            end = match.end() + heading.start()
+            break
+    return match.start(), match.end(), end
 
 
 def _todo_section(text: str) -> str:
-    match = re.search(r"### 待办事项(.*?)(?=\n#{2,3} |\Z)", text, re.S)
-    return match.group(1) if match else ""
+    bounds = _todo_bounds(text)
+    return text[bounds[1]:bounds[2]] if bounds else ""
+
+
+def _outside_todo_action_markers(text: str) -> list[re.Match]:
+    bounds = _todo_bounds(text)
+    start, end = (bounds[0], bounds[2]) if bounds else (-1, -1)
+    return [match for match in ACTION_MARKER_RE.finditer(text)
+            if not (start <= match.start() < end)]
 
 
 def _todo_compliant(text: str) -> bool:
     """待办章节的表格行必须逐行带 kind=action + turns 证据标记，否则前端无据可依。"""
     section = _todo_section(text)
     if not section.strip():
+        return False
+    # ``kind=action`` 是正式待办协议的一部分，不能散落在议题详情。尤其当待办写“无”而
+    # 详情已有 action marker 时，说明模型漏投影了真正的行动，必须触发重试/定点修复。
+    if _outside_todo_action_markers(text):
         return False
     if "未形成明确待办" in section:
         return True
@@ -187,10 +215,33 @@ def _splice_todo_section(text: str, new_section: str) -> str:
     new_section = new_section.strip()
     if not new_section.startswith(TODO_HEAD):
         new_section = f"{TODO_HEAD}\n\n{new_section}"
-    pattern = re.compile(r"### 待办事项.*?(?=\n#{2,3} |\Z)", re.S)
-    if pattern.search(text):
-        return pattern.sub(lambda _: new_section + "\n\n", text, count=1)
+    bounds = _todo_bounds(text)
+    if bounds:
+        return text[:bounds[0]] + new_section + "\n\n" + text[bounds[2]:].lstrip("\n")
     return text.rstrip() + "\n\n" + new_section + "\n"
+
+
+def normalize_action_marker_scope(text: str) -> str:
+    """把待办章节之外的错误 action marker 降为 discussion，保留事实与原始 T/P 引用。
+
+    正式行动只允许有一个 canonical 投影；议题/逐页详情继续作为背景证据，但不能再生成
+    第二套 action claim。该清理不新增、删除或重绑任何引用 ID。
+    """
+    bounds = _todo_bounds(text)
+    start, end = (bounds[0], bounds[2]) if bounds else (-1, -1)
+
+    def replace(match: re.Match) -> str:
+        if start <= match.start() < end:
+            return match.group(0)
+        return re.sub(r"\bkind=action\b", "kind=discussion", match.group(0), count=1)
+
+    return ACTION_MARKER_RE.sub(replace, text)
+
+
+def _normalized_completion(value: Completion) -> Completion:
+    content = normalize_action_marker_scope(value.content)
+    return value if content == value.content else Completion(
+        content=content, usage=value.usage, elapsed=value.elapsed)
 
 
 def _strip_fence(text: str) -> str:
@@ -202,18 +253,19 @@ def _strip_fence(text: str) -> str:
 def _complete_with_guard(client: LocalLLMClient, prompt: str, *,
                          max_tokens: int, temperature: float = 0.2,
                          required: tuple = (),
-                         validator: Callable[[str], bool] | None = None) -> Completion:
+                         validator: Callable[[str], bool] | None = None,
+                         system: str = SYSTEM) -> Completion:
     """生成一次；退化或缺必需章节则用 repeat_penalty 重试，仍退化则确定性清理。"""
     def usable(text: str) -> bool:
         if _is_degenerate(text) or not all(mark in text for mark in required):
             return False
         return validator(text) if validator else True
 
-    first = client.complete(prompt, system=SYSTEM, max_tokens=max_tokens,
+    first = client.complete(prompt, system=system, max_tokens=max_tokens,
                             temperature=temperature)
     if usable(first.content):
         return first
-    retry = client.complete(prompt, system=SYSTEM, max_tokens=max_tokens,
+    retry = client.complete(prompt, system=system, max_tokens=max_tokens,
                             temperature=temperature, repeat_penalty=1.2)
     if usable(retry.content):
         return retry
@@ -257,9 +309,9 @@ def generate_direct(prompt: str, evidence_rules: str, *, notes: str,
     final = _complete_with_guard(
         client, prompt, max_tokens=max_tokens,
         required=("## 总体摘要", "### 待办事项"), validator=_todo_compliant)
-    if _todo_compliant(final.content):
-        return final
-    return _repair_todo(client, final, evidence_rules, notes)
+    if not _todo_compliant(final.content):
+        final = _repair_todo(client, final, evidence_rules, notes)
+    return _normalized_completion(final)
 
 
 def _pages_for_rows(pages: list[dict], rows: list[dict]) -> list[dict]:
@@ -329,6 +381,7 @@ def generate(context: dict, policy: dict, evidence_rules: str, *,
         # 模型把待办写成了无证据标记的行：前端只展示有依据的待办，整表会被弃用。
         # 定点修复一轮：只重写待办章节并拼接回终稿。
         final = _repair_todo(client, final, evidence_rules, "\n".join(notes))
+    final = _normalized_completion(final)
     return OverviewResult(
         content=final.content, mode="map_reduce", chunks=len(chunks),
         elapsed=time.time() - started,

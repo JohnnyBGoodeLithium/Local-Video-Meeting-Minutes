@@ -35,8 +35,8 @@ HIGH_VALUE_RE = re.compile(
     r"chart|table|architecture|workflow|roadmap|metric|trend)", re.I)
 
 
-def clean_model_text(value: str) -> str:
-    """隐藏模型 reasoning 泄漏；不尝试把思考过程修饰成业务内容。"""
+def clean_reasoning_text(value: str) -> str:
+    """只清理 reasoning/特殊 token，保留 JSON、Markdown 等正文结构。"""
     text = str(value or "").replace("&lt;think&gt;", "<think>") \
         .replace("&lt;/think&gt;", "</think>") \
         .replace("&lt;analysis&gt;", "<analysis>") \
@@ -52,13 +52,19 @@ def clean_model_text(value: str) -> str:
         text = text[:opener.start()]
     text = REASONING_CLOSE_RE.sub("", text)
     text = SPECIAL_TOKEN_RE.sub("", text)
+    text = re.sub(r"^\s*(?:assistant|final)\s*[:：]?\s*$", "", text,
+                  flags=re.I | re.M)
+    return text.strip()
+
+
+def clean_model_text(value: str) -> str:
+    """清理供人阅读的模型文案；会拆 VL 包装，不可用于 JSON 解析。"""
+    text = clean_reasoning_text(value)
     # VL 偶发把答案包进 LaTeX \boxed{…} 并转义 Markdown（\## 标题）：先拆包装再还原转义，
     # 否则标题提取会把 \boxed{ 或 \## 标题 当成页面标题。
     text = re.sub(r"\\boxed\s*\{", "", text)
     text = re.sub(r"\\([#*_|~`>\[\](){}])", r"\1", text)
     text = re.sub(r"^[ \t]*[{}]+[ \t]*$", "", text, flags=re.M)
-    text = re.sub(r"^\s*(?:assistant|final)\s*[:：]?\s*$", "", text,
-                  flags=re.I | re.M)
     return text.strip()
 
 

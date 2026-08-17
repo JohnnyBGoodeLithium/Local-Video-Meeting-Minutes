@@ -26,7 +26,9 @@ class FakeClient:
         if "meeting-minutes-chunk/v1" in prompt:
             content = f"- 合成片段事实，依据 {ids[0]}、{ids[-1]}"
         else:
-            content = "# 会议纪要\n\n## 总体摘要\n\n- 合成测试结论"
+            content = ("# 会议纪要\n\n## 总体摘要\n\n- 合成测试结论\n\n"
+                       "### 待办事项\n\n未形成明确待办\n\n"
+                       "### 风险/待确认\n\n- 无\n\n## 议题详情\n\n- 合成议题。")
         return Completion(content=content,
                           usage={"prompt_tokens": 100, "completion_tokens": 20},
                           elapsed=0.01)

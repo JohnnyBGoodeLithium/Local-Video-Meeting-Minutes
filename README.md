@@ -131,6 +131,7 @@ meeting-minutes/
 | [MODELS.md](docs/MODELS.md) | 选择模型、显存策略和常驻方式 |
 | [DEVELOPMENT.md](docs/DEVELOPMENT.md) | 开发、测试、配置和 Git 私有数据边界 |
 | [ENGINEERING_REVIEW.md](docs/ENGINEERING_REVIEW.md) | 查看工程风险、重构顺序和未完成项 |
+| [NEXT_PLAN.md](docs/NEXT_PLAN.md) | 下一阶段：同事自助提交、本机持久队列与受控结果交付 |
 | [UX_REVIEW_AND_REFERENCES.md](docs/UX_REVIEW_AND_REFERENCES.md) | 查看 UX 走查、同类产品和开源参考 |
 | [CHANGELOG.md](CHANGELOG.md) | 按功能阅读变更历史 |
 | [HANDOFF.md](HANDOFF.md) | 代理/人类接手：当前基线、进行中任务和已定方案 |

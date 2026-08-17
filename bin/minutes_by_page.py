@@ -46,6 +46,7 @@ from meeting_structure import clean_model_text
 from meeting_core.context_budget import ContextBudget
 from meeting_core.minutes_overview import generate as generate_overview
 from meeting_core.minutes_overview import generate_direct as generate_direct_overview
+from meeting_core.minutes_overview import normalize_action_marker_scope
 import meeting_topic_map
 import meeting_generation
 from meeting_core.hardware import configured_path
@@ -78,6 +79,7 @@ EVIDENCE_RULES = """
    `<!-- mm:evidence kind=decision status=confirmed confidence=high turns=T000001,T000003 pages=P0002 -->`
    turns/pages 只能写输入中真实存在的 ID；没有页面依据时省略 pages，没有逐字稿依据的页面事实只能用
    kind=slide_fact status=informational，绝不能标成 decision/action。
+   T/P/C 编号只能存在于上述 HTML 注释标记中；可读正文不得再写 `(T000001, ...)` 一类机器尾注。
 7. `kind=action` 只允许出现在整场 `### 待办事项` 表格。逐页详情中的设备调试、确认到会、
    等人加入、介绍议程、汇报数字和会议流程都不是会后待办；即使句子含“确认/安排”，也必须按
    discussion/informational/proposal 等真实语义标注，不能写成 action。
@@ -516,7 +518,8 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
         else:
             reason = "页块缺失" if not structure_ok else "证据标记变化"
             print(f"[meta] 精修稿{reason}, 保留原稿", flush=True)
-    md = normalize_minutes_markdown(insert_images(body, pages, descs))
+    md = normalize_minutes_markdown(normalize_action_marker_scope(
+        insert_images(body, pages, descs)))
     md += appendix_md(pages, descs, per_page)
     out = Path(out) if out else mdir / "minutes.md"
     if out.exists():
