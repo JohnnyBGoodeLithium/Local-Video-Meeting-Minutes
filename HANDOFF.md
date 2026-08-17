@@ -3,20 +3,28 @@
 > 给接手 agent：先读本文件和 `AGENTS.md`，再看 `CHANGELOG.md` 未发布段了解最近改动。
 > 本文件在每次交接或大方向变化时更新；过期的进行中事项完成后删除对应段落。
 
-更新时间：2026-08-17（当前工作树构建号 20260817p46；提交号以 `git log -1` 为准）
+更新时间：2026-08-17（当前工作树构建号 20260817p47；提交号以 `git log -1` 为准）
 
 ## 当前基线
 
 - 仓库：`/home/johnny-tcx_ultra/meeting-minutes`，分支 main。
-- 验证基线：`make check` 全绿、`make smoke` 126/126。
+- 验证基线：`make check` 全绿、`make smoke` 126/126；Topic Map v3 合成回归及 Viewer headless 启动均通过。
 - 服务：端口 8899，`systemctl --user restart meeting-minutes-web` 重启（挂起 ~45s 是已知 P2 问题，见下）。
 - 隐私红线（详见 AGENTS.md）：不读真实会议正文，只看元数据/结构；上次已获用户授权诊断 Gate B 会议标题形态，新任务需重新授权。
 
-## 已交付：纯音频纪要协议与 Topic Map 数据边界修复
+## 当前批次：Topic Map v3 导航/证据拆分
+
+- 根因：v2 的 `turn_ids/ranges` 同时承担代表事实证据和全量播放器导航；reduce 只保留代表 turn 时，页面诚实但大面积无覆盖，按邻近填满又会制造错误语义。
+- v3：局部候选使用稳定 `candidate_id`，reduce 必须列出吸收的 `candidate_ids`。`turn_ids/evidence_ranges` 只保存代表依据，`navigation_turn_ids/ranges` 保存 Topic 的完整浏览范围，顶层 `navigation_segments` 逐段标记 `topic/transition/unclassified`。
+- 指标：`coverage/turn_coverage` 是业务议题轮次比例，`time_coverage` 是实际发言秒数比例，`navigation_coverage` 包含明确过渡；另记录证据覆盖、过渡/未知轮次和候选映射异常。
+- UI：在线端与 MeetingPack 时间轴区分普通空白、过渡斜纹和未分类琥珀块；脉络根节点显示已归入议题比例。v1/v2 旧图继续可读，但只有重生成后才获得 v3 导航字段。
+- 网络：临时静态健康页在本机所有地址可访问，但同一企业无线网络上的另一台设备请求没有到达本机，说明点对点入站被网络或终端策略阻断。不要把正式服务改成 `0.0.0.0` 来绕过；受限环境优先走 SharePoint/Teams 异步分发或经过批准的企业入口。
+
+## 已交付：纯音频纪要协议与旧 Topic Map 数据边界修复
 
 - 纪要：语音草稿与多模态终稿共用待办合规护栏；明确行动只能存在于 canonical 待办章节，其他章节的错误 action marker 在修复后降为 discussion。人读纪要、翻译和证据抽屉隐藏 T 机器主键，sidecar/RAG 保留 linkage。
 - Topic Map：结构化 JSON 不再经过会删除独占花括号的 VL 人读清洗器；map/reduce 增加 `response_format=json_object` grammar、紧凑文案上限与独立 reasoning 清洗。一级议题互斥持有 turn/claim，跨段 claim 不得吞掉后一议题的显式锚点；长未知区间如实留空。
-- 获准的私有纯音频样本只在本机数据目录验证，不把目录名、正文、姓名或关系写进 Git：人读 T 尾注 0，正式有依据待办 6，待办外 action 0；Topic Map 6 个一级议题 / 14 个子节点 / 重复主归属 0。当前导航覆盖 38.8%，未用错误邻接填满；后续需把“每轮导航分类”与“代表事实证据”拆成两个字段。
+- 获准的私有样本只在本机数据目录验证，不把目录名、正文、姓名或关系写进 Git。此前暴露的“每轮导航分类”与“代表事实证据”共用字段问题已由 v3 解决；存量会议需要重新生成 Topic Map 才会迁移。
 - 已生成无媒体轻量包和带压缩音频包供本机验收；路径与标题不进入项目文档。验证：虚构 grammar 实测、`make check` 全绿、`make smoke` 126/126、ZIP 完整性通过。
 
 ## 已交付：会议终稿就绪后自动补齐双语阅读层

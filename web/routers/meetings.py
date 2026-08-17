@@ -1,5 +1,5 @@
 """会议列表、bundle、删除、存储与重生成。
-服务 schema：meeting-structure/v2、meeting-topic-map/v2（兼容 v1 旧图）、meeting-generation/v1、
+服务 schema：meeting-structure/v2、meeting-topic-map/v3（兼容 v1/v2 旧图）、meeting-generation/v1、
 meeting-minutes-evidence/v1、meeting-storage/v1。"""
 
 import json

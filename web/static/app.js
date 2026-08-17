@@ -121,6 +121,8 @@ const UI_COPY = {
     translatingOutline: "正在生成中文会议脉络，完成后自动切换", outlineFailed: "中文会议脉络生成失败，可再次切换重试",
     speakerPinTip: "悬停在主时间轴只看他的发言，点击钉住",
     gapTip: "议题未覆盖，点击跳转",
+    transitionTip: "过渡或等待，点击跳转",
+    unclassifiedTip: "尚未归入议题，点击跳转",
     seekHint: "点击跳转；悬停查看发言构成", othersChip: "其他", collapseChip: "收起",
     expandLanes: "说话人视图 ▸", collapseLanes: "说话人视图 ▾", expandRestLanes: "展开其余",
     bindAction: "绑定", legendBindAction: "未绑定声纹：点「绑定」为其指定人员",
@@ -141,6 +143,8 @@ const UI_COPY = {
     outlineFailed: "English meeting-map generation failed; switch again to retry",
     speakerPinTip: "Hover to isolate this speaker on the timeline; click to pin",
     gapTip: "Not covered by topics; click to jump",
+    transitionTip: "Transition or waiting; click to jump",
+    unclassifiedTip: "Not yet classified into a topic; click to jump",
     seekHint: "Click to jump; hover for speaker mix", othersChip: "Others", collapseChip: "Collapse",
     expandLanes: "Speaker view ▸", collapseLanes: "Speaker view ▾",
     expandRestLanes: "Show the remaining", bindAction: "Bind",
@@ -1249,26 +1253,47 @@ function buildTimeline(duration) {
     });
     tl.appendChild(block);
   }
-  // 间隙块：寒暄/等待/未被议题覆盖的时间，点击只 seek。
-  const appendGap = (start, end) => {
+  const navigationGaps = topicReady
+    ? (readingTopicMap().navigation_segments || [])
+      .filter(segment => segment.kind !== "topic")
+      .flatMap(segment => (segment.ranges || []).map(range => ({
+        start: Number(range[0]), end: Number(range[1]), kind: segment.kind,
+      }))).filter(item => item.end > item.start).sort((a, b2) => a.start - b2.start)
+    : [];
+  // v3 明确区分模型判定的过渡段和仍待归类的内容；旧图或纯静音仍显示普通间隙。
+  const appendGap = (start, end, kind = "gap") => {
     if (end - start < 0.5) return;
     const gap = document.createElement("div");
-    gap.className = "tl-gap";
+    gap.className = `tl-gap tl-gap-${kind}`;
     gap.style.left = (start / duration * 100) + "%";
     gap.style.width = ((end - start) / duration * 100) + "%";
-    gap.title = `${fmt(start)}–${fmt(end)} ${ui("gapTip")}`;
+    const tip = kind === "transition" ? ui("transitionTip")
+      : kind === "unclassified" ? ui("unclassifiedTip") : ui("gapTip");
+    gap.title = `${fmt(start)}–${fmt(end)} ${tip}`;
     gap.addEventListener("click", event => {
       event.stopPropagation();
       seek((start + end) / 2);
     });
     tl.appendChild(gap);
   };
+  const appendGapParts = (start, end) => {
+    let gapCursor = start;
+    for (const item of navigationGaps) {
+      if (item.end <= start || item.start >= end) continue;
+      const itemStart = Math.max(start, item.start);
+      const itemEnd = Math.min(end, item.end);
+      appendGap(gapCursor, itemStart);
+      appendGap(itemStart, itemEnd, item.kind);
+      gapCursor = Math.max(gapCursor, itemEnd);
+    }
+    appendGap(gapCursor, end);
+  };
   let cursor = 0;
   for (const [start, end] of covered.sort((a, b2) => a[0] - b2[0])) {
-    appendGap(cursor, start);
+    appendGapParts(cursor, start);
     cursor = Math.max(cursor, end);
   }
-  appendGap(cursor, duration);
+  appendGapParts(cursor, duration);
 
   // 下层说话人节奏条：像素桶主导人着色，桶数与会议长度无关。
   renderSpeakerLane(tl, duration);
@@ -2571,8 +2596,8 @@ function renderChapters() {
     `</div><button type="button" id="topic-map-refresh">${isEnglishUi() ? "Regenerate" : "重新归纳"}</button></header>` +
     `<div class="topic-map-canvas"><div class="topic-map-root-wrap"><button type="button" class="topic-map-root" id="topic-map-overview">` +
     `<small>${isEnglishUi() ? "Whole meeting" : "整场会议"}</small><b>${esc(state.bundle?.title || (isEnglishUi() ? "Meeting" : "会议"))}</b>` +
-    `<span>${isEnglishUi() ? `${topics.length} topics · ${topicMap.stats?.children || 0} structured nodes` :
-      `${topics.length} 个议题 · ${topicMap.stats?.children || 0} 个结构节点`}</span></button></div>` +
+    `<span>${isEnglishUi() ? `${topics.length} topics · ${topicMap.stats?.children || 0} nodes · ${Math.round((topicMap.stats?.coverage || 0) * 100)}% mapped` :
+      `${topics.length} 个议题 · ${topicMap.stats?.children || 0} 个节点 · ${Math.round((topicMap.stats?.coverage || 0) * 100)}% 已归入议题`}</span></button></div>` +
     `<div class="topic-map-branches">${topics.map((topic, index) =>
       topicMapBranch(topic, index, selectedNode?.id) +
       (selectedTopic && selectedNode && topic.id === selectedTopic.id

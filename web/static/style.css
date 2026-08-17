@@ -581,6 +581,11 @@ body.resizing-panes { cursor: col-resize; user-select: none; }
   background: rgba(255, 255, 255, .09);
 }
 .tl-gap:hover { background: rgba(255, 255, 255, .18); }
+.tl-gap-transition {
+  background: repeating-linear-gradient(135deg, rgba(148, 163, 184, .18) 0 4px, rgba(148, 163, 184, .08) 4px 8px);
+}
+.tl-gap-unclassified { background: rgba(226, 161, 60, .22); }
+.tl-gap-unclassified:hover { background: rgba(226, 161, 60, .38); }
 .timeline.person-focus .tl-gap { opacity: .35; }
 .tl-chapter {
   position: absolute;

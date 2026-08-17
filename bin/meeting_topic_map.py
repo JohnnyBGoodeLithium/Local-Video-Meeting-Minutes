@@ -24,9 +24,9 @@ import meeting_structure
 from meeting_core.llm import validated_api_base
 
 
-SCHEMA = "meeting-topic-map/v2"
-# v1 旧图 revisions 匹配时仍视为 ready(UI 无 coverage 字段时按灰隙显示);新生成写 v2。
-LEGACY_SCHEMAS = frozenset({"meeting-topic-map/v1"})
+SCHEMA = "meeting-topic-map/v3"
+# v1/v2 旧图 revisions 匹配时仍可读；v3 将导航归属与代表证据分层。
+LEGACY_SCHEMAS = frozenset({"meeting-topic-map/v1", "meeting-topic-map/v2"})
 ACCEPTED_SCHEMAS = LEGACY_SCHEMAS | {SCHEMA}
 ROUTER = validated_api_base(os.environ.get(
     "MEETING_LLM_API", "http://127.0.0.1:11435/v1")) + "/chat/completions"
@@ -67,12 +67,15 @@ REDUCE_PROMPT = """你负责生成整场会议的逻辑思维导图，而不是�
 保持紧凑：meeting_summary 不超过 120 个汉字；topic title 不超过 30 个汉字、summary 不超过
 220 个汉字；child title 不超过 30 个汉字、summary 不超过 140 个汉字。只列引用 ID，不复制
 逐字稿或 claim 原文，不输出重复节点。
-覆盖要求：一级论点必须覆盖全部窗口的候选论点材料，不得整窗丢弃；寒暄、过渡、等待、
-纯展示等弱价值内容至多归入一个“过渡与杂项”类论点，并只为该论点携带 "low_value": true。
+覆盖要求：一级论点必须用 candidate_ids 列出它吸收的所有局部候选；每个 candidate_id
+必须恰好出现在一个一级论点中，不得整窗丢弃。turn_ids/claim_ids 仍只选真正有代表性的论据，
+不要为了导航覆盖而把所有 turn_ids 复制进 topic。窗口的 uncovered_turn_ids 不得创建 Topic，
+它们会由代码标为 transition；只有局部候选本身就是弱价值内容时，才可吸收到至多一个
+“过渡与杂项”类论点，并为该论点携带 "low_value": true。
 
 只输出 JSON：
 {{"meeting_summary":"一句话说明整场推进", "topics":[
-  {{"title":"一级论点", "summary":"该论点如何展开及当前结果",
+  {{"title":"一级论点", "summary":"该论点如何展开及当前结果", "candidate_ids":["W001C01"],
    "turn_ids":["T..."], "claim_ids":["C..."], "page_ids":["P..."],
    "children":[
      {{"type":"context|argument|counterpoint|decision|action|open_question|risk|evidence|discussion",
@@ -166,6 +169,18 @@ def _repair_model_json(call: Callable[[str, int], object], value, *,
     return _model_json(call(repair_prompt, max_tokens))
 
 
+def _annotate_candidates(summaries: list[dict]) -> None:
+    """给局部候选补稳定 ID，供 reduce 明确声明语义归并关系。
+
+    旧 checkpoint 没有 candidate_id 时也按窗口/顺序确定性补齐；模型手写的
+    ID 不作权威值，避免重复或跨窗口引用。
+    """
+    for window_index, window in enumerate(summaries, 1):
+        for candidate_index, candidate in enumerate(window.get("candidate_topics") or [], 1):
+            if isinstance(candidate, dict):
+                candidate["candidate_id"] = f"W{window_index:03d}C{candidate_index:02d}"
+
+
 def _fallback_reduce(summaries: list[dict]) -> dict:
     """最终归并连续输出坏 JSON 时，直接投影局部候选，避免整场脉络消失。
 
@@ -176,13 +191,10 @@ def _fallback_reduce(summaries: list[dict]) -> dict:
     """
     groups: list[dict] = []
     by_title: dict[str, dict] = {}
-    explicitly_low_value: list[str] = []
-
     def extend_unique(target: list, values) -> None:
-        target.extend(value for value in (values or []) if value not in target)
+        target.extend(value for value in (values or []) if value and value not in target)
 
     for window in summaries:
-        extend_unique(explicitly_low_value, window.get("uncovered_turn_ids"))
         for candidate in window.get("candidate_topics") or []:
             if not isinstance(candidate, dict):
                 continue
@@ -196,6 +208,7 @@ def _fallback_reduce(summaries: list[dict]) -> dict:
                     "title": title,
                     "summary_parts": [],
                     "turn_ids": [], "claim_ids": [], "page_ids": [],
+                    "candidate_ids": [],
                     "children": [],
                 }
                 by_title[key] = group
@@ -205,6 +218,7 @@ def _fallback_reduce(summaries: list[dict]) -> dict:
                 group["summary_parts"].append(summary)
             for field in ("turn_ids", "claim_ids", "page_ids"):
                 extend_unique(group[field], candidate.get(field))
+            extend_unique(group["candidate_ids"], [candidate.get("candidate_id")])
             group["children"].append({
                 "type": "discussion", "title": title,
                 "summary": summary,
@@ -213,29 +227,13 @@ def _fallback_reduce(summaries: list[dict]) -> dict:
                 "page_ids": list(candidate.get("page_ids") or []),
             })
 
-    # 只有局部模型明确判定为寒暄/等待/调试的轮次才进入低价值分支；未知且未归纳的
-    # 长区间不能被伪装成“离它最近”的业务议题。
-    if explicitly_low_value and len(groups) < 8:
-        groups.append({
-            "title": "过渡与杂项",
-            "summary_parts": ["寒暄、等待、设备调试或不形成业务推进的过渡内容。"],
-            "turn_ids": explicitly_low_value,
-            "claim_ids": [], "page_ids": [],
-            "children": [{
-                "type": "discussion", "title": "过渡与杂项",
-                "summary": "未形成业务推进的低讨论密度内容。",
-                "turn_ids": explicitly_low_value, "claim_ids": [], "page_ids": [],
-            }],
-            "low_value": True,
-        })
-
     if len(groups) > 8:
         overflow = groups[8:]
         groups = groups[:8]
         target = groups[-1]
         for group in overflow:
             extend_unique(target["summary_parts"], group["summary_parts"])
-            for field in ("turn_ids", "claim_ids", "page_ids", "children"):
+            for field in ("turn_ids", "claim_ids", "page_ids", "candidate_ids", "children"):
                 extend_unique(target[field], group[field])
 
     topics = []
@@ -246,6 +244,7 @@ def _fallback_reduce(summaries: list[dict]) -> dict:
             "turn_ids": group["turn_ids"],
             "claim_ids": group["claim_ids"],
             "page_ids": group["page_ids"],
+            "candidate_ids": group["candidate_ids"],
             "children": group["children"][:7],
             "low_value": bool(group.get("low_value")),
         })
@@ -349,8 +348,178 @@ def _merge_ranges(ranges: list[list[float]], gap: float = 60.0) -> list[list[flo
     return merged
 
 
+def _apply_navigation(topics: list[dict], summaries: list[dict],
+                      source_turns: list[dict]) -> tuple[list[dict], dict]:
+    """把局部候选投影为全量导航，不污染代表证据。
+
+    topic.turn_ids 继续表示可审计的代表论据；navigation_turn_ids/ranges
+    负责播放器和时间轴的连续浏览。局部模型明确标为寒暄/等待的
+    uncovered 轮次写为 transition；其他没有语义归属的轮次必须显式写为
+    unclassified，不得按时间邻近伪造覆盖。
+    """
+    valid_turns = {str(turn.get("id")) for turn in source_turns}
+    turn_by_id = {str(turn.get("id")): turn for turn in source_turns}
+    topic_by_id = {str(topic.get("id")): topic for topic in topics}
+    candidates: dict[str, dict] = {}
+    explicit_low_value: set[str] = set()
+    for window in summaries:
+        explicit_low_value.update(_clean_ids(window.get("uncovered_turn_ids"), valid_turns))
+        for candidate in window.get("candidate_topics") or []:
+            if not isinstance(candidate, dict):
+                continue
+            candidate_id = str(candidate.get("candidate_id") or "")
+            if not candidate_id:
+                continue
+            candidates[candidate_id] = {
+                **candidate,
+                "turn_ids": _clean_ids(candidate.get("turn_ids"), valid_turns),
+            }
+
+    # reduce 显式返回 candidate_ids 是主路径；存量/模型漏字段时，只在
+    # 局部候选与某个终稿论点共享唯一最强代表 turn 时补建映射。
+    candidate_owner: dict[str, str] = {}
+    duplicate_candidate_assignments = 0
+    for topic in topics:
+        topic_id = str(topic.get("id"))
+        cleaned = []
+        for candidate_id in topic.get("candidate_ids") or []:
+            candidate_id = str(candidate_id)
+            if candidate_id not in candidates:
+                continue
+            if candidate_id in candidate_owner:
+                duplicate_candidate_assignments += 1
+                continue
+            candidate_owner[candidate_id] = topic_id
+            cleaned.append(candidate_id)
+        topic["candidate_ids"] = cleaned
+
+    evidence_sets = {str(topic.get("id")): set(topic.get("turn_ids") or []) for topic in topics}
+    for candidate_id, candidate in candidates.items():
+        if candidate_id in candidate_owner:
+            continue
+        candidate_turns = set(candidate.get("turn_ids") or [])
+        scores = [len(candidate_turns.intersection(evidence_sets[str(topic.get("id"))]))
+                  for topic in topics]
+        best = max(scores, default=0)
+        if best <= 0 or scores.count(best) != 1:
+            continue
+        topic = topics[scores.index(best)]
+        topic_id = str(topic.get("id"))
+        candidate_owner[candidate_id] = topic_id
+        topic["candidate_ids"].append(candidate_id)
+
+    # 终稿代表论据对它自己的轮次具有最高主归属优先级；候选覆盖只补其余轮次。
+    turn_owner: dict[str, tuple[str, str | None]] = {}
+    for topic in topics:
+        topic_id = str(topic.get("id"))
+        for turn_id in topic.get("turn_ids") or []:
+            if turn_id in valid_turns:
+                turn_owner.setdefault(turn_id, ("topic", topic_id))
+    for candidate_id, topic_id in candidate_owner.items():
+        for turn_id in candidates[candidate_id].get("turn_ids") or []:
+            turn_owner.setdefault(turn_id, ("topic", topic_id))
+    for turn_id in explicit_low_value:
+        turn_owner.setdefault(turn_id, ("transition", None))
+    for turn_id in valid_turns:
+        turn_owner.setdefault(turn_id, ("unclassified", None))
+
+    topic_navigation: dict[str, list[str]] = {topic_id: [] for topic_id in topic_by_id}
+    transition_turns: list[str] = []
+    unclassified_turns: list[str] = []
+    for turn in source_turns:
+        turn_id = str(turn.get("id"))
+        kind, topic_id = turn_owner[turn_id]
+        if kind == "topic" and topic_id in topic_navigation:
+            topic_navigation[topic_id].append(turn_id)
+        elif kind == "transition":
+            transition_turns.append(turn_id)
+        else:
+            unclassified_turns.append(turn_id)
+
+    for topic in topics:
+        topic_id = str(topic.get("id"))
+        topic["evidence_ranges"] = list(topic.get("ranges") or [])
+        topic["navigation_turn_ids"] = topic_navigation[topic_id]
+
+    segments: list[dict] = []
+    current: list[dict] = []
+    current_owner: tuple[str, str | None] | None = None
+
+    def flush_segment() -> None:
+        nonlocal current
+        if not current or current_owner is None:
+            return
+        kind, topic_id = current_owner
+        # 同一语义连续段只画一个可点击区间；段内短暂停顿仍属于同一讨论，
+        # 但超过 60 秒的空白会在下方循环中主动切段，避免跨大段静音拉成长条。
+        ranges = [[round(float(current[0].get("start", 0)), 3),
+                   round(float(current[-1].get("end", 0)), 3)]]
+        segments.append({
+            "id": f"S{len(segments) + 1:03d}",
+            "kind": kind,
+            "topic_id": topic_id,
+            "turn_ids": [str(item.get("id")) for item in current],
+            "ranges": ranges,
+            "start": ranges[0][0] if ranges else None,
+            "end": ranges[-1][1] if ranges else None,
+        })
+        current = []
+
+    for turn in source_turns:
+        owner = turn_owner[str(turn.get("id"))]
+        long_pause = bool(current) and float(turn.get("start", 0)) > (
+            float(current[-1].get("end", 0)) + 60.0)
+        if current_owner != owner or long_pause:
+            flush_segment()
+            current_owner = owner
+        current.append(turn)
+    flush_segment()
+
+    # Topic 的 ranges 用互斥导航段生成，不能再按同一 topic 的邻近时间合并；
+    # 否则 topic A 离开后短暂切到 transition/topic B，再回来时会发生视觉覆盖。
+    for topic in topics:
+        topic_id = str(topic.get("id"))
+        navigation_ranges = [list(segment["ranges"][0]) for segment in segments
+                             if segment["kind"] == "topic"
+                             and segment.get("topic_id") == topic_id
+                             and segment.get("ranges")]
+        topic["ranges"] = navigation_ranges or topic["evidence_ranges"]
+        topic["start"] = topic["ranges"][0][0] if topic["ranges"] else None
+        topic["end"] = topic["ranges"][-1][1] if topic["ranges"] else None
+
+    semantic_turns = {turn_id for values in topic_navigation.values() for turn_id in values}
+    evidence_turns = {turn_id for topic in topics for turn_id in topic.get("turn_ids") or []}
+    exact_ranges = _merge_ranges([
+        [turn_by_id[turn_id].get("start", 0), turn_by_id[turn_id].get("end", 0)]
+        for turn_id in semantic_turns
+    ], gap=0.0)
+    semantic_seconds = sum(end - start for start, end in exact_ranges)
+    meeting_start = min((float(turn.get("start", 0)) for turn in source_turns), default=0.0)
+    meeting_end = max((float(turn.get("end", 0)) for turn in source_turns), default=0.0)
+    duration = max(0.0, meeting_end - meeting_start)
+    count = len(source_turns)
+    topic_turn_coverage = round(len(semantic_turns) / count, 4) if count else 0.0
+    classified_count = len(semantic_turns) + len(transition_turns)
+    stats = {
+        # v3 的 coverage 以导航轮次为分母，不再用会议时长惩罚正常停顿；
+        # 精确发言时间比例另存 time_coverage。
+        "coverage": topic_turn_coverage,
+        "turn_coverage": topic_turn_coverage,
+        "time_coverage": round(min(1.0, semantic_seconds / duration), 4) if duration else 0.0,
+        "navigation_coverage": round(classified_count / count, 4) if count else 0.0,
+        "evidence_turn_coverage": round(len(evidence_turns) / count, 4) if count else 0.0,
+        "unassigned_turns": len(unclassified_turns),
+        "transition_turns": len(transition_turns),
+        "unmapped_candidates": len(candidates) - len(candidate_owner),
+        "duplicate_candidate_assignments": duplicate_candidate_assignments,
+        "candidate_turns_recovered": len(semantic_turns - evidence_turns),
+    }
+    return segments, stats
+
+
 def _sanitize_map(raw: dict, evidence: dict, revisions: dict, *, model: str,
-                  window_count: int, chunk_seconds: float) -> dict:
+                  window_count: int, chunk_seconds: float,
+                  summaries: list[dict] | None = None) -> dict:
     source_turns = evidence.get("sources", {}).get("transcript", [])
     source_pages = evidence.get("sources", {}).get("pages", [])
     claims = evidence.get("claims", [])
@@ -429,6 +598,8 @@ def _sanitize_map(raw: dict, evidence: dict, revisions: dict, *, model: str,
             "title": _plain(raw_topic.get("title"), 100) or f"论点 {len(topics) + 1}",
             "summary": _plain(raw_topic.get("summary"), 500),
             "low_value": bool(raw_topic.get("low_value")),
+            "candidate_ids": list(dict.fromkeys(
+                str(item) for item in (raw_topic.get("candidate_ids") or []) if item)),
             "_explicit_turn_ids": explicit_turns,
             "turn_ids": topic_turns, "claim_ids": topic_claims, "page_ids": topic_pages,
             "ranges": topic_ranges,
@@ -493,77 +664,26 @@ def _sanitize_map(raw: dict, evidence: dict, revisions: dict, *, model: str,
     if not topics:
         raise ValueError("一级议题去重后没有可用的逐字稿依据")
 
-    # 确定性兜底只吸收很短的漏挂片段。过去会把十几分钟未知内容整段塞给最近议题，造成
-    # “标题只描述末尾几句话、父节点却吞掉半场会议”的假覆盖；长缺口现在诚实留在时间轴。
-    covered_turns = {turn_id for topic in topics for turn_id in topic["turn_ids"]}
-    gap_groups: list[list[dict]] = []
-    previous_uncovered = False
-    for turn in source_turns:
-        if turn["id"] in covered_turns:
-            previous_uncovered = False
-            continue
-        if not previous_uncovered:
-            gap_groups.append([])
-        gap_groups[-1].append(turn)
-        previous_uncovered = True
-
-    def gap_distance(topic: dict, start: float, end: float) -> float:
-        distance = float("inf")
-        for range_start, range_end in topic["ranges"]:
-            if start <= range_end and range_start <= end:
-                return 0.0
-            distance = min(distance, abs(start - range_end), abs(range_start - end))
-        return distance
-
-    for group in gap_groups:
-        group_start = float(group[0].get("start", 0))
-        group_end = float(group[-1].get("end", 0))
-        spoken_seconds = sum(max(0.0, float(turn.get("end", 0)) - float(turn.get("start", 0)))
-                             for turn in group)
-        if len(group) > 3 or spoken_seconds > 45.0 or group_end - group_start > 120.0:
-            continue
-        target = min(topics,
-                     key=lambda topic: gap_distance(topic, group_start, group_end))
-        target["turn_ids"] = list(dict.fromkeys(
-            target["turn_ids"] + [turn["id"] for turn in group]))
-        target["ranges"] = _merge_ranges(
-            target["ranges"]
-            + [[float(turn.get("start", 0)), float(turn.get("end", 0))] for turn in group])
-        target["start"] = target["ranges"][0][0]
-        target["end"] = target["ranges"][-1][1]
-
-    # coverage 只按真正持有的逐字稿轮次区间计算；展示 ranges 为可读性会合并短间隙，
-    # 不能拿来计算语义覆盖，否则密集会议会把未归纳的空隙也算成已覆盖。
-    final_covered_turns = {turn_id for topic in topics for turn_id in topic["turn_ids"]}
-    union_ranges = _merge_ranges(
-        [[turn_by_id[item]["start"], turn_by_id[item]["end"]]
-         for item in final_covered_turns], gap=0.0)
-    covered_seconds = sum(end - start for start, end in union_ranges)
-    meeting_start = min((float(turn.get("start", 0)) for turn in source_turns), default=0.0)
-    meeting_end = max((float(turn.get("end", 0)) for turn in source_turns), default=0.0)
-    duration = meeting_end - meeting_start
-    coverage = round(min(1.0, covered_seconds / duration), 4) if duration > 0 else 0.0
-    turn_coverage = round(len(final_covered_turns) / len(source_turns), 4) if source_turns else 0.0
+    navigation_segments, navigation_stats = _apply_navigation(
+        topics, summaries or [], source_turns)
     return {
         "schema": SCHEMA,
         "state": "ready",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "revisions": revisions,
         "generation": {"model": model,
-                       "strategy": ("map-reduce/local-candidates-fallback-v2"
+                       "strategy": ("map-reduce/local-candidates-fallback-v3"
                                     if raw.get("_deterministic_fallback") else
-                                    "map-reduce/compact-recovery-v1"
+                                    "map-reduce/compact-recovery-v2"
                                     if raw.get("_compact_recovery") else "map-reduce/v1"),
                        "chunk_seconds": chunk_seconds, "window_count": window_count},
         "meeting_summary": _plain(raw.get("meeting_summary"), 600),
         "topics": topics,
+        "navigation_segments": navigation_segments,
         "stats": {"topics": len(topics),
                   "children": sum(len(topic["children"]) for topic in topics),
-                  "coverage": coverage,
-                  "turn_coverage": turn_coverage,
-                  "unassigned_turns": len(source_turns) - len(final_covered_turns),
                   "overlap_turns_removed": overlap_turns_removed,
-                  "candidate_turns_recovered": int(raw.get("_candidate_turns_recovered") or 0)},
+                  **navigation_stats},
     }
 
 
@@ -605,6 +725,7 @@ def generate_topic_map(mdir: Path, *, llm: Callable[[str, int], object] | None =
         and len(checkpoint.get("summaries", [])) <= len(windows)
     )
     summaries = list(checkpoint.get("summaries", [])) if checkpoint_valid else []
+    _annotate_candidates(summaries)
     if summaries:
         print(f"[meta] Topic Map 复用 {len(summaries)}/{len(windows)} 个局部归纳", flush=True)
     for index, window in enumerate(windows[len(summaries):], len(summaries) + 1):
@@ -643,6 +764,7 @@ def generate_topic_map(mdir: Path, *, llm: Callable[[str, int], object] | None =
                       "本窗按未覆盖处理", flush=True)
                 chunk_result = {"summary": "", "candidate_topics": []}
         summaries.append(chunk_result)
+        _annotate_candidates(summaries)
         checkpoint_value = {
             "schema": "meeting-topic-map-work/v1", "revisions": revisions,
             "model": model, "chunk_seconds": chunk_seconds, "summaries": summaries,
@@ -697,9 +819,9 @@ def generate_topic_map(mdir: Path, *, llm: Callable[[str, int], object] | None =
                 print("[warn] Topic Map 全场归并重试仍无合法 JSON，"
                       "改用局部候选确定性组装", flush=True)
                 raw = _fallback_reduce(summaries)
-    raw = _expand_candidate_refs(raw, summaries)
     result = _sanitize_map(raw, evidence, revisions, model=model,
-                           window_count=len(windows), chunk_seconds=chunk_seconds)
+                           window_count=len(windows), chunk_seconds=chunk_seconds,
+                           summaries=summaries)
     path = mdir / "meeting.topic-map.json"
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding="utf-8")

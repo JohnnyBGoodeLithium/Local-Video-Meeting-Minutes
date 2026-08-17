@@ -143,7 +143,7 @@ Web 只在 sidecar 的逐字稿和纪要 revision 与当前文件一致时展示
     ├── transcript.md       # 带可读时间码的完整逐字稿
     ├── transcript.json     # 结构化完整逐字稿
     ├── evidence.json       # canonical 证据关系
-    ├── topic-map.json      # meeting-topic-map/v2 整场语义脉络（v1 旧图仍可消费）
+    ├── topic-map.json      # meeting-topic-map/v3 整场语义脉络（v1/v2 旧图仍可消费）
     ├── minutes.{language}.md
     ├── topic-map.{language}.json
     ├── visuals.{language}.json # 屏幕页号、标题和短摘要；不复制完整 VL
@@ -156,7 +156,7 @@ Web 只在 sidecar 的逐字稿和纪要 revision 与当前文件一致时展示
         └── video.mp4       # --media video：H.264 720p/10fps 分享版
 ```
 
-Viewer 左侧常驻媒体/截图内容舞台、时间轴和完整逐字稿，中间只保留与在线工作台一致的三个入口：“会议脉络 / 会议纪要 / 屏幕内容”；右侧展示原始证据。冻结的 `meeting-topic-map/v2`（兼容 v1 旧图）通过质量门槛（`ready` 且 3–8 个一级议题）时默认打开会议脉络，否则安全回退会议纪要。v2 的 `stats.coverage` 按一级议题真正持有的原始 turn 区间计算，并补充 `turn_coverage`、`unassigned_turns` 与 `overlap_turns_removed`；一级议题引用互斥，长未知区间显示为灰色缺口，不再错误延长最近议题。topic 级 `low_value` 只表示模型明确判断的“过渡与杂项”。脉络首屏只展示一级议题，选择分支才展开子节点；选择节点只建立横跨时间范围、逐字稿、结论和屏幕的 Focus，不自动播放，只有显式时间入口才 seek。Viewer 时间轴与在线端同为“Topic 车道 + 说话人像素桶节奏条 + 人物图例 + 可展开逐人车道”，未绑定说话人灰斜纹沉底（离线不可绑定），逐字稿长轮次同样分块。无视频时，截图内容舞台会随音频播放或时间选择切换。“屏幕内容”按缩略图、标题、状态和完整 VL 解读浏览。必须解压整个 ZIP 后再打开，不能只在压缩软件里预览单个 HTML。
+Viewer 左侧常驻媒体/截图内容舞台、时间轴和完整逐字稿，中间只保留与在线工作台一致的三个入口：“会议脉络 / 会议纪要 / 屏幕内容”；右侧展示原始证据。冻结的 `meeting-topic-map/v3`（兼容 v1/v2 旧图）通过质量门槛（`ready` 且 3–8 个一级议题）时默认打开会议脉络，否则安全回退会议纪要。v3 中 `turn_ids` / `evidence_ranges` 是代表论据，供审计和 RAG 回溯；`navigation_turn_ids` / `ranges` 是完整浏览范围，供时间轴、Focus 和播放器定位；顶层 `navigation_segments` 显式保留 `topic`、`transition`、`unclassified` 三类整场序列。`stats.coverage` 是归入业务议题的轮次比例，静音不再拉低该值，实际发言时间比例另见 `time_coverage`。Viewer 与在线端都以灰色斜纹显示过渡/等待、以琥珀色显示尚未分类，绝不把未知内容延长到最近议题。脉络首屏只展示一级议题，选择分支才展开子节点；选择节点只建立横跨时间范围、逐字稿、结论和屏幕的 Focus，不自动播放，只有显式时间入口才 seek。Viewer 时间轴与在线端同为“Topic 车道 + 说话人像素桶节奏条 + 人物图例 + 可展开逐人车道”，未绑定说话人灰斜纹沉底（离线不可绑定），逐字稿长轮次同样分块。无视频时，截图内容舞台会随音频播放或时间选择切换。“屏幕内容”按缩略图、标题、状态和完整 VL 解读浏览。必须解压整个 ZIP 后再打开，不能只在压缩软件里预览单个 HTML。
 
 导出不再生成 `views.json`；受众/深度重排并未产生新事实，却会让收件人在阅读前先理解模式。如后续需要“管理层版”，应当在导出时明确生成一份独立成品，而不是在离线 Viewer 中平铺四个重排入口。RAG 的 `minutes_section` 只取 Viewer 同款常规纪要，逐页事实由独立的 claim/slide 记录保留，避免重复收录旧纪要中的逐页生成过程或 reasoning 污染。旧会议没有有效 evidence marker 时，包仍包含完整逐字稿、媒体与纪要，但 `manifest.evidence.state=partial`，Viewer 显式提醒“结论不可逐条核验”，不会把 `claims=0` 伪装成完整导出。导出过程只读会议目录，不会为方便打包而重写 `minutes.evidence.json`。
 

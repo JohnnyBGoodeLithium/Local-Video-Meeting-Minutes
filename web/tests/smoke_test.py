@@ -134,7 +134,7 @@ check("时间码跳转只滚动内容面板，不带动整页丢失播放器",
 check("在线屏幕舞台支持放大、缩放和相邻屏幕键盘导航",
       b'id="screen-preview-mask"' in page and b'openScreenPreview' in app_js
       and b'navigateScreenPreview' in app_js and b'SCREEN_PREVIEW_ZOOMS' in app_js
-      and b'20260817p46' in page)
+      and b'20260817p47' in page)
 check("英文会议脉络同步本地化时间轴悬浮层与 Focus 辅助文案",
       b'"Meeting overview"' in app_js and b'"Semantic focus"' in app_js
       and b'structured nodes' in app_js and b'occurrences' in app_js
@@ -183,9 +183,12 @@ check("bundle 提供逻辑页、连续视觉片段和语义章节三层结构",
       and all(visual.get("description_html")
               for visual in j.get("structure", {}).get("visuals", [])))
 check("bundle 提供整场语义 Topic Map，而不是按截图生成节点",
-      j.get("topic_map", {}).get("schema") == "meeting-topic-map/v2"
+      j.get("topic_map", {}).get("schema") == "meeting-topic-map/v3"
       and j.get("topic_map", {}).get("state") == "ready"
       and len(j.get("topic_map", {}).get("topics", [])) == 3
+      and j.get("topic_map", {}).get("navigation_segments")
+      and all("navigation_turn_ids" in topic and "evidence_ranges" in topic
+              for topic in j.get("topic_map", {}).get("topics", []))
       and all(len(topic.get("children", [])) == 2
               for topic in j.get("topic_map", {}).get("topics", []))
       and len(j.get("topic_map", {}).get("topics", []))
@@ -425,7 +428,8 @@ check("viewer 为无外链、自包含且可浏览逐字稿/媒体/脉络/屏幕
       and "http://" not in viewer and "https://" not in viewer
       and 'id="transcript"' in viewer and 'id="scrub"' in viewer
       and "会议脉络" in viewer and "屏幕内容" in viewer
-      and "candidatePanel" in viewer and 'id="language-switch"' in viewer
+      and "candidatePanel" in viewer and "navigation_segments" in viewer
+      and 'id="language-switch"' in viewer
       and "minutes_languages" in viewer)
 check("MeetingPack 携带已生成双语纪要并可离线切换",
       "assets/minutes.en.md" in names and "assets/minutes.zh-CN.md" in names

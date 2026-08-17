@@ -56,6 +56,7 @@ with tempfile.TemporaryDirectory(prefix="meeting-topic-map-") as tmp:
             }]}
         return {"meeting_summary": "围绕问题、方案和执行推进。", "topics": [
             {"title": "问题甲", "summary": "跨两个时间段讨论并形成结论。",
+             "candidate_ids": ["W001C01", "W002C01"],
              "turn_ids": ["T000001", "T000003", "T999999"],
              "claim_ids": ["C00001"], "page_ids": [], "children": [
                  {"type": "argument", "title": "问题背景", "summary": "提出问题。",
@@ -64,6 +65,7 @@ with tempfile.TemporaryDirectory(prefix="meeting-topic-map-") as tmp:
                   "turn_ids": ["T000003"], "claim_ids": ["C00001"], "page_ids": []},
              ]},
             {"title": "后续执行", "summary": "安排动作。", "turn_ids": ["T000004"],
+             "candidate_ids": ["W003C01"],
              "claim_ids": ["C00002"], "page_ids": [], "children": [
                  {"type": "action", "title": "执行安排", "summary": "落实动作。",
                   "turn_ids": ["T000004"], "claim_ids": ["C00002"], "page_ids": []},
@@ -74,14 +76,19 @@ with tempfile.TemporaryDirectory(prefix="meeting-topic-map-") as tmp:
         mdir, llm=fake_llm, model="synthetic-model", chunk_seconds=300)
     assert path.is_file() and result["schema"] == topic_map.SCHEMA
     assert len(result["topics"]) == 2
-    # T000002 未被模型挂接,确定性兜底按时间邻接挂到最近的论点一,只扩展 turn_ids/ranges。
-    assert result["topics"][0]["turn_ids"] == ["T000001", "T000003", "T000002"]
+    # 代表论据保持精简；局部候选吸收关系只扩展导航，不污染可审计的 turn_ids。
+    assert result["topics"][0]["turn_ids"] == ["T000001", "T000003"]
+    assert result["topics"][0]["navigation_turn_ids"] == [
+        "T000001", "T000002", "T000003"]
     assert result["topics"][0]["ranges"] == [[0.0, 20.0], [120.0, 150.0], [600.0, 630.0]]
     assert result["topics"][0]["children"][1]["type"] == "decision"
     assert result["topics"][0]["low_value"] is False
     assert result["generation"]["window_count"] >= 2
-    # coverage = ranges 并集(110s) ÷ 会议时长(0–930s)。
-    assert abs(result["stats"]["coverage"] - 110 / 930) < 1e-3
+    assert result["stats"]["coverage"] == 1.0
+    assert abs(result["stats"]["time_coverage"] - 110 / 930) < 1e-3
+    assert result["stats"]["navigation_coverage"] == 1.0
+    assert result["stats"]["evidence_turn_coverage"] == 0.75
+    assert result["stats"]["candidate_turns_recovered"] == 1
     assert "uncovered_turn_ids" in calls[0]
     assert "low_value" in calls[-1]
     assert topic_map.load_current_topic_map(mdir)[0] == "ready"
@@ -168,33 +175,33 @@ with tempfile.TemporaryDirectory(prefix="meeting-topic-map-low-value-") as tmp:
 
     def sparse_reduce_llm(prompt: str, _max_tokens: int):
         if "meeting-topic-reduce-input/v1" not in prompt:
-            ids = list(dict.fromkeys(__import__("re").findall(r"T\d{6}", prompt)))
             return {"summary": "虚构窗口", "candidate_topics": [{
-                "title": "虚构候选", "summary": "局部推进", "turn_ids": ids,
+                "title": "虚构候选", "summary": "业务开场与收口",
+                "turn_ids": ["T000001", "T000004"],
                 "claim_ids": [], "page_ids": [],
-            }]}
-        # 模型只挂接 T000001 与 T000003;T000002/T000004 两段未覆盖区间由代码兜底按时间邻接分配。
-        return {"meeting_summary": "虚构推进。", "topics": [
-            {"title": "虚构议题", "summary": "开场与收口。", "turn_ids": ["T000001"],
-             "claim_ids": [], "page_ids": [], "children": []},
-            {"title": "过渡与杂项", "summary": "弱价值过渡。", "low_value": True,
-             "turn_ids": ["T000003"], "claim_ids": [], "page_ids": [], "children": []},
-        ]}
+            }], "uncovered_turn_ids": ["T000002", "T000003"]}
+        return {"meeting_summary": "虚构推进。", "topics": [{
+            "title": "虚构议题", "summary": "开场与收口。",
+            "candidate_ids": ["W001C01"], "turn_ids": ["T000001", "T000004"],
+            "claim_ids": [], "page_ids": [], "children": [],
+        }]}
 
     _, covered = topic_map.generate_topic_map(
         mdir, llm=sparse_reduce_llm, model="synthetic-coverage", chunk_seconds=900)
-    first, second = covered["topics"]
-    # T000002(100–110) 距论点一更近;T000004(600–610) 距"过渡与杂项"(400–410)更近。
-    assert first["turn_ids"] == ["T000001", "T000002"]
-    assert first["ranges"] == [[0.0, 10.0], [100.0, 110.0]]
+    first = covered["topics"][0]
+    assert first["turn_ids"] == ["T000001", "T000004"]
+    assert first["navigation_turn_ids"] == ["T000001", "T000004"]
+    assert first["ranges"] == [[0.0, 10.0], [600.0, 610.0]]
     assert first["summary"] == "开场与收口。"  # 兜底不改写模型文本
     assert first["low_value"] is False
-    assert second["turn_ids"] == ["T000003", "T000004"]
-    assert second["ranges"] == [[400.0, 410.0], [600.0, 610.0]]
-    assert second["low_value"] is True  # low_value 标记透传到输出 topic
-    # coverage = 并集 40s ÷ 610s。
-    assert abs(covered["stats"]["coverage"] - 40 / 610) < 1e-3
-    assert covered["stats"]["topics"] == 2
+    segment_kinds = [segment["kind"] for segment in covered["navigation_segments"]]
+    assert segment_kinds[0] == "topic" and segment_kinds[-1] == "topic"
+    assert all(kind == "transition" for kind in segment_kinds[1:-1])
+    assert covered["stats"]["coverage"] == 0.5
+    assert covered["stats"]["navigation_coverage"] == 1.0
+    assert covered["stats"]["transition_turns"] == 2
+    assert covered["stats"]["unassigned_turns"] == 0
+    assert covered["stats"]["topics"] == 1
 
 with tempfile.TemporaryDirectory(prefix="meeting-topic-map-v1-") as tmp:
     mdir = Path(tmp) / "synthetic"
@@ -308,7 +315,7 @@ with tempfile.TemporaryDirectory(prefix="meeting-topic-reduce-fallback-") as tmp
         mdir, llm=invalid_reduce_with_valid_candidates,
         model="synthetic-reduce-fallback", chunk_seconds=300)
     assert fallback["stats"]["topics"] == 3
-    assert fallback["generation"]["strategy"] == "map-reduce/local-candidates-fallback-v2"
+    assert fallback["generation"]["strategy"] == "map-reduce/local-candidates-fallback-v3"
     assert {turn_id for topic in fallback["topics"] for turn_id in topic["turn_ids"]} == {
         "T000001", "T000002", "T000003"}
     assert not (mdir / ".topic-map-work.json").exists()
@@ -358,7 +365,7 @@ assert claim_deduped["topics"][0]["turn_ids"] == ["T000001"]
 assert "T000002" in claim_deduped["topics"][1]["turn_ids"]
 assert "T000002" not in claim_deduped["topics"][0]["turn_ids"]
 
-# reduce 只保留代表 turn 时，继承已匹配局部候选的完整引用；无共享锚点的候选不猜归属。
+# v2 兼容辅助函数仍可继承局部引用；v3 正常生成不再调用它污染代表论据。
 representative_raw = {"meeting_summary": "虚构代表引用。", "topics": [
     {"title": "议题甲", "summary": "前段。", "turn_ids": ["T000001"],
      "claim_ids": [], "page_ids": [], "children": []},
@@ -378,6 +385,32 @@ assert expanded["topics"][1]["turn_ids"] == ["T000005", "T000006"]
 assert expanded["_candidate_turns_recovered"] == 3
 assert "T000009" not in {tid for topic in expanded["topics"] for tid in topic["turn_ids"]}
 
+# v3 通过 candidate_ids 建立全量导航；未被候选吸收的轮次必须显式标为未知。
+v3_summaries = [{"candidate_topics": [
+    {"candidate_id": "W001C01", "title": "候选甲",
+     "turn_ids": ["T000001", "T000002", "T000003"],
+     "claim_ids": [], "page_ids": []},
+    {"candidate_id": "W001C02", "title": "候选乙",
+     "turn_ids": ["T000005", "T000006"],
+     "claim_ids": [], "page_ids": []},
+]}]
+v3_raw = {"meeting_summary": "虚构导航。", "topics": [
+    {"title": "议题甲", "summary": "前段。", "candidate_ids": ["W001C01"],
+     "turn_ids": ["T000001"], "claim_ids": [], "page_ids": [], "children": []},
+    {"title": "议题乙", "summary": "后段。", "candidate_ids": ["W001C02"],
+     "turn_ids": ["T000005"], "claim_ids": [], "page_ids": [], "children": []},
+]}
+v3_navigation = topic_map._sanitize_map(
+    v3_raw, synthetic_evidence, {}, model="synthetic-v3",
+    window_count=1, chunk_seconds=900, summaries=v3_summaries)
+assert v3_navigation["topics"][0]["turn_ids"] == ["T000001"]
+assert v3_navigation["topics"][0]["navigation_turn_ids"] == [
+    "T000001", "T000002", "T000003"]
+assert v3_navigation["stats"]["candidate_turns_recovered"] == 3
+assert v3_navigation["stats"]["unassigned_turns"] == 5
+assert any(segment["kind"] == "unclassified"
+           for segment in v3_navigation["navigation_segments"])
+
 gap_raw = {"meeting_summary": "虚构稀疏覆盖。", "topics": [
     {"title": "锚点一", "summary": "开场。", "turn_ids": ["T000001"],
      "claim_ids": [], "page_ids": [], "children": []},
@@ -393,6 +426,5 @@ assert honest_gaps["stats"]["unassigned_turns"] == 7
 assert honest_gaps["stats"]["turn_coverage"] == 0.3
 assert "T000002" not in {tid for topic in honest_gaps["topics"] for tid in topic["turn_ids"]}
 
-print("Meeting Topic Map: map-reduce, evidence filtering, revisions, JSON repair, "
-      "unrepairable chunk fallback, reduce retry/fallback, full coverage, low_value, "
-      "v1 compat passed")
+print("Meeting Topic Map v3: evidence/navigation split, candidate mapping, revisions, "
+      "JSON repair, reduce fallback, transition/unclassified navigation and v1 compat passed")
