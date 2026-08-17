@@ -272,5 +272,38 @@ with tempfile.TemporaryDirectory(prefix="meeting-topic-reduce-retry-") as tmp:
     assert len(reduce_calls) == 2
     assert retried["stats"]["topics"] == 1
 
+with tempfile.TemporaryDirectory(prefix="meeting-topic-reduce-fallback-") as tmp:
+    mdir = Path(tmp) / "synthetic"
+    mdir.mkdir()
+    (mdir / "transcript.spk.json").write_text(json.dumps([
+        {"speaker": "Alex", "start": 0, "end": 10, "text": "虚构议题甲。"},
+        {"speaker": "Bo", "start": 20, "end": 30, "text": "虚构议题乙。"},
+        {"speaker": "Alex", "start": 40, "end": 50, "text": "虚构议题丙。"},
+    ], ensure_ascii=False), encoding="utf-8")
+    (mdir / "minutes.md").write_text(
+        "# 会议纪要\n\n- 虚构结论。 <!-- mm:evidence kind=decision status=confirmed "
+        "confidence=high turns=T000001 -->\n", encoding="utf-8")
+    (mdir / "slides.json").write_text("[]", encoding="utf-8")
+
+    def invalid_reduce_with_valid_candidates(prompt: str, _max_tokens: int):
+        if "meeting-topic-reduce-input/v1" in prompt or "严格的 JSON 格式修复器" in prompt:
+            return 'not-json'
+        ids = list(dict.fromkeys(__import__("re").findall(r"T\d{6}", prompt)))
+        return {"summary": "三个虚构议题。", "candidate_topics": [
+            {"title": f"虚构议题{index}", "summary": f"推进虚构内容{index}。",
+             "turn_ids": [turn_id], "claim_ids": [], "page_ids": []}
+            for index, turn_id in enumerate(ids, 1)
+        ]}
+
+    _, fallback = topic_map.generate_topic_map(
+        mdir, llm=invalid_reduce_with_valid_candidates,
+        model="synthetic-reduce-fallback", chunk_seconds=300)
+    assert fallback["stats"]["topics"] == 3
+    assert fallback["generation"]["strategy"] == "map-reduce/local-candidates-fallback-v1"
+    assert {turn_id for topic in fallback["topics"] for turn_id in topic["turn_ids"]} == {
+        "T000001", "T000002", "T000003"}
+    assert not (mdir / ".topic-map-work.json").exists()
+
 print("Meeting Topic Map: map-reduce, evidence filtering, revisions, JSON repair, "
-      "unrepairable chunk fallback, reduce retry, full coverage, low_value, v1 compat passed")
+      "unrepairable chunk fallback, reduce retry/fallback, full coverage, low_value, "
+      "v1 compat passed")

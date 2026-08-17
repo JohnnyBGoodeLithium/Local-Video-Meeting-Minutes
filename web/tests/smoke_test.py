@@ -123,13 +123,18 @@ check("在线端以合格会议脉络为第一眼，并共享时间聚焦状态"
       b'requestedViewExplicit' in app_js and b'setTopicFocus' in app_js
       and b'id="focus-summary"' in page
       and b'updateFocusPresentation' in app_js and b'content-stage' in app_js)
+check("纪要依据显示时间并直接跳转，后台脉络完成后自动刷新当前会议",
+      "跳到第一条原文依据".encode() in app_js
+      and b'showMinutesEvidence(claimId, true)' in app_js
+      and b'refreshedArtifactJobs' in app_js
+      and b'bundleRefreshInFlight' in app_js)
 check("时间码跳转只滚动内容面板，不带动整页丢失播放器",
       b'function scrollInside' in app_js and b'function scrollTranscriptTurn' in app_js
       and b'scrollIntoView' not in app_js)
 check("在线屏幕舞台支持放大、缩放和相邻屏幕键盘导航",
       b'id="screen-preview-mask"' in page and b'openScreenPreview' in app_js
       and b'navigateScreenPreview' in app_js and b'SCREEN_PREVIEW_ZOOMS' in app_js
-      and b'20260814p44' in page)
+      and b'20260817p45' in page)
 check("英文会议脉络同步本地化时间轴悬浮层与 Focus 辅助文案",
       b'"Meeting overview"' in app_js and b'"Semantic focus"' in app_js
       and b'structured nodes' in app_js and b'occurrences' in app_js

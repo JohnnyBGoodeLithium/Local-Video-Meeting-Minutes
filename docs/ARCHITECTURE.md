@@ -118,6 +118,8 @@ sidecar 保存 T ID、源语言、译文、数字核对警告、逐字稿 revisi
 
 前端时间线用 Topic 的一个或多个 ranges 作为上层、Segment 作为下层；右侧“会议脉络”展示“整场会议—一级议题—背景/观点/约束/决定/行动/风险/待确认”的思维导图。通过质量门槛（`ready` 且 3–8 个一级议题）的 Topic Map 是 Web 与 MeetingPack 的默认首屏；首屏只画根节点与一级议题，选择某一分支后才展开其子节点。节点点击建立共享语义 Focus，但不改变播放时间；时间轴、逐字稿时间码和显式范围按钮负责 seek，并联动当前屏幕、逐字稿和结论高亮。Topic 和屏幕页面都只是 canonical evidence 的索引与重组；点击结论仍进入统一证据栏，VL 描述不能单独证明会议决定。Topic Map 缺失或不合格时回退正式会议纪要，不把视觉 Segment 扩写成几十个假章节。
 
+Topic Map reduce 连续出现非 JSON 时依次尝试语法修复与完整归并重试；两者都失败后，`local-candidates-fallback/v1` 只把已通过局部窗口归纳的候选标题、摘要和 T/P/C 引用确定性组装并继续走 `_sanitize_map`。它不重新解释逐字稿、不伪造主题，也不绕过 Web/Viewer 的 3–8 主题质量门槛。前端轮询 upload/regen/topic-map 作业，当前会议的派生资产完成后自动重新读取 bundle，避免文件已经生成但页面仍停留旧空态。
+
 `slide_pages.py` 的变化检测默认排除画面右侧 15% 的会议 UI/参会人栏，再计算时序活动掩码、页面相似度和代表帧。用于判页的低分辨率 RGB 帧会先抑制稀疏的高饱和红框/激光点；页面距离同时比较全页稳定内容和顶部 22% 标题区，所以同一表格的局部标注不切页，大标题改变仍切页。RGB 逐帧流式转灰度，不使整段三通道帧常驻内存。输出截图仍从原视频抓取完整画面；参数 `--ignore-right-pct 0` 可关闭右栏排除。
 
 Web 与 MeetingPack 的常规纪要通过 `minutes_reading_markdown()` 从 canonical Markdown 做只读投影，在第一个“分页详情/逐页详情”章节前截断。投影层会从 claims 重新计算 `formal_action`，再重建“可核验待办”表：只有来自整场“待办事项/Action Items”章节、带有效逐字稿 T ID、且状态不是 informational 的行动项进入正式表格。逐页详情里被模型误标成 action 的设备调试、到会确认、议程和汇报事实仍保留为 claim，但不进入待办统计、行动 RAG 加权或章节行动组。旧 sidecar 也在读取时重投影，不要求重跑模型。原模型待办表中没有绑定来源的行不会删除，而是进入 `action_candidates`，由在线端和离线 Viewer 默认收起并标为“待核实候选”；它们不能用于正式任务统计，后续可通过证据绑定晋级。模型生成的“议题板块”不再重复出现在常规纪要，其整场结构由带 T/P/C linkage 的独立 Topic Map 负责。原始 `minutes.md` 不被改写，逐页事实和旧模型文本继续进入 evidence、Visual 和 RAG，便于审计与再处理。MeetingPack 的 `assets/minutes.md` 是同一常规阅读投影，机器侧完整事实以 `assets/evidence.json` 和 `assets/rag/records.jsonl` 为准。

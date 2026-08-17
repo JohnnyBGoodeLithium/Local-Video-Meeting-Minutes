@@ -92,6 +92,9 @@ const state = {
   },
   activeJobs: [],
   jobPriorityAvailable: false,
+  bundleLoadedAt: 0,
+  refreshedArtifactJobs: new Set(),
+  bundleRefreshInFlight: false,
   exportPreflight: null,
   storage: null,
   progressiveRefreshes: new Set(),
@@ -750,6 +753,7 @@ async function loadMeeting(slug) {
   renderMeetingList();
   const b = await jget(`/api/meetings/${encodeURIComponent(slug)}/bundle`);
   state.bundle = b;
+  state.bundleLoadedAt = Date.now() / 1000;
   const savedTarget = state.workspace.translationTargets[slug];
   state.translationTarget = TRANSLATION_TARGETS.has(savedTarget)
     ? savedTarget : defaultTranslationTarget();
@@ -2333,9 +2337,15 @@ function renderMinutes() {
     heading.dataset.readingHeading = "1";
   });
   $$('a[href^="#mm-"]', box).forEach(link => {
+    const claimId = link.getAttribute("href").slice(4);
+    const claim = (state.bundle?.evidence?.claims || []).find(item => item.id === claimId);
+    if (claim?.start != null) {
+      link.textContent = `${isEnglishUi() ? "Evidence" : "依据"} · ${fmt(claim.start)}`;
+      link.title = isEnglishUi() ? "Jump to the first supporting excerpt" : "跳到第一条原文依据";
+    }
     link.onclick = ev => {
       ev.preventDefault();
-      showMinutesEvidence(link.getAttribute("href").slice(4));
+      showMinutesEvidence(claimId, true);
     };
   });
   updateFocusedClaims();
@@ -2691,7 +2701,7 @@ function setReviewMode(mode) {
   if (state.viewMode === "quality") renderQualityReview();
 }
 
-function showMinutesEvidence(claimId) {
+function showMinutesEvidence(claimId, jumpToFirst = false) {
   const claim = (state.bundle?.evidence?.claims || []).find(c => c.id === claimId);
   if (!claim) return;
   expandEvidenceBilingual(claim.turn_indexes || []);
@@ -2722,6 +2732,7 @@ function showMinutesEvidence(claimId) {
   });
   $$(".evidence-page-seek", $("#evidence-body")).forEach(btn =>
     btn.onclick = () => seek(Number(btn.dataset.time || 0)));
+  if (jumpToFirst && turns.length) seek(Number(turns[0].t.start || 0));
 }
 
 /* ---------- 会议结论审计 ---------- */
@@ -3669,6 +3680,18 @@ async function pollJobs() {
     const d = await jget("/api/jobs");
     state.jobPriorityAvailable = d.capabilities?.job_priority === true;
     renderJobs(d.jobs);
+    const completed = d.jobs.filter(job => job.meeting === state.slug
+      && ["upload", "topic_map", "regen"].includes(job.kind)
+      && job.status === "done"
+      && Number(job.finished || 0) >= Number(state.bundleLoadedAt || 0)
+      && !state.refreshedArtifactJobs.has(job.id));
+    completed.forEach(job => state.refreshedArtifactJobs.add(job.id));
+    if (completed.length && state.slug && !state.bundleRefreshInFlight) {
+      state.bundleRefreshInFlight = true;
+      if (state.bundle) rememberReadingPosition();
+      try { await loadMeeting(state.slug); }
+      finally { state.bundleRefreshInFlight = false; }
+    }
   } catch (e) { /* 忽略 */ }
 }
 

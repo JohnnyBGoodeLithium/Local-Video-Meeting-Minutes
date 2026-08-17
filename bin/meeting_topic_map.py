@@ -155,6 +155,81 @@ def _repair_model_json(call: Callable[[str, int], object], value, *,
     return _model_json(call(repair_prompt, max_tokens))
 
 
+def _fallback_reduce(summaries: list[dict]) -> dict:
+    """最终归并连续输出坏 JSON 时，直接投影局部候选，避免整场脉络消失。
+
+    这条路径不重新解释逐字稿：标题、摘要和 T/P/C 引用只取已经通过局部归纳的
+    candidate_topics。完全相同的标题跨窗口合并；超过八组时把余项聚到最后一组，
+    保证引用不丢。局部归纳本身不足三个主题时，结果仍交给既有质量门槛处理，
+    不为了凑数伪造主题。
+    """
+    groups: list[dict] = []
+    by_title: dict[str, dict] = {}
+
+    def extend_unique(target: list, values) -> None:
+        target.extend(value for value in (values or []) if value not in target)
+
+    for window in summaries:
+        for candidate in window.get("candidate_topics") or []:
+            if not isinstance(candidate, dict):
+                continue
+            title = _plain(candidate.get("title"), 100)
+            if not title:
+                continue
+            key = re.sub(r"[^\w\u3400-\u9fff]+", "", title).casefold()
+            group = by_title.get(key)
+            if group is None:
+                group = {
+                    "title": title,
+                    "summary_parts": [],
+                    "turn_ids": [], "claim_ids": [], "page_ids": [],
+                    "children": [],
+                }
+                by_title[key] = group
+                groups.append(group)
+            summary = _plain(candidate.get("summary"), 360)
+            if summary and summary not in group["summary_parts"]:
+                group["summary_parts"].append(summary)
+            for field in ("turn_ids", "claim_ids", "page_ids"):
+                extend_unique(group[field], candidate.get(field))
+            group["children"].append({
+                "type": "discussion", "title": title,
+                "summary": summary,
+                "turn_ids": list(candidate.get("turn_ids") or []),
+                "claim_ids": list(candidate.get("claim_ids") or []),
+                "page_ids": list(candidate.get("page_ids") or []),
+            })
+
+    if len(groups) > 8:
+        overflow = groups[8:]
+        groups = groups[:8]
+        target = groups[-1]
+        for group in overflow:
+            extend_unique(target["summary_parts"], group["summary_parts"])
+            for field in ("turn_ids", "claim_ids", "page_ids", "children"):
+                extend_unique(target[field], group[field])
+
+    topics = []
+    for group in groups:
+        topics.append({
+            "title": group["title"],
+            "summary": " ".join(group["summary_parts"])[:500],
+            "turn_ids": group["turn_ids"],
+            "claim_ids": group["claim_ids"],
+            "page_ids": group["page_ids"],
+            "children": group["children"][:7],
+        })
+    if not topics:
+        raise ValueError("局部归纳也没有可用于兜底的候选主题")
+    meeting_summary = " ".join(
+        part for part in (_plain(item.get("summary"), 240) for item in summaries) if part)
+    return {
+        "meeting_summary": meeting_summary[:600],
+        "topics": topics,
+        "_deterministic_fallback": True,
+    }
+
+
 def _turn_windows(turns: list[dict], chunk_seconds: float, max_chars: int = 16000) -> list[list[dict]]:
     windows: list[list[dict]] = []
     current: list[dict] = []
@@ -326,7 +401,9 @@ def _sanitize_map(raw: dict, evidence: dict, revisions: dict, *, model: str,
         "state": "ready",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "revisions": revisions,
-        "generation": {"model": model, "strategy": "map-reduce/v1",
+        "generation": {"model": model,
+                       "strategy": ("map-reduce/local-candidates-fallback-v1"
+                                    if raw.get("_deterministic_fallback") else "map-reduce/v1"),
                        "chunk_seconds": chunk_seconds, "window_count": window_count},
         "meeting_summary": _plain(raw.get("meeting_summary"), 600),
         "topics": topics,
@@ -442,9 +519,15 @@ def generate_topic_map(mdir: Path, *, llm: Callable[[str, int], object] | None =
         try:
             raw = _repair_model_json(call, reduce_text, max_tokens=12000)
         except (json.JSONDecodeError, ValueError):
-            # 修复仍失败（多为输出截断）：完整重试一次归并，再失败才放弃本场。
+            # 修复仍失败（多为输出截断）：完整重试一次归并；再失败时直接投影
+            # 已有局部候选，避免整场脉络因为最终 JSON 包装失败而完全消失。
             print("[meta] Topic Map 全场归并修复仍失败，重试一次", flush=True)
-            raw = _model_json(call(final_prompt, 8000))
+            try:
+                raw = _model_json(call(final_prompt, 8000))
+            except (json.JSONDecodeError, ValueError):
+                print("[warn] Topic Map 全场归并重试仍无合法 JSON，"
+                      "改用局部候选确定性组装", flush=True)
+                raw = _fallback_reduce(summaries)
     result = _sanitize_map(raw, evidence, revisions, model=model,
                            window_count=len(windows), chunk_seconds=chunk_seconds)
     path = mdir / "meeting.topic-map.json"
