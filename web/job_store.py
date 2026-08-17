@@ -12,7 +12,7 @@ import uuid
 from pathlib import Path
 
 from deps import (BANK_LOCK, DATA_ROOT, DRY_RUN, DRY_RUN_DELAY, INBOX, JOBS_DIR,
-                  ROOT, _now)
+                  MEETINGS, ROOT, _now)
 from job_scheduler import SerialPriorityExecutor, default_priority
 
 EXEC = SerialPriorityExecutor()  # 重模型仍单 worker 串行，但等待任务可以重排
@@ -143,6 +143,23 @@ def _run_pipeline(job: dict):
                 except OSError as exc:
                     job["inbox_cleaned"] = False
                     job["log"].append(f"[error] 上传暂存目录清理失败: {type(exc).__name__}")
-        _set_status(job, "done" if proc.returncode == 0 else "failed",
+        succeeded = proc.returncode == 0
+        _set_status(job, "done" if succeeded else "failed",
                     finished=_now(), rc=proc.returncode,
-                    result={"dry_run": True} if DRY_RUN and proc.returncode == 0 else None)
+                    result={"dry_run": True} if DRY_RUN and succeeded else None)
+        if succeeded and not DRY_RUN and job.get("kind") in {"upload", "regen", "topic_map"}:
+            # translations 路由依赖 job_store；这里只能运行时延迟导入，避免模块循环。
+            # 自动补翻是低优先级附加作业，失败绝不能反向改坏主作业的 done 状态。
+            try:
+                from routers.translations import auto_translate_after_ready
+                mdir = MEETINGS / str(job.get("meeting") or "")
+                queued = auto_translate_after_ready(str(job.get("meeting") or ""), mdir) \
+                    if mdir.is_dir() else []
+                if queued:
+                    with BANK_LOCK:
+                        job["log"].append(f"[meta] 已排队自动翻译 {len(queued)} 项")
+                        _save_job(job)
+            except Exception as exc:
+                with BANK_LOCK:
+                    job["log"].append(f"[error] 自动翻译触发失败 ({type(exc).__name__})")
+                    _save_job(job)

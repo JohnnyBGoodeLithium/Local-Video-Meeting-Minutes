@@ -1,10 +1,11 @@
-"""逐字稿/纪要/会议脉络翻译。
+"""逐字稿/纪要/会议脉络/屏幕标题摘要翻译。
 服务 schema：meeting-transcript-translation/v1、meeting-minutes-translation/v1、
-meeting-topic-map-translation/v1。"""
+meeting-topic-map-translation/v1、meeting-visuals-translation/v1。"""
 
 from fastapi import APIRouter, HTTPException, Query
 
 import meeting_topic_map
+import meeting_generation
 import translation_service as translation
 from deps import (BANK_LOCK, DRY_RUN, assistant, _current_evidence,
                   _meeting_identity, _minutes_file, _minutes_reading_source,
@@ -35,6 +36,10 @@ def _topic_map_translation_payload(slug: str, mdir, target: str) -> dict:
     if state != "ready" or not topic_map:
         raise HTTPException(404, "没有可翻译的会议脉络")
     return translation.topic_map_translation_payload(mdir, topic_map, target=target)
+
+
+def _visuals_translation_payload(mdir, target: str) -> dict:
+    return translation.visuals_translation_payload(mdir, target=target)
 
 
 def _run_translation(job: dict, mdir, title: str, target: str) -> None:
@@ -163,6 +168,45 @@ def _run_topic_map_translation(job: dict, mdir, title: str, target: str) -> None
                         "dry_run": DRY_RUN})
 
 
+def _run_visuals_translation(job: dict, mdir, target: str) -> None:
+    if job.get("cancel_requested"):
+        return
+    target_label = translation.TARGETS[target]["label"]
+    total = len(translation.visuals_source(mdir))
+    _set_status(job, "running", started=_now(), stage=f"生成{target_label}屏幕标题",
+                progress={"done": 0, "total": total})
+
+    def cancelled() -> bool:
+        return bool(job.get("cancel_requested"))
+
+    def progress(done: int, count: int) -> None:
+        if cancelled():
+            return
+        with BANK_LOCK:
+            job["progress"] = {"done": done, "total": count}
+            job["log"] = [line for line in job.get("log", [])
+                          if not line.startswith("[meta] 屏幕翻译进度")]
+            job["log"].append(f"[meta] 屏幕翻译进度 {done}/{count}")
+            _save_job(job)
+
+    try:
+        document = translation.translate_visuals(
+            mdir, dry_run=DRY_RUN, on_progress=progress,
+            should_cancel=cancelled, target=target)
+    except translation.TranslationCancelled:
+        if job.get("status") != "cancelled":
+            _set_status(job, "cancelled", finished=_now(), rc=None)
+        return
+    except (translation.TranslationError, assistant.AssistantError):
+        job.setdefault("log", []).append("[error] 屏幕标题翻译失败")
+        _set_status(job, "failed", finished=_now(), rc=None)
+        return
+    _set_status(job, "done", finished=_now(), rc=0,
+                progress={"done": len(document.get("pages", [])), "total": total},
+                result={"target_language": target, "artifact": "visuals",
+                        "dry_run": DRY_RUN})
+
+
 @router.get("/api/meetings/{slug}/translations/transcript")
 def get_transcript_translation(
         slug: str, target: str = Query("zh-CN", pattern="^(zh-CN|en)$")):
@@ -274,3 +318,89 @@ def create_topic_map_translation(
     response = dict(job)
     EXEC.submit(_run_topic_map_translation, job, mdir, _meeting_identity(slug)["title"], target)
     return response
+
+
+@router.get("/api/meetings/{slug}/translations/visuals")
+def get_visuals_translation(
+        slug: str, target: str = Query("zh-CN", pattern="^(zh-CN|en)$")):
+    mdir = _mdir(slug)
+    return _visuals_translation_payload(mdir, target)
+
+
+@router.post("/api/meetings/{slug}/translations/visuals")
+def create_visuals_translation(
+        slug: str, target: str = Query("zh-CN", pattern="^(zh-CN|en)$"), force: bool = False):
+    mdir = _mdir(slug)
+    current = _visuals_translation_payload(mdir, target)
+    if not current.get("total"):
+        raise HTTPException(400, "没有可翻译的屏幕资料")
+    if current["state"] == "ready" and not force:
+        return {"id": None, "kind": "translation", "status": "done", "cached": True,
+                "meeting": slug, "target_language": target,
+                "translation_artifact": "visuals"}
+    existing = _active_translation(slug, target, "visuals")
+    if existing:
+        return dict(existing)
+    job = _new_job("translation", meeting=slug, target_language=target,
+                   translation_artifact="visuals", progress={"done": current.get("translated", 0),
+                                                                "total": current.get("total", 0)})
+    response = dict(job)
+    EXEC.submit(_run_visuals_translation, job, mdir, target)
+    return response
+
+
+def _active_translation(slug: str, target: str, artifact: str) -> dict | None:
+    return next((job for job in JOBS.values()
+                 if job.get("kind") == "translation" and job.get("meeting") == slug
+                 and job.get("target_language") == target
+                 and job.get("translation_artifact", "transcript") == artifact
+                 and job.get("status") in {"queued", "running"}), None)
+
+
+def auto_translate_after_ready(slug: str, mdir) -> list[str]:
+    """终稿就绪后低优先级补齐另一阅读语言；逐字稿明确不在自动范围。"""
+    minutes_path = _minutes_file(mdir)
+    if minutes_path is None or meeting_generation.document_state(mdir, True) != "ready":
+        return []
+    source, evidence = _minutes_reading_source(mdir)
+    title = _meeting_identity(slug)["title"]
+    queued = []
+    retry_states = {"missing", "stale", "context_stale", "failed", "cancelled", "partial"}
+    topic_state, topic_map = meeting_topic_map.load_current_topic_map(mdir)
+
+    # 各资产的原文语言可以不同：英文会议的 VL 解读仍可能由
+    # 本地模型输出中文。因此分别检查中/英两种阅读语言，每个 payload
+    # 自己在“原文=目标语言”时短路，只会为真正缺失的方向建 sidecar。
+    for target in ("zh-CN", "en"):
+        minutes = translation.minutes_translation_payload(
+            mdir, title, source, evidence, target=target)
+        if (minutes.get("state") in retry_states
+                and not _active_translation(slug, target, "minutes")):
+            job = _new_job("translation", meeting=slug, target_language=target,
+                           translation_artifact="minutes", auto=True,
+                           progress={"done": minutes.get("done", 0),
+                                     "total": minutes.get("total", 0)})
+            EXEC.submit(_run_minutes_translation, job, mdir, title, target)
+            queued.append(job["id"])
+
+        if topic_state == "ready" and topic_map:
+            topic_payload = translation.topic_map_translation_payload(
+                mdir, topic_map, target=target)
+            if (topic_payload.get("state") in retry_states
+                    and not _active_translation(slug, target, "topic_map")):
+                job = _new_job("translation", meeting=slug, target_language=target,
+                               translation_artifact="topic_map", auto=True,
+                               progress={"done": 0, "total": 1})
+                EXEC.submit(_run_topic_map_translation, job, mdir, title, target)
+                queued.append(job["id"])
+
+        visuals = translation.visuals_translation_payload(mdir, target=target)
+        if (visuals.get("total") and visuals.get("state") in retry_states
+                and not _active_translation(slug, target, "visuals")):
+            job = _new_job("translation", meeting=slug, target_language=target,
+                           translation_artifact="visuals", auto=True,
+                           progress={"done": visuals.get("translated", 0),
+                                     "total": visuals.get("total", 0)})
+            EXEC.submit(_run_visuals_translation, job, mdir, target)
+            queued.append(job["id"])
+    return queued

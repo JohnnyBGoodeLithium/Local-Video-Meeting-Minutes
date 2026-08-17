@@ -129,7 +129,7 @@ check("时间码跳转只滚动内容面板，不带动整页丢失播放器",
 check("在线屏幕舞台支持放大、缩放和相邻屏幕键盘导航",
       b'id="screen-preview-mask"' in page and b'openScreenPreview' in app_js
       and b'navigateScreenPreview' in app_js and b'SCREEN_PREVIEW_ZOOMS' in app_js
-      and b'20260814p43' in page)
+      and b'20260814p44' in page)
 check("英文会议脉络同步本地化时间轴悬浮层与 Focus 辅助文案",
       b'"Meeting overview"' in app_js and b'"Semantic focus"' in app_js
       and b'structured nodes' in app_js and b'occurrences' in app_js
@@ -355,6 +355,19 @@ check("会议脉络英语译文保持节点、时间与证据 linkage，不覆�
       and translated_topic.get("topics", [{}])[0].get("claim_ids") == canonical_topic["topics"][0]["claim_ids"]
       and (SMOKE / "meeting.topic-map.translation.en.json").is_file())
 
+s, _, visuals_en_before = req("GET", "/api/meetings/_smoke/translations/visuals?target=en")
+s2, _, visuals_en_job = req("POST", "/api/meetings/_smoke/translations/visuals?target=en")
+visuals_en_done = poll_job(visuals_en_job.get("id")) if visuals_en_job.get("id") else visuals_en_job
+s3, _, visuals_en = req("GET", "/api/meetings/_smoke/translations/visuals?target=en")
+translated_visuals = visuals_en.get("pages") or []
+check("屏幕标题与短摘要独立翻译，不复制完整 VL 详情",
+      s == 200 and visuals_en_before.get("state") == "missing"
+      and s2 == 200 and visuals_en_done.get("status") == "done" and s3 == 200
+      and visuals_en.get("state") == "ready" and len(translated_visuals) == 2
+      and translated_visuals[0].get("title", "").startswith("English:")
+      and set(translated_visuals[0]) == {"number", "title", "summary"}
+      and (SMOKE / "visuals.translation.en.json").is_file())
+
 # 2f. MeetingPack 默认不带媒体，解压后 viewer.html 可直接 file:// 打开
 evidence_before_export = (SMOKE / "minutes.evidence.json").read_bytes()
 s, _, preflight = req("GET", "/api/meetings/_smoke/export/preflight")
@@ -416,6 +429,10 @@ check("MeetingPack 携带结构化会议脉络译文并同步本地化脉络 UI"
       "assets/topic-map.en.json" in names and "assets/topic-map.zh-CN.json" in names
       and "topic_map_languages" in viewer and "Related conclusions and evidence" in viewer
       and "English:" in viewer)
+check("MeetingPack 携带屏幕标题/短摘要译文，Viewer 切换语言时同步替换",
+      "assets/visuals.en.json" in names and "assets/visuals.zh-CN.json" in names
+      and "visuals_languages" in viewer and "visualPages=new Map" in viewer
+      and "function pageSummary" in viewer and "English:" in viewer)
 check("Viewer 只保留三个阅读入口，合格会议脉络默认且层级最高",
       "管理层 ·" not in viewer and "执行层 ·" not in viewer
       and "{id:'topic_map',title:u('会议脉络','Meeting map'),primary:ready}" in viewer

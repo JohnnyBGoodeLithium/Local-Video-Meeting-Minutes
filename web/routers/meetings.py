@@ -12,7 +12,7 @@ import meeting_generation
 import meeting_structure
 import meeting_topic_map
 import voice_bank as vb
-from deps import (BANK_DIR, BANK_LOCK, EVALUATIONS_DIR, MEETINGS, MD, PY, ROOT,
+from deps import (BANK_DIR, BANK_LOCK, DRY_RUN, EVALUATIONS_DIR, MEETINGS, MD, PY, ROOT,
                   STORAGE_LOCK, artifact, assistant, _audio_path,
                   _clean_meeting_cache, _current_evidence, _evidence_state,
                   _meeting_identity, _meeting_storage, _mdir, _minutes_file,
@@ -140,6 +140,15 @@ def get_bundle(slug: str):
                       "phase": "ready" if minutes_html else "processing", "inferred": True}
     document_state = meeting_generation.document_state(
         mdir, bool(transcript and minutes_html))
+    if document_state == "ready" and not DRY_RUN and not any(
+            job.get("meeting") == slug and job.get("status") in {"queued", "running"}
+            for job in JOBS.values()):
+        # 旧会议在首次阅读时惰性补翻；异常不能影响 bundle 阅读。
+        try:
+            from routers.translations import auto_translate_after_ready
+            auto_translate_after_ready(slug, mdir)
+        except Exception:
+            pass
     actions = artifact.action_items_from_claims(evidence.get("claims", []))
     action_candidates = evidence.get("action_candidates")
     if action_candidates is None and minutes_path:

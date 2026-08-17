@@ -2,7 +2,7 @@
 
 本规范定义同一份会议资料如何生成可读纪要、离线分享包和后续 RAG 记录。核心目标是：读者看到的是简洁纪要，系统保留的是可追溯证据；三种产物不能各自维护一套事实关系。
 
-MeetingPack v5 可携带导出时已经生成且仍绑定当前 revision 的中文/英文纪要与会议脉络。Viewer 右上角离线切换界面、纪要和脉络；离线端不调用 LLM，未提前生成的语言明确不可选。`assets/minutes.md` 与 `assets/topic-map.json` 保持兼容入口，语言版本另存为 `assets/minutes.{language}.md` 与 `assets/topic-map.{language}.json`。
+MeetingPack v5 可携带导出时已经生成且仍绑定当前 revision 的中文/英文纪要、会议脉络以及屏幕标题/短摘要。Viewer 右上角离线切换这三层阅读文本；离线端不调用 LLM，未提前生成的语言明确不可选。兼容入口保留为 `assets/minutes.md` 与 `assets/topic-map.json`，语言版本另存为 `assets/minutes.{language}.md`、`assets/topic-map.{language}.json` 和 `assets/visuals.{language}.json`。
 
 ## 1. 结论策略
 
@@ -125,7 +125,7 @@ marker 是“模型手写、代码解析”的协议，模型会发明各种包�
 
 Web 只在 sidecar 的逐字稿和纪要 revision 与当前文件一致时展示“依据”，避免编辑后误指向旧内容。说话人绑定、首选显示名变更、纪要应用或撤销后，由确定性代码刷新 sidecar，不调用模型。
 
-## 4. MeetingPack v4
+## 4. MeetingPack v5
 
 分享格式是普通 ZIP，文件名后缀为 `.meetingpack.zip`。收件人解压后双击 `viewer.html`，不需要安装本项目、不需要运行服务，也不需要 LLM。查看器没有 CDN、外部字体或 `fetch` 依赖，使用 `file://` 即可。
 
@@ -136,12 +136,15 @@ Web 只在 sidecar 的逐字稿和纪要 revision 与当前文件一致时展示
 ├── AGENTS.md               # 给 AI agent 的使用指引：文件地图 + 引用规则 + 任务菜谱
 │                            # （单场深读 / 同系列多场对比 / 会后产出 / 建索引 / 事实核对）
 └── assets/                 # 所有依赖统一收纳；顶层不再散落机器文件
-    ├── manifest.json       # meetingpack/v4、文件哈希、证据与媒体策略
+    ├── manifest.json       # meetingpack/v5、文件哈希、证据与媒体策略
     ├── minutes.md          # 常规阅读版纪要 + 隐藏 marker
     ├── transcript.md       # 带可读时间码的完整逐字稿
     ├── transcript.json     # 结构化完整逐字稿
     ├── evidence.json       # canonical 证据关系
     ├── topic-map.json      # meeting-topic-map/v2 整场语义脉络（v1 旧图仍可消费）
+    ├── minutes.{language}.md
+    ├── topic-map.{language}.json
+    ├── visuals.{language}.json # 屏幕页号、标题和短摘要；不复制完整 VL
     ├── rag/
     │   └── records.jsonl   # meeting-minutes-rag/v1
     ├── slides/

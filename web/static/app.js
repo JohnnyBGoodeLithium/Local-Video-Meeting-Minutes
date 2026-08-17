@@ -63,6 +63,9 @@ const state = {
   topicMapTranslation: null,
   topicMapTranslationJob: null,
   topicMapTranslationPoller: null,
+  visualsTranslation: null,
+  visualsTranslationJob: null,
+  visualsTranslationPoller: null,
   transcriptMode: ["original", "translated", "comparison"].includes(savedTranscriptMode)
     ? savedTranscriptMode : "original",
   translationTarget: TRANSLATION_TARGETS.has(workspaceState.translationTarget)
@@ -740,6 +743,9 @@ async function loadMeeting(slug) {
     if (state.topicMapTranslationPoller) clearInterval(state.topicMapTranslationPoller);
     state.topicMapTranslationPoller = null;
     state.topicMapTranslationJob = null;
+    if (state.visualsTranslationPoller) clearInterval(state.visualsTranslationPoller);
+    state.visualsTranslationPoller = null;
+    state.visualsTranslationJob = null;
   }
   renderMeetingList();
   const b = await jget(`/api/meetings/${encodeURIComponent(slug)}/bundle`);
@@ -753,6 +759,7 @@ async function loadMeeting(slug) {
   state.translation = null;
   state.minutesTranslation = null;
   state.topicMapTranslation = null;
+  state.visualsTranslation = null;
   state.selectedChapterId = b.structure?.chapters?.[0]?.id || null;
   state.selectedTopicId = null;
   state.selectedTopicNodeId = null;
@@ -812,6 +819,7 @@ async function loadMeeting(slug) {
   await loadTranscriptTranslation();
   await loadTopicMapTranslation(true);
   await loadMinutesTranslation(true);
+  await loadVisualsTranslation(true);
   if (!isDraft) await loadQualityReview();
   else {
     state.quality = null;
@@ -958,7 +966,7 @@ function updateScreenPreview(visual = null) {
   const changed = state.screenPreview.visualId !== source.id;
   state.screenPreview.visualId = source.id;
   $("#screen-preview-image").src = visualImageUrl(source);
-  $("#screen-preview-title").textContent = source.title || "屏幕内容";
+  $("#screen-preview-title").textContent = visualReadingCopy(source).title;
   $("#screen-preview-kicker").textContent = source.kind === "slide"
     ? `第 ${source.page} 页` : "动态画面";
   const at = Number(source.ranges?.[0]?.[0] ?? source.first ?? 0);
@@ -1097,7 +1105,7 @@ function updateContentStage(visual = null, semantic = false) {
   stage.classList.toggle("empty", !url);
   if (image) image.src = url || "";
   if (expand) expand.classList.toggle("hidden", !url);
-  if (title) title.textContent = source?.title || (isEnglishUi()
+  if (title) title.textContent = source ? visualReadingCopy(source).title : (isEnglishUi()
     ? "No static screen content at this position" : "这一位置没有静态屏幕资料");
   if (kicker) kicker.textContent = semantic ? (isEnglishUi() ? "Topic screen" : "议题代表画面") : source
     ? `${fmt(state.focus.time ?? source.first)} · ${source.kind === "slide"
@@ -1164,7 +1172,7 @@ function updateFocusSummary() {
   } else {
     const visual = visualForTime(focus.time || 0);
     box.innerHTML = `<span>${isEnglishUi() ? "Located at" : "已定位"} ${fmt(focus.time)}</span>` +
-      `<b>${esc(visual?.title || (isEnglishUi() ? "Transcript position" : "逐字稿位置"))}</b>` +
+      `<b>${esc(visual ? visualReadingCopy(visual).title : (isEnglishUi() ? "Transcript position" : "逐字稿位置"))}</b>` +
       `<small>${focus.claimIds.length ? (isEnglishUi() ? `${focus.claimIds.length} related conclusions` : `关联 ${focus.claimIds.length} 条结论`)
         : (isEnglishUi() ? "No directly related conclusions" : "当前没有直接关联结论")}</small>` +
       (focus.claimIds.length ? `<button type="button" id="focus-show-claims">${isEnglishUi() ? "View conclusions" : "查看结论"}</button>` : "");
@@ -2170,6 +2178,71 @@ async function startTopicMapTranslation() {
   }
 }
 
+function visualReadingCopy(visual) {
+  const page = Number(visual?.page);
+  const translated = state.visualsTranslation?.target_language === state.uiLanguage
+    && state.visualsTranslation?.state === "ready"
+    ? (state.visualsTranslation.pages || []).find(item => Number(item.number) === page) : null;
+  return {
+    title: translated?.title || visual?.title || (isEnglishUi() ? "Screen content" : "屏幕内容"),
+    summary: translated?.summary || "",
+  };
+}
+
+async function loadVisualsTranslation(autoStart = false) {
+  if (!state.slug || !(state.bundle?.structure?.visuals || []).some(item => item.kind === "slide")) {
+    state.visualsTranslation = null;
+    return;
+  }
+  const target = state.uiLanguage;
+  try {
+    const payload = await jget(
+      `/api/meetings/${encodeURIComponent(state.slug)}/translations/visuals?target=${encodeURIComponent(target)}`);
+    if (target !== state.uiLanguage) return;
+    state.visualsTranslation = payload;
+    renderVisuals();
+    updateFocusPresentation(false);
+    if (autoStart && ["missing", "stale", "failed", "cancelled", "partial"].includes(payload.state))
+      await startVisualsTranslation();
+  } catch (_) {
+    state.visualsTranslation = null;
+    renderVisuals();
+  }
+}
+
+async function startVisualsTranslation() {
+  if (!state.slug || state.visualsTranslationJob) return;
+  const target = state.uiLanguage;
+  try {
+    const response = await api(
+      `/api/meetings/${encodeURIComponent(state.slug)}/translations/visuals?target=${encodeURIComponent(target)}`,
+      { method: "POST" });
+    const job = await response.json();
+    if (!response.ok) throw new Error(job.detail || response.status);
+    if (!job.id) {
+      await loadVisualsTranslation(false);
+      return;
+    }
+    state.visualsTranslationJob = job.id;
+    if (state.visualsTranslationPoller) clearInterval(state.visualsTranslationPoller);
+    const check = async () => {
+      try {
+        const current = await jget(`/api/jobs/${job.id}`);
+        if (!["done", "failed", "cancelled"].includes(current.status)) return;
+        clearInterval(state.visualsTranslationPoller);
+        state.visualsTranslationPoller = null;
+        state.visualsTranslationJob = null;
+        await loadVisualsTranslation(false);
+      } catch (_) { /* 下一轮继续 */ }
+    };
+    state.visualsTranslationPoller = setInterval(check, 1800);
+    check();
+  } catch (_) {
+    state.visualsTranslationJob = null;
+    state.visualsTranslation = { ...(state.visualsTranslation || {}), state: "failed" };
+  }
+}
+
 async function setUiLanguage(language) {
   if (!UI_LANGUAGES.has(language) || language === state.uiLanguage) return;
   state.uiLanguage = language;
@@ -2181,6 +2254,10 @@ async function setUiLanguage(language) {
   if (state.topicMapTranslationPoller) clearInterval(state.topicMapTranslationPoller);
   state.topicMapTranslationPoller = null;
   state.topicMapTranslationJob = null;
+  state.visualsTranslation = null;
+  if (state.visualsTranslationPoller) clearInterval(state.visualsTranslationPoller);
+  state.visualsTranslationPoller = null;
+  state.visualsTranslationJob = null;
   saveWorkspaceState();
   applyUiLanguage();
   if (state.slug && !state.workspace.translationTargets[state.slug] && !state.translationJob) {
@@ -2205,6 +2282,7 @@ async function setUiLanguage(language) {
   updateFocusPresentation(false);
   await loadTopicMapTranslation(true);
   await loadMinutesTranslation(true);
+  await loadVisualsTranslation(true);
 }
 
 function renderMinutes() {
@@ -2381,7 +2459,7 @@ function topicDetailVisuals(node, pageMap) {
       const at = Number(page.ranges?.[0]?.[0] || page.first || 0);
       return `<button type="button" data-visual-id="${esc(page.id)}" data-visual-time="${at}">` +
         (image ? `<img src="${image}" alt="">` : `<span>${isEnglishUi() ? "No image" : "无截图"}</span>`) +
-        `<b>${esc(page.title)}</b></button>`;
+      `<b>${esc(visualReadingCopy(page).title)}</b></button>`;
     }).join("")}</div></section>`;
 }
 
@@ -2540,6 +2618,7 @@ function renderVisuals() {
   const visuals = state.visualFilter === "useful" && useful.length ? useful : allVisuals;
   const selected = visuals.find(item => item.id === state.selectedVisualId) || visuals[0];
   state.selectedVisualId = selected.id;
+  const selectedCopy = visualReadingCopy(selected);
   const status = selected.display_status === "discussed" ? "有对应讨论"
     : selected.display_status === "display_only" ? "仅展示" : "动态画面";
   const image = visualImageUrl(selected);
@@ -2551,6 +2630,7 @@ function renderVisuals() {
     `全部 ${allVisuals.length}</button></div></div>` +
     visuals.map(visual => {
       const visualImage = visualImageUrl(visual);
+      const copy = visualReadingCopy(visual);
       const visualStatus = visual.display_status === "discussed" ? "有讨论" :
         visual.display_status === "display_only" ? "仅展示" : "动态画面";
       return `<button type="button" class="visual-nav-card ${visual.id === selected.id ? "active" : ""} ` +
@@ -2559,12 +2639,13 @@ function renderVisuals() {
       (visualImage ? `<img src="${visualImage}" alt="">` : `<i>无截图</i>`) +
       `</span><span class="visual-nav-copy"><small>${fmt(visual.first)} · ` +
       `${visual.kind === "slide" ? `第${visual.page}页` : "摄像头"}</small>` +
-      `<b>${esc(visual.title)}</b><span><i class="visual-value ${esc(visual.information_value || "unknown")}">` +
+      `<b>${esc(copy.title)}</b><span><i class="visual-value ${esc(visual.information_value || "unknown")}">` +
       `${esc(visualValueLabel(visual))}</i><em>${esc(visualStatus)}</em></span></span></button>`;
     }).join("") +
     `</nav><article class="structure-detail visual-detail">` +
     `<header class="structure-detail-head"><div><span>屏幕 · ${esc(status)} · ${esc(visualValueLabel(selected))}</span>` +
-    `<h2>${esc(selected.title)}</h2></div></header>` +
+    `<h2>${esc(selectedCopy.title)}</h2>` +
+    (selectedCopy.summary ? `<p>${esc(selectedCopy.summary)}</p>` : "") + `</div></header>` +
     `<div class="visual-value-note ${esc(selected.information_value || "unknown")}"><b>${esc(visualValueLabel(selected))}</b>` +
     `<span>${esc(selected.value_reason || "尚未判断这张画面的信息价值。")}</span></div>` +
     (selected.analysis_state === "pending" ? `<div class="visual-reprocess pending">屏幕解析仍在进行，完成前不会判断这页的内容价值。</div>` :
@@ -2572,7 +2653,7 @@ function renderVisuals() {
     `<div class="visual-ranges">${(selected.ranges || []).map(([start, end]) =>
       `<button type="button" data-visual-seek="${start}">${fmt(start)}–${fmt(end)}</button>`).join("")}</div>` +
     (image ? `<img class="visual-hero" data-preview-visual="${esc(selected.id)}" src="${image}" ` +
-      `alt="${esc(selected.title)}" title="点击放大查看">` :
+      `alt="${esc(selectedCopy.title)}" title="${isEnglishUi() ? "Click to enlarge" : "点击放大查看"}">` :
       `<div class="visual-no-image">该片段没有静态页面截图</div>`) +
     `<section class="visual-description"><h3>屏幕内容解读</h3>` +
     `<p class="visual-boundary">仅说明画面展示内容，不代表会议作出了决定。</p>` +

@@ -98,6 +98,10 @@ flowchart LR
 
 同一服务按需生成 `minutes.translation.zh-CN.json` / `minutes.translation.en.json`。纪要按 Markdown 块切片；隐藏 evidence marker 在发送模型前替换为确定性 token，返回后逐一校验并恢复，因此译文继续指向同一组 claim/T/P 证据。sidecar 同时绑定 canonical 纪要 revision 和会议语境 revision，不覆盖 `minutes.md`；原文已经是目标语言时直接返回，不创建冗余文件。
 
+屏幕阅读层使用 `visuals.translation.{target}.json`。`translation_service.py` 从 `page_desc.json` 投影稳定的 `{number,title,summary}`，每 12 页一批翻译并校验页号集合；完整 VL 正文不进入译文 sidecar。该 sidecar 绑定 `page_desc.json` revision，在线屏幕列表、Focus 舞台与 MeetingPack Viewer 复用同一阅读副本。
+
+会议终稿 ready 后，`job_store` 在 upload/regen/topic_map 成功点懒调用 `auto_translate_after_ready()`；旧会议在首次 bundle 请求时补触发。自动范围只有纪要、ready Topic Map 和屏幕标题/短摘要，逐字稿仍需用户手动开始。翻译作业保持队列最低优先级，触发失败不会回滚已完成的主处理作业。
+
 sidecar 保存 T ID、源语言、译文、数字核对警告、逐字稿 revision 和会议语境 revision，不修改原始转写。翻译通过串行 Web 作业运行并逐批原子落盘；前端轮询部分 sidecar，只在完整轮次落盘后更新。取消、失败和服务重启保留已完成轮次并以显式 partial 状态续跑，不会产生一份伪装成完整结果的译文。当前为整场缓存与整场语境失效，后续如引入逐字稿局部修订，再细化为按 T ID 选择性重译。
 
 ### 在线阅读结构投影

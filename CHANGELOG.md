@@ -11,6 +11,7 @@ git show <commit>
 
 ## 未发布
 
+- 终稿 ready 后自动补齐另一种阅读语言：纪要、会议脉络与屏幕标题/短摘要进入最低优先级串行队列，旧会议首次打开时懒补齐；逐字稿仍手动触发，完整 VL 正文不翻译。新增 revision-bound `visuals.translation.{target}.json` 与 Web API，在线屏幕列表/Focus 舞台同步切换；MeetingPack 携带 `assets/visuals.{language}.json`，离线 Viewer 也同步切换标题和短摘要。构建号升至 `20260814p44`。
 - 新增 `HANDOFF.md` 交接笔记：记录当前验证基线、进行中任务（终稿后自动翻译的完整实施方案与集成点）和遗留事项，供接手 agent/人类直接进入状态；README 文档地图与 AGENTS.md 增加指引。
 - 修复屏幕内容标题大面积乱码（真实 77 分钟 Gate B 会议，69 页中约三分之一异常）：VL 模型把答案包进 LaTeX `\boxed{…}`、把 Markdown 转义成 `\## 标题`、或直接答 JSON 片段（`"标题": "…",`），清洗边界 `clean_model_text` 不处理这些形态，标题提取把 `\boxed{`、`\## 标题` 当成了页面标题，角色/信息价值正则也因引号失配退回启发式。修复：清洗层拆除 `\boxed{` 包装、还原 `\#` 等反斜杠转义、移除孤立花括号行；`visual_title` 新增 JSON 键形态标题提取并剥离候选首尾引号/逗号；`_visual_role`/`_visual_value` 的显式字段正则容忍引号包裹（冒号保持可选）。全部为读路径清洗，存量会议与导出包无需重跑 VL 即自愈。合成单测覆盖 boxed/JSON 两形态，真实 69 页验证异常标题清零。
 - 修复直出模式总体纪要过短且无证据标记（真实 77 分钟 Gate B 会议）：上下文未超限时总体摘要走单次直出，该路径完全绕过 map/reduce 的退化检测、必需章节校验和待办证据标记合规护栏——模型产出总体章节零 marker（依据链接与正式待办整表为空）、阅读版投影仅两千余字。新增 `minutes_overview.generate_direct`：直出与 map/reduce 共用 `_complete_with_guard`（缺"总体摘要/待办事项"或待办行缺 `kind=action`+`turns=` 标记则 `repeat_penalty=1.2` 重试）与待办定点修复轮（`notes` 传完整结构化上下文供引用真实 T 编号）；`_repair_todo` 抽为两路共用并合并修复轮 token 计量。`minutes_by_page` 直出分支经模块级 `overview_direct` 接缝调用（测试可替换，minutes_policy_test 已切换，避免测试打真实 LLM）。合成单元回归覆盖直出合规一次过/修复拼接/修复失败保留原稿/缺章节重试四路径。

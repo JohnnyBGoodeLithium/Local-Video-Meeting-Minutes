@@ -10,8 +10,10 @@ from pathlib import Path
 
 
 PROJECT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(PROJECT / "bin"))
 sys.path.insert(0, str(PROJECT / "web"))
 import translation_service as translation  # noqa: E402
+from routers import translations as translation_routes  # noqa: E402
 
 
 with tempfile.TemporaryDirectory(prefix="translation-service-test-") as tmp:
@@ -124,4 +126,63 @@ with tempfile.TemporaryDirectory(prefix="translation-service-test-") as tmp:
     topic_chinese = translation.topic_map_translation_payload(mdir, topic_map, target="zh-CN")
     assert topic_chinese["state"] == "ready" and topic_chinese["is_source"]
 
-print("Transcript, minutes, and Topic Map translation: structure and revisions passed")
+    page_desc = {"model": "synthetic-vl", "desc": {
+        str(i): f"# 标题\n虚构屏幕页 {i}。展示合成数据，不代表会议决定。"
+        for i in range(1, 14)
+    }}
+    (mdir / "page_desc.json").write_text(
+        json.dumps(page_desc, ensure_ascii=False, indent=2), encoding="utf-8")
+    visuals_before = translation.visuals_translation_payload(mdir, target="en")
+    assert visuals_before["state"] == "missing" and visuals_before["total"] == 13
+    visual_progress = []
+    translation.translate_visuals(
+        mdir, dry_run=True, target="en",
+        on_progress=lambda done, total: visual_progress.append((done, total)))
+    visuals_ready = translation.visuals_translation_payload(mdir, target="en")
+    assert visuals_ready["state"] == "ready" and visuals_ready["translated"] == 13
+    assert visuals_ready["pages"][0]["title"].startswith("English:")
+    assert visual_progress == [(0, 13), (12, 13), (13, 13)]
+    visuals_chinese = translation.visuals_translation_payload(mdir, target="zh-CN")
+    assert visuals_chinese["state"] == "ready" and visuals_chinese["is_source"]
+    page_desc["desc"]["1"] += " 修订。"
+    (mdir / "page_desc.json").write_text(
+        json.dumps(page_desc, ensure_ascii=False, indent=2), encoding="utf-8")
+    assert translation.visuals_translation_payload(mdir, target="en")["state"] == "stale"
+
+    # 自动补翻必须按资产自己的原文语言决定方向。例如纪要是
+    # 中文，但 VL 模型可能输出英文；不能用纪要语言一刀切所有资产。
+    submitted = []
+    created = []
+
+    class CaptureExecutor:
+        def submit(self, runner, job, *args):
+            submitted.append((job["translation_artifact"], job["target_language"]))
+
+    def fake_job(kind, **fields):
+        job = {"id": f"J{len(created) + 1}", "kind": kind, **fields}
+        created.append(job)
+        return job
+
+    translation_routes.EXEC = CaptureExecutor()
+    translation_routes._new_job = fake_job
+    translation_routes._minutes_file = lambda _mdir: _mdir / "minutes.md"
+    translation_routes._minutes_reading_source = lambda _mdir: ("synthetic", {})
+    translation_routes._meeting_identity = lambda _slug: {"title": "Synthetic Meeting"}
+    translation_routes._active_translation = lambda *_args: None
+    translation_routes.meeting_generation.document_state = lambda *_args: "ready"
+    translation_routes.meeting_topic_map.load_current_topic_map = lambda _mdir: (
+        "ready", {"state": "ready", "topics": []})
+    translation_routes.translation.minutes_translation_payload = (
+        lambda *_args, target, **_kwargs: {"state": "ready" if target == "zh-CN" else "missing"})
+    translation_routes.translation.topic_map_translation_payload = (
+        lambda *_args, target, **_kwargs: {"state": "missing" if target == "zh-CN" else "ready"})
+    translation_routes.translation.visuals_translation_payload = (
+        lambda *_args, target, **_kwargs: {
+            "state": "ready" if target == "zh-CN" else "missing", "total": 2,
+            "translated": 0})
+    queued = translation_routes.auto_translate_after_ready("synthetic", mdir)
+    assert len(queued) == 3
+    assert set(submitted) == {("minutes", "en"), ("topic_map", "zh-CN"), ("visuals", "en")}
+    assert all(job.get("auto") is True for job in created)
+
+print("Transcript, minutes, Topic Map, and visuals translation: structure and revisions passed")

@@ -222,6 +222,33 @@ def _topic_map_languages(mdir: Path, topic_map: dict) -> tuple[dict[str, dict], 
     return languages, assets
 
 
+def _visuals_languages(mdir: Path, pages: list[dict]) -> tuple[dict[str, list[dict]], dict[str, bytes]]:
+    """收集屏幕标题/短摘要语言版本；完整 VL 正文始终保留原文。"""
+    source_pages = [{"number": int(page.get("number") or 0),
+                     "title": str(page.get("title") or ""),
+                     "summary": " ".join(str(page.get("visual_description") or "").split())[:240]}
+                    for page in pages if int(page.get("number") or 0) > 0]
+    source_language = _document_language("\n".join(
+        f"{page['title']}\n{page['summary']}" for page in source_pages))
+    languages = {source_language: source_pages}
+    assets = {f"assets/visuals.{source_language}.json": json.dumps(
+        {"pages": source_pages}, ensure_ascii=False, indent=2).encode("utf-8")}
+    source_path = mdir / "page_desc.json"
+    source_revision = hashlib.sha256(source_path.read_bytes()).hexdigest()[:16] if source_path.is_file() else None
+    for target in ("zh-CN", "en"):
+        sidecar = _read_json(mdir / f"visuals.translation.{target}.json", {})
+        translated = sidecar.get("pages")
+        if (sidecar.get("schema") != "meeting-visuals-translation/v1"
+                or sidecar.get("status") != "complete"
+                or sidecar.get("source_revision") != source_revision
+                or not isinstance(translated, list)):
+            continue
+        languages[target] = translated
+        assets[f"assets/visuals.{target}.json"] = json.dumps(
+            {"pages": translated}, ensure_ascii=False, indent=2).encode("utf-8")
+    return languages, assets
+
+
 def _readme(media_mode: str) -> str:
     media_note = {
         "none": "本包未包含源音视频；时间戳仍可用于回到原系统定位。",
@@ -235,7 +262,7 @@ def _readme(media_mode: str) -> str:
 2. 双击 viewer.html。它不需要安装服务，也不会调用 LLM 或联网。
 3. 纪要中的“依据”可打开对应逐字稿与页面证据。
 4. 左侧始终提供完整逐字稿；含媒体的包可点击任意时间码跳转播放。
-5. 右上角可切换中文 / EN；导出前已经生成的双语纪要会随包带入，离线端不会调用模型。
+5. 右上角可切换中文 / EN；导出前已经生成的纪要、会议脉络和屏幕标题/短摘要译文会随包带入，离线端不会调用模型。
 
 内容
 - viewer.html：开箱即用的静态查看器（数据已内嵌，file:// 可用）
@@ -363,7 +390,8 @@ def _viewer_html(title: str, date: str, minutes_html: str, evidence: dict, integ
                  topic_map: dict, media_path: str | None, media_kind: str | None,
                  source_language: str = "zh-CN",
                  minutes_languages: dict[str, dict] | None = None,
-                 topic_map_languages: dict[str, dict] | None = None) -> bytes:
+                 topic_map_languages: dict[str, dict] | None = None,
+                 visuals_languages: dict[str, list[dict]] | None = None) -> bytes:
     duration = max((float(t.get("end", 0)) for t in evidence["sources"]["transcript"]), default=0)
     payload = {
         "title": title,
@@ -376,6 +404,7 @@ def _viewer_html(title: str, date: str, minutes_html: str, evidence: dict, integ
         "integrity": integrity,
         "topic_map": topic_map,
         "topic_map_languages": topic_map_languages or {},
+        "visuals_languages": visuals_languages or {},
         "media_path": media_path,
         "media_kind": media_kind,
     }
@@ -448,6 +477,8 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
     source_language, minutes_languages, minutes_language_assets = _minutes_languages(
         mdir, minutes_path, reading_minutes, evidence)
     topic_map_languages, topic_map_language_assets = _topic_map_languages(mdir, topic_map)
+    visuals_languages, visuals_language_assets = _visuals_languages(
+        mdir, evidence.get("sources", {}).get("pages", []))
     records = rag_records(evidence, reading_minutes)
     rag_bytes = ("\n".join(json.dumps(r, ensure_ascii=False, separators=(",", ":"))
                            for r in records) + "\n").encode("utf-8")
@@ -473,12 +504,13 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
         small_files = {
             "viewer.html": _viewer_html(title, date, minutes_html, evidence, integrity, topic_map,
                                         media_arc, media_kind, source_language, minutes_languages,
-                                        topic_map_languages),
+                                        topic_map_languages, visuals_languages),
             "README.txt": _readme(media_mode).encode("utf-8"),
             "AGENTS.md": _AGENTS_MD.encode("utf-8"),
             "assets/minutes.md": reading_minutes.encode("utf-8"),
             **minutes_language_assets,
             **topic_map_language_assets,
+            **visuals_language_assets,
             "assets/transcript.json": json.dumps(turns, ensure_ascii=False, indent=2).encode("utf-8"),
             "assets/transcript.md": _transcript_markdown(turns).encode("utf-8"),
             "assets/evidence.json": evidence_bytes,
