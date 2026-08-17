@@ -89,4 +89,19 @@ assert empty_cached["needs_reprocess"]
 short_but_valid = meeting_structure._visual_value("简短但有效的页面说明。", "业务更新")
 assert short_but_valid["information_value"] == "medium"
 
+# VL 把答案包进 \boxed{…} 或转义 Markdown（\## 标题）时，标题/角色/价值都要还原
+boxed = "\\boxed{\n\\## 标题\n合成战略标题\n\\## 页面角色\ncontent\n}\n"
+assert meeting_structure.visual_title(boxed, 7) == "合成战略标题"
+assert meeting_structure._visual_role(cleaned := meeting_structure.clean_model_text(boxed),
+                                      "合成战略标题") == "content"
+assert "\\" not in cleaned and "boxed" not in cleaned
+
+# JSON 片段形态的标题与字段（boxed 清洗拆掉外层花括号后尤其常见）
+jsonish = '"标题": "合成界面截图",\n "页面角色": "meeting_ui",\n "信息价值": "low",\n "页面内容": "合成正文"'
+assert meeting_structure.visual_title(jsonish, 1) == "合成界面截图"
+json_value = meeting_structure._visual_value(jsonish, "合成界面截图")
+assert json_value["content_role"] == "meeting_ui"
+assert json_value["information_value"] == "low"
+assert json_value["value_source"] == "vl"
+
 print("Meeting structure: segments, chapters, and repeated pages passed")

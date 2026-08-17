@@ -52,6 +52,11 @@ def clean_model_text(value: str) -> str:
         text = text[:opener.start()]
     text = REASONING_CLOSE_RE.sub("", text)
     text = SPECIAL_TOKEN_RE.sub("", text)
+    # VL 偶发把答案包进 LaTeX \boxed{…} 并转义 Markdown（\## 标题）：先拆包装再还原转义，
+    # 否则标题提取会把 \boxed{ 或 \## 标题 当成页面标题。
+    text = re.sub(r"\\boxed\s*\{", "", text)
+    text = re.sub(r"\\([#*_|~`>\[\](){}])", r"\1", text)
+    text = re.sub(r"^[ \t]*[{}]+[ \t]*$", "", text, flags=re.M)
     text = re.sub(r"^\s*(?:assistant|final)\s*[:：]?\s*$", "", text,
                   flags=re.I | re.M)
     return text.strip()
@@ -72,15 +77,22 @@ def _plain(value: str) -> str:
 
 def visual_title(description: str, page: int) -> str:
     lines = [line.strip() for line in clean_model_text(description).splitlines() if line.strip()]
+    # VL 偶发把标题答成 JSON 片段："标题": "…",（boxed 包装被清洗后尤其常见）。
+    for line in lines:
+        json_title = re.match(
+            r"^[\"{]*\s*[\"']?(?:标题|title)[\"']?\s*[:：]\s*[\"'](?P<v>.+?)[\"']\s*[,}]?\s*$",
+            line, re.I)
+        if json_title and json_title.group("v").strip():
+            return json_title.group("v").strip()[:100]
     for index, line in enumerate(lines):
         if re.match(r"^#{1,5}\s*标题\s*$", line):
             for following in lines[index + 1:]:
                 if not following.startswith("#"):
-                    candidate = following.lstrip("-* ")[:100]
+                    candidate = following.lstrip("-* ").strip("\"',")
                     if candidate:
-                        return candidate
+                        return candidate[:100]
     for line in lines:
-        cleaned = re.sub(r"^#{1,5}\s*", "", line).lstrip("-* ").strip()
+        cleaned = re.sub(r"^#{1,5}\s*", "", line).lstrip("-* ").strip().strip("\"',")
         if (cleaned and cleaned not in {"标题", "页面角色", "信息价值", "页面内容", "这页想说明什么"}
                 and not re.match(r"^(?:content|agenda|cover|section|transition|blank|meeting_ui|demo)$",
                                  cleaned, re.I)
@@ -96,7 +108,7 @@ _visual_title = visual_title
 def _visual_role(description: str, title: str) -> str:
     text = f"{title}\n{description}"
     explicit = re.search(
-        r"(?:页面角色|page role)\s*[:：]?\s*(?:`)?"
+        r"(?:页面角色|page role)[\"']?\s*[:：]?\s*[\"'`]?"
         r"(content|agenda|cover|section|transition|blank|meeting_ui|demo)",
         text, re.I | re.S)
     if explicit:
@@ -127,7 +139,7 @@ def _visual_value(description: str, title: str, kind: str = "slide") -> dict:
                 "value_label": "待解析", "value_source": "unavailable",
                 "value_reason": "页面说明尚未生成或没有可读正文，暂不评价内容价值。"}
     explicit = re.search(
-        r"(?:信息价值|information value)\s*[:：]?\s*(?:`)?"
+        r"(?:信息价值|information value)[\"']?\s*[:：]?\s*[\"'`]?"
         r"(high|medium|low|高|中|低)", cleaned, re.I | re.S)
     normalized = {"高": "high", "中": "medium", "低": "low"}
     level = normalized.get(explicit.group(1), explicit.group(1).lower()) if explicit else None
