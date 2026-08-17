@@ -384,9 +384,13 @@ if pack:
     evidence = json.loads(pack.read("assets/evidence.json"))
     exported_topic_map = json.loads(pack.read("assets/topic-map.json"))
     viewer = pack.read("viewer.html").decode("utf-8")
+    agents_md = pack.read("AGENTS.md").decode("utf-8")
     rag = [json.loads(line) for line in pack.read("assets/rag/records.jsonl").decode("utf-8").splitlines()]
 else:
-    manifest, evidence, exported_topic_map, viewer, rag = {}, {}, {}, "", []
+    manifest, evidence, exported_topic_map, viewer, agents_md, rag = {}, {}, {}, "", "", []
+check("包内 AGENTS.md 覆盖 agent 任务菜谱（含同系列多场对比与 person_id 对齐）",
+      all(marker in agents_md for marker in
+          ("常见任务菜谱", "同系列多场对比", "person_id", "会后产出", "建知识库索引", "事实核对")))
 check("MeetingPack v5 manifest/evidence/RAG/Topic Map 共享稳定 linkage",
       manifest.get("schema") == "meetingpack/v5"
       and evidence.get("schema") == "meeting-minutes-evidence/v1"

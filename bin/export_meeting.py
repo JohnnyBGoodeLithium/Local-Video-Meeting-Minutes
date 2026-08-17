@@ -262,20 +262,54 @@ _AGENTS_MD = """# MeetingPack — Agent 使用指引
 ## 文件地图
 - `assets/evidence.json` — 结构化结论与待办（claims / actions），每条带 `turn_ids` / `page_ids` 依据。
   核验"会议决定了什么、谁要做什么"先查这里；`status` 确定性：confirmed > working_alignment > proposal > open > informational。
+  `sources.transcript` 每条带 `person_id`：**同一个人跨会议、跨数据包恒定**（未绑定声纹为 null，通常是会议机），跨包对人优先用它而不是姓名字符串。
 - `assets/transcript.json` — 完整逐字稿：`[{id: T000001, start, end, speaker, voice_id, page_id, text}]`。
-  引用发言用 T 编号 + 时间（秒）；`voice_id` 相同即同一人，未绑定声纹为占位名。
+  引用发言用 T 编号 + 时间（秒）。
 - `assets/topic-map.json` — 整场语义脉络：议题树（topics → children），节点带 `turn_ids` / `ranges` / `page_ids`，
-  适合回答"会议讨论了哪些议题、某议题在什么时段"。
+  适合回答"会议讨论了哪些议题、某议题在什么时段"。`low_value` 议题是过渡与杂项，权重放低。
 - `assets/rag/records.jsonl` — 检索用记录（每行一条 JSON），可直接建向量/全文索引。
 - `assets/minutes.md` — 会议纪要（人读版）；结论/待办末尾的 `mm:evidence` 注释是机器可读依据标记。
 - `assets/slides/` — 屏幕页面图，`page_id`（P0001…）对应页面内容；页面只能证明"展示了什么"，不能单独证明"决定了什么"。
-- `assets/manifest.json` — 格式版本、文件清单与 sha256 校验。
+- `assets/manifest.json` — 格式版本、会议标题/日期、文件清单与 sha256 校验。
 - `viewer.html` / `README.txt` — 人类查看器与说明，agent 无需读取。
 
 ## 回答规则
 1. 事实性结论必须附依据：T 编号或 P 页码 + 时间戳；查不到依据就说"包内无此信息"，不要编。
 2. 纪要与逐字稿冲突时以逐字稿为准。
 3. 待办/行动以 evidence.json 中 `kind=action` 且带 turn_ids 的条目为准。
+4. 措辞服从 `status`：proposal 只能写成"提议/建议"，open 只能写成"待确认/未决"，不得升格为决定。
+
+## 常见任务菜谱
+
+### 单场深读 / 重新摘要
+先读 evidence.json 的 claims（按 kind/status 过滤）和 topic-map.json 的议题树；需要原文口气、数字、语境时按
+`turn_ids` 回查 transcript.json。重新组织的摘要必须保留每条结论的状态措辞与依据编号。
+
+### 同系列多场对比（两个及以上包一起给出时）
+1. 系列判断：各包 manifest.json 的会议标题与日期；同系列会议标题通常相近，按日期排序。
+2. 人对齐：用 evidence.json `sources.transcript` 的 `person_id` 连接两场的发言与结论归属；为 null 的
+   按 speaker 显示名处理并注明"未绑定"。
+3. 议题对齐：两场 topic-map.json 的一级议题标题做语义匹配，允许一对多。
+4. 待办追踪：两场 evidence.json 的 actions 按"负责人 + 事项语义"匹配，回答"上次的待办这次推进了吗"。
+5. 输出格式：每条对比结论标注"新增 / 延续 / 翻案 / 消失"，并同时引用两场的会议日期 + C 编号；
+   决定被推翻时必须写明新旧两场各自的依据。
+
+### 会后产出（跟进邮件 / 周报段落 / 任务清单）
+数据源用 evidence.json 的 actions 和 confirmed / working_alignment claims。数字、日期、人名必须能回链
+T/P 依据，产出中的引用附时间码；没有依据支撑的内容不要写进产出。
+
+### 建知识库索引
+用 `assets/rag/records.jsonl`：`record_type` 为 claim / transcript / slide / minutes_section。
+对 `text` 建索引，其余字段作 metadata；命中 claim 后按 `evidence_ids` 精确回读对应 T/P 来源，
+不要再用向量猜来源。`meeting_id` 归组同一会议的不同版本；记录 ID 以 `artifact_id` 为前缀，
+逐字稿或纪要变化会产生新版本，旧记录保持不可变。`person_ids` / `speakers` 可用于按人过滤。
+
+### 事实核对
+claim → `turn_ids` / `page_ids` → transcript.json / slides/ 逐级回溯。`display_only` 页面只是"展示过"，
+不等于被讨论，更不等于被决定。
+
+## 边界
+包内不含声纹向量、组织架构、原始媒体母版；无法回答语气核验、身份鉴定类问题。
 """
 
 
