@@ -13,12 +13,14 @@ import meeting_generation
 import meeting_structure
 import meeting_topic_map
 import voice_bank as vb
-from deps import (BANK_DIR, BANK_LOCK, DRY_RUN, EVALUATIONS_DIR, MEETINGS, MD, PY, ROOT,
+from deps import (BANK_DIR, BANK_LOCK, DRY_RUN, EVALUATIONS_DIR, MEETINGS, MD,
                   MEETING_META_LOCK, STORAGE_LOCK, artifact, assistant, _audio_path,
                   _clean_meeting_cache, _current_evidence, _evidence_state,
                   _meeting_identity, _meeting_storage, _mdir, _minutes_file, _now,
                   _minutes_html, _read_json, _source, _video_path)
 from job_store import EXEC, JOBS, _new_job, _run_pipeline
+from job_recovery import (build_minutes_command, build_retranscribe_command,
+                          build_topic_map_command)
 
 router = APIRouter()
 
@@ -262,7 +264,7 @@ def retranscribe_local(slug: str):
                                     for suffix in ("vtt", "docx")) else "local_asr")
     if transcript_source != "external":
         raise HTTPException(409, "当前逐字稿已经来自本地语音识别")
-    cmd = [str(PY), str(ROOT / "bin" / "retranscribe_local.py"), str(mdir)]
+    cmd = build_retranscribe_command(mdir)
     job = _new_job("retranscribe", route="video", meeting=slug, cmd=cmd,
                    transcript_policy="local_asr")
     response = dict(job)
@@ -288,19 +290,14 @@ def regen_minutes(slug: str, refine: str = Query("")):
             raise HTTPException(409, "语音草稿仍在补充屏幕资料，暂不能重新生成")
     if not (mdir / "transcript.spk.json").is_file():
         raise HTTPException(400, "没有逐字稿，无法重生成")
-    if (mdir / "slides.json").is_file():
-        cmd = [str(PY), str(ROOT / "bin" / "minutes_by_page.py"), str(mdir), "--publish"]
-        video = _video_path(mdir)
-        if video is not None:
-            cmd += ["--video", str(video)]
-        if refine:
-            cmd += ["--refine-model", refine]
-    else:
-        # 纯音频会议(录音笔导入)没有分页资料, 走与 run_all 相同的整场纪要管线
-        if refine:
-            raise HTTPException(400, "纯音频会议不支持优化全文(无分页资料)")
-        cmd = [str(PY), str(ROOT / "bin" / "summarize.py"), str(mdir / "transcript.txt"),
-               "--spk", str(mdir / "transcript.spk.json"), "--max-tokens", "8192"]
+    try:
+        cmd = build_minutes_command(mdir, refine)
+    except ValueError as exc:
+        messages = {
+            "audio_refine_unsupported": "纯音频会议不支持优化全文(无分页资料)",
+            "missing_visual_cache": "视频会议缺少可复用的屏幕缓存，请重新导入以恢复抽帧阶段",
+        }
+        raise HTTPException(400, messages.get(str(exc), "现有资产不足，无法重生成")) from exc
     job = _new_job("regen", meeting=slug, cmd=cmd)
     resp = dict(job)
     EXEC.submit(_run_pipeline, job)
@@ -315,7 +312,7 @@ def generate_topic_map(slug: str):
         raise HTTPException(409, "语音草稿正在升级；多模态终稿后再生成会议脉络")
     if _minutes_file(mdir) is None or not (mdir / "transcript.spk.json").is_file():
         raise HTTPException(400, "会议缺少纪要或逐字稿，无法生成语义脉络")
-    cmd = [str(PY), str(ROOT / "bin" / "meeting_topic_map.py"), str(mdir)]
+    cmd = build_topic_map_command(mdir)
     job = _new_job("topic_map", meeting=slug, cmd=cmd)
     resp = dict(job)
     EXEC.submit(_run_pipeline, job)

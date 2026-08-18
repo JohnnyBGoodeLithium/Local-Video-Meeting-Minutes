@@ -369,6 +369,21 @@ body.page-index { overflow: hidden; }
 .j-actions { grid-column: 2; grid-row: 1 / span 2; display: flex; gap: var(--sp-4); align-items: center; }
 .j-actions button { padding: 0 var(--sp-7); font-size: var(--fs-11); }
 .j-priority { border-color: rgba(80, 125, 245, .55); color: var(--accent); }
+.j-recovery {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 3px;
+  padding: var(--sp-4) 0;
+  color: var(--dim);
+  line-height: 1.35;
+}
+.j-recovery-note { color: var(--text); }
+.j-retained { color: #73b89a; }
+.j-manual-note { color: #d9a45b; }
+.j-recovery-actions { display: flex; flex-wrap: wrap; gap: var(--sp-4); padding-top: 2px; }
+.j-recovery-actions button { padding: 1px var(--sp-7); font-size: var(--fs-11); }
+.j-retry { border-color: rgba(80, 125, 245, .7); color: var(--accent); }
+.j-retry-high { border-color: rgba(217, 164, 91, .65); color: #d9a45b; }
 .cand.create { border-color: var(--accent); color: var(--accent); }
 #meeting-list { list-style: none; margin: 0; padding: 0; }
 .meeting-item {

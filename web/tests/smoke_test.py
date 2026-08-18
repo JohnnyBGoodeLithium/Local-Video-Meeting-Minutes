@@ -165,7 +165,7 @@ check("时间码跳转只滚动内容面板，不带动整页丢失播放器",
 check("在线屏幕舞台支持放大、缩放和相邻屏幕键盘导航",
       b'id="screen-preview-mask"' in page and b'openScreenPreview' in app_js
       and b'navigateScreenPreview' in app_js and b'SCREEN_PREVIEW_ZOOMS' in app_js
-      and b'20260818p59' in page)
+      and b'20260818p60' in page)
 check("会议列表默认按导入时间且可切换并记忆排序",
       b'meetingSort' in app_js and b'"imported"' in app_js
       and b'imported_at' in app_js and b'updated_at' in app_js
@@ -522,12 +522,16 @@ check("MeetingPack 携带屏幕标题/短摘要译文，Viewer 切换语言时�
       "assets/visuals.en.json" in names and "assets/visuals.zh-CN.json" in names
       and "visuals_languages" in viewer and "visualPages=new Map" in viewer
       and "function pageSummary" in viewer and "English:" in viewer)
-check("Viewer 使用四入口与响应式三栏/两栏核听工作台",
+check("Viewer 使用四入口、全局播放器与单一当前内容工作台",
       "管理层 ·" not in viewer and "执行层 ·" not in viewer
       and "{id:'topic_map',title:u('会议脉络','Meeting map'),primary:ready}" in viewer
       and "{id:'transcript',title:u('逐字稿','Transcript')}" in viewer
       and 'class="workspace-nav"' in viewer and 'id="transcript-panel"' in viewer
-      and "grid-template-columns:minmax(500px,30fr)" in viewer
+      and 'class="app review-mode context-active"' in viewer
+      and "grid-template-columns:minmax(440px,32fr)" in viewer
+      and ".review-mode.context-active .transcript-panel{display:none}" in viewer
+      and "reviewWorkbench" not in viewer
+      and 'class="utterance-controls" id="utterance-controls"' in viewer
       and "@container (min-width:620px)" in viewer
       and "function renderTranscriptMode" in viewer and "function scopedSearchRecords" in viewer
       and "function topicMapReady" in viewer and "if(topicReady)renderTopicMap();else renderMinutes();" in viewer)
@@ -849,6 +853,23 @@ check("regen 作业 done(dry-run)", jj["status"] == "done"
 s, _, j = req("GET", "/api/jobs")
 check("GET /api/jobs → 200", s == 200 and len(j.get("jobs", [])) >= 2,
       f"jobs={len(j.get('jobs', []))}")
+failed_fixture = next((job for job in j.get("jobs", [])
+                       if job.get("id") == "smokefail001"), {})
+check("失败作业返回有限恢复计划与已保留资产",
+      j.get("capabilities", {}).get("job_recovery") is True
+      and failed_fixture.get("recovery", {}).get("state") == "available"
+      and failed_fixture.get("recovery", {}).get("mode") == "topic_map"
+      and "transcript" in failed_fixture.get("recovery", {}).get("retained", []))
+sr, _, retried = req("POST", "/api/jobs/smokefail001/retry?quality=standard")
+retried_done = poll_job(retried.get("id")) if retried.get("id") else {}
+ss, _, recovered_source = req("GET", "/api/jobs/smokefail001")
+check("失败作业只重跑对应阶段并隐藏已恢复红卡",
+      sr == 200 and retried.get("kind") == "topic_map"
+      and retried.get("retry_of") == "smokefail001"
+      and retried_done.get("status") == "done" and ss == 200
+      and recovered_source.get("recovery", {}).get("state") == "recovered")
+sdup, _, _ = req("POST", "/api/jobs/smokefail001/retry?quality=standard")
+check("已恢复的失败作业不会重复排队", sdup == 409)
 job_on_disk = TEST_JOBS / f"{jid}.json"
 check("作业 json 已落盘(仅元数据)", job_on_disk.is_file())
 if job_on_disk.is_file():

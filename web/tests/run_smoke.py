@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import signal
 import socket
@@ -72,6 +73,15 @@ def main() -> int:
                        env=env, cwd=PROJECT, check=True)
         subprocess.run([str(PY), str(PROJECT / "web/tests/make_smoke.py")],
                        env=env, cwd=PROJECT, check=True)
+        # 预置一条只含安全元数据的失败作业，验证服务启动后的阶段恢复 API。
+        jobs.mkdir(parents=True, exist_ok=True)
+        (jobs / "smokefail001.json").write_text(json.dumps({
+            "id": "smokefail001", "kind": "topic_map", "status": "failed",
+            "created": time.time() - 10, "started": time.time() - 9,
+            "finished": time.time() - 8, "rc": 1, "log": [],
+            "stage": "构建会议脉络", "meeting": "_smoke",
+            "queue_priority": 20, "priority_boost": False,
+        }), encoding="utf-8")
         log_path = root / "server.log"
         with log_path.open("w", encoding="utf-8") as log:
             proc = subprocess.Popen(

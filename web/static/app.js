@@ -4173,6 +4173,7 @@ async function pollJobs() {
   try {
     const d = await jget("/api/jobs");
     state.jobPriorityAvailable = d.capabilities?.job_priority === true;
+    state.jobRecoveryAvailable = d.capabilities?.job_recovery === true;
     renderJobs(d.jobs);
     const completed = d.jobs.filter(job => job.meeting === state.slug
       && ["upload", "topic_map", "regen", "retranscribe"].includes(job.kind)
@@ -4198,6 +4199,7 @@ function renderJobs(jobs) {
       : a.status === "running" ? -1 : 1);
   const activeMeetings = new Set(activeJobs.map(job => job.meeting).filter(Boolean));
   const recentFailures = jobs.filter(j => j.status === "failed"
+    && j.recovery?.state !== "recovered"
     && !activeMeetings.has(j.meeting)
     && Date.now() / 1000 - Number(j.finished || j.created || 0) < 60 * 60).slice(0, 2);
   const visibleJobs = [...activeJobs, ...recentFailures]
@@ -4280,6 +4282,94 @@ function renderJobs(jobs) {
       };
       actions.appendChild(cancel);
       li.appendChild(actions);
+    } else if (j.status === "failed" && j.recovery) {
+      const recovery = j.recovery;
+      const retainedLabels = {
+        source_media: isEnglishUi() ? "source media" : "源媒体",
+        source_transcript: isEnglishUi() ? "source transcript" : "官方逐字稿",
+        transcript: isEnglishUi() ? "transcript" : "逐字稿",
+        visual_cache: isEnglishUi() ? "screen cache" : "画面缓存",
+        minutes: isEnglishUi() ? "existing minutes" : "现有纪要",
+      };
+      const categoryLabels = {
+        interrupted: isEnglishUi() ? "The service stopped before this stage finished." : "服务中断时，此阶段尚未完成。",
+        resource: isEnglishUi() ? "The task stopped because local resources were insufficient." : "任务因本机资源不足而中断。",
+        transient: isEnglishUi() ? "The model request was temporarily unavailable." : "模型请求暂时不可用。",
+        format: isEnglishUi() ? "The model output did not pass structural validation." : "模型输出未通过结构校验。",
+        empty_output: isEnglishUi() ? "The model returned no readable result." : "模型没有返回可读结果。",
+        pipeline: isEnglishUi() ? "This processing stage did not finish." : "这一处理阶段没有完成。",
+      };
+      const actionLabels = {
+        translation: isEnglishUi() ? "Retry translation" : "重试翻译",
+        topic_map: isEnglishUi() ? "Rebuild topic map" : "重建会议脉络",
+        retranscribe: isEnglishUi() ? "Retry transcription" : "重跑转写",
+        minutes: isEnglishUi() ? "Resume from saved assets" : "从现有资料续跑",
+      };
+      const detail = document.createElement("div");
+      detail.className = "j-recovery";
+      const explanation = document.createElement("span");
+      explanation.className = "j-recovery-note";
+      explanation.textContent = categoryLabels[recovery.category] || categoryLabels.pipeline;
+      detail.appendChild(explanation);
+      const retained = (recovery.retained || []).map(id => retainedLabels[id]).filter(Boolean);
+      if (retained.length) {
+        const assets = document.createElement("span");
+        assets.className = "j-retained";
+        assets.textContent = `${isEnglishUi() ? "Kept" : "已保留"}：${retained.join("、")}`;
+        detail.appendChild(assets);
+      }
+      const recoveryActions = document.createElement("div");
+      recoveryActions.className = "j-recovery-actions";
+      if (state.jobRecoveryAvailable && recovery.state === "available") {
+        const retry = document.createElement("button");
+        retry.type = "button";
+        retry.className = "j-retry";
+        retry.textContent = actionLabels[recovery.mode] || (isEnglishUi() ? "Resume" : "恢复处理");
+        retry.title = isEnglishUi()
+          ? "Reuse completed assets and run only the recoverable stage"
+          : "复用已经完成的资产，只运行可恢复的阶段";
+        retry.onclick = async () => {
+          retry.disabled = true;
+          const response = await api(`/api/jobs/${j.id}/retry?quality=standard`, { method: "POST" });
+          const body = await response.json().catch(() => ({}));
+          if (!response.ok) toast(`${isEnglishUi() ? "Recovery failed" : "恢复失败"}：${body.detail || response.status}`);
+          else toast(isEnglishUi() ? "Recovery task queued" : "恢复任务已排队");
+          pollJobs();
+        };
+        recoveryActions.appendChild(retry);
+        if (recovery.high_quality_available) {
+          const high = document.createElement("button");
+          high.type = "button";
+          high.className = "j-retry-high";
+          high.textContent = isEnglishUi() ? "High-quality retry" : "高质量重试";
+          high.title = isEnglishUi()
+            ? "Uses the configured refinement model and may require more memory"
+            : "使用已配置的优化模型，可能占用更多内存";
+          high.onclick = async () => {
+            high.disabled = true;
+            const response = await api(`/api/jobs/${j.id}/retry?quality=high`, { method: "POST" });
+            const body = await response.json().catch(() => ({}));
+            if (!response.ok) toast(`${isEnglishUi() ? "Recovery failed" : "恢复失败"}：${body.detail || response.status}`);
+            else toast(isEnglishUi() ? "High-quality recovery queued" : "高质量恢复已排队");
+            pollJobs();
+          };
+          recoveryActions.appendChild(high);
+        }
+      } else if (j.meeting && meeting) {
+        const manual = document.createElement("span");
+        manual.className = "j-manual-note";
+        manual.textContent = isEnglishUi()
+          ? "No safe checkpoint for this stage; re-import the source file."
+          : "该阶段没有安全检查点，请重新导入源文件。";
+        detail.appendChild(manual);
+        const open = document.createElement("button");
+        open.type = "button";
+        open.textContent = isEnglishUi() ? "Open retained result" : "查看已保留内容";
+        open.onclick = () => loadMeeting(j.meeting);
+        recoveryActions.appendChild(open);
+      }
+      if (recoveryActions.childElementCount) detail.appendChild(recoveryActions);
+      li.appendChild(detail);
     }
     li.title = (j.log || []).slice(-1)[0] || j.id;
     ul.appendChild(li);

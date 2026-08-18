@@ -10,14 +10,41 @@ import uuid
 from pathlib import Path
 
 import aiofiles
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 
 import meeting_dir as md_util
 from deps import (AUDIO_EXT, BANK_LOCK, DATA_ROOT, DOCX_EXT, INBOX, PY, ROOT,
                   VIDEO_EXT, VTT_EXT, _now, _safe, _slugify)
 from job_store import EXEC, JOBS, PROCS, _new_job, _run_pipeline, _save_job, _set_status
+from job_recovery import (build_minutes_command, build_retranscribe_command,
+                          build_topic_map_command, meeting_dir_for_job, recovery_plan)
 
 router = APIRouter()
+
+
+def _job_with_recovery(original: dict) -> dict:
+    """给失败卡片附加有限恢复状态，不暴露判断所用日志正文或文件路径。"""
+    job = dict(original)
+    if job.get("status") not in {"failed", "cancelled"}:
+        return job
+    plan = recovery_plan(job)
+    successor = JOBS.get(str(job.get("recovered_by") or ""))
+    if successor and successor.get("status") in {"queued", "running", "done"}:
+        plan = {**plan, "state": "recovered", "action": "none",
+                "successor_status": successor.get("status")}
+    job["recovery"] = plan
+    return job
+
+
+def _link_recovery(source: dict, successor: dict, quality: str) -> None:
+    with BANK_LOCK:
+        source["recovered_by"] = successor["id"]
+        source["recovery_requested_at"] = _now()
+        successor["retry_of"] = source["id"]
+        successor["recovery_attempt"] = int(source.get("recovery_attempt") or 0) + 1
+        successor["recovery_quality"] = quality
+        _save_job(source)
+        _save_job(successor)
 
 
 def _predict_meeting(route: str, primary: Path, transcript: Path | None,
@@ -105,7 +132,7 @@ def list_jobs():
     queue = {item["id"]: item for item in EXEC.snapshot()}
     jobs = []
     for original in JOBS.values():
-        job = dict(original)
+        job = _job_with_recovery(original)
         if job.get("status") == "running":
             job["queue_position"] = 0
         elif job.get("status") == "queued" and job["id"] in queue:
@@ -114,7 +141,8 @@ def list_jobs():
         jobs.append(job)
     return {
         "jobs": sorted(jobs, key=lambda j: j["created"], reverse=True),
-        "capabilities": {"job_priority": True, "running_preemption": False},
+        "capabilities": {"job_priority": True, "running_preemption": False,
+                         "job_recovery": True},
         "queue_policy": ["用户优先", "会议处理", "纪要与脉络", "逐字稿翻译"],
     }
 
@@ -124,7 +152,73 @@ def get_job(jid: str):
     job = JOBS.get(jid)
     if not job:
         raise HTTPException(404, "没有这条作业")
-    return job
+    return _job_with_recovery(job)
+
+
+@router.post("/api/jobs/{jid}/retry")
+def retry_job(jid: str, quality: str = Query("standard", pattern="^(standard|high)$")):
+    """从已保留资产恢复失败阶段；绝不直接重放作业 JSON 中的旧命令。"""
+    source = JOBS.get(jid)
+    if not source:
+        raise HTTPException(404, "没有这条作业")
+    if source.get("status") not in {"failed", "cancelled"}:
+        raise HTTPException(409, "只有失败或已取消的任务可以恢复")
+    plan = recovery_plan(source)
+    if plan.get("state") != "available":
+        raise HTTPException(409, "现有资产不足以安全续跑，请按卡片提示重新导入")
+    if quality == "high" and not plan.get("high_quality_available"):
+        raise HTTPException(409, "当前没有配置高质量恢复模型")
+
+    successor = JOBS.get(str(source.get("recovered_by") or ""))
+    if successor and successor.get("status") in {"queued", "running", "done"}:
+        raise HTTPException(409, "这条失败任务已经恢复，无需重复提交")
+    slug = str(source.get("meeting") or "")
+    mdir = meeting_dir_for_job(source)
+    if mdir is None:
+        raise HTTPException(409, "会议资产已经不存在，请重新导入")
+
+    mode = plan["mode"]
+    if mode == "translation":
+        # 调用现有翻译入队入口，让缓存/同资产并发规则继续保持单一实现。
+        from routers import translations as translation_routes
+        target = str(source.get("target_language") or "")
+        artifact = str(source.get("translation_artifact") or "transcript")
+        enqueue = {
+            "transcript": translation_routes.create_transcript_translation,
+            "minutes": translation_routes.create_minutes_translation,
+            "topic_map": translation_routes.create_topic_map_translation,
+            "visuals": translation_routes.create_visuals_translation,
+        }[artifact]
+        created = enqueue(slug, target=target, force=True)
+        new_job = JOBS.get(str(created.get("id") or ""))
+        if new_job is None:
+            raise HTTPException(409, "译文已经可用，无需重试")
+    else:
+        if any(job.get("meeting") == slug and job.get("status") in {"queued", "running"}
+               for job in JOBS.values()):
+            raise HTTPException(409, "这场会议已有处理任务，请等待完成后再恢复")
+        try:
+            if mode == "minutes":
+                refine = (os.environ.get("MEETING_RECOVERY_REFINE_MODEL", "").strip()
+                          if quality == "high" else "")
+                command = build_minutes_command(mdir, refine)
+                kind = "regen"
+            elif mode == "topic_map":
+                command = build_topic_map_command(mdir)
+                kind = "topic_map"
+            elif mode == "retranscribe":
+                command = build_retranscribe_command(mdir)
+                kind = "retranscribe"
+            else:
+                raise ValueError("unsupported_recovery")
+        except ValueError as exc:
+            raise HTTPException(409, "会议资产已经变化，当前无法继续恢复") from exc
+        new_job = _new_job(kind, meeting=slug, cmd=command,
+                           recovery_scope=plan.get("scope"))
+        EXEC.submit(_run_pipeline, new_job)
+
+    _link_recovery(source, new_job, quality)
+    return _job_with_recovery(new_job)
 
 
 @router.post("/api/jobs/{jid}/prioritize")
