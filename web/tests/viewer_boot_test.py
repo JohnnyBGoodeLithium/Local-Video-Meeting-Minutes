@@ -86,10 +86,15 @@ const continuationWording=document.querySelector('.turn.cont')?.textContent.incl
 document.body.dataset.reviewContract=[longSegmentStep,sequentialStep,speakerStep,inferredSpeaker,shortSampleDisabled,continuationWording].join(',');
 renderTopicMap('N0101');
 const topicDetailExpanded=!!document.querySelector('.topic-detail')&&document.querySelector('.topic-detail').textContent.includes('\xe8\xbf\x99\xe6\x98\xaf\xe5\xb1\x95\xe5\xbc\x80\xe5\x90\x8e\xe7\x9a\x84\xe8\x8a\x82\xe7\x82\xb9\xe8\xaf\xb4\xe6\x98\x8e');
-const nodeStaysBrowse=currentMode==='topic_map'&&document.querySelector('#app').classList.contains('browse-mode');
+const nodeStaysContext=currentMode==='topic_map'&&document.querySelector('#app').classList.contains('review-mode')&&document.querySelector('#app').classList.contains('context-active');
+const tabsBefore=document.querySelector('#viewtabs').getBoundingClientRect().left;
 document.querySelector('[data-view-seek]').click();
 const timeOpensReview=currentMode==='transcript'&&document.querySelector('#app').classList.contains('review-mode');
-document.body.dataset.topicContract=[topicDetailExpanded,nodeStaysBrowse,timeOpensReview].join(',');
+const tabsStayPut=Math.abs(tabsBefore-document.querySelector('#viewtabs').getBoundingClientRect().left)<1;
+const threePane=['.left','.main','.transcript-panel'].every(selector=>getComputedStyle(document.querySelector(selector)).display!=='none');
+personLanesOpen=true;renderPersonLanes();
+const spaciousPersonLane=parseFloat(getComputedStyle(document.querySelector('.person-lane-track')).height)>=16;
+document.body.dataset.topicContract=[topicDetailExpanded,nodeStaysContext,timeOpensReview,tabsStayPut,threePane,spaciousPersonLane].join(',');
 </script></body>"""
 page = page.replace(b"</body>", contract_probe)
 
@@ -97,7 +102,7 @@ with tempfile.TemporaryDirectory() as td:
     f = Path(td) / "viewer.html"
     f.write_bytes(page)
     proc = subprocess.run(
-        [CHROME, "--headless=new", "--disable-gpu", "--no-sandbox",
+         [CHROME, "--headless=new", "--disable-gpu", "--no-sandbox", "--window-size=1920,1080",
          "--enable-logging=stderr", "--v=0", "--virtual-time-budget=8000",
          "--dump-dom", f.as_uri()],
         capture_output=True, text=True, timeout=90)
@@ -111,8 +116,10 @@ assert 'id="utterance-controls"' in proc.stdout and "重播本段" in proc.stdou
 assert 'id="focusbar"' not in proc.stdout, "viewer 仍渲染冗余语义摘要条"
 assert 'data-review-contract="true,true,true,true,true,true"' in proc.stdout, \
     "viewer 长发言分段/顺次/个人/当前位置选人契约不一致"
-assert 'data-topic-contract="true,true,true"' in proc.stdout, \
-    "viewer 节点展开与显式时间进入核听的契约不一致"
+assert 'data-topic-contract="true,true,true,true,true,true"' in proc.stdout, \
+    ("viewer 节点展开与显式时间进入核听的契约不一致: " +
+     (next((part.split('"')[1] for part in proc.stdout.split()
+            if part.startswith('data-topic-contract=')), "missing")))
 assert "Uncaught" not in proc.stderr, \
     f"viewer 启动存在未捕获异常: {proc.stderr[-500:]}"
 print("viewer boot: headless runtime passed")

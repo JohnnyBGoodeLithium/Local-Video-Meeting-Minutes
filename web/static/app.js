@@ -988,9 +988,9 @@ function renderPlayer() {
 
 // 调色板唯一真源是 style.css 的 --speaker-N / --topic-N token（theme.css 可整体覆盖）；
 // JS 用 getComputedStyle 读取，下面是读不到时的兜底值（与默认主题一致）。
-const SPEAKER_COLOR_FALLBACK = ["#5e9dff", "#34c98e", "#f0a13f", "#e06a6a", "#a97ef0", "#3cc0d8", "#e07fb5", "#9fbd4a"];
+const SPEAKER_COLOR_FALLBACK = ["#e57b45", "#d45a8c", "#43b978", "#e0aa3e", "#d75d5d", "#a176dd", "#31a9c2", "#92ad3f"];
 // 议题配色：一级议题按序号取色，时间轴块与右侧脉络"议题 NN"标签同色；low_value 保持灰蓝弱化。
-const TOPIC_COLOR_FALLBACK = ["#4f7cff", "#8b5cf6", "#14b8a6", "#e8873a", "#e05d7b", "#22a06b", "#0ea5e9", "#b8a425"];
+const TOPIC_COLOR_FALLBACK = ["#3b6eea", "#5476d9", "#6a75c9", "#397fbd", "#318d9d", "#4384a8", "#6779b8", "#526d96"];
 let paletteCache = null;
 function palettes() {
   if (!paletteCache) {
@@ -2065,13 +2065,15 @@ function onTimeUpdate() {
   const activeUnitIndex = nearestReviewTurn(null, t);
   const activeUnit = reviewUnitList()[activeUnitIndex];
   const cur = activeUnit?.turnIndex ?? -1;
+  const reviewUnitChanged = state.reviewTurnIndex !== activeUnitIndex;
   $$(".turn.playing").forEach(el => el.classList.remove("playing"));
   if (cur >= 0) {
     syncReviewFromPlayback(activeUnitIndex);
     const el = $(`#transcript .turn[data-review-unit="${activeUnitIndex}"]`);
     if (el) {
       el.classList.add("playing");
-      if ($("#follow").checked) scrollInside($("#transcript"), el, "nearest", true);
+      if ($("#follow").checked && reviewUnitChanged)
+        scrollInside($("#transcript"), el, "center", true);
     }
     if (state.translationJob && cur !== state.lastTranslationFocus
         && Date.now() - state.lastTranslationFocusAt > 2500) {

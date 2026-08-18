@@ -87,23 +87,23 @@
   --r-14: 14px;
   --r-18: 18px;
   /* 议题调色板（JS 经 getComputedStyle 读取） */
-  --topic-1: #4f7cff;
-  --topic-2: #8b5cf6;
-  --topic-3: #14b8a6;
-  --topic-4: #e8873a;
-  --topic-5: #e05d7b;
-  --topic-6: #22a06b;
-  --topic-7: #0ea5e9;
-  --topic-8: #b8a425;
+  --topic-1: #3b6eea;
+  --topic-2: #5476d9;
+  --topic-3: #6a75c9;
+  --topic-4: #397fbd;
+  --topic-5: #318d9d;
+  --topic-6: #4384a8;
+  --topic-7: #6779b8;
+  --topic-8: #526d96;
   /* 说话人调色板（按发言占比降序分配） */
-  --speaker-1: #5e9dff;
-  --speaker-2: #34c98e;
-  --speaker-3: #f0a13f;
-  --speaker-4: #e06a6a;
-  --speaker-5: #a97ef0;
-  --speaker-6: #3cc0d8;
-  --speaker-7: #e07fb5;
-  --speaker-8: #9fbd4a;
+  --speaker-1: #e57b45;
+  --speaker-2: #d45a8c;
+  --speaker-3: #43b978;
+  --speaker-4: #e0aa3e;
+  --speaker-5: #d75d5d;
+  --speaker-6: #a176dd;
+  --speaker-7: #31a9c2;
+  --speaker-8: #92ad3f;
 }
 
 body {

@@ -165,7 +165,7 @@ check("时间码跳转只滚动内容面板，不带动整页丢失播放器",
 check("在线屏幕舞台支持放大、缩放和相邻屏幕键盘导航",
       b'id="screen-preview-mask"' in page and b'openScreenPreview' in app_js
       and b'navigateScreenPreview' in app_js and b'SCREEN_PREVIEW_ZOOMS' in app_js
-      and b'20260818p58' in page)
+      and b'20260818p59' in page)
 check("会议列表默认按导入时间且可切换并记忆排序",
       b'meetingSort' in app_js and b'"imported"' in app_js
       and b'imported_at' in app_js and b'updated_at' in app_js
@@ -522,11 +522,13 @@ check("MeetingPack 携带屏幕标题/短摘要译文，Viewer 切换语言时�
       "assets/visuals.en.json" in names and "assets/visuals.zh-CN.json" in names
       and "visuals_languages" in viewer and "visualPages=new Map" in viewer
       and "function pageSummary" in viewer and "English:" in viewer)
-check("Viewer 使用四个任务入口，浏览态全宽、逐字稿进入核听布局",
+check("Viewer 使用四入口与响应式三栏/两栏核听工作台",
       "管理层 ·" not in viewer and "执行层 ·" not in viewer
       and "{id:'topic_map',title:u('会议脉络','Meeting map'),primary:ready}" in viewer
       and "{id:'transcript',title:u('逐字稿','Transcript')}" in viewer
-      and 'id="transcript-view"' in viewer and 'id="app"' in viewer
+      and 'class="workspace-nav"' in viewer and 'id="transcript-panel"' in viewer
+      and "grid-template-columns:minmax(500px,30fr)" in viewer
+      and "@container (min-width:620px)" in viewer
       and "function renderTranscriptMode" in viewer and "function scopedSearchRecords" in viewer
       and "function topicMapReady" in viewer and "if(topicReady)renderTopicMap();else renderMinutes();" in viewer)
 check("Viewer 无视频也用屏幕舞台联动时间、逐字稿和结论 Focus",
