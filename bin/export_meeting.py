@@ -30,6 +30,7 @@ from meeting_artifact import (
     markdown_with_evidence_links,
     minutes_reading_markdown,
     rag_records,
+    speaker_navigation,
     strip_visible_evidence_ids,
 )
 from meeting_views import evidence_integrity
@@ -392,7 +393,8 @@ def _viewer_html(title: str, date: str, minutes_html: str, evidence: dict, integ
                  source_language: str = "zh-CN",
                  minutes_languages: dict[str, dict] | None = None,
                  topic_map_languages: dict[str, dict] | None = None,
-                 visuals_languages: dict[str, list[dict]] | None = None) -> bytes:
+                 visuals_languages: dict[str, list[dict]] | None = None,
+                 speaker_navigation_rows: list[dict] | None = None) -> bytes:
     duration = max((float(t.get("end", 0)) for t in evidence["sources"]["transcript"]), default=0)
     payload = {
         "title": title,
@@ -408,6 +410,7 @@ def _viewer_html(title: str, date: str, minutes_html: str, evidence: dict, integ
         "visuals_languages": visuals_languages or {},
         "media_path": media_path,
         "media_kind": media_kind,
+        "speaker_navigation": speaker_navigation_rows or [],
     }
     page = VIEWER_TEMPLATE_PATH.read_text(encoding="utf-8").replace(
         "__TITLE__", html.escape(title)).replace(
@@ -447,6 +450,12 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
     descs = {int(k): clean_model_text(str(v)) for k, v in raw_desc.items()
              if str(k).isdigit()}
     profiles = load_speaker_profiles(turns, bank_dir)
+    source_meta = _read_json(mdir / "source.json", {})
+    transcript_format = str(source_meta.get("transcript_format") or "").lower()
+    if not transcript_format:
+        transcript_format = next((suffix for suffix in ("vtt", "docx")
+                                  if (mdir / f"source.{suffix}").is_file()), "")
+    speaker_navigation_rows = speaker_navigation(turns, profiles, transcript_format)
     evidence = build_evidence_document(mdir, minutes, turns, pages, descs, profiles,
                                        generation={"export_rebuilt": True})
     for page in evidence.get("sources", {}).get("pages", []):
@@ -505,7 +514,8 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
         small_files = {
             "viewer.html": _viewer_html(title, date, minutes_html, evidence, integrity, topic_map,
                                         media_arc, media_kind, source_language, minutes_languages,
-                                        topic_map_languages, visuals_languages),
+                                        topic_map_languages, visuals_languages,
+                                        speaker_navigation_rows),
             "README.txt": _readme(media_mode).encode("utf-8"),
             "AGENTS.md": _AGENTS_MD.encode("utf-8"),
             "assets/minutes.md": reading_minutes.encode("utf-8"),

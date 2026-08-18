@@ -182,6 +182,42 @@ def load_speaker_profiles(turns: list[dict], bank_dir: Path | None) -> list[dict
     return profiles
 
 
+def speaker_navigation(turns: list[dict], profiles: list[dict],
+                       transcript_format: str | None = None) -> list[dict]:
+    """给阅读器的最小人物选择投影。
+
+    声纹绑定证明跨会议稳定身份；VTT/DOCX 姓名只证明本场标签可靠；未具名但已有
+    voice_id 的分离簇也足以在本场跳播。只有没能提取出声音簇的短片段保持禁选。
+    """
+    named_transcript = str(transcript_format or "").lower().lstrip(".") in {"vtt", "docx"}
+    profile_by_speaker = {str(p.get("speaker") or ""): p for p in profiles}
+    names = list(dict.fromkeys(str(turn.get("speaker") or "未知") for turn in turns))
+    voices_by_speaker = {
+        name: {str(turn.get("voice")) for turn in turns
+               if str(turn.get("speaker") or "未知") == name and turn.get("voice")}
+        for name in names
+    }
+
+    def anonymous(name: str) -> bool:
+        compact = re.sub(r"\s+", "", name).lower()
+        return (not compact or "(声音" in name or compact in {"未知", "未具名", "unknown"}
+                or re.fullmatch(r"(?:说话人|speaker)\d+", compact) is not None)
+
+    out = []
+    for name in names:
+        profile = profile_by_speaker.get(name, {})
+        if profile.get("person_id"):
+            basis, selectable = "verified_voice_binding", True
+        elif named_transcript and not anonymous(name):
+            basis, selectable = "imported_transcript_label", True
+        elif profile.get("voice_ids") or voices_by_speaker.get(name):
+            basis, selectable = "session_voice_cluster", True
+        else:
+            basis, selectable = "insufficient_voice_sample", False
+        out.append({"speaker": name, "selectable": selectable, "identity_basis": basis})
+    return out
+
+
 def build_prompt_context(turns: list[dict], pages: list[dict], descs: dict[int, str],
                          profiles: list[dict], *, detail: bool = False,
                          page_numbers: set[int] | None = None) -> dict:

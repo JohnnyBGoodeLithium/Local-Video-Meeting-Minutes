@@ -154,6 +154,12 @@ def get_bundle(slug: str):
     if action_candidates is None and minutes_path:
         action_candidates = artifact.action_candidates_from_minutes(
             minutes_path.read_text(encoding="utf-8"), actions)
+    transcript_format = str(src.get("transcript_format") or "").lower()
+    if not transcript_format:
+        transcript_format = next((suffix for suffix in ("vtt", "docx")
+                                  if (mdir / f"source.{suffix}").is_file()), "")
+    profiles = evidence.get("speaker_profiles") or artifact.load_speaker_profiles(
+        transcript, BANK_DIR)
     return {
         "slug": slug,
         **_meeting_identity(slug),
@@ -168,6 +174,8 @@ def get_bundle(slug: str):
         "has_video": _video_path(mdir) is not None,
         "duration": duration,
         "speaker_count": len({t.get("speaker") for t in transcript if t.get("speaker")}),
+        "speaker_navigation": artifact.speaker_navigation(
+            transcript, profiles, transcript_format),
         "transcript_revision": assistant.revision(mdir / "transcript.spk.json"),
         "minutes_revision": assistant.revision(_minutes_file(mdir)) if _minutes_file(mdir) else None,
         "document_state": document_state,

@@ -31,6 +31,7 @@ check:
 	$(PY) web/tests/hardware_test.py
 	$(PY) web/tests/voice_split_test.py
 	$(PY) web/tests/voice_fragment_merge_test.py
+	$(PY) web/tests/speaker_navigation_test.py
 	$(PY) web/tests/translation_service_test.py
 	$(PY) web/tests/viewer_boot_test.py
 	@if command -v node >/dev/null 2>&1; then node --check web/static/app.js && node --check web/static/admin.js; else echo "Node unavailable: skipped JS syntax check"; fi

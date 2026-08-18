@@ -28,7 +28,11 @@ EVIDENCE = {
     "actions": [],
     "sources": {
         "transcript": [{"id": "T0001", "index": 0, "speaker": "人员甲",
-                        "start": 0.0, "end": 5.0, "text": "示例发言：周五前给结论。"}],
+                        "start": 0.0, "end": 5.0, "text": "示例发言：周五前给结论。"},
+                       {"id": "T0002", "index": 1, "speaker": "人员乙",
+                        "start": 5.0, "end": 10.0, "text": "示例发言：我来准备材料。"},
+                       {"id": "T0003", "index": 2, "speaker": "人员甲",
+                        "start": 10.0, "end": 15.0, "text": "示例发言：下周再同步。"}],
         "pages": [{"id": "P0001", "number": 1, "first": 0.0, "last": 9.0,
                    "image": None, "visual_description": "示例页面：计划表。",
                    "display_status": "discussed"}],
@@ -38,7 +42,26 @@ EVIDENCE = {
 page = export_meeting._viewer_html(
     "合成启动测试会", "2026-01-01",
     "<h2>总体摘要</h2><p>启动冒烟正文标记</p>",
-    EVIDENCE, {"schema": "test"}, {}, None, None)
+    EVIDENCE, {"schema": "test"}, {}, None, None,
+    speaker_navigation_rows=[
+        {"speaker": "人员甲", "selectable": True,
+         "identity_basis": "session_voice_cluster"},
+        {"speaker": "人员乙", "selectable": True,
+         "identity_basis": "imported_transcript_label"},
+        {"speaker": "短片段", "selectable": False,
+         "identity_basis": "insufficient_voice_sample"},
+    ])
+contract_probe = b"""<script>
+selectPlaybackSpeaker('\xe4\xba\xba\xe5\x91\x98\xe7\x94\xb2',false);setPlaybackScope('meeting');reviewTurn=0;stepReviewTurn(1);
+const sequentialStep=reviewTurn===1;
+selectPlaybackSpeaker('\xe4\xba\xba\xe5\x91\x98\xe7\x94\xb2',false);setPlaybackScope('speaker');reviewTurn=0;stepReviewTurn(1);
+const speakerStep=reviewTurn===2;
+selectPlaybackSpeaker(spkPin,true);focusTime(5,false);setPlaybackScope('speaker');
+const inferredSpeaker=spkPin==='\xe4\xba\xba\xe5\x91\x98\xe4\xb9\x99'&&reviewTurn===1;
+const shortSampleDisabled=!speakerSelectable('\xe7\x9f\xad\xe7\x89\x87\xe6\xae\xb5');
+document.body.dataset.reviewContract=[sequentialStep,speakerStep,inferredSpeaker,shortSampleDisabled].join(',');
+</script></body>"""
+page = page.replace(b"</body>", contract_probe)
 
 with tempfile.TemporaryDirectory() as td:
     f = Path(td) / "viewer.html"
@@ -54,6 +77,8 @@ assert "启动冒烟正文标记" in proc.stdout, "viewer 正文未渲染"
 assert 'id="utterance-controls"' in proc.stdout and "重播本段" in proc.stdout, \
     "viewer 逐段回听控制未启动"
 assert 'id="focusbar"' not in proc.stdout, "viewer 仍渲染冗余语义摘要条"
+assert 'data-review-contract="true,true,true,true"' in proc.stdout, \
+    "viewer 顺次/个人/当前位置选人契约不一致"
 assert "Uncaught" not in proc.stderr, \
     f"viewer 启动存在未捕获异常: {proc.stderr[-500:]}"
 print("viewer boot: headless runtime passed")

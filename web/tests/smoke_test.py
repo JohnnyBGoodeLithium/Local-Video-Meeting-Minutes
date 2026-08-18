@@ -155,11 +155,16 @@ check("时间码跳转只滚动内容面板，不带动整页丢失播放器",
 check("在线屏幕舞台支持放大、缩放和相邻屏幕键盘导航",
       b'id="screen-preview-mask"' in page and b'openScreenPreview' in app_js
       and b'navigateScreenPreview' in app_js and b'SCREEN_PREVIEW_ZOOMS' in app_js
-      and b'20260818p49' in page)
+      and b'20260818p50' in page)
 check("在线端支持整场/仅当前说话人播放及逐段回听",
       b'id="utterance-controls"' in page
       and b'function handleSpeakerOnlyPlayback' in app_js
       and b'function stepReviewTurn' in app_js
+      and b'function reviewSpeaker' in app_js
+      and b'nearestReviewTurn(null)' in app_js
+      and b'function isSelectableSpeaker' in app_js
+      and b'speakerModeDisabled' in app_js
+      and b'state.playbackScope === "speaker" && state.speakerPin' in app_js
       and "重播本段".encode() in app_js)
 check("英文会议脉络同步本地化时间轴悬浮层与 Focus 辅助文案",
       b'"Meeting overview"' in app_js and b'"Semantic focus"' in app_js
@@ -199,6 +204,11 @@ check("bundle 带逐字稿/纪要 revision",
       bool(j.get("transcript_revision")) and bool(j.get("minutes_revision")))
 check("bundle 含可读会议身份元数据",
       j.get("title") == "smoke" and j.get("speaker_count") == 2)
+check("纯音频未命名声音簇仍可按人跳播",
+      len(j.get("speaker_navigation", [])) == 2
+      and all(row.get("selectable") is True
+              and row.get("identity_basis") == "session_voice_cluster"
+              for row in j.get("speaker_navigation", [])))
 check("bundle 提供逻辑页、连续视觉片段和语义章节三层结构",
       j.get("structure", {}).get("schema") == "meeting-structure/v2"
       and len(j.get("structure", {}).get("segments", [])) == 2
@@ -479,6 +489,8 @@ check("Viewer 无视频也用屏幕舞台联动时间、逐字稿和结论 Focus
 check("Viewer 移除说话人下方冗余摘要并同步逐段/个人播放控制",
       'id="focusbar"' not in viewer and 'id="utterance-controls"' in viewer
       and "function handleSpeakerOnly" in viewer and "function stepReviewTurn" in viewer
+      and "function reviewSpeaker" in viewer and "nearestReviewTurn(null)" in viewer
+      and "speaker_navigation" in viewer and "speakerSelectable" in viewer
       and "仅当前说话人" in viewer and "重播本段" in viewer)
 check("Viewer 屏幕舞台支持离线放大、缩放和相邻屏幕导航",
       'id="screen-preview"' in viewer and "function openScreenPreview" in viewer

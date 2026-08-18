@@ -131,6 +131,7 @@ const UI_COPY = {
     previousUtterance: "上一段", replayUtterance: "重播本段", nextUtterance: "下一段",
     clearSpeaker: "取消人物", utteranceUnit: "段发言",
     bindAction: "绑定", legendBindAction: "未绑定声纹：点「绑定」为其指定人员",
+    speakerUnavailable: "当前声音过短，未形成可用声音簇，不能按人播放",
     lowValueHint: "过渡或低讨论密度时段", continued: "继续",
   },
   en: {
@@ -157,6 +158,7 @@ const UI_COPY = {
     previousUtterance: "Previous", replayUtterance: "Replay", nextUtterance: "Next",
     clearSpeaker: "Clear person", utteranceUnit: "utterances",
     legendBindAction: "No voiceprint bound: use “Bind” to assign a person",
+    speakerUnavailable: "This sample is too short to form a usable voice cluster",
     lowValueHint: "Transitional or low-density segment", continued: "cont.",
   },
 };
@@ -1340,9 +1342,29 @@ function buildTimeline(duration) {
   });
 }
 
-// 未绑定/会议机判定：声纹拆分名(含"(声音")或占位名；不参与配色排序，固定沉底。
+function legacyUnboundSpeaker(name) {
+  const compact = String(name || "").replace(/\s+/g, "").toLowerCase();
+  return !compact || String(name).includes("(声音")
+    || ["未知", "未具名", "unknown"].includes(compact)
+    || /^(说话人|speaker)\d+$/.test(compact);
+}
+
+function speakerNavigation(name) {
+  return (state.bundle?.speaker_navigation || [])
+    .find(item => item.speaker === name) || null;
+}
+
+// 新包以服务端身份投影为准；旧包保留名称启发式，保证向后兼容。
+function isSelectableSpeaker(name) {
+  const navigation = speakerNavigation(name);
+  return navigation ? navigation.selectable === true : !legacyUnboundSpeaker(name);
+}
+
 function isUnboundSpeaker(name) {
-  return !name || name.includes("(声音") || ["未知", "未具名", "Unknown"].includes(name);
+  const navigation = speakerNavigation(name);
+  if (!navigation) return legacyUnboundSpeaker(name);
+  return ["session_voice_cluster", "insufficient_voice_sample"]
+    .includes(navigation.identity_basis);
 }
 
 // 每个说话人的发言时长统计(秒)；turn 缺 end 时用下一轮开始或整场时长补齐。
@@ -1534,18 +1556,20 @@ function renderSpeakerLegend() {
     });
     box.appendChild(more);
   }
-  // 未绑定/会议机：灰色斜纹，固定沉底，带"绑定"入口。
+  // 未绑定/会议机：灰色斜纹沉底；有声音簇时可本场跳播，无声音簇时才禁选。
   for (const name of unbound) {
+    const selectable = isSelectableSpeaker(name);
     const chip = document.createElement("span");
-    chip.className = "speaker-chip unbound";
+    chip.className = "speaker-chip unbound" + (selectable ? "" : " disabled");
     chip.dataset.speaker = name;
-    chip.title = ui("legendBindAction");
+    if (!selectable) chip.setAttribute("aria-disabled", "true");
+    chip.title = selectable ? ui("speakerPinTip") : ui("speakerUnavailable");
     chip.innerHTML = `<i></i>${esc(name)}<small>${pct(name)}%</small>`;
-    chip.addEventListener("mouseenter", () => { state.speakerHover = name; applySpeakerFocus(); });
-    chip.addEventListener("mouseleave", () => { state.speakerHover = null; applySpeakerFocus(); });
-    chip.addEventListener("click", () => {
-      selectPlaybackSpeaker(name, true);
-    });
+    if (selectable) {
+      chip.addEventListener("mouseenter", () => { state.speakerHover = name; applySpeakerFocus(); });
+      chip.addEventListener("mouseleave", () => { state.speakerHover = null; applySpeakerFocus(); });
+      chip.addEventListener("click", () => selectPlaybackSpeaker(name, true));
+    }
     const turn = transcript.find(item => item.speaker === name && item.voice);
     if (turn) {
       const bind = document.createElement("button");
@@ -1596,15 +1620,19 @@ function renderPersonLanes() {
   const hiddenCount = bound.length - shown.length;
   const runs = speakerRuns();
   const appendRow = speaker => {
+    const selectable = isSelectableSpeaker(speaker);
     const row = document.createElement("div");
-    row.className = "person-lane" + (isUnboundSpeaker(speaker) ? " unbound" : "");
+    row.className = "person-lane" + (isUnboundSpeaker(speaker) ? " unbound" : "")
+      + (selectable ? "" : " disabled");
     row.dataset.speaker = speaker;
     const label = document.createElement("button");
     label.type = "button";
     label.className = "person-lane-name";
     label.textContent = speaker;
-    label.title = speaker;
-    label.addEventListener("click", () => selectPlaybackSpeaker(speaker, true));
+    label.title = selectable ? speaker : ui("speakerUnavailable");
+    label.disabled = !selectable;
+    if (selectable)
+      label.addEventListener("click", () => selectPlaybackSpeaker(speaker, true));
     row.appendChild(label);
     const track = document.createElement("div");
     track.className = "person-lane-track";
@@ -1617,11 +1645,15 @@ function renderPersonLanes() {
       block.style.width = Math.max(.5, (run.end - run.start) / duration * 100) + "%";
       block.style.background = speakerColor(speaker);
       block.title = `${fmt(run.start)}–${fmt(run.end)} ${speaker}`;
-      block.addEventListener("click", event => {
-        event.stopPropagation();
-        selectPlaybackSpeaker(speaker, false);
-        selectReviewTurn(run.turnIndexes[0], true);
-      });
+      if (selectable) {
+        block.addEventListener("click", event => {
+          event.stopPropagation();
+          selectPlaybackSpeaker(speaker, false);
+          selectReviewTurn(run.turnIndexes[0], true);
+        });
+      } else {
+        block.title = `${block.title} · ${ui("speakerUnavailable")}`;
+      }
       track.appendChild(block);
     }
     row.appendChild(track);
@@ -1670,7 +1702,11 @@ function reviewTurnEnd(index) {
     || Number(turn.start) || 0;
 }
 
-function reviewIndexes(speaker = state.speakerPin) {
+function reviewSpeaker() {
+  return state.playbackScope === "speaker" ? state.speakerPin : null;
+}
+
+function reviewIndexes(speaker = reviewSpeaker()) {
   const transcript = state.bundle?.transcript || [];
   return transcript.map((_, index) => index)
     .filter(index => !speaker || transcript[index].speaker === speaker);
@@ -1682,7 +1718,7 @@ function playbackPosition() {
   return Number(state.focus?.time) || 0;
 }
 
-function nearestReviewTurn(speaker = state.speakerPin, time = playbackPosition()) {
+function nearestReviewTurn(speaker = reviewSpeaker(), time = playbackPosition()) {
   const transcript = state.bundle?.transcript || [];
   const indexes = reviewIndexes(speaker);
   if (!indexes.length) return null;
@@ -1707,17 +1743,19 @@ function ensureReviewTurn() {
 }
 
 function selectPlaybackSpeaker(speaker, toggle = false) {
+  if (speaker && !isSelectableSpeaker(speaker)) return;
   const next = toggle && state.speakerPin === speaker ? null : speaker;
   state.speakerPin = next;
   if (!next) state.playbackScope = "meeting";
-  state.reviewTurnIndex = nearestReviewTurn(next);
+  state.reviewTurnIndex = nearestReviewTurn(state.playbackScope === "speaker" ? next : null);
   applySpeakerFocus();
 }
 
 function selectReviewTurn(index, play = true) {
   const transcript = state.bundle?.transcript || [];
   if (!transcript[index]) return;
-  if (state.speakerPin && transcript[index].speaker !== state.speakerPin) return;
+  if (state.playbackScope === "speaker" && state.speakerPin
+      && transcript[index].speaker !== state.speakerPin) return;
   state.reviewTurnIndex = index;
   updateReviewHighlights();
   renderUtteranceControls();
@@ -1733,13 +1771,25 @@ function stepReviewTurn(delta) {
 }
 
 function setPlaybackScope(scope) {
-  if (scope === "speaker" && !state.speakerPin) return;
+  const transcript = state.bundle?.transcript || [];
+  if (scope === "speaker" && !state.speakerPin) {
+    const current = nearestReviewTurn(null);
+    if (current == null || !transcript[current]) return;
+    if (!isSelectableSpeaker(transcript[current].speaker)) return;
+    state.speakerPin = transcript[current].speaker;
+  }
   state.playbackScope = scope;
-  renderUtteranceControls();
+  state.reviewTurnIndex = nearestReviewTurn(reviewSpeaker());
+  applySpeakerFocus();
   if (scope === "speaker") {
     const p = player();
     const current = ensureReviewTurn();
-    if (p && !p.paused && current != null) selectReviewTurn(current, true);
+    if (p && !p.paused && current != null) {
+      const time = Number(p.currentTime) || 0;
+      const start = Number(transcript[current].start) || 0;
+      if (time < start - 0.05 || time >= reviewTurnEnd(current) - 0.05)
+        selectReviewTurn(current, true);
+    }
   }
 }
 
@@ -1754,7 +1804,9 @@ function renderUtteranceControls() {
   const current = ensureReviewTurn();
   const position = Math.max(0, indexes.indexOf(current));
   const speaker = state.speakerPin;
-  const label = speaker || ui("allSpeakers");
+  const inferredSpeaker = speaker || transcript[current]?.speaker;
+  const speakerModeDisabled = !inferredSpeaker || !isSelectableSpeaker(inferredSpeaker);
+  const label = reviewSpeaker() || ui("allSpeakers");
   const at = current == null ? 0 : position + 1;
   const currentTime = current == null ? "" : " · " + fmt(transcript[current].start);
   const scopeLabel = isEnglishUi() ? "Playback range" : "播放范围";
@@ -1766,7 +1818,8 @@ function renderUtteranceControls() {
     state.playbackScope === "meeting" ? "active" : "", '">', ui("fullMeeting"), '</button>',
     '<button type="button" data-playback-scope="speaker" class="',
     state.playbackScope === "speaker" ? "active" : "", '" ',
-    speaker ? "" : "disabled", '>', ui("speakerOnly"), '</button></span>',
+    speakerModeDisabled ? `disabled title="${esc(ui("speakerUnavailable"))}"` : "", '>',
+    ui("speakerOnly"), '</button></span>',
     '<span class="utterance-actions">',
     '<button type="button" data-review-step="-1" ', position <= 0 ? "disabled" : "",
     '>◀ ', ui("previousUtterance"), '</button>',
@@ -1806,7 +1859,8 @@ function updateReviewHighlights() {
 function syncReviewFromPlayback(activeIndex) {
   const transcript = state.bundle?.transcript || [];
   if (activeIndex < 0 || !transcript[activeIndex]) return;
-  if (state.speakerPin && transcript[activeIndex].speaker !== state.speakerPin) return;
+  if (state.playbackScope === "speaker" && state.speakerPin
+      && transcript[activeIndex].speaker !== state.speakerPin) return;
   if (state.reviewTurnIndex === activeIndex) return;
   state.reviewTurnIndex = activeIndex;
   updateReviewHighlights();

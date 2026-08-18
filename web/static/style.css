@@ -634,8 +634,9 @@ body.resizing-panes { cursor: col-resize; user-select: none; }
 .legend-more:hover { color: var(--accent); }
 /* 未绑定/会议机 chip:灰色斜纹,固定沉底 */
 .speaker-chip.unbound { cursor: pointer; }
+.speaker-chip.unbound.disabled { cursor: not-allowed; }
 .speaker-chip.unbound i { border-radius: var(--r-2); background: repeating-linear-gradient(45deg, #8a93a8 0 2px, rgba(138, 147, 168, .25) 2px 4px); }
-.chip-bind { padding: 0 var(--sp-6); border: 1px solid var(--border); border-radius: var(--r-8); background: transparent; color: var(--accent); font-size: var(--fs-10); }
+.chip-bind { padding: 0 var(--sp-6); border: 1px solid var(--border); border-radius: var(--r-8); background: transparent; color: var(--accent); font-size: var(--fs-10); cursor: pointer; }
 .chip-bind:hover { border-color: var(--accent); }
 /* 逐人展开车道 */
 .person-lanes { display: grid; gap: var(--sp-4); margin-top: var(--sp-8); }
@@ -647,6 +648,8 @@ body.resizing-panes { cursor: col-resize; user-select: none; }
 .pl-block:hover { z-index: 1; opacity: 1; outline: 1px solid #fff; }
 .pl-block.review-current { z-index: 2; opacity: 1; outline: 2px solid #fff; box-shadow: 0 0 0 2px var(--accent); }
 .person-lane.unbound .pl-block { background: repeating-linear-gradient(45deg, #8a93a8 0 3px, rgba(138, 147, 168, .3) 3px 6px); }
+.person-lane.disabled .person-lane-name, .person-lane.disabled .pl-block { cursor: not-allowed; }
+.person-lane.disabled .person-lane-name:hover { border-color: transparent; color: var(--dim); }
 .person-lanes.person-focus .person-lane.dimmed { opacity: .25; }
 .person-lanes-more { justify-self: start; padding: 0 var(--sp-8); border: 1px dashed var(--border); border-radius: var(--r-9); background: transparent; color: var(--dim); font-size: var(--fs-10); }
 .person-lanes-more:hover { color: var(--accent); border-color: var(--accent); }
