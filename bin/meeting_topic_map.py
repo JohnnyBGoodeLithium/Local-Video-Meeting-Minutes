@@ -120,6 +120,8 @@ def load_current_topic_map(mdir: Path) -> tuple[str, dict]:
     if (value.get("schema") not in ACCEPTED_SCHEMAS
             or value.get("revisions") != current_revisions(Path(mdir))):
         return "stale", {}
+    if value.get("schema") == SCHEMA:
+        value = _normalize_v3_navigation(value)
     return "ready", value
 
 
@@ -348,6 +350,165 @@ def _merge_ranges(ranges: list[list[float]], gap: float = 60.0) -> list[list[flo
     return merged
 
 
+def _segment_interval(segment: dict) -> tuple[float, float]:
+    ranges = segment.get("ranges") or []
+    if ranges:
+        return float(ranges[0][0]), float(ranges[-1][1])
+    return float(segment.get("start") or 0), float(segment.get("end") or 0)
+
+
+def _set_segment_interval(segment: dict, start: float, end: float) -> None:
+    start, end = round(float(start), 3), round(max(float(start), float(end)), 3)
+    segment["ranges"] = [[start, end]]
+    segment["start"], segment["end"] = start, end
+
+
+def _coalesce_navigation_segments(segments: list[dict],
+                                  max_interrupt_seconds: float = 60.0) -> list[dict]:
+    """把同一 Topic 之间的短回应直接归回章节，并修正重复时间戳重叠。
+
+    Topic Map 的时间线是章节导航，不是逐轮分类可视化。短 transition/unclassified
+    被同一 topic 前后夹住时，保留它们的 turn_ids，但不再把章节切碎。不同 topic
+    或超过阈值的间隔仍保持独立。
+    """
+    source = []
+    for segment in segments:
+        item = dict(segment)
+        item["turn_ids"] = list(segment.get("turn_ids") or [])
+        item["ranges"] = [list(value) for value in segment.get("ranges") or []]
+        source.append(item)
+
+    output: list[dict] = []
+    index = 0
+    while index < len(source):
+        current = source[index]
+        if current.get("kind") != "topic" or not current.get("topic_id"):
+            output.append(current)
+            index += 1
+            continue
+        merged = current
+        cursor = index
+        while cursor + 1 < len(source):
+            next_topic_index = cursor + 1
+            while (next_topic_index < len(source)
+                   and source[next_topic_index].get("kind") != "topic"):
+                next_topic_index += 1
+            if next_topic_index >= len(source):
+                break
+            next_topic = source[next_topic_index]
+            if next_topic.get("topic_id") != merged.get("topic_id"):
+                break
+            _, merged_end = _segment_interval(merged)
+            next_start, next_end = _segment_interval(next_topic)
+            if max(0.0, next_start - merged_end) > max_interrupt_seconds:
+                break
+            for bridge in source[cursor + 1:next_topic_index + 1]:
+                merged["turn_ids"].extend(
+                    turn_id for turn_id in bridge.get("turn_ids") or []
+                    if turn_id not in merged["turn_ids"])
+            merged_start, _ = _segment_interval(merged)
+            _set_segment_interval(merged, merged_start, max(merged_end, next_end))
+            cursor = next_topic_index
+        output.append(merged)
+        index = cursor + 1
+
+    # Teams DOCX 可能给连续发言同一个粗粒度时间戳。章节序列仍应互斥；按顺序在
+    # 重叠区间中点切开，只调整导航投影，不改 canonical 逐字稿时间。
+    for index in range(1, len(output)):
+        previous, current = output[index - 1], output[index]
+        previous_start, previous_end = _segment_interval(previous)
+        current_start, current_end = _segment_interval(current)
+        if current_start >= previous_end:
+            continue
+        overlap_end = min(previous_end, current_end)
+        boundary = (current_start + overlap_end) / 2.0
+        _set_segment_interval(previous, previous_start, boundary)
+        _set_segment_interval(current, boundary, current_end)
+
+    for index, segment in enumerate(output, 1):
+        segment["id"] = f"S{index:03d}"
+    return output
+
+
+def _normalize_v3_navigation(value: dict) -> dict:
+    """读取存量 v3 时确定性收敛章节，不要求重新调用 LLM。"""
+    output = dict(value)
+    segments = _coalesce_navigation_segments(value.get("navigation_segments") or [])
+    if not segments:
+        return output
+    topics = [dict(topic) for topic in value.get("topics") or []]
+    for topic in topics:
+        topic_id = str(topic.get("id") or "")
+        owned = [segment for segment in segments
+                 if segment.get("kind") == "topic" and segment.get("topic_id") == topic_id]
+        topic["navigation_turn_ids"] = list(dict.fromkeys(
+            turn_id for segment in owned for turn_id in segment.get("turn_ids") or []))
+        ranges = [list(segment["ranges"][0]) for segment in owned if segment.get("ranges")]
+        topic["ranges"] = ranges or list(topic.get("evidence_ranges") or topic.get("ranges") or [])
+        topic["start"] = topic["ranges"][0][0] if topic["ranges"] else None
+        topic["end"] = topic["ranges"][-1][1] if topic["ranges"] else None
+
+    all_turns = {turn_id for segment in segments for turn_id in segment.get("turn_ids") or []}
+    semantic_turns = {turn_id for segment in segments if segment.get("kind") == "topic"
+                      for turn_id in segment.get("turn_ids") or []}
+    transition_turns = {turn_id for segment in segments if segment.get("kind") == "transition"
+                        for turn_id in segment.get("turn_ids") or []}
+    unclassified_turns = all_turns - semantic_turns - transition_turns
+    evidence_turns = {turn_id for topic in topics for turn_id in topic.get("turn_ids") or []}
+    stats = dict(value.get("stats") or {})
+    count = len(all_turns)
+    stats.update({
+        "coverage": round(len(semantic_turns) / count, 4) if count else 0.0,
+        "turn_coverage": round(len(semantic_turns) / count, 4) if count else 0.0,
+        "navigation_coverage": round(
+            (len(semantic_turns) + len(transition_turns)) / count, 4) if count else 0.0,
+        "evidence_turn_coverage": round(len(evidence_turns) / count, 4) if count else 0.0,
+        "unassigned_turns": len(unclassified_turns),
+        "transition_turns": len(transition_turns),
+        "candidate_turns_recovered": len(semantic_turns - evidence_turns),
+    })
+    starts = [start for segment in segments for start, _ in segment.get("ranges") or []]
+    ends = [end for segment in segments for _, end in segment.get("ranges") or []]
+    topic_seconds = sum(end - start for start, end in _merge_ranges(
+        [bounds for segment in segments if segment.get("kind") == "topic"
+         for bounds in segment.get("ranges") or []], gap=0.0))
+    duration = max(ends, default=0) - min(starts, default=0)
+    stats["time_coverage"] = round(min(1.0, topic_seconds / duration), 4) if duration else 0.0
+    output["topics"], output["navigation_segments"], output["stats"] = topics, segments, stats
+    return output
+
+
+def _smooth_short_interruptions(source_turns: list[dict],
+                                turn_owner: dict[str, tuple[str, str | None]],
+                                max_interrupt_seconds: float = 60.0) -> None:
+    """生成阶段直接把同一议题之间的短非议题轮次归回该议题。"""
+    index = 0
+    while index < len(source_turns):
+        turn_id = str(source_turns[index].get("id"))
+        if turn_owner[turn_id][0] == "topic":
+            index += 1
+            continue
+        start = index
+        while index < len(source_turns):
+            current_id = str(source_turns[index].get("id"))
+            if turn_owner[current_id][0] == "topic":
+                break
+            index += 1
+        if start == 0 or index >= len(source_turns):
+            continue
+        before_id = str(source_turns[start - 1].get("id"))
+        after_id = str(source_turns[index].get("id"))
+        before_owner, after_owner = turn_owner[before_id], turn_owner[after_id]
+        if before_owner[0] != "topic" or before_owner != after_owner:
+            continue
+        before_end = float(source_turns[start - 1].get("end", 0))
+        after_start = float(source_turns[index].get("start", 0))
+        if max(0.0, after_start - before_end) > max_interrupt_seconds:
+            continue
+        for turn in source_turns[start:index]:
+            turn_owner[str(turn.get("id"))] = before_owner
+
+
 def _apply_navigation(topics: list[dict], summaries: list[dict],
                       source_turns: list[dict]) -> tuple[list[dict], dict]:
     """把局部候选投影为全量导航，不污染代表证据。
@@ -423,6 +584,8 @@ def _apply_navigation(topics: list[dict], summaries: list[dict],
     for turn_id in valid_turns:
         turn_owner.setdefault(turn_id, ("unclassified", None))
 
+    _smooth_short_interruptions(source_turns, turn_owner)
+
     topic_navigation: dict[str, list[str]] = {topic_id: [] for topic_id in topic_by_id}
     transition_turns: list[str] = []
     unclassified_turns: list[str] = []
@@ -474,6 +637,7 @@ def _apply_navigation(topics: list[dict], summaries: list[dict],
             current_owner = owner
         current.append(turn)
     flush_segment()
+    segments = _coalesce_navigation_segments(segments)
 
     # Topic 的 ranges 用互斥导航段生成，不能再按同一 topic 的邻近时间合并；
     # 否则 topic A 离开后短暂切到 transition/topic B，再回来时会发生视觉覆盖。

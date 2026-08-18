@@ -411,6 +411,61 @@ assert v3_navigation["stats"]["unassigned_turns"] == 5
 assert any(segment["kind"] == "unclassified"
            for segment in v3_navigation["navigation_segments"])
 
+# 时间线是章节导航：同一议题之间的短回应应归回该议题，不展示为碎片。
+short_bridge_turns = [
+    {"id": "T000001", "start": 0.0, "end": 20.0},
+    {"id": "T000002", "start": 20.0, "end": 32.0},
+    {"id": "T000003", "start": 32.0, "end": 50.0},
+]
+short_bridge_topics = [{
+    "id": "M01", "turn_ids": ["T000001", "T000003"],
+    "ranges": [[0.0, 20.0], [32.0, 50.0]], "candidate_ids": ["W001C01"],
+}]
+short_bridge_summaries = [{
+    "uncovered_turn_ids": ["T000002"],
+    "candidate_topics": [{
+        "candidate_id": "W001C01", "turn_ids": ["T000001", "T000003"],
+    }],
+}]
+short_segments, short_stats = topic_map._apply_navigation(
+    short_bridge_topics, short_bridge_summaries, short_bridge_turns)
+assert len(short_segments) == 1 and short_segments[0]["kind"] == "topic"
+assert short_segments[0]["ranges"] == [[0.0, 50.0]]
+assert short_bridge_topics[0]["navigation_turn_ids"] == [
+    "T000001", "T000002", "T000003"]
+assert short_bridge_topics[0]["ranges"] == [[0.0, 50.0]]
+assert short_stats["transition_turns"] == 0 and short_stats["coverage"] == 1.0
+
+# DOCX 连续发言可能共用粗粒度时间戳；导航投影必须按顺序切开而不重叠。
+disjoint = topic_map._coalesce_navigation_segments([
+    {"id": "S001", "kind": "topic", "topic_id": "M01",
+     "turn_ids": ["T000001"], "ranges": [[90.0, 137.0]]},
+    {"id": "S002", "kind": "topic", "topic_id": "M02",
+     "turn_ids": ["T000002"], "ranges": [[90.0, 146.0]]},
+])
+assert disjoint[0]["end"] == disjoint[1]["start"]
+assert disjoint[0]["end"] == 113.5
+
+# 存量 v3 文件读取时也确定性收敛，无需重跑 LLM。
+stored = topic_map._normalize_v3_navigation({
+    "schema": topic_map.SCHEMA,
+    "topics": [{"id": "M01", "turn_ids": ["T000001", "T000003"],
+                "ranges": [[0.0, 20.0], [32.0, 50.0]]}],
+    "navigation_segments": [
+        {"id": "S001", "kind": "topic", "topic_id": "M01",
+         "turn_ids": ["T000001"], "ranges": [[0.0, 20.0]]},
+        {"id": "S002", "kind": "transition", "topic_id": None,
+         "turn_ids": ["T000002"], "ranges": [[20.0, 32.0]]},
+        {"id": "S003", "kind": "topic", "topic_id": "M01",
+         "turn_ids": ["T000003"], "ranges": [[32.0, 50.0]]},
+    ],
+    "stats": {},
+})
+assert stored["topics"][0]["ranges"] == [[0.0, 50.0]]
+assert stored["topics"][0]["navigation_turn_ids"] == [
+    "T000001", "T000002", "T000003"]
+assert len(stored["navigation_segments"]) == 1
+
 gap_raw = {"meeting_summary": "虚构稀疏覆盖。", "topics": [
     {"title": "锚点一", "summary": "开场。", "turn_ids": ["T000001"],
      "claim_ids": [], "page_ids": [], "children": []},
@@ -426,5 +481,5 @@ assert honest_gaps["stats"]["unassigned_turns"] == 7
 assert honest_gaps["stats"]["turn_coverage"] == 0.3
 assert "T000002" not in {tid for topic in honest_gaps["topics"] for tid in topic["turn_ids"]}
 
-print("Meeting Topic Map v3: evidence/navigation split, candidate mapping, revisions, "
-      "JSON repair, reduce fallback, transition/unclassified navigation and v1 compat passed")
+print("Meeting Topic Map v3: evidence/navigation split, candidate mapping, chapter-scale "
+      "coalescing, DOCX timestamp normalization, reduce fallback and v1 compat passed")

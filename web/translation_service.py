@@ -247,9 +247,13 @@ def topic_map_translation_payload(mdir: Path, topic_map: dict,
         state = "ready"
     else:
         state = document.get("status", "failed")
+    translated_topic_map = None
+    if state == "ready":
+        translated_topic_map = _topic_translation_shape(
+            topic_map, document.get("topic_map") or {})
     return {"schema": TOPIC_MAP_SCHEMA, "target_language": target, "state": state,
             "source_language": source_language, "source_revision": source_revision,
-            "is_source": False, "topic_map": document.get("topic_map") if state == "ready" else None,
+            "is_source": False, "topic_map": translated_topic_map,
             "model": document.get("model"), "updated_at": document.get("updated_at")}
 
 

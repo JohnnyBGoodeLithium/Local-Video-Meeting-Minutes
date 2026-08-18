@@ -74,7 +74,7 @@ with tempfile.TemporaryDirectory() as td:
 
 assert proc.returncode == 0, proc.stderr[-300:]
 assert "启动冒烟正文标记" in proc.stdout, "viewer 正文未渲染"
-assert 'id="pack-version"' in proc.stdout and "Meeting Minutes v0.8.1" in proc.stdout, \
+assert 'id="pack-version"' in proc.stdout and "Meeting Minutes v0.8.2" in proc.stdout, \
     "viewer 未显示生成器产品版本"
 assert 'id="utterance-controls"' in proc.stdout and "重播本段" in proc.stdout, \
     "viewer 逐段回听控制未启动"
