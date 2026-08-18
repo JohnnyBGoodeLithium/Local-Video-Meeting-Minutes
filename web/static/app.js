@@ -15,7 +15,7 @@ function readWorkspaceState() {
 
 const workspaceState = readWorkspaceState();
 const requestedView = new URLSearchParams(location.search).get("view");
-const requestedViewExplicit = ["minutes", "chapters", "transcript", "visuals", "quality"].includes(requestedView);
+const requestedViewExplicit = ["minutes", "chapters", "visuals", "quality"].includes(requestedView);
 const savedTranscriptMode = ({ zh: "translated", bilingual: "comparison" })[
   workspaceState.transcriptMode] || workspaceState.transcriptMode;
 const TRANSLATION_TARGETS = new Set(["zh-CN", "en"]);
@@ -36,7 +36,7 @@ const state = {
   quality: null,
   qualityFilter: "pending",
   qualityScope: "priority",
-  viewMode: ["minutes", "chapters", "transcript", "visuals", "quality"].includes(requestedView)
+  viewMode: ["minutes", "chapters", "visuals", "quality"].includes(requestedView)
     ? requestedView : "minutes",
   selectedChapterId: null,
   selectedTopicId: null,
@@ -54,8 +54,6 @@ const state = {
   reviewTurnIndex: null,
   playbackScope: "meeting",
   transcriptSearch: null,
-  reviewSearch: null,
-  reviewQueries: { minutes: "", chapters: "", transcript: "", visuals: "", quality: "" },
   splitMarks: new Set(),
   splitTarget: null,
   splitTargetName: "",
@@ -267,7 +265,6 @@ function applyUiLanguage() {
   text("#follow-label", ui("follow"));
   text("#chapters-tab", ui("outline"));
   text("#minutes-tab", ui("minutes"));
-  text("#transcript-tab", ui("transcript"));
   text("#visuals-tab", ui("screens"));
   const qualityTab = $("#quality-tab");
   if (qualityTab) qualityTab.childNodes[0].textContent = `${ui("audit")} `;
@@ -280,7 +277,6 @@ function applyUiLanguage() {
   if (launcher) launcher.textContent = ui("launcher");
   const search = $("#search");
   if (search) search.placeholder = ui("search");
-  updateReviewSearchPresentation();
   $$('[data-ui-language]').forEach(button =>
     button.classList.toggle("active", button.dataset.uiLanguage === state.uiLanguage));
   $("#ui-language")?.setAttribute("aria-label", english
@@ -466,7 +462,6 @@ async function deleteMeeting(ev, slug) {
     $("#storage-btn").disabled = true;
     $("#quality-tab").disabled = true;
     $("#chapters-tab").disabled = true;
-    $("#transcript-tab").disabled = true;
     $("#visuals-tab").disabled = true;
     $("#quality-entry-btn").disabled = true;
     $("#quality-entry-btn").textContent = ui("audit");
@@ -587,75 +582,6 @@ function stepTranscriptMatch(direction) {
   }
   const count = $("#transcript-search-count");
   if (count) count.textContent = `${search.current + 1}/${search.hits.length}`;
-}
-
-function reviewSearchPlaceholder(mode = state.viewMode) {
-  const labels = isEnglishUi()
-    ? { minutes: "Search minutes", chapters: "Search meeting map", transcript: "Search transcript",
-        visuals: "Search screen content", quality: "Search conclusion audit" }
-    : { minutes: "搜索会议纪要", chapters: "搜索会议脉络", transcript: "搜索逐字稿",
-        visuals: "搜索屏幕内容", quality: "搜索结论审计" };
-  return labels[mode] || (isEnglishUi() ? "Search this view" : "搜索当前内容");
-}
-
-function updateReviewSearchPresentation() {
-  const input = $("#transcript-search");
-  if (!input) return;
-  input.placeholder = reviewSearchPlaceholder();
-  input.setAttribute("aria-label", reviewSearchPlaceholder());
-}
-
-function clearReviewSearchMarks() {
-  $$(".review-search-hit, .review-search-current").forEach(el =>
-    el.classList.remove("review-search-hit", "review-search-current"));
-}
-
-function reviewSearchCandidates(mode = state.viewMode) {
-  const selectors = {
-    minutes: "#minutes h1, #minutes h2, #minutes h3, #minutes h4, #minutes p, #minutes li, #minutes tr",
-    chapters: "#chapters .topic-map-topic-node, #chapters .topic-map-child, #chapters .topic-map-detail",
-    visuals: "#visuals .visual-nav-card, #visuals .visual-detail h2, #visuals .visual-description",
-    quality: "#quality button, #quality article, #quality tr, #quality li",
-  };
-  return selectors[mode] ? $$(selectors[mode]) : [];
-}
-
-function applyReviewSearch(keepCurrent = false) {
-  const input = $("#transcript-search");
-  const count = $("#transcript-search-count");
-  const query = (input?.value || "").trim().toLowerCase();
-  state.reviewQueries[state.viewMode] = input?.value || "";
-  if (state.viewMode === "transcript") {
-    clearReviewSearchMarks();
-    applyTranscriptSearch(keepCurrent);
-    return;
-  }
-  const previous = keepCurrent ? (state.reviewSearch?.current ?? -1) : -1;
-  clearReviewSearchMarks();
-  $$("#transcript .turn.search-hit, #transcript .turn.search-current")
-    .forEach(el => el.classList.remove("search-hit", "search-current"));
-  const hits = query ? reviewSearchCandidates().filter(el =>
-    String(el.textContent || "").toLowerCase().includes(query)) : [];
-  state.reviewSearch = { query, hits, current: -1 };
-  hits.forEach(el => el.classList.add("review-search-hit"));
-  if (!query) { if (count) count.textContent = ""; return; }
-  if (!hits.length) { if (count) count.textContent = isEnglishUi() ? "No matches" : "无匹配"; return; }
-  state.reviewSearch.current = previous >= 0 ? Math.min(previous, hits.length - 1) : 0;
-  hits[state.reviewSearch.current].classList.add("review-search-current");
-  if (count) count.textContent = `${state.reviewSearch.current + 1}/${hits.length}`;
-}
-
-function stepReviewMatch(direction) {
-  if (state.viewMode === "transcript") { stepTranscriptMatch(direction); return; }
-  const search = state.reviewSearch;
-  if (!search?.hits?.length) return;
-  search.current = (search.current + direction + search.hits.length) % search.hits.length;
-  search.hits.forEach(el => el.classList.remove("review-search-current"));
-  const target = search.hits[search.current];
-  target.classList.add("review-search-current");
-  const container = $(`#${state.viewMode}`);
-  scrollInside(container, target, "center", true);
-  $("#transcript-search-count").textContent = `${search.current + 1}/${search.hits.length}`;
 }
 
 /* ---------- 声纹按轮拆分 ---------- */
@@ -800,11 +726,6 @@ async function applySplitMarks() {
 
 function player() { return $("#player-holder video") || $("#player-holder audio"); }
 
-function updateMediaPlayingState() {
-  const media = player();
-  $("#review-grid")?.classList.toggle("media-playing", Boolean(media && !media.paused && !media.ended));
-}
-
 function statusChip(label, value, tone = "neutral", title = "") {
   return `<span class="meeting-status tone-${tone}"${title ? ` title="${esc(title)}"` : ""}>` +
     `<b>${esc(label)}</b>${esc(value)}</span>`;
@@ -900,8 +821,6 @@ async function loadMeeting(slug) {
   const transcriptSearch = $("#transcript-search");
   transcriptSearch.disabled = !(b.transcript?.length);
   if (changed) { transcriptSearch.value = ""; state.transcriptSearch = null;
-    state.reviewSearch = null;
-    state.reviewQueries = { minutes: "", chapters: "", transcript: "", visuals: "", quality: "" };
     $("#transcript-search-count").textContent = "";
     state.splitTarget = null; state.splitTargetName = "";
     state.splitMarks.clear(); updateSplitBar(); }
@@ -927,7 +846,6 @@ async function loadMeeting(slug) {
   if (changed && !requestedViewExplicit) state.viewMode = topicMapReady ? "chapters" : "minutes";
   $("#quality-tab").disabled = isDraft;
   $("#chapters-tab").disabled = !(b.transcript?.length);
-  $("#transcript-tab").disabled = !(b.transcript?.length);
   $("#visuals-tab").disabled = !(b.structure?.visuals?.length);
   $("#quality-entry-btn").disabled = isDraft;
   if (isDraft) $("#quality-entry-btn").textContent = isEnglishUi()
@@ -992,9 +910,6 @@ function renderPlayer() {
     $("#playback-time").textContent = `${fmt(el.currentTime)} / ${fmt(el.duration)}`;
   });
   el.addEventListener("timeupdate", onTimeUpdate);
-  el.addEventListener("play", updateMediaPlayingState);
-  el.addEventListener("pause", updateMediaPlayingState);
-  el.addEventListener("ended", updateMediaPlayingState);
   holder.appendChild(el);
   buildTimeline(b.duration || 0);
   updateFocusPresentation(true);
@@ -2038,7 +1953,6 @@ function moveTip(ev) {
 function hideTip() { $("#tl-tip").classList.add("hidden"); }
 
 function seek(t, play = true) {
-  if (state.viewMode !== "transcript") setReviewMode("transcript");
   syncTimeFocus(t, true);
   const p = player();
   if (p) {
@@ -2270,7 +2184,7 @@ function renderTranscript(preserveScroll = true) {
   updateFocusedTurns(false);
   updateReviewHighlights();
   // 重渲染后搜索高亮会随 DOM 重建丢失, 有查询词时重新标记(保持当前命中位置, 不滚动)。
-  if (state.viewMode === "transcript" && state.transcriptSearch?.query) applyTranscriptSearch(true);
+  if (state.transcriptSearch?.query) applyTranscriptSearch(true);
 }
 
 function updateTranscriptModeButtons() {
@@ -2685,7 +2599,6 @@ async function setUiLanguage(language) {
   if (state.viewMode === "chapters") renderChapters();
   if (state.viewMode === "visuals") renderVisuals();
   if (state.viewMode === "quality") renderQualityReview();
-  applyReviewSearch(true);
   updateFocusPresentation(false);
   await loadTopicMapTranslation(true);
   await loadMinutesTranslation(true);
@@ -2752,7 +2665,6 @@ function renderMinutes() {
     };
   });
   updateFocusedClaims();
-  if (state.viewMode === "minutes") applyReviewSearch(true);
 }
 
 function structureClaimCard(id) {
@@ -3009,7 +2921,6 @@ function renderChapters() {
   $$(".tl-chapter.selected").forEach(item => item.classList.remove("selected"));
   $$(`.tl-chapter[data-topic-id="${state.selectedTopicId}"]`).forEach(item => item.classList.add("selected"));
   updateActiveChapter(player()?.currentTime || 0);
-  if (state.viewMode === "chapters") applyReviewSearch(true);
 }
 
 function openVisual(visualId, time = null) {
@@ -3088,35 +2999,22 @@ function renderVisuals() {
   $$('[data-preview-visual]', box).forEach(image =>
     image.onclick = () => openScreenPreview(image.dataset.previewVisual));
   wireStructureClaims(box);
-  if (state.viewMode === "visuals") applyReviewSearch(true);
 }
 
 function setReviewMode(mode) {
-  const input = $("#transcript-search");
-  if (input && state.viewMode) state.reviewQueries[state.viewMode] = input.value || "";
-  const allowed = new Set(["minutes", "chapters", "transcript", "visuals", "quality"]);
+  const allowed = new Set(["minutes", "chapters", "visuals", "quality"]);
   state.viewMode = allowed.has(mode) ? mode : "minutes";
   if (state.viewMode === "chapters" && !state.bundle?.transcript?.length)
-    state.viewMode = "minutes";
-  if (state.viewMode === "transcript" && !state.bundle?.transcript?.length)
     state.viewMode = "minutes";
   if (state.viewMode === "visuals" && !state.bundle?.structure?.visuals?.length)
     state.viewMode = "minutes";
   for (const id of ["minutes", "chapters", "visuals", "quality"])
     $(`#${id}`).classList.toggle("hidden", state.viewMode !== id);
-  $("#transcript-workspace").classList.toggle("hidden", state.viewMode !== "transcript");
-  for (const id of ["minutes", "chapters", "transcript", "visuals", "quality"])
+  for (const id of ["minutes", "chapters", "visuals", "quality"])
     $(`#${id}-tab`).classList.toggle("active", state.viewMode === id);
-  const grid = $("#review-grid");
-  grid.classList.toggle("review-transcript", state.viewMode === "transcript");
-  grid.classList.toggle("review-browse", state.viewMode !== "transcript");
   if (state.viewMode === "chapters") renderChapters();
   if (state.viewMode === "visuals") renderVisuals();
   if (state.viewMode === "quality") renderQualityReview();
-  if (input) input.value = state.reviewQueries[state.viewMode] || "";
-  updateReviewSearchPresentation();
-  applyReviewSearch(true);
-  updateMediaPlayingState();
 }
 
 function showMinutesEvidence(claimId, jumpToFirst = false) {
@@ -4281,11 +4179,11 @@ function init() {
   $("#search").addEventListener("input", renderMeetingList);
   $("#regen-btn").onclick = () => regenMinutes("");
   $("#rename-btn").onclick = startRename;
-  $("#transcript-search").addEventListener("input", () => applyReviewSearch());
+  $("#transcript-search").addEventListener("input", applyTranscriptSearch);
   $("#transcript-search").addEventListener("keydown", e => {
     if (e.key !== "Enter") return;
     e.preventDefault();
-    stepReviewMatch(e.shiftKey ? -1 : 1);
+    stepTranscriptMatch(e.shiftKey ? -1 : 1);
   });
   $("#split-apply").onclick = applySplitMarks;
   $("#split-clear").onclick = () => clearSplitMarking();
@@ -4297,11 +4195,9 @@ function init() {
   $("#storage-btn").onclick = openStorageDialog;
   $("#minutes-tab").onclick = () => setReviewMode("minutes");
   $("#chapters-tab").onclick = () => setReviewMode("chapters");
-  $("#transcript-tab").onclick = () => setReviewMode("transcript");
   $("#visuals-tab").onclick = () => setReviewMode("visuals");
   $("#quality-tab").onclick = () => setReviewMode("quality");
   $("#quality-entry-btn").onclick = () => setReviewMode("quality");
-  $("#review-return").onclick = () => setReviewMode("transcript");
   $("#translation-control").onclick = () => {
     if (state.translationJob) stopTranscriptTranslation();
     else startTranscriptTranslation([...state.evidenceBilingual]);

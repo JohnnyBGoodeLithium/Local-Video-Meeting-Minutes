@@ -132,8 +132,7 @@ check("首页显式展示结论审计和会议脉络入口且禁止缓存旧壳"
       and b'id="translation-target"' in page
       and b'id="ui-language"' in page and b'data-ui-language="en"' in page
       and b'id="product-version"' in page
-      and b'id="chapters-tab"' in page and b'id="transcript-tab"' in page
-      and b'id="visuals-tab"' in page and b'id="transcript-workspace"' in page
+      and b'id="chapters-tab"' in page and b'id="visuals-tab"' in page
       and b'utility-panel' in page and b'pane-resizer' in page
       and b'export-preflight' in page and b'href="/static/product.html"' in page
       and "no-store" in cache_control)
@@ -158,7 +157,7 @@ check("时间码跳转只滚动内容面板，不带动整页丢失播放器",
 check("在线屏幕舞台支持放大、缩放和相邻屏幕键盘导航",
       b'id="screen-preview-mask"' in page and b'openScreenPreview' in app_js
       and b'navigateScreenPreview' in app_js and b'SCREEN_PREVIEW_ZOOMS' in app_js
-      and b'20260818p53' in page)
+      and b'20260818p52' in page)
 check("在线端从健康端点显示产品版本，导出预检告知版本化文件名",
       b'function loadProductVersion' in app_js and b'/api/health' in app_js
       and b'filename_pattern' in app_js and b'product_version' in app_js)
@@ -172,12 +171,6 @@ check("在线端支持整场/仅当前说话人播放及逐段回听",
       and b'speakerModeDisabled' in app_js
       and b'state.playbackScope === "speaker" && state.speakerPin' in app_js
       and "重播本段".encode() in app_js)
-check("在线阅读区按浏览/核听两态布局并按当前 Tab 搜索",
-      b'review-browse' in page and b'id="review-return"' in page
-      and b'new Set(["minutes", "chapters", "transcript", "visuals", "quality"])' in app_js
-      and b'function applyReviewSearch' in app_js
-      and b'function reviewSearchCandidates' in app_js
-      and b'if (state.viewMode !== "transcript") setReviewMode("transcript")' in app_js)
 check("英文会议脉络同步本地化时间轴悬浮层与 Focus 辅助文案",
       b'"Meeting overview"' in app_js and b'"Semantic focus"' in app_js
       and b'structured nodes' in app_js and b'occurrences' in app_js
