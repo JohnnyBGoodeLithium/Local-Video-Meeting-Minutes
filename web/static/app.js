@@ -51,6 +51,8 @@ const state = {
   personLanesAll: false,
   speakerPin: null,
   speakerHover: null,
+  reviewTurnIndex: null,
+  playbackScope: "meeting",
   transcriptSearch: null,
   splitMarks: new Set(),
   splitTarget: null,
@@ -125,6 +127,9 @@ const UI_COPY = {
     unclassifiedTip: "尚未归入议题，点击跳转",
     seekHint: "点击跳转；悬停查看发言构成", othersChip: "其他", collapseChip: "收起",
     expandLanes: "说话人视图 ▸", collapseLanes: "说话人视图 ▾", expandRestLanes: "展开其余",
+    allSpeakers: "全部说话人", fullMeeting: "顺次播放", speakerOnly: "仅听此人",
+    previousUtterance: "上一段", replayUtterance: "重播本段", nextUtterance: "下一段",
+    clearSpeaker: "取消人物", utteranceUnit: "段发言",
     bindAction: "绑定", legendBindAction: "未绑定声纹：点「绑定」为其指定人员",
     lowValueHint: "过渡或低讨论密度时段", continued: "继续",
   },
@@ -148,6 +153,9 @@ const UI_COPY = {
     seekHint: "Click to jump; hover for speaker mix", othersChip: "Others", collapseChip: "Collapse",
     expandLanes: "Speaker view ▸", collapseLanes: "Speaker view ▾",
     expandRestLanes: "Show the remaining", bindAction: "Bind",
+    allSpeakers: "All speakers", fullMeeting: "Full meeting", speakerOnly: "Speaker only",
+    previousUtterance: "Previous", replayUtterance: "Replay", nextUtterance: "Next",
+    clearSpeaker: "Clear person", utteranceUnit: "utterances",
     legendBindAction: "No voiceprint bound: use “Bind” to assign a person",
     lowValueHint: "Transitional or low-density segment", continued: "cont.",
   },
@@ -423,8 +431,12 @@ async function deleteMeeting(ev, slug) {
     state.personLanesAll = false;
     state.speakerPin = null;
     state.speakerHover = null;
+    state.reviewTurnIndex = null;
+    state.playbackScope = "meeting";
     state.legendShowAll = false;
     state.speakerColorCache = null;
+    $("#utterance-controls").innerHTML = "";
+    $("#utterance-controls").classList.add("hidden");
     $("#current-chapter").classList.add("hidden");
     $("#regen-btn").disabled = true;
     $("#refine-btn").disabled = true;
@@ -779,6 +791,8 @@ async function loadMeeting(slug) {
   state.personLanesAll = false;
   state.speakerPin = null;
   state.speakerHover = null;
+  state.reviewTurnIndex = null;
+  state.playbackScope = "meeting";
   state.legendShowAll = false;
   state.speakerColorCache = null;
   state.visualFilter = "useful";
@@ -1429,8 +1443,13 @@ function speakerRuns() {
     const start = Number(turn.start) || 0;
     const end = Number(turn.end ?? transcript[index + 1]?.start ?? duration) || start;
     const last = runs[runs.length - 1];
-    if (last && last.speaker === turn.speaker) last.end = Math.max(last.end, end);
-    else runs.push({ speaker: turn.speaker || (isEnglishUi() ? "Unknown" : "未知"), start, end });
+    if (last && last.speaker === turn.speaker) {
+      last.end = Math.max(last.end, end);
+      last.turnIndexes.push(index);
+    } else {
+      runs.push({ speaker: turn.speaker || (isEnglishUi() ? "Unknown" : "未知"),
+        start, end, turnIndexes: [index] });
+    }
   });
   return runs;
 }
@@ -1482,8 +1501,7 @@ function legendChip(speaker, pct) {
   chip.addEventListener("mouseenter", () => { state.speakerHover = speaker; applySpeakerFocus(); });
   chip.addEventListener("mouseleave", () => { state.speakerHover = null; applySpeakerFocus(); });
   chip.addEventListener("click", () => {
-    state.speakerPin = state.speakerPin === speaker ? null : speaker;
-    applySpeakerFocus();
+    selectPlaybackSpeaker(speaker, true);
   });
   return chip;
 }
@@ -1526,8 +1544,7 @@ function renderSpeakerLegend() {
     chip.addEventListener("mouseenter", () => { state.speakerHover = name; applySpeakerFocus(); });
     chip.addEventListener("mouseleave", () => { state.speakerHover = null; applySpeakerFocus(); });
     chip.addEventListener("click", () => {
-      state.speakerPin = state.speakerPin === name ? null : name;
-      applySpeakerFocus();
+      selectPlaybackSpeaker(name, true);
     });
     const turn = transcript.find(item => item.speaker === name && item.voice);
     if (turn) {
@@ -1564,7 +1581,7 @@ function renderLanesToggle() {
   bar.classList.remove("hidden");
 }
 
-// 逐人展开车道：每人一行 mini 车道，只画该人发言块，点击 seek；会议机行沉底。
+// 逐人展开车道：轨道名选择人物，发言块选择人物+当前发言并播放；会议机行沉底。
 function renderPersonLanes() {
   const box = $("#person-lanes");
   if (!box) return;
@@ -1582,10 +1599,12 @@ function renderPersonLanes() {
     const row = document.createElement("div");
     row.className = "person-lane" + (isUnboundSpeaker(speaker) ? " unbound" : "");
     row.dataset.speaker = speaker;
-    const label = document.createElement("span");
+    const label = document.createElement("button");
+    label.type = "button";
     label.className = "person-lane-name";
     label.textContent = speaker;
     label.title = speaker;
+    label.addEventListener("click", () => selectPlaybackSpeaker(speaker, true));
     row.appendChild(label);
     const track = document.createElement("div");
     track.className = "person-lane-track";
@@ -1593,13 +1612,15 @@ function renderPersonLanes() {
       if (run.speaker !== speaker || run.end <= run.start) continue;
       const block = document.createElement("div");
       block.className = "pl-block";
+      block.dataset.turnIndexes = run.turnIndexes.join(",");
       block.style.left = (run.start / duration * 100) + "%";
       block.style.width = Math.max(.5, (run.end - run.start) / duration * 100) + "%";
       block.style.background = speakerColor(speaker);
       block.title = `${fmt(run.start)}–${fmt(run.end)} ${speaker}`;
       block.addEventListener("click", event => {
         event.stopPropagation();
-        seek(run.start);
+        selectPlaybackSpeaker(speaker, false);
+        selectReviewTurn(run.turnIndexes[0], true);
       });
       track.appendChild(block);
     }
@@ -1632,8 +1653,204 @@ function applySpeakerFocus() {
   $("#person-lanes")?.classList.toggle("person-focus", Boolean(person));
   $$("#person-lanes .person-lane").forEach(row =>
     row.classList.toggle("dimmed", Boolean(person) && row.dataset.speaker !== person));
+  $$("#person-lanes .person-lane").forEach(row =>
+    row.classList.toggle("selected", Boolean(state.speakerPin)
+      && row.dataset.speaker === state.speakerPin));
   $$("#speaker-legend .speaker-chip").forEach(chip =>
     chip.classList.toggle("active", Boolean(person) && chip.dataset.speaker === person));
+  renderUtteranceControls();
+  updateReviewHighlights();
+}
+
+function reviewTurnEnd(index) {
+  const transcript = state.bundle?.transcript || [];
+  const turn = transcript[index];
+  if (!turn) return 0;
+  return Number(turn.end ?? transcript[index + 1]?.start ?? state.bundle?.duration)
+    || Number(turn.start) || 0;
+}
+
+function reviewIndexes(speaker = state.speakerPin) {
+  const transcript = state.bundle?.transcript || [];
+  return transcript.map((_, index) => index)
+    .filter(index => !speaker || transcript[index].speaker === speaker);
+}
+
+function playbackPosition() {
+  const p = player();
+  if (p) return Number(p.currentTime) || 0;
+  return Number(state.focus?.time) || 0;
+}
+
+function nearestReviewTurn(speaker = state.speakerPin, time = playbackPosition()) {
+  const transcript = state.bundle?.transcript || [];
+  const indexes = reviewIndexes(speaker);
+  if (!indexes.length) return null;
+  const containing = indexes.find(index => {
+    const start = Number(transcript[index]?.start) || 0;
+    return start <= time && time < reviewTurnEnd(index);
+  });
+  if (containing != null) return containing;
+  return indexes.find(index => (Number(transcript[index]?.start) || 0) >= time)
+    ?? indexes[indexes.length - 1];
+}
+
+function ensureReviewTurn() {
+  const allowed = reviewIndexes();
+  if (!allowed.length) {
+    state.reviewTurnIndex = null;
+    return null;
+  }
+  if (!allowed.includes(state.reviewTurnIndex))
+    state.reviewTurnIndex = nearestReviewTurn();
+  return state.reviewTurnIndex;
+}
+
+function selectPlaybackSpeaker(speaker, toggle = false) {
+  const next = toggle && state.speakerPin === speaker ? null : speaker;
+  state.speakerPin = next;
+  if (!next) state.playbackScope = "meeting";
+  state.reviewTurnIndex = nearestReviewTurn(next);
+  applySpeakerFocus();
+}
+
+function selectReviewTurn(index, play = true) {
+  const transcript = state.bundle?.transcript || [];
+  if (!transcript[index]) return;
+  if (state.speakerPin && transcript[index].speaker !== state.speakerPin) return;
+  state.reviewTurnIndex = index;
+  updateReviewHighlights();
+  renderUtteranceControls();
+  seek(Number(transcript[index].start) || 0, play);
+}
+
+function stepReviewTurn(delta) {
+  const indexes = reviewIndexes();
+  const current = ensureReviewTurn();
+  const position = indexes.indexOf(current);
+  const target = indexes[position + delta];
+  if (target != null) selectReviewTurn(target, true);
+}
+
+function setPlaybackScope(scope) {
+  if (scope === "speaker" && !state.speakerPin) return;
+  state.playbackScope = scope;
+  renderUtteranceControls();
+  if (scope === "speaker") {
+    const p = player();
+    const current = ensureReviewTurn();
+    if (p && !p.paused && current != null) selectReviewTurn(current, true);
+  }
+}
+
+function renderUtteranceControls() {
+  const box = $("#utterance-controls");
+  const transcript = state.bundle?.transcript || [];
+  if (!box || !transcript.length) {
+    box?.classList.add("hidden");
+    return;
+  }
+  const indexes = reviewIndexes();
+  const current = ensureReviewTurn();
+  const position = Math.max(0, indexes.indexOf(current));
+  const speaker = state.speakerPin;
+  const label = speaker || ui("allSpeakers");
+  const at = current == null ? 0 : position + 1;
+  const currentTime = current == null ? "" : " · " + fmt(transcript[current].start);
+  const scopeLabel = isEnglishUi() ? "Playback range" : "播放范围";
+  const html = [
+    '<span class="utterance-context"><b>', esc(label), '</b><small>',
+    at, '/', indexes.length, ' ', ui("utteranceUnit"), currentTime, '</small></span>',
+    '<span class="utterance-modes" role="group" aria-label="', scopeLabel, '">',
+    '<button type="button" data-playback-scope="meeting" class="',
+    state.playbackScope === "meeting" ? "active" : "", '">', ui("fullMeeting"), '</button>',
+    '<button type="button" data-playback-scope="speaker" class="',
+    state.playbackScope === "speaker" ? "active" : "", '" ',
+    speaker ? "" : "disabled", '>', ui("speakerOnly"), '</button></span>',
+    '<span class="utterance-actions">',
+    '<button type="button" data-review-step="-1" ', position <= 0 ? "disabled" : "",
+    '>◀ ', ui("previousUtterance"), '</button>',
+    '<button type="button" data-review-replay ', current == null ? "disabled" : "",
+    '>↻ ', ui("replayUtterance"), '</button>',
+    '<button type="button" data-review-step="1" ',
+    position >= indexes.length - 1 ? "disabled" : "", '>',
+    ui("nextUtterance"), ' ▶</button></span>',
+    speaker ? '<button type="button" class="utterance-clear" data-review-clear>'
+      + ui("clearSpeaker") + '</button>' : "",
+  ];
+  box.innerHTML = html.join("");
+  $$("[data-playback-scope]", box).forEach(button =>
+    button.addEventListener("click", () => setPlaybackScope(button.dataset.playbackScope)));
+  $$("[data-review-step]", box).forEach(button =>
+    button.addEventListener("click", () => stepReviewTurn(Number(button.dataset.reviewStep))));
+  $("[data-review-replay]", box)?.addEventListener("click", () => {
+    const index = ensureReviewTurn();
+    if (index != null) selectReviewTurn(index, true);
+  });
+  $("[data-review-clear]", box)?.addEventListener("click", () =>
+    selectPlaybackSpeaker(state.speakerPin, true));
+  box.classList.remove("hidden");
+}
+
+function updateReviewHighlights() {
+  const current = ensureReviewTurn();
+  $$("#person-lanes .pl-block").forEach(block => {
+    const indexes = String(block.dataset.turnIndexes || "").split(",").map(Number);
+    block.classList.toggle("review-current", current != null && indexes.includes(current));
+  });
+  $$("#transcript .turn.review-current").forEach(turn =>
+    turn.classList.remove("review-current"));
+  if (current != null) $("#turn-" + current)?.classList.add("review-current");
+}
+
+function syncReviewFromPlayback(activeIndex) {
+  const transcript = state.bundle?.transcript || [];
+  if (activeIndex < 0 || !transcript[activeIndex]) return;
+  if (state.speakerPin && transcript[activeIndex].speaker !== state.speakerPin) return;
+  if (state.reviewTurnIndex === activeIndex) return;
+  state.reviewTurnIndex = activeIndex;
+  updateReviewHighlights();
+  renderUtteranceControls();
+}
+
+function handleSpeakerOnlyPlayback(p, time) {
+  if (state.playbackScope !== "speaker" || !state.speakerPin) return false;
+  const indexes = reviewIndexes();
+  const current = ensureReviewTurn();
+  const position = indexes.indexOf(current);
+  if (current == null || position < 0) return false;
+  const turn = state.bundle.transcript[current];
+  const start = Number(turn.start) || 0;
+  const end = reviewTurnEnd(current);
+  if (time >= end - 0.12) {
+    const next = indexes[position + 1];
+    if (next == null) {
+      p.pause();
+      renderUtteranceControls();
+      return true;
+    }
+    state.reviewTurnIndex = next;
+    p.currentTime = Number(state.bundle.transcript[next].start) || 0;
+    p.play().catch(() => {});
+    updateReviewHighlights();
+    renderUtteranceControls();
+    return true;
+  }
+  if (time < start - 0.05 || time > end + 0.05) {
+    const next = indexes.find(index =>
+      (Number(state.bundle.transcript[index].start) || 0) >= time)
+      ?? indexes[indexes.length - 1];
+    const targetTime = Number(state.bundle.transcript[next].start) || 0;
+    if (next !== current || Math.abs(time - targetTime) > 0.05) {
+      state.reviewTurnIndex = next;
+      p.currentTime = targetTime;
+      p.play().catch(() => {});
+      updateReviewHighlights();
+      renderUtteranceControls();
+      return true;
+    }
+  }
+  return false;
 }
 
 function showSemanticTip(ev, item) {
@@ -1685,6 +1902,7 @@ function onTimeUpdate() {
   const played = $(".tl-played", tl);
   if (played && dur) played.style.width = (t / dur * 100) + "%";
   $("#playback-time").textContent = `${fmt(t)} / ${fmt(p.duration || dur)}`;
+  if (handleSpeakerOnlyPlayback(p, t)) return;
   updateActiveChapter(t);
   syncTimeFocus(t, false);
   // 高亮当前轮
@@ -1695,6 +1913,7 @@ function onTimeUpdate() {
   }
   $$(".turn.playing").forEach(el => el.classList.remove("playing"));
   if (cur >= 0) {
+    syncReviewFromPlayback(cur);
     const el = $(`#turn-${cur}`);
     if (el) {
       el.classList.add("playing");
@@ -1893,6 +2112,7 @@ function renderTranscript(preserveScroll = true) {
     box.scrollTop = 0;
   }
   updateFocusedTurns(false);
+  updateReviewHighlights();
   // 重渲染后搜索高亮会随 DOM 重建丢失, 有查询词时重新标记(保持当前命中位置, 不滚动)。
   if (state.transcriptSearch?.query) applyTranscriptSearch(true);
 }
@@ -2304,6 +2524,7 @@ async function setUiLanguage(language) {
   renderMeetingHeaderMeta();
   renderMeetingStatuses();
   renderTranscript();
+  renderUtteranceControls();
   renderMinutes();
   if (state.viewMode === "chapters") renderChapters();
   if (state.viewMode === "visuals") renderVisuals();

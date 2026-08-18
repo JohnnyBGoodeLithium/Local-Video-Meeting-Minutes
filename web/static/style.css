@@ -640,10 +640,12 @@ body.resizing-panes { cursor: col-resize; user-select: none; }
 /* 逐人展开车道 */
 .person-lanes { display: grid; gap: var(--sp-4); margin-top: var(--sp-8); }
 .person-lane { display: flex; align-items: center; gap: var(--sp-6); }
-.person-lane-name { flex: 0 0 104px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--dim); font-size: var(--fs-10); text-align: right; }
+.person-lane-name { flex: 0 0 104px; overflow: hidden; padding: 1px var(--sp-4); border: 1px solid transparent; border-radius: var(--r-8); background: transparent; white-space: nowrap; text-overflow: ellipsis; color: var(--dim); font-size: var(--fs-10); text-align: right; cursor: pointer; }
+.person-lane-name:hover, .person-lane.selected .person-lane-name { border-color: var(--accent); color: var(--text); }
 .person-lane-track { position: relative; flex: 1; height: 10px; border-radius: var(--r-3); background: rgba(255, 255, 255, .04); }
 .pl-block { position: absolute; top: 1px; bottom: 1px; border-radius: var(--r-2); opacity: .9; cursor: pointer; }
 .pl-block:hover { z-index: 1; opacity: 1; outline: 1px solid #fff; }
+.pl-block.review-current { z-index: 2; opacity: 1; outline: 2px solid #fff; box-shadow: 0 0 0 2px var(--accent); }
 .person-lane.unbound .pl-block { background: repeating-linear-gradient(45deg, #8a93a8 0 3px, rgba(138, 147, 168, .3) 3px 6px); }
 .person-lanes.person-focus .person-lane.dimmed { opacity: .25; }
 .person-lanes-more { justify-self: start; padding: 0 var(--sp-8); border: 1px dashed var(--border); border-radius: var(--r-9); background: transparent; color: var(--dim); font-size: var(--fs-10); }
@@ -652,6 +654,20 @@ body.resizing-panes { cursor: col-resize; user-select: none; }
 .person-lanes-bar { display: flex; justify-content: flex-end; margin-top: var(--sp-4); }
 .person-lanes-toggle { padding: 1px var(--sp-10); border: 1px dashed var(--border); border-radius: var(--r-9); background: transparent; color: var(--dim); font-size: var(--fs-10); }
 .person-lanes-toggle:hover { color: var(--accent); border-color: var(--accent); }
+/* 发言回听：无人物时浏览全部轮次，选中个人车道后可切换为只播放该人的发言。 */
+.utterance-controls { display: flex; align-items: center; gap: var(--sp-8); min-height: 38px; margin-top: var(--sp-6); padding: var(--sp-5) var(--sp-8); border: 1px solid var(--border); border-radius: var(--r-8); background: rgba(255, 255, 255, .035); }
+.utterance-controls .utterance-context { display: grid; min-width: 0; margin-right: auto; }
+.utterance-controls .utterance-context b { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: var(--fs-11); }
+.utterance-controls .utterance-context small { color: var(--dim); font-size: var(--fs-10); }
+.utterance-modes { display: inline-flex; padding: 2px; border: 1px solid var(--border); border-radius: var(--r-9); }
+.utterance-modes button, .utterance-actions button, .utterance-clear { padding: 3px var(--sp-7); border: 0; border-radius: var(--r-7); background: transparent; color: var(--dim); font-size: var(--fs-10); }
+.utterance-modes button.active { background: rgba(79, 124, 255, .18); color: var(--text); }
+.utterance-actions { display: inline-flex; gap: 3px; }
+.utterance-actions button { border: 1px solid var(--border); color: var(--text); }
+.utterance-actions button:hover:not(:disabled), .utterance-clear:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.utterance-controls button:disabled { opacity: .35; cursor: default; }
+.utterance-clear { border: 1px dashed var(--border); }
+.turn.review-current:not(.playing) { background: rgba(79, 124, 255, .08); }
 /* 长轮次后续子块:缩进 + 弱化"继续"标记 */
 .turn-cont { opacity: .92; }
 .turn-cont .cont-mark { justify-self: end; font-style: normal; }
@@ -1225,6 +1241,8 @@ body.resizing-panes { cursor: col-resize; user-select: none; }
   .transcript { flex: 1 1 42%; min-height: 170px; border-bottom: 1px solid var(--border); }
   .minutes-pane { flex: 1 1 58%; min-height: 240px; }
   .person-lanes { max-height: 120px; overflow-y: auto; }
+  .utterance-controls { flex-wrap: wrap; }
+  .utterance-controls .utterance-context { flex: 1 1 150px; }
   .meeting-meta { display: none; }
   .meeting-statuses { display: none; }
   .utility-panel { width: min(430px, calc(100% - 8px)); }

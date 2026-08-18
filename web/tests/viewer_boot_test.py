@@ -51,6 +51,9 @@ with tempfile.TemporaryDirectory() as td:
 
 assert proc.returncode == 0, proc.stderr[-300:]
 assert "启动冒烟正文标记" in proc.stdout, "viewer 正文未渲染"
+assert 'id="utterance-controls"' in proc.stdout and "重播本段" in proc.stdout, \
+    "viewer 逐段回听控制未启动"
+assert 'id="focusbar"' not in proc.stdout, "viewer 仍渲染冗余语义摘要条"
 assert "Uncaught" not in proc.stderr, \
     f"viewer 启动存在未捕获异常: {proc.stderr[-500:]}"
 print("viewer boot: headless runtime passed")

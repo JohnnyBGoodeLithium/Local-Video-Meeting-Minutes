@@ -43,7 +43,7 @@ cd ~/meeting-minutes
 - 顶栏“中文 / EN”切换在线界面与会议纪要。纪要译文按 Markdown 块后台生成，保留 evidence marker，分别写入
   `minutes.translation.zh-CN.json` / `minutes.translation.en.json`；它们绑定当前纪要与证据语境 revision，不覆盖 `minutes.md`。
   全局阅读语言不强制改变逐字稿模式，逐字稿仍由上面的原文/译文/对照控件独立控制。
-- 说话人 chip → 绑定弹框（可试听该声音片段）→ 一次绑定该声纹在本会议的全部语句
+- 说话人 chip → 选择个人回听（顺次播放 / 仅听此人、上一段 / 重播 / 下一段）或进入绑定弹框（可试听该声音片段）→ 一次绑定该声纹在本会议的全部语句；无选人时逐段按钮按整场轮次工作，MeetingPack Viewer 同步支持
   （同时改写 transcript.spk.json / transcript.spk.md；纪要需手动点"重新生成"）。
   **名字不要求预先存在**：唯一精确已确认名称可直接绑定；相似名称只返回候选，不写库；用户也可显式“新建人员”。
 - `/admin` 人员身份：同一稳定人员 ID 可保存 Org Chart 原名、中文名、全拼、英文名加姓氏等类型化名称，并独立设置首选显示名。
