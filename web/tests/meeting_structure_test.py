@@ -104,4 +104,16 @@ assert json_value["content_role"] == "meeting_ui"
 assert json_value["information_value"] == "low"
 assert json_value["value_source"] == "vl"
 
+# VL 把换行保留为字面量 \n、并把协议标题压在一行时，读路径应恢复 Markdown 层级。
+escaped_layout = (
+    r"\n## 标题 Synthetic Strategy Comparison ## 页面角色 content "
+    r"## 信息价值 high：包含合成对比表。 ## 页面内容 | Feature | Option A | Option B |"
+)
+escaped_cleaned = meeting_structure.clean_model_text(escaped_layout)
+assert r"\n" not in escaped_cleaned
+assert meeting_structure.visual_title(escaped_layout, 8) == "Synthetic Strategy Comparison"
+assert meeting_structure._visual_role(escaped_cleaned, "Synthetic Strategy Comparison") == "content"
+escaped_value = meeting_structure._visual_value(escaped_cleaned, "Synthetic Strategy Comparison")
+assert escaped_value["information_value"] == "high"
+
 print("Meeting structure: segments, chapters, and repeated pages passed")

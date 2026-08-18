@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import json
+import io
 import sys
 import tempfile
+from contextlib import redirect_stderr
 from pathlib import Path
 
 
@@ -54,4 +56,15 @@ with tempfile.TemporaryDirectory(prefix="summarize-request-test-") as temp:
     assert captured.get("chat_template_kwargs") == {"enable_thinking": False}
     assert (root / "minutes.md").is_file()
 
-print("Summarize request: thinking disabled and readable content persisted")
+original_main = summarize.main
+stderr = io.StringIO()
+try:
+    summarize.main = lambda: (_ for _ in ()).throw(ValueError("private detail"))
+    with redirect_stderr(stderr):
+        assert summarize.safe_main() == 5
+finally:
+    summarize.main = original_main
+assert stderr.getvalue().strip() == "[error] 纪要生成内部异常 (ValueError)"
+assert "private detail" not in stderr.getvalue()
+
+print("Summarize request: thinking disabled, readable content persisted, safe errors retained")

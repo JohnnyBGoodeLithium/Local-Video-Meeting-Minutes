@@ -151,5 +151,14 @@ def main() -> int:
     return 0
 
 
+def safe_main() -> int:
+    """把未预期异常压成可审计、无正文的错误类型，供作业日志保留。"""
+    try:
+        return main()
+    except Exception as exc:
+        print(f"[error] 纪要生成内部异常 ({type(exc).__name__})", file=sys.stderr, flush=True)
+        return 5
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(safe_main())

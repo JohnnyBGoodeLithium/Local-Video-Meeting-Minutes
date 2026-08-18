@@ -775,6 +775,25 @@ function statusChip(label, value, tone = "neutral", title = "") {
     `<b>${esc(label)}</b>${esc(value)}</span>`;
 }
 
+function voiceDraftFailureCopy(rc) {
+  const code = Number(rc || 0);
+  if (code === 3) return isEnglishUi()
+    ? { title: "The text model returned no readable body; the multimodal final is still running.",
+        detail: "The transcript remains available for reading and playback. The final minutes will appear automatically." }
+    : { title: "文本模型没有返回可读正文；系统仍在生成多模态终稿。",
+        detail: "逐字稿仍可阅读和播放，终稿完成后会自动出现。" };
+  if (code === 2) return isEnglishUi()
+    ? { title: "The local text-model request failed; the multimodal final is still running.",
+        detail: "This affects only the early draft. The transcript and final-generation pipeline remain available." }
+    : { title: "本地文本模型请求失败；系统仍在生成多模态终稿。",
+        detail: "这只影响提前展示的草稿，逐字稿和终稿生成流程仍然可用。" };
+  return isEnglishUi()
+    ? { title: "The voice-draft step hit an internal error; the multimodal final is still running.",
+        detail: "This was not an empty model response. The transcript remains available, and the final minutes will appear automatically." }
+    : { title: "语音草稿阶段发生内部异常；系统仍在生成多模态终稿。",
+        detail: "这不是模型空正文；逐字稿仍可阅读和播放，终稿完成后会自动出现。" };
+}
+
 function renderMeetingStatuses() {
   const box = $("#meeting-statuses");
   const b = state.bundle;
@@ -784,6 +803,7 @@ function renderMeetingStatuses() {
   const documentReady = b.document_state === "ready";
   const voiceDraft = b.document_state === "draft";
   const voiceDraftFailed = !b.has_minutes && Number(b.generation?.voice_draft_rc || 0) !== 0;
+  const draftFailure = voiceDraftFailureCopy(b.generation?.voice_draft_rc);
   const evidenceState = b.evidence?.state || "partial";
   const evidenceLabel = evidenceState === "ready" ? (isEnglishUi() ? "Traceable" : "可核证")
     : evidenceState === "stale" ? (isEnglishUi() ? "Stale" : "已过期")
@@ -799,7 +819,7 @@ function renderMeetingStatuses() {
       : (documentReady ? (isEnglishUi() ? "Ready" : "可阅读") : (isEnglishUi() ? "Processing" : "处理中")),
       voiceDraftFailed ? "warn" : voiceDraft || active ? "working" : (documentReady ? "good" : "neutral"),
       voiceDraft ? "口头内容已经可读，屏幕表格、数字和画面资料仍在补充"
-        : voiceDraftFailed ? "文本模型没有返回可读正文；系统没有停住，正在继续生成多模态终稿" : ""),
+        : voiceDraftFailed ? draftFailure.title : ""),
     statusChip(isEnglishUi() ? "Evidence" : "证据", evidenceLabel, evidenceTone,
       evidenceState === "ready" ? "结论可回到逐字稿或共享画面核对" : "重新生成纪要后可补齐结构化依据"),
     statusChip(isEnglishUi() ? "Share" : "分享",
@@ -2582,14 +2602,50 @@ async function startTopicMapTranslation() {
   }
 }
 
+const VISUAL_PROTOCOL_HEADING =
+  "(?:标题|页面角色|信息价值|页面内容|这页想说明什么|title|page role|information value|page content|what this page shows)";
+
+function normalizeVisualText(value) {
+  return String(value || "").replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n").trim();
+}
+
+function visualTitleCandidate(value) {
+  const text = normalizeVisualText(value);
+  const labeled = text.match(new RegExp(
+    `(?:^|\\n)#{1,5}\\s*(?:标题|title)\\s*[:：]?\\s*([\\s\\S]*?)` +
+    `(?=\\s+#{1,5}\\s*${VISUAL_PROTOCOL_HEADING}\\b|$)`, "i"));
+  if (labeled?.[1]?.trim()) return labeled[1].trim().replace(/^["']|["',]$/g, "").slice(0, 100);
+  const plain = text.replace(/^#{1,5}\s*/, "").replace(/^(?:标题|title)\s*[:：]?\s*/i, "").trim();
+  if (!plain || new RegExp(`^${VISUAL_PROTOCOL_HEADING}$`, "i").test(plain)) return "";
+  return plain.split(new RegExp(`\\s+#{1,5}\\s*${VISUAL_PROTOCOL_HEADING}\\b`, "i"))[0]
+    .trim().slice(0, 100);
+}
+
+function visualDescriptionHtml(visual) {
+  let html = String(visual?.description_html || "").replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n");
+  // 旧后端可能已把整段协议元数据渲染成第一个 <p>；标题/角色/价值在界面其他位置
+  // 已有结构化展示，移除这个重复段，保留后续页面内容、表格和列表。
+  html = html.replace(/^\s*<p>\s*#{1,5}\s*(?:标题|title)\b[\s\S]*?<\/p>\s*/i, "");
+  if (html.trim()) return html;
+  const text = normalizeVisualText(visual?.description);
+  const body = text.split(new RegExp(`#{1,5}\\s*(?:页面内容|page content)\\s*[:：]?`, "i"))[1];
+  return `<p>${esc((body || text || "当前画面没有可用的 VL 详细解读。").trim())}</p>`;
+}
+
 function visualReadingCopy(visual) {
   const page = Number(visual?.page);
   const translated = state.visualsTranslation?.target_language === state.uiLanguage
     && state.visualsTranslation?.state === "ready"
     ? (state.visualsTranslation.pages || []).find(item => Number(item.number) === page) : null;
+  const title = visualTitleCandidate(translated?.title)
+    || visualTitleCandidate(visual?.title)
+    || visualTitleCandidate(visual?.description)
+    || (isEnglishUi() ? "Screen content" : "屏幕内容");
+  const rawSummary = normalizeVisualText(translated?.summary);
   return {
-    title: translated?.title || visual?.title || (isEnglishUi() ? "Screen content" : "屏幕内容"),
-    summary: translated?.summary || "",
+    title,
+    summary: new RegExp(`#{1,5}\\s*${VISUAL_PROTOCOL_HEADING}\\b`, "i").test(rawSummary)
+      ? "" : rawSummary,
   };
 }
 
@@ -2696,6 +2752,7 @@ function renderMinutes() {
   const phase = state.bundle?.generation?.phase;
   const draftFailed = !state.bundle?.has_minutes
     && Number(state.bundle?.generation?.voice_draft_rc || 0) !== 0;
+  const draftFailure = voiceDraftFailureCopy(state.bundle?.generation?.voice_draft_rc);
   const banner = draft ? (isEnglishUi()
     ? `<section class="minutes-draft-banner"><div><span>Voice draft · Ready to read</span>` +
       `<b>${phase === "visual_enrichment" ? "Adding screen context" : "Preparing screen analysis"}</b>` +
@@ -2706,7 +2763,7 @@ function renderMinutes() {
       `草稿期间可以播放、搜索和追问，暂不支持修改或导出。</p></div><i></i></section>`) : "";
   const pending = draftFailed
     ? '<section class="minutes-draft-banner"><div><span>语音草稿生成失败</span><b>正在继续生成多模态终稿</b>' +
-      '<p>文本模型没有返回可读正文，因此这次无法提前展示草稿；逐字稿仍可阅读和播放，终稿完成后会自动出现。</p></div><i></i></section>'
+      `<p>${esc(draftFailure.detail)}</p></div><i></i></section>`
     : '<p class="placeholder">暂无纪要</p>';
   const translated = state.minutesTranslation?.target_language === state.uiLanguage
     && state.minutesTranslation?.state === "ready" && state.minutesTranslation?.html;
@@ -3068,7 +3125,7 @@ function renderVisuals() {
       `<div class="visual-no-image">该片段没有静态页面截图</div>`) +
     `<section class="visual-description"><h3>屏幕内容解读</h3>` +
     `<p class="visual-boundary">仅说明画面展示内容，不代表会议作出了决定。</p>` +
-    `<div>${selected.description_html || esc(selected.description || "当前画面没有可用的 VL 详细解读。")}</div></section>` +
+    `<div>${visualDescriptionHtml(selected)}</div></section>` +
     structureClaimGroup("相关会议内容", selected.claim_ids) +
     `</article></div>`;
   $$('[data-visual-select]', box).forEach(button => button.onclick = () => {

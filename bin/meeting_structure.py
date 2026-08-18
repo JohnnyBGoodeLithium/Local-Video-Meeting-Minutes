@@ -60,10 +60,22 @@ def clean_reasoning_text(value: str) -> str:
 def clean_model_text(value: str) -> str:
     """清理供人阅读的模型文案；会拆 VL 包装，不可用于 JSON 解析。"""
     text = clean_reasoning_text(value)
+    # 部分 OpenAI-compatible VL 模型会把 Markdown 当作 JSON 字符串返回，导致换行以
+    # 字面量 ``\n`` 留在正文中；另一些输出把协议标题全部压在同一行。这里只还原
+    # 已知的人读 Markdown 结构，不用于 JSON 解析，也不触碰 canonical 页面缓存。
+    text = text.replace("\\r\\n", "\n").replace("\\n", "\n")
     # VL 偶发把答案包进 LaTeX \boxed{…} 并转义 Markdown（\## 标题）：先拆包装再还原转义，
     # 否则标题提取会把 \boxed{ 或 \## 标题 当成页面标题。
     text = re.sub(r"\\boxed\s*\{", "", text)
     text = re.sub(r"\\([#*_|~`>\[\](){}])", r"\1", text)
+    protocol_heading = (
+        r"(?:标题|页面角色|信息价值|页面内容|这页想说明什么|"
+        r"title|page role|information value|page content|what this page shows)"
+    )
+    text = re.sub(rf"[ \t]+(?=#{{1,5}}\s*{protocol_heading}\b)", "\n", text,
+                  flags=re.I)
+    text = re.sub(rf"(?m)^(#{{1,5}}\s*{protocol_heading})[ \t]+(?=\S)", r"\1\n", text,
+                  flags=re.I)
     text = re.sub(r"^[ \t]*[{}]+[ \t]*$", "", text, flags=re.M)
     return text.strip()
 

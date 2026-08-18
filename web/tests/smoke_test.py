@@ -165,7 +165,7 @@ check("时间码跳转只滚动内容面板，不带动整页丢失播放器",
 check("在线屏幕舞台支持放大、缩放和相邻屏幕键盘导航",
       b'id="screen-preview-mask"' in page and b'openScreenPreview' in app_js
       and b'navigateScreenPreview' in app_js and b'SCREEN_PREVIEW_ZOOMS' in app_js
-      and b'20260818p56' in page)
+      and b'20260818p58' in page)
 check("会议列表默认按导入时间且可切换并记忆排序",
       b'meetingSort' in app_js and b'"imported"' in app_js
       and b'imported_at' in app_js and b'updated_at' in app_js
@@ -174,6 +174,14 @@ check("会议列表默认按导入时间且可切换并记忆排序",
 check("错误的外部逐字稿可在导入和存量会议两处改用本地 ASR",
       b'ignore_transcript' in app_js and b'retranscribe-local' in app_js
       and "保留原 VTT/DOCX".encode() in app_js)
+check("旧 VL 转义换行与协议标题在前端读路径自愈",
+      b'function visualTitleCandidate' in app_js
+      and b'function visualDescriptionHtml' in app_js
+      and b'VISUAL_PROTOCOL_HEADING' in app_js)
+check("语音草稿失败按返回码区分空正文、模型请求与内部异常",
+      b'function voiceDraftFailureCopy' in app_js
+      and "这不是模型空正文".encode() in app_js
+      and "本地文本模型请求失败".encode() in app_js)
 check("在线端从健康端点显示产品版本，导出预检告知版本化文件名",
       b'function loadProductVersion' in app_js and b'/api/health' in app_js
       and b'filename_pattern' in app_js and b'product_version' in app_js)
