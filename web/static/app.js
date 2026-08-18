@@ -418,6 +418,7 @@ function orderedMeetings() {
 function renderMeetingList() {
   const q = $("#search").value.trim().toLowerCase();
   const ul = $("#meeting-list");
+  const order = state.workspace.meetingSort;
   ul.innerHTML = "";
   for (const m of orderedMeetings()) {
     if (q && !`${m.title || ""} ${m.date || ""} ${m.slug}`.toLowerCase().includes(q)) continue;

@@ -165,10 +165,11 @@ check("时间码跳转只滚动内容面板，不带动整页丢失播放器",
 check("在线屏幕舞台支持放大、缩放和相邻屏幕键盘导航",
       b'id="screen-preview-mask"' in page and b'openScreenPreview' in app_js
       and b'navigateScreenPreview' in app_js and b'SCREEN_PREVIEW_ZOOMS' in app_js
-      and b'20260818p55' in page)
+      and b'20260818p56' in page)
 check("会议列表默认按导入时间且可切换并记忆排序",
       b'meetingSort' in app_js and b'"imported"' in app_js
       and b'imported_at' in app_js and b'updated_at' in app_js
+      and b'const order = state.workspace.meetingSort;' in app_js
       and b'saveWorkspaceState' in app_js)
 check("错误的外部逐字稿可在导入和存量会议两处改用本地 ASR",
       b'ignore_transcript' in app_js and b'retranscribe-local' in app_js
