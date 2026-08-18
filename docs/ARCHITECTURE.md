@@ -140,7 +140,8 @@ Web 与 MeetingPack 的常规纪要通过 `minutes_reading_markdown()` 从 canon
 - 每个外部管线运行在独立进程组，取消时先发 `SIGTERM`，5 秒后仍未退出则 `SIGKILL`。
 - 作业 JSON 只保存状态和以 `[` 开头的元数据行，不保存任意 stderr 或会议正文。
 - `/api/jobs` 返回实际 `queue_position`；`POST /api/jobs/{id}/prioritize` 只接受 queued 作业，取消 queued 作业会同时从内存等待队列移除。
-- 服务重启时，遗留的 `queued/running` 作业会标为失败；当前不自动恢复，因此优先级调度不等于持久队列恢复。
+- 服务重启时，遗留的 `queued/running` 作业会标为失败；系统不自动加载更大模型或盲目重放整条管线。`job-recovery/v1` 只依据安全作业元数据和资产存在性生成恢复计划：翻译、Topic Map、本地重转写，以及已形成逐字稿和所需页面缓存的纪要阶段可由用户显式续跑；早期导入失败要求重新导入。
+- `POST /api/jobs/{id}/retry` 永不信任或直接执行旧作业 JSON 中的 `cmd`，而是从受控 builder 重新构造白名单脚本命令。新作业记录 `retry_of/recovery_attempt/recovery_quality`，旧作业记录 `recovered_by`；已有活动或成功 successor 时拒绝重复恢复。高质量恢复默认关闭，只能由部署者通过 `MEETING_RECOVERY_REFINE_MODEL` 显式开放。
 
 ## 会议助手
 
