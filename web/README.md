@@ -14,8 +14,9 @@ cd ~/meeting-minutes
 
 ## 功能
 
-- 左栏“导入会议”可选择或拖入视频（可带同名 .vtt）或音频 → 自动路由：
-  视频+vtt → `bin/teams_minutes.py`；裸视频 → `bin/video_minutes.py`；音频 → `bin/run_all.py`。
+- 左栏“导入会议”可选择或拖入视频（可配一个 Teams `.vtt` 或 `.docx` 逐字稿）或音频 → 自动路由：
+  视频+VTT/DOCX → `bin/teams_minutes.py`；裸视频 → `bin/video_minutes.py`；音频 → `bin/run_all.py`。
+  视频和逐字稿文件名无需完全相同；一次只允许一个视频配一个逐字稿，同时提供 VTT 与 DOCX 会明确拒绝，避免静默选错来源。
   上传存 `recordings/inbox/<jobid>/`，作业状态在 `web/jobs/<id>.json`（只存元数据行）。
   管线启动后会把媒体以 CoW reflink（不支持时复制）固化为独立会议母版，会议不再依赖 inbox 路径；处理成功后自动清理上传暂存。旧会议缺少本地 `audio.wav`
   时，播放接口会回退到 `source.json` 中仍有效的音频路径。

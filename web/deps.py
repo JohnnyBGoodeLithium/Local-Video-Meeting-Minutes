@@ -52,6 +52,7 @@ STORAGE_LOCK = threading.Lock()     # 会议缓存清理与大小读取串行化
 VIDEO_EXT = {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v", ".mpg", ".mpeg"}
 AUDIO_EXT = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".aac", ".wma", ".aiff"}
 VTT_EXT = {".vtt"}
+DOCX_EXT = {".docx"}
 ORG_FILE_EXT = {".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"}
 
 
@@ -140,7 +141,7 @@ def _meeting_storage(mdir: Path) -> dict:
     original = sorted({
         *[path for pattern in ("source_video.*", "source_audio.*") for path in mdir.glob(pattern)
           if path.is_file()],
-        *([mdir / "source.vtt"] if (mdir / "source.vtt").is_file() else []),
+        *[path for path in (mdir / "source.vtt", mdir / "source.docx") if path.is_file()],
     })
     # 兼容旧录音会议：没有独立母版时，audio.wav 本身必须被保护。
     if not any(path.name.startswith(("source_video.", "source_audio.")) for path in original):

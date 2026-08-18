@@ -110,7 +110,7 @@ function esc(s) {
 const UI_COPY = {
   "zh-CN": {
     title: "会议纪要", brand: "🎙 会议纪要", meetings: "会议", product: "产品介绍", settings: "设置",
-    import: "＋ 导入会议", drop: "或把视频、VTT、音频拖到这里", importSettings: "导入设置",
+    import: "＋ 导入会议", drop: "或拖入视频 + VTT/DOCX，或单个音视频", importSettings: "导入设置",
     skipVl: "快速处理，不分析共享画面", search: "搜索会议…", transcript: "逐字稿",
     original: "原文", translated: "译文", comparison: "对照", translateTo: "译为", follow: "跟随",
     outline: "会议脉络", minutes: "会议纪要", screens: "屏幕内容", audit: "结论审计",
@@ -130,7 +130,7 @@ const UI_COPY = {
   },
   en: {
     title: "Meeting Minutes", brand: "🎙 Meeting Minutes", meetings: "Meetings", product: "Product", settings: "Settings",
-    import: "+ Import meeting", drop: "Drop video, VTT, or audio here", importSettings: "Import settings",
+    import: "+ Import meeting", drop: "Drop video + VTT/DOCX, or one media file", importSettings: "Import settings",
     skipVl: "Fast processing; skip shared-screen analysis", search: "Search meetings…", transcript: "Transcript",
     original: "Original", translated: "Translation", comparison: "Side by side", translateTo: "Translate to", follow: "Follow",
     outline: "Meeting map", minutes: "Minutes", screens: "Screen content", audit: "Conclusion audit",
@@ -3764,7 +3764,7 @@ function renderJobs(jobs) {
       : /抽屏幕|逻辑页/.test(lastLog) ? "提取共享画面"
       : /生成按页纪要|生成.*纪要|结构化输入|总体摘要|页块|分页详情/.test(lastLog) ? "生成会议纪要"
       : /声纹库|声纹/.test(lastLog) ? "确认人员身份"
-      : /解析 VTT|对齐姓名/.test(lastLog) ? "对齐参会者"
+      : /解析 (?:VTT|Teams 逐字稿)|对齐姓名/.test(lastLog) ? "对齐参会者"
       : j.stage;
     const elapsed = j.status === "running" && j.started
       ? ` · 已运行 ${fmt(Date.now() / 1000 - j.started)}` : "";

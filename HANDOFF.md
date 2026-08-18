@@ -3,16 +3,23 @@
 > 给接手 agent：先读本文件和 `AGENTS.md`，再看 `CHANGELOG.md` 未发布段了解最近改动。
 > 本文件在每次交接或大方向变化时更新；过期的进行中事项完成后删除对应段落。
 
-更新时间：2026-08-17（当前工作树构建号 20260817p47；提交号以 `git log -1` 为准）
+更新时间：2026-08-18（当前工作树构建号 20260818p48；提交号以 `git log -1` 为准）
 
 ## 当前基线
 
 - 仓库：`/home/johnny-tcx_ultra/meeting-minutes`，分支 main。
-- 验证基线：`make check` 全绿、`make smoke` 126/126；Topic Map v3 合成回归及 Viewer headless 启动均通过。
+- 验证基线：`make check` 全绿、隔离 Web smoke 129/129；真实 Teams DOCX 样本结构验证得到 259 条有效 cue、时间单调且正文/姓名非空，未把内容写入仓库或测试夹具。
 - 服务：端口 8899，`systemctl --user restart meeting-minutes-web` 重启（挂起 ~45s 是已知 P2 问题，见下）。
 - 隐私红线（详见 AGENTS.md）：不读真实会议正文，只看元数据/结构；上次已获用户授权诊断 Gate B 会议标题形态，新任务需重新授权。
 
-## 当前批次：Topic Map v3 导航/证据拆分
+## 当前批次：Teams DOCX 逐字稿输入
+
+- Web 导入支持“一个录像 + 一个 `.vtt`/`.docx`”；文件名无需相同，同时给两份逐字稿会 400 拒绝。裸 DOCX 不处理，因为缺少音频、声纹和可播放证据。
+- `bin/teams_transcript.py` 以标准库读取 Teams OOXML run 结构，输出与既有 VTT 完全相同的 cue schema；真实样本只做本机结构确认，正文、人名与路径不进仓库或测试。
+- `source.docx` 和 `source.vtt` 同属受保护母版；`source.json` 新增 `transcript/original_transcript/transcript_format`，同时保留格式专用键供旧消费点兼容。
+- 解析器测试使用虚构 DOCX；Web smoke 覆盖双文件路由和 VTT+DOCX 冲突拒绝。服务部署与提交号见本批 Git 提交。
+
+## 已交付：Topic Map v3 导航/证据拆分
 
 - 根因：v2 的 `turn_ids/ranges` 同时承担代表事实证据和全量播放器导航；reduce 只保留代表 turn 时，页面诚实但大面积无覆盖，按邻近填满又会制造错误语义。
 - v3：局部候选使用稳定 `candidate_id`，reduce 必须列出吸收的 `candidate_ids`。`turn_ids/evidence_ranges` 只保存代表依据，`navigation_turn_ids/ranges` 保存 Topic 的完整浏览范围，顶层 `navigation_segments` 逐段标记 `topic/transition/unclassified`。

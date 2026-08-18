@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>会议纪要</title>
-<link rel="stylesheet" href="/static/style.css?v=20260817p47">
-<link rel="stylesheet" href="/static/theme.css?v=20260817p47">
+<link rel="stylesheet" href="/static/style.css?v=20260818p48">
+<link rel="stylesheet" href="/static/theme.css?v=20260818p48">
 </head>
 <body class="page-index">
 <header class="topbar">
@@ -24,9 +24,9 @@
   <!-- 左栏：回顾入口为主，导入与处理状态为辅 -->
   <aside class="col-left">
     <div id="dropzone">
-      <input type="file" id="file-input" multiple hidden>
+      <input type="file" id="file-input" accept="video/*,audio/*,.vtt,.docx" multiple hidden>
       <button id="pick-btn" class="primary import-button" type="button">＋ 导入会议</button>
-      <span id="drop-hint" class="drop-hint">或把视频、VTT、音频拖到这里</span>
+      <span id="drop-hint" class="drop-hint">或拖入视频 + VTT/DOCX，或单个音视频</span>
       <details class="import-options">
         <summary id="import-settings-label">导入设置</summary>
         <label class="skip-vl"><input type="checkbox" id="skip-vl"> <span id="skip-vl-label">快速处理，不分析共享画面</span></label>
@@ -256,6 +256,6 @@
 
 <div id="tl-tip" class="tl-tip hidden"></div>
 
-<script src="/static/app.js?v=20260817p47"></script>
+<script src="/static/app.js?v=20260818p48"></script>
 </body>
 </html>

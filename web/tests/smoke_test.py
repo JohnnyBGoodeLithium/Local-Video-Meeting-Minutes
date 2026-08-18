@@ -49,12 +49,19 @@ def req(method, path, body=None, headers=None, raw=False):
 
 
 def multipart(path, field, filename, content, ctype):
+    return multipart_files(path, [(field, filename, content, ctype)])
+
+
+def multipart_files(path, files):
     boundary = "----mmtestboundary"
-    body = (
-        f"--{boundary}\r\n"
-        f'Content-Disposition: form-data; name="{field}"; filename="{filename}"\r\n'
-        f"Content-Type: {ctype}\r\n\r\n"
-    ).encode() + content + f"\r\n--{boundary}--\r\n".encode()
+    body = b""
+    for field, filename, content, ctype in files:
+        body += (
+            f"--{boundary}\r\n"
+            f'Content-Disposition: form-data; name="{field}"; filename="{filename}"\r\n'
+            f"Content-Type: {ctype}\r\n\r\n"
+        ).encode() + content + b"\r\n"
+    body += f"--{boundary}--\r\n".encode()
     return req("POST", path, body=body,
                headers={"Content-Type": f"multipart/form-data; boundary={boundary}"})
 
@@ -78,6 +85,20 @@ def make_pdf() -> bytes:
     for off in offsets:
         out.write(f"{off:010d} 00000 n \n".encode())
     out.write(f"trailer\n<</Size {len(objs)+1}/Root 1 0 R>>\nstartxref\n{xref}\n%%EOF\n".encode())
+    return out.getvalue()
+
+
+def make_teams_docx() -> bytes:
+    """最小 OOXML Teams 逐字稿；只含虚构人名与内容。"""
+    document = b'''<?xml version="1.0" encoding="UTF-8"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+ <w:body><w:p><w:r><w:rPr><w:b/></w:rPr><w:t>Alice Example</w:t></w:r>
+ <w:r><w:t>0:03</w:t></w:r><w:r><w:t>Fictional update.</w:t></w:r></w:p></w:body>
+</w:document>'''
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w") as archive:
+        archive.writestr("[Content_Types].xml", "<Types/>")
+        archive.writestr("word/document.xml", document)
     return out.getvalue()
 
 
@@ -134,7 +155,7 @@ check("时间码跳转只滚动内容面板，不带动整页丢失播放器",
 check("在线屏幕舞台支持放大、缩放和相邻屏幕键盘导航",
       b'id="screen-preview-mask"' in page and b'openScreenPreview' in app_js
       and b'navigateScreenPreview' in app_js and b'SCREEN_PREVIEW_ZOOMS' in app_js
-      and b'20260817p47' in page)
+      and b'20260818p48' in page)
 check("英文会议脉络同步本地化时间轴悬浮层与 Focus 辅助文案",
       b'"Meeting overview"' in app_js and b'"Semantic focus"' in app_js
       and b'structured nodes' in app_js and b'occurrences' in app_js
@@ -684,6 +705,31 @@ inbox = TEST_ROOT / jj.get("inbox", "")
 check("上传文件已存 recordings/inbox/<jobid>/",
       inbox.is_dir() and len(list(inbox.iterdir())) == 1)
 check("作业预测了会议目录名", bool(jj.get("meeting")))
+
+# 11a. Teams 录屏 + DOCX 逐字稿 → 具名多模态管线
+s, _, teams_job = multipart_files("/api/upload", [
+    ("files", "fictional-review.mp4", b"fictional video", "video/mp4"),
+    ("files", "fictional-transcript.docx", make_teams_docx(),
+     "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+])
+check("POST /api/upload (video + Teams DOCX) → Teams 作业",
+      s == 200 and teams_job.get("route") == "teams"
+      and sorted(teams_job.get("files", []))
+      == ["fictional-review.mp4", "fictional-transcript.docx"])
+teams_done = poll_job(teams_job.get("id"))
+check("Teams DOCX 作业调用 teams_minutes.py 并保留逐字稿参数",
+      teams_done.get("status") == "done"
+      and teams_done.get("cmd", ["", ""])[1].endswith("bin/teams_minutes.py")
+      and teams_done.get("cmd", ["", "", ""])[2].endswith("fictional-review.mp4")
+      and teams_done.get("cmd", ["", "", "", ""])[3].endswith("fictional-transcript.docx"))
+
+s, _, _ = multipart_files("/api/upload", [
+    ("files", "fictional-review.mp4", b"fictional video", "video/mp4"),
+    ("files", "fictional.vtt", b"WEBVTT", "text/vtt"),
+    ("files", "fictional.docx", make_teams_docx(),
+     "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+])
+check("同一视频同时配 VTT 与 DOCX 时明确拒绝", s == 400)
 
 # 12. regen（dry-run）
 s, _, j = req("POST", "/api/meetings/_smoke/regen_minutes")

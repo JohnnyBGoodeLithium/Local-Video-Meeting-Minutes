@@ -64,7 +64,7 @@ flowchart LR
 
 ### Teams 录制
 
-`teams_minutes.py` 使用 VTT 的姓名线索与本地分离结果对齐；会议室混合通道继续按声纹拆分，然后进入同样的语音草稿 → VL 终稿流程。
+`teams_minutes.py` 使用 Teams VTT 或 DOCX 的姓名线索与本地分离结果对齐；会议室混合通道继续按声纹拆分，然后进入同样的语音草稿 → VL 终稿流程。`teams_transcript.py` 是不依赖 Web 和第三方 Office 库的输入边界：VTT 读取 cue，DOCX 直接读取 OOXML 中“粗体姓名 → 时间码 → 正文”的 run 结构，忽略头像等媒体；DOCX 不含结束时间，因此用下一条开始时间推导，最后一条使用分离得到的媒体时长。解析失败在写 canonical 逐字稿前终止，不降级猜测姓名或正文。
 
 音视频导入后通过 `meeting_dir.materialize_source` 固化到会议目录。优先创建独立 inode 的 CoW reflink，不支持时完整复制；`source.json` 的主媒体路径指向会议内文件。Web 对旧会议继续支持外部 `source.json` 回退，避免迁移前录音因缺少 `audio.wav` 而无法播放。
 
@@ -118,7 +118,7 @@ sidecar 保存 T ID、源语言、译文、数字核对警告、逐字稿 revisi
 
 前端时间线用 Topic 的一个或多个 ranges 作为上层、Segment 作为下层；右侧“会议脉络”展示“整场会议—一级议题—背景/观点/约束/决定/行动/风险/待确认”的思维导图。通过质量门槛（`ready` 且 3–8 个一级议题）的 Topic Map 是 Web 与 MeetingPack 的默认首屏；首屏只画根节点与一级议题，选择某一分支后才展开其子节点。节点点击建立共享语义 Focus，但不改变播放时间；时间轴、逐字稿时间码和显式范围按钮负责 seek，并联动当前屏幕、逐字稿和结论高亮。Topic 和屏幕页面都只是 canonical evidence 的索引与重组；点击结论仍进入统一证据栏，VL 描述不能单独证明会议决定。Topic Map 缺失或不合格时回退正式会议纪要，不把视觉 Segment 扩写成几十个假章节。
 
-Topic Map reduce 连续出现非 JSON 时依次尝试语法修复与紧凑归并；两者都失败后，`local-candidates-fallback/v2` 只把已通过局部窗口归纳的候选标题、摘要和 T/P/C 引用确定性组装并继续走 `_sanitize_map`。它不重新解释逐字稿、不伪造主题、不合并无关标题来伪造覆盖，也不绕过 Web/Viewer 的 3–8 主题质量门槛。前端轮询 upload/regen/topic-map 作业，当前会议的派生资产完成后自动重新读取 bundle，避免文件已经生成但页面仍停留旧空态。
+Topic Map reduce 连续出现非 JSON 时依次尝试语法修复与紧凑归并；两者都失败后，`local-candidates-fallback/v3` 只把已通过局部窗口归纳的候选标题、摘要和 T/P/C 引用确定性组装并继续走 `_sanitize_map`。它不重新解释逐字稿、不伪造主题、不合并无关标题来伪造覆盖，也不绕过 Web/Viewer 的 3–8 主题质量门槛。前端轮询 upload/regen/topic-map 作业，当前会议的派生资产完成后自动重新读取 bundle，避免文件已经生成但页面仍停留旧空态。
 
 `slide_pages.py` 的变化检测默认排除画面右侧 15% 的会议 UI/参会人栏，再计算时序活动掩码、页面相似度和代表帧。用于判页的低分辨率 RGB 帧会先抑制稀疏的高饱和红框/激光点；页面距离同时比较全页稳定内容和顶部 22% 标题区，所以同一表格的局部标注不切页，大标题改变仍切页。RGB 逐帧流式转灰度，不使整段三通道帧常驻内存。输出截图仍从原视频抓取完整画面；参数 `--ignore-right-pct 0` 可关闭右栏排除。
 

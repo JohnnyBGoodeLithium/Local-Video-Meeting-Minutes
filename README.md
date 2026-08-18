@@ -1,6 +1,6 @@
 # Local Video Meeting Minutes
 
-本地多模态会议知识工作台：把录音、录屏、Teams VTT、说话人声纹、组织架构和共享画面组织成一套可阅读、可核验、可追问、可修正、可离线分享的会议记录。
+本地多模态会议知识工作台：把录音、录屏、Teams VTT/DOCX 逐字稿、说话人声纹、组织架构和共享画面组织成一套可阅读、可核验、可追问、可修正、可离线分享的会议记录。
 
 它已经不是“钉钉闪记的本地替代品”。产品的核心差异是把四类信息绑定在一起：
 
@@ -11,7 +11,7 @@
 
 ## 用户旅程
 
-1. 导入音频、录屏，或带 VTT 的 Teams 录制。
+1. 导入音频、录屏，或同时导入 Teams 录像与 VTT/DOCX 逐字稿。
 2. 先完成转写和说话人识别，尽快发布可阅读的语音草稿。
 3. 后台继续抽取逻辑页面、理解共享画面、生成多模态终稿和整场会议脉络。
 4. 用户从会议脉络进入某个议题；时间操作改变播放位置，右侧节点选择只改变阅读 Focus。
@@ -21,7 +21,7 @@
 ## 架构概览
 
 ```text
-音频 / 视频 / VTT
+音频 / 视频 / Teams VTT·DOCX
         │
         ├─ 转写与字级对齐 ───────┐
         ├─ 说话人分离与声纹匹配 ─┼─ transcript.spk.json (T IDs)
@@ -66,8 +66,8 @@ make run
 # 录音：转写和分离并行，再生成纪要
 .venv/bin/python bin/run_all.py /path/to/recording.wav --title 周会
 
-# Teams 录屏：使用 VTT 姓名，识别会议室内多个声音，并理解共享画面
-.venv/bin/python bin/teams_minutes.py /path/to/meeting.mp4 /path/to/meeting.vtt
+# Teams 录屏：使用 VTT 或 DOCX 姓名，识别会议室内多个声音，并理解共享画面
+.venv/bin/python bin/teams_minutes.py /path/to/meeting.mp4 /path/to/meeting.docx
 
 # 无 VTT 录屏：本地 ASR + 说话人分离 + 屏幕理解
 .venv/bin/python bin/video_minutes.py /path/to/meeting.mp4 --slug 项目评审

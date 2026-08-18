@@ -13,18 +13,19 @@ import aiofiles
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 import meeting_dir as md_util
-from deps import (AUDIO_EXT, BANK_LOCK, DATA_ROOT, INBOX, PY, ROOT, VIDEO_EXT,
-                  VTT_EXT, _now, _safe, _slugify)
+from deps import (AUDIO_EXT, BANK_LOCK, DATA_ROOT, DOCX_EXT, INBOX, PY, ROOT,
+                  VIDEO_EXT, VTT_EXT, _now, _safe, _slugify)
 from job_store import EXEC, JOBS, PROCS, _new_job, _run_pipeline, _save_job, _set_status
 
 router = APIRouter()
 
 
-def _predict_meeting(route: str, primary: Path, vtt: Path | None) -> str:
+def _predict_meeting(route: str, primary: Path, transcript: Path | None) -> str:
     if route == "audio":
         return md_util.for_recording(DATA_ROOT, primary.stem, None).name
     date_m = re.search(r"(\d{8})", primary.name)
-    stem = vtt.stem if (route == "teams" and vtt is not None) else primary.stem
+    stem = (transcript.stem
+            if route == "teams" and transcript is not None else primary.stem)
     return md_util.for_teams(DATA_ROOT, _slugify(stem),
                              date_m.group(1) if date_m else "").name
 
@@ -41,7 +42,7 @@ async def upload(files: list[UploadFile] = File(...), no_vl: str = Form("")):
     try:
         for f in files:
             ext = Path(f.filename or "").suffix.lower()
-            if ext not in VIDEO_EXT | AUDIO_EXT | VTT_EXT:
+            if ext not in VIDEO_EXT | AUDIO_EXT | VTT_EXT | DOCX_EXT:
                 raise HTTPException(400, f"不支持的文件类型: {ext or f.filename}")
             dest = dest_dir / (_safe(Path(f.filename).stem) + ext)
             async with aiofiles.open(dest, "wb") as out:
@@ -51,25 +52,28 @@ async def upload(files: list[UploadFile] = File(...), no_vl: str = Form("")):
 
         videos = [p for p in saved if p.suffix.lower() in VIDEO_EXT]
         vtts = [p for p in saved if p.suffix.lower() in VTT_EXT]
+        docx_files = [p for p in saved if p.suffix.lower() in DOCX_EXT]
+        transcripts = [*vtts, *docx_files]
         audios = [p for p in saved if p.suffix.lower() in AUDIO_EXT]
 
         if len(videos) == 1 and not audios:
-            vtt = next((v for v in vtts if v.stem == videos[0].stem),
-                       vtts[0] if len(vtts) == 1 else None)
-            if len(vtts) > 1 and vtt is None:
-                raise HTTPException(400, "多个 VTT 无法确定与视频的配对关系")
-            if vtt is not None:
-                route, script, args = "teams", "teams_minutes.py", [str(videos[0]), str(vtt)]
+            if len(transcripts) > 1:
+                raise HTTPException(400, "一次只能给视频配一个 VTT 或 DOCX 逐字稿")
+            transcript = transcripts[0] if transcripts else None
+            if transcript is not None:
+                route, script, args = ("teams", "teams_minutes.py",
+                                       [str(videos[0]), str(transcript)])
             else:
                 route, script, args = "video", "video_minutes.py", [str(videos[0])]
             if skip_vl:
                 args.append("--no-vl")
             primary = videos[0]
-        elif not videos and len(audios) == 1 and not vtts:
+        elif not videos and len(audios) == 1 and not transcripts:
             route, script, args = "audio", "run_all.py", [str(audios[0])]
-            primary, vtt = audios[0], None
+            primary, transcript = audios[0], None
         else:
-            raise HTTPException(400, "一次只支持一个视频(可配一个 vtt)或一个音频")
+            raise HTTPException(
+                400, "一次只支持一个视频（可配一个 VTT/DOCX 逐字稿）或一个音频")
     except Exception:
         # 校验中途失败不留下半上传目录。
         shutil.rmtree(dest_dir, ignore_errors=True)
@@ -79,7 +83,7 @@ async def upload(files: list[UploadFile] = File(...), no_vl: str = Form("")):
     job = _new_job("upload", route=route, cmd=cmd,
                    files=[p.name for p in saved],
                    inbox=str(dest_dir.relative_to(DATA_ROOT)),
-                   meeting=_predict_meeting(route, primary, vtt))
+                   meeting=_predict_meeting(route, primary, transcript))
     resp = dict(job)  # 快照：避免 worker 线程抢在响应序列化前改状态
     EXEC.submit(_run_pipeline, job)
     return resp
