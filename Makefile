@@ -21,6 +21,7 @@ check:
 	$(PY) web/tests/summarize_request_test.py
 	$(PY) web/tests/voice_draft_test.py
 	$(PY) web/tests/job_scheduler_test.py
+	$(PY) web/tests/job_log_safety_test.py
 	$(PY) web/tests/media_materialize_test.py
 	$(PY) web/tests/retranscribe_local_test.py
 	$(PY) web/tests/teams_transcript_test.py

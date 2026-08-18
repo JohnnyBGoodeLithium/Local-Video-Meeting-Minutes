@@ -5,6 +5,7 @@
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -18,6 +19,15 @@ from job_scheduler import SerialPriorityExecutor, default_priority
 EXEC = SerialPriorityExecutor()  # 重模型仍单 worker 串行，但等待任务可以重排
 JOBS: dict[str, dict] = {}
 PROCS: dict[str, subprocess.Popen] = {}   # 运行中作业的子进程(取消用, 不序列化)
+
+_CHILD_EXCEPTION_RE = re.compile(
+    r"^(?:[A-Za-z_]\w*\.)*(?P<kind>[A-Za-z_]\w*(?:Error|Exception))(?::|$)")
+
+
+def _safe_child_exception(line: str) -> str | None:
+    """从 traceback 末行只保留异常类；消息可能含私有正文或路径，永不落盘。"""
+    match = _CHILD_EXCEPTION_RE.match(str(line or "").strip())
+    return f"[error] 子进程异常 ({match.group('kind')})" if match else None
 
 
 # ---------------------------------------------------------------- 作业
@@ -140,6 +150,13 @@ def _run_pipeline(job: dict):
         for raw in proc.stdout or []:
             line = raw.rstrip()
             if not line.lstrip().startswith("["):
+                safe_error = _safe_child_exception(line)
+                if safe_error:
+                    with BANK_LOCK:
+                        if not job.setdefault("log", []) or job["log"][-1] != safe_error:
+                            job["log"].append(safe_error)
+                            job["log"] = job["log"][-300:]
+                            _save_job(job)
                 continue
             with BANK_LOCK:
                 job.setdefault("log", []).append(line)
