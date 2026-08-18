@@ -1,5 +1,7 @@
 # Local Video Meeting Minutes
 
+**当前产品版本：v0.8.1**（仓库根目录 `VERSION` 为单一真源）
+
 本地多模态会议知识工作台：把录音、录屏、Teams VTT/DOCX 逐字稿、说话人声纹、组织架构和共享画面组织成一套可阅读、可核验、可追问、可修正、可离线分享的会议记录。
 
 它已经不是“钉钉闪记的本地替代品”。产品的核心差异是把四类信息绑定在一起：
@@ -36,7 +38,8 @@
                               Web 阅读器 / MeetingPack Viewer
 ```
 
-详细边界见 [系统架构](docs/ARCHITECTURE.md)，结论和 RAG schema 见 [导出与 RAG](docs/EXPORT_AND_RAG.md)。
+详细边界见 [系统架构](docs/ARCHITECTURE.md)，结论和 RAG schema 见 [导出与 RAG](docs/EXPORT_AND_RAG.md)，
+发布节奏与标签规则见 [产品版本与发布规范](docs/RELEASES.md)。
 
 ## 快速开始
 
@@ -54,7 +57,7 @@ make smoke
 make run
 ```
 
-浏览器入口：
+浏览器入口（顶栏会显示当前产品版本）：
 
 - `http://127.0.0.1:8899/`：会议回顾、证据、翻译、追问与导出
 - `http://127.0.0.1:8899/admin`：人员身份、声纹试听和图形化 Org Chart

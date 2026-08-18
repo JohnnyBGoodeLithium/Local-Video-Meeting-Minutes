@@ -134,7 +134,7 @@ Web 只在 sidecar 的逐字稿和纪要 revision 与当前文件一致时展示
 分享格式是普通 ZIP，文件名后缀为 `.meetingpack.zip`。收件人解压后双击 `viewer.html`，不需要安装本项目、不需要运行服务，也不需要 LLM。查看器没有 CDN、外部字体或 `fetch` 依赖，使用 `file://` 即可。
 
 ```text
-<meeting>.meetingpack.zip
+<meeting>_<meeting-date>_v<product-version>_<export-time>.meetingpack.zip
 ├── viewer.html             # CSS/JS/数据内嵌的静态查看器
 ├── README.txt
 ├── AGENTS.md               # 给 AI agent 的使用指引：文件地图 + 引用规则 + 任务菜谱
@@ -157,6 +157,8 @@ Web 只在 sidecar 的逐字稿和纪要 revision 与当前文件一致时展示
         ├── audio.m4a       # --media audio：AAC 40kbps 分享版
         └── video.mp4       # --media video：H.264 720p/10fps 分享版
 ```
+
+例如 `Project_review_2026-08-18_v0.8.1_20260818-153000.meetingpack.zip`。文件名中的产品版本来自根目录 `VERSION`，导出时间保证同一会议多次导出可并存。`README.txt` 和 `assets/manifest.json.generator.version` 同时记录生成器版本；Viewer 顶栏也显示该版本。
 
 Viewer 左侧常驻媒体/截图内容舞台、时间轴和完整逐字稿，中间只保留与在线工作台一致的三个入口：“会议脉络 / 会议纪要 / 屏幕内容”；右侧展示原始证据。冻结的 `meeting-topic-map/v3`（兼容 v1/v2 旧图）通过质量门槛（`ready` 且 3–8 个一级议题）时默认打开会议脉络，否则安全回退会议纪要。v3 中 `turn_ids` / `evidence_ranges` 是代表论据，供审计和 RAG 回溯；`navigation_turn_ids` / `ranges` 是完整浏览范围，供时间轴、Focus 和播放器定位；顶层 `navigation_segments` 显式保留 `topic`、`transition`、`unclassified` 三类整场序列。`stats.coverage` 是归入业务议题的轮次比例，静音不再拉低该值，实际发言时间比例另见 `time_coverage`。Viewer 与在线端都以灰色斜纹显示过渡/等待、以琥珀色显示尚未分类，绝不把未知内容延长到最近议题。脉络首屏只展示一级议题，选择分支才展开子节点；选择节点只建立横跨时间范围、逐字稿、结论和屏幕的 Focus，不自动播放，只有显式时间入口才 seek。Viewer 时间轴与在线端同为“Topic 车道 + 说话人像素桶节奏条 + 人物图例 + 可展开逐人车道”，未绑定说话人灰斜纹沉底（离线不可绑定），逐字稿长轮次同样分块。无视频时，截图内容舞台会随音频播放或时间选择切换。“屏幕内容”按缩略图、标题、状态和完整 VL 解读浏览。必须解压整个 ZIP 后再打开，不能只在压缩软件里预览单个 HTML。
 

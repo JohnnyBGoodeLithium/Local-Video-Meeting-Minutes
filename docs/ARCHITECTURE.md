@@ -39,6 +39,8 @@ flowchart LR
 
 ## 目录职责
 
+仓库根目录 `VERSION` 是产品 SemVer 的单一真源，由 `bin/product_version.py` 验证并投影到 Web 健康端点与 MeetingPack 导出器。产品版本不与前端缓存构建号、Git commit 或 `meetingpack/v5` 等数据 schema 绑定；各自按用户交付、工程历史和兼容性边界独立变化。
+
 | 目录 | 职责 | Git |
 |---|---|---|
 | `bin/` | ASR、分离、抽页、纪要、声纹等批处理脚本 | 跟踪 |

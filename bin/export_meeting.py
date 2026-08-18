@@ -36,6 +36,7 @@ from meeting_artifact import (
 from meeting_views import evidence_integrity
 from meeting_structure import clean_model_text, visual_title
 import meeting_topic_map
+from product_version import PRODUCT_VERSION, PRODUCT_VERSION_LABEL
 
 
 PACK_SCHEMA = "meetingpack/v5"
@@ -258,6 +259,7 @@ def _readme(media_mode: str) -> str:
         "video": "本包包含 720p/10fps 分享版视频，可在 viewer.html 中按证据时间跳转。",
     }[media_mode]
     return f"""MeetingPack 离线会议查看包
+由 Meeting Minutes {PRODUCT_VERSION_LABEL} 生成
 
 使用方式
 1. 解压整个 zip；不要只从压缩软件预览单个文件。
@@ -411,6 +413,7 @@ def _viewer_html(title: str, date: str, minutes_html: str, evidence: dict, integ
         "media_path": media_path,
         "media_kind": media_kind,
         "speaker_navigation": speaker_navigation_rows or [],
+        "product": {"name": "Meeting Minutes", "version": PRODUCT_VERSION},
     }
     page = VIEWER_TEMPLATE_PATH.read_text(encoding="utf-8").replace(
         "__TITLE__", html.escape(title)).replace(
@@ -540,6 +543,7 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
         manifest = {
             "schema": PACK_SCHEMA,
             "created_at": datetime.now(timezone.utc).isoformat(),
+            "generator": {"name": "Meeting Minutes", "version": PRODUCT_VERSION},
             "meeting_id": evidence["meeting_id"],
             "artifact_id": evidence["artifact_id"],
             "title": title,
@@ -568,7 +572,8 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
                 archive.write(path, arcname, compress_type=zipfile.ZIP_STORED)
             archive.writestr("assets/manifest.json", manifest_bytes,
                              compress_type=zipfile.ZIP_DEFLATED)
-    return {"path": str(out), "bytes": out.stat().st_size, **manifest["counts"],
+    return {"path": str(out), "bytes": out.stat().st_size,
+            "product_version": PRODUCT_VERSION, **manifest["counts"],
             "media": manifest["media"]}
 
 
@@ -580,7 +585,9 @@ def main() -> int:
     parser.add_argument("--media", choices=("none", "audio", "video"), default="none",
                         help="默认 none；分享阅读/RAG 不需要源视频")
     args = parser.parse_args()
-    out = args.out or Path.cwd() / f"{args.meeting_dir.name}.meetingpack.zip"
+    stamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
+    out = args.out or Path.cwd() / (
+        f"{args.meeting_dir.name}_{PRODUCT_VERSION_LABEL}_{stamp}.meetingpack.zip")
     try:
         stats = export_meeting(args.meeting_dir, out, bank_dir=args.bank_dir, media_mode=args.media)
     except (OSError, ValueError, json.JSONDecodeError) as exc:

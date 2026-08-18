@@ -5,6 +5,7 @@ from fastapi.responses import FileResponse
 
 from deps import DATA_ROOT, DRY_RUN, MEETINGS, PY, STATIC, assistant
 from job_store import JOBS
+from product_version import PRODUCT_VERSION
 
 router = APIRouter()
 
@@ -20,6 +21,7 @@ def health():
         "meetings_ready": MEETINGS.is_dir(),
         "python_ready": PY.is_file(),
         "active_jobs": active,
+        "product": {"name": "Meeting Minutes", "version": PRODUCT_VERSION},
         "assistant": {"model": assistant.LLM_MODEL, "local_only": not assistant.ALLOW_REMOTE,
                       "rag": assistant.rag_service.RAG_VERSION,
                       "retrieval_models": assistant.rag_service.retrieval_models.status()},

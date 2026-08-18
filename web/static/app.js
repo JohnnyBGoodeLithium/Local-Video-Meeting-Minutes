@@ -283,6 +283,22 @@ function applyUiLanguage() {
     ? "Interface and minutes language" : "界面与纪要语言");
 }
 
+async function loadProductVersion() {
+  const version = $("#product-version");
+  try {
+    const health = await jget("/api/health");
+    const value = String(health.product?.version || "").trim();
+    if (!value) return;
+    version.textContent = `v${value}`;
+    version.title = `产品版本 v${value} · 前端构建 ${SCRIPT_BUILD || "-"}`;
+    version.classList.remove("hidden");
+    document.querySelector(".brand")?.setAttribute(
+      "title", `Meeting Minutes v${value} · 构建 ${SCRIPT_BUILD || "-"}`);
+  } catch (_) {
+    version.classList.add("hidden");
+  }
+}
+
 function renderMeetingHeaderMeta() {
   const b = state.bundle;
   if (!b) return;
@@ -3287,7 +3303,8 @@ function renderExportPreflight() {
       `<strong>约 ${formatBytes(data.estimated_bytes[id])}</strong></label>`).join("")}</div>` +
     (data.evidence.state === "ready" ? "" :
       '<div class="export-warning">当前包仍可阅读，但部分结论不能回到原文核对。建议重新生成纪要后再正式分享。</div>') +
-    '<p class="export-note">包顶层只有 <code>viewer.html</code>、<code>README.txt</code> 和 <code>assets/</code>。音视频是分享压缩版，项目中的原始母版不会被修改。</p>';
+    `<p class="export-note">由 Meeting Minutes v${esc(data.product_version || "-")} 生成；文件名格式 <code>${esc(data.filename_pattern || "")}</code>。<br>` +
+    '包顶层只有 <code>viewer.html</code>、<code>README.txt</code> 和 <code>assets/</code>。音视频是分享压缩版，项目中的原始母版不会被修改。</p>';
   $("#export-preflight").innerHTML = html;
   $("#export-confirm").disabled = false;
 }
@@ -4156,6 +4173,7 @@ function screenPreviewShortcut(event) {
 
 function init() {
   applyUiLanguage();
+  loadProductVersion();
   $$('[data-ui-language]').forEach(button =>
     button.onclick = () => setUiLanguage(button.dataset.uiLanguage));
   $("#search").addEventListener("input", renderMeetingList);
@@ -4278,7 +4296,7 @@ function init() {
   loadMeetings();
 }
 
-/* 构建号自检：脚本加载时读自身 v= 参数，DOM 就绪后挂到 logo */
+/* 构建号自检：产品版本从 /api/health 读取，缓存构建号从脚本 v= 参数读取。 */
 const SCRIPT_BUILD = (document.currentScript?.src || "").match(/[?&]v=([\w]+)/)?.[1];
 document.addEventListener("DOMContentLoaded", () => {
   if (SCRIPT_BUILD) document.querySelector(".brand")?.setAttribute("title", `构建 ${SCRIPT_BUILD}`);

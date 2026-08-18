@@ -156,6 +156,7 @@ input[type="search"], input[type="text"], input:not([type]), select, textarea {
 .minutes-language-banner { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-12); margin: 0 0 var(--sp-14); padding: var(--sp-9) var(--sp-12); border: 1px solid rgba(79,124,255,.35); border-radius: var(--r-9); background: rgba(79,124,255,.08); color: var(--dim); font-size: var(--fs-12); }
 .minutes-language-banner b { color: var(--text); }
 .brand { font-weight: var(--fw-600); }
+.product-version { padding: 1px var(--sp-7); border: 1px solid var(--border); border-radius: 999px; background: var(--panel2); color: var(--dim); font-size: var(--fs-10); font-variant-numeric: tabular-nums; }
 .job-status { color: var(--dim); font-size: var(--fs-12); flex: 1; }
 .toplink { color: var(--accent); text-decoration: none; }
 .library-toggle { display: none; padding: 2px var(--sp-8); }

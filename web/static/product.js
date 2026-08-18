@@ -3,6 +3,17 @@
 const revealItems = [...document.querySelectorAll(".reveal")];
 const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
+fetch("/api/health", { cache: "no-store" })
+  .then(response => response.ok ? response.json() : Promise.reject(new Error("health unavailable")))
+  .then(health => {
+    const version = document.querySelector("#product-version");
+    const value = health.product?.version;
+    if (!version || !value) return;
+    version.textContent = `v${value}`;
+    version.hidden = false;
+  })
+  .catch(() => {});
+
 if (reduceMotion || !("IntersectionObserver" in window)) {
   revealItems.forEach(item => item.classList.add("visible"));
 } else {

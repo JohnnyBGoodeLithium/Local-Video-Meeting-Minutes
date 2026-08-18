@@ -5,6 +5,7 @@ meeting-generation/v1。"""
 import json
 import os
 import tempfile
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query
@@ -13,11 +14,20 @@ from starlette.background import BackgroundTask
 
 import export_meeting as meeting_export
 import meeting_generation
+from product_version import PRODUCT_VERSION, PRODUCT_VERSION_LABEL
 from deps import (BANK_DIR, _current_evidence, _evidence_state,
                   _meeting_identity, _minutes_file, _mdir, _read_json, _safe,
                   _video_path)
 
 router = APIRouter()
+
+
+def _download_filename(ident: dict, now: datetime | None = None) -> str:
+    """可读且不重名的导出名：会议日期 + 产品版本 + 本地导出时间。"""
+    base = _safe(ident.get("title") or "") or "meeting"
+    meeting_date = f"_{ident['date']}" if ident.get("date") else ""
+    stamp = (now or datetime.now().astimezone()).strftime("%Y%m%d-%H%M%S")
+    return f"{base}{meeting_date}_{PRODUCT_VERSION_LABEL}_{stamp}.meetingpack.zip"
 
 
 @router.get("/api/meetings/{slug}/export")
@@ -37,9 +47,7 @@ def export_meeting_pack(slug: str, media: str = Query("none", pattern="^(none|au
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         archive.unlink(missing_ok=True)
         raise HTTPException(400, str(exc)) from exc
-    base = _safe(ident["title"]) or "meeting"
-    filename = (f"{base}_{ident['date']}.meetingpack.zip" if ident.get("date")
-                else f"{base}.meetingpack.zip")
+    filename = _download_filename(ident)
     return FileResponse(
         archive, media_type="application/zip", filename=filename,
         background=BackgroundTask(archive.unlink, missing_ok=True))
@@ -86,6 +94,11 @@ def export_meeting_preflight(slug: str):
                           if video else 0)  # 720p/10fps CRF30 的保守估计
     return {
         **ident,
+        "product_version": PRODUCT_VERSION,
+        "filename_pattern": (
+            f"{_safe(ident['title']) or 'meeting'}"
+            f"{'_' + ident['date'] if ident.get('date') else ''}"
+            f"_{PRODUCT_VERSION_LABEL}_YYYYMMDD-HHMMSS.meetingpack.zip"),
         "document_state": meeting_generation.document_state(
             mdir, bool(transcript and _minutes_file(mdir))),
         "generation": meeting_generation.load(mdir),
