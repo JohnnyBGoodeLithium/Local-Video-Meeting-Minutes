@@ -39,10 +39,29 @@ EVIDENCE = {
     },
 }
 
+TOPIC_MAP = {
+    "state": "ready",
+    "topics": [
+        {"id": "M01", "title": "示例议题一", "summary": "说明第一项计划。",
+         "ranges": [[0, 5]], "turn_ids": ["T0001"], "claim_ids": ["C0001"],
+         "page_ids": ["P0001"],
+         "children": [{"id": "N0101", "type": "decision", "title": "确认节点",
+                       "summary": "这是展开后的节点说明。", "ranges": [[0, 5]],
+                       "turn_ids": ["T0001"], "claim_ids": ["C0001"],
+                       "page_ids": ["P0001"]}]},
+        {"id": "M02", "title": "示例议题二", "summary": "说明第二项计划。",
+         "ranges": [[5, 10]], "turn_ids": ["T0002"], "claim_ids": [],
+         "page_ids": [], "children": []},
+        {"id": "M03", "title": "示例议题三", "summary": "说明第三项计划。",
+         "ranges": [[10, 15]], "turn_ids": ["T0003"], "claim_ids": [],
+         "page_ids": [], "children": []},
+    ],
+}
+
 page = export_meeting._viewer_html(
     "合成启动测试会", "2026-01-01",
     "<h2>总体摘要</h2><p>启动冒烟正文标记</p>",
-    EVIDENCE, {"schema": "test"}, {}, None, None,
+    EVIDENCE, {"schema": "test"}, TOPIC_MAP, None, None,
     speaker_navigation_rows=[
         {"speaker": "人员甲", "selectable": True,
          "identity_basis": "session_voice_cluster"},
@@ -60,6 +79,12 @@ selectPlaybackSpeaker(spkPin,true);focusTime(5,false);setPlaybackScope('speaker'
 const inferredSpeaker=spkPin==='\xe4\xba\xba\xe5\x91\x98\xe4\xb9\x99'&&reviewTurn===1;
 const shortSampleDisabled=!speakerSelectable('\xe7\x9f\xad\xe7\x89\x87\xe6\xae\xb5');
 document.body.dataset.reviewContract=[sequentialStep,speakerStep,inferredSpeaker,shortSampleDisabled].join(',');
+renderTopicMap('N0101');
+const topicDetailExpanded=!!document.querySelector('.topic-detail')&&document.querySelector('.topic-detail').textContent.includes('\xe8\xbf\x99\xe6\x98\xaf\xe5\xb1\x95\xe5\xbc\x80\xe5\x90\x8e\xe7\x9a\x84\xe8\x8a\x82\xe7\x82\xb9\xe8\xaf\xb4\xe6\x98\x8e');
+const nodeStaysBrowse=currentMode==='topic_map'&&document.querySelector('#app').classList.contains('browse-mode');
+document.querySelector('[data-view-seek]').click();
+const timeOpensReview=currentMode==='transcript'&&document.querySelector('#app').classList.contains('review-mode');
+document.body.dataset.topicContract=[topicDetailExpanded,nodeStaysBrowse,timeOpensReview].join(',');
 </script></body>"""
 page = page.replace(b"</body>", contract_probe)
 
@@ -81,6 +106,8 @@ assert 'id="utterance-controls"' in proc.stdout and "重播本段" in proc.stdou
 assert 'id="focusbar"' not in proc.stdout, "viewer 仍渲染冗余语义摘要条"
 assert 'data-review-contract="true,true,true,true"' in proc.stdout, \
     "viewer 顺次/个人/当前位置选人契约不一致"
+assert 'data-topic-contract="true,true,true"' in proc.stdout, \
+    "viewer 节点展开与显式时间进入核听的契约不一致"
 assert "Uncaught" not in proc.stderr, \
     f"viewer 启动存在未捕获异常: {proc.stderr[-500:]}"
 print("viewer boot: headless runtime passed")

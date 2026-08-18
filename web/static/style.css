@@ -192,7 +192,10 @@ body.page-index { overflow: hidden; }
   border-bottom: 1px solid var(--border);
   font-weight: var(--fw-600);
 }
-.minutes-mode-tabs { justify-content: flex-start; gap: var(--sp-5); overflow-x: auto; }
+.minutes-mode-tabs { display: flex; justify-content: flex-start; gap: var(--sp-5); overflow-x: auto; }
+.review-head { gap: var(--sp-10); }
+.review-search-wrap { flex: 0 1 250px; margin-left: auto; }
+.review-search-wrap #transcript-search { width: min(250px, 22vw); }
 .mode-tab {
   border-color: transparent;
   background: transparent;
@@ -390,12 +393,45 @@ body.page-index { overflow: hidden; }
 /* 阅读区：逐字稿 + 可调分栏 + 右侧智能栏 */
 .content-shell { position: relative; min-width: 0; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr); overflow: hidden; }
 .review-grid {
-  --transcript-ratio: 44%;
+  --transcript-ratio: 58%;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(320px, var(--transcript-ratio)) 6px minmax(420px, 1fr);
   overflow: hidden;
 }
+.review-grid.review-browse { grid-template-columns: minmax(0, 1fr); }
+.review-grid.review-transcript { grid-template-columns: minmax(420px, var(--transcript-ratio)) 6px minmax(400px, 1fr); }
+.review-grid.review-browse > .transcript-pane,
+.review-grid.review-browse > .pane-resizer { display: none; }
+.review-grid.review-transcript .minutes-pane { border-left: 0; }
+.review-grid.review-transcript .player-box.compact #player-holder video {
+  height: auto;
+  max-height: 390px;
+  aspect-ratio: 16 / 9;
+}
+.review-return { display: none; padding: 2px var(--sp-7); color: var(--accent); }
+.review-grid.review-browse.media-playing > .transcript-pane {
+  position: fixed;
+  z-index: 32;
+  left: var(--sp-16);
+  bottom: var(--sp-16);
+  display: block;
+  width: min(390px, calc(100vw - 32px));
+  min-height: 0;
+  overflow: visible;
+  border: 1px solid var(--border);
+  border-radius: var(--r-12);
+  box-shadow: 0 14px 44px rgba(0,0,0,.48);
+}
+.review-grid.review-browse.media-playing .player-box { border: 0; border-radius: inherit; padding-bottom: var(--sp-10); }
+.review-grid.review-browse.media-playing .review-return { display: inline-flex; }
+.review-grid.review-browse.media-playing #current-chapter,
+.review-grid.review-browse.media-playing #focus-summary,
+.review-grid.review-browse.media-playing #timeline,
+.review-grid.review-browse.media-playing #speaker-legend,
+.review-grid.review-browse.media-playing #person-lanes,
+.review-grid.review-browse.media-playing #person-lanes-bar,
+.review-grid.review-browse.media-playing #player-toggle { display: none !important; }
+.review-grid.review-browse.media-playing #player-holder video { height: 92px; max-height: 92px; aspect-ratio: auto; }
 .transcript-pane, .minutes-pane {
   min-width: 0;
   min-height: 0;
@@ -403,6 +439,12 @@ body.page-index { overflow: hidden; }
   flex-direction: column;
   overflow: hidden;
 }
+.transcript-workspace { min-height: 0; flex: 1 1 auto; display: flex; flex-direction: column; overflow: hidden; }
+.transcript-workspace.hidden { display: none; }
+.transcript-tools-row { display: flex; min-height: 40px; align-items: center; justify-content: space-between; gap: var(--sp-10); padding: 0 var(--sp-12); border-bottom: 1px solid var(--border); }
+.transcript-tools-row > span { flex: 0 0 auto; font-weight: var(--fw-600); }
+.review-search-hit { background: rgba(79,124,255,.09); box-shadow: inset 3px 0 rgba(79,124,255,.55); }
+.review-search-current { background: rgba(79,124,255,.18); box-shadow: inset 3px 0 var(--accent); }
 .pane-resizer {
   position: relative;
   z-index: 4;
@@ -1230,20 +1272,18 @@ body.resizing-panes { cursor: col-resize; user-select: none; }
     border-radius: 0;
     background: rgba(0, 0, 0, .45);
   }
-  .review-grid { grid-template-columns: minmax(280px, var(--transcript-ratio)) 6px minmax(360px, 1fr); }
+  .review-grid.review-transcript { grid-template-columns: minmax(360px, 54%) 6px minmax(360px, 1fr); }
   .minutes { padding-left: var(--sp-16); padding-right: var(--sp-16); }
 }
 
 @media (max-width: 820px) {
-  /* 窄屏：播放器在最上，逐字稿是其下的独立滚动区（约四成高），脉络/纪要/屏幕/审计再占剩余空间。
-     transcript-pane 解除盒子，其子元素直接参与纵向 flex 排列。 */
-  .review-grid { display: flex; flex-direction: column; }
+  /* 窄屏：浏览页占满空间；进入逐字稿后，播放器在上、核听正文在下。 */
+  .review-grid.review-transcript { display: flex; flex-direction: column; }
   .pane-resizer { display: none; }
-  .transcript-pane { display: contents; }
+  .review-grid.review-transcript .transcript-pane { display: block; flex: 0 0 auto; }
   .player-box { flex: 0 0 auto; border-bottom: 1px solid var(--border); }
-  .transcript-pane > .col-header { flex: 0 0 auto; }
-  .transcript { flex: 1 1 42%; min-height: 170px; border-bottom: 1px solid var(--border); }
-  .minutes-pane { flex: 1 1 58%; min-height: 240px; }
+  .transcript { min-height: 210px; }
+  .minutes-pane { flex: 1 1 auto; min-height: 0; }
   .person-lanes { max-height: 120px; overflow-y: auto; }
   .utterance-controls { flex-wrap: wrap; }
   .utterance-controls .utterance-context { flex: 1 1 150px; }
@@ -1251,6 +1291,10 @@ body.resizing-panes { cursor: col-resize; user-select: none; }
   .meeting-statuses { display: none; }
   .utility-panel { width: min(430px, calc(100% - 8px)); }
   .transcript-head-tools { flex-wrap: wrap; row-gap: var(--sp-4); }
+  .review-head { flex-wrap: wrap; height: auto; padding-top: var(--sp-5); padding-bottom: var(--sp-5); }
+  .review-search-wrap { flex: 1 1 100%; order: 2; }
+  .review-search-wrap #transcript-search { width: 100%; }
+  .review-grid.review-browse.media-playing > .transcript-pane { left: var(--sp-8); right: var(--sp-8); bottom: var(--sp-8); width: auto; }
   /* 三列：时间码 | 姓名(内容宽、靠左) | 余量；正文独占第二行，姓名不再被 1fr 列顶到右边 */
   .turn { grid-template-columns: auto auto minmax(0, 1fr); }
   .turn .chip { justify-self: start; }
