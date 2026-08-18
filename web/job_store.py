@@ -12,7 +12,7 @@ import uuid
 from pathlib import Path
 
 from deps import (BANK_LOCK, DATA_ROOT, DRY_RUN, DRY_RUN_DELAY, INBOX, JOBS_DIR,
-                  MEETINGS, ROOT, _now)
+                  MEETINGS, MEETING_META_LOCK, ROOT, _now)
 from job_scheduler import SerialPriorityExecutor, default_priority
 
 EXEC = SerialPriorityExecutor()  # 重模型仍单 worker 串行，但等待任务可以重排
@@ -37,6 +37,34 @@ def _set_status(job: dict, status: str, **kw):
         job["status"] = status
         job.update(kw)
         _save_job(job)
+
+
+def _record_meeting_activity(job: dict) -> None:
+    """把会议的导入/更新时间固化到 meta.json。
+
+    源媒体保留原始 mtime，不能用它推断「什么时候进入本应用」。
+    imported_at 只在首次成功导入时写入；updated_at 记录最近一次会议派生资产成功更新。
+    """
+    slug = str(job.get("meeting") or "")
+    mdir = (MEETINGS / slug).resolve()
+    if not slug or mdir.parent != MEETINGS.resolve() or not mdir.is_dir():
+        return
+    meta_path = mdir / "meta.json"
+    with MEETING_META_LOCK:
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8")) \
+                if meta_path.is_file() else {}
+        except Exception:
+            meta = {}
+        if not isinstance(meta, dict):
+            meta = {}
+        timestamp = float(job.get("finished") or _now())
+        if job.get("kind") == "upload":
+            meta.setdefault("imported_at", float(job.get("created") or timestamp))
+        meta["updated_at"] = timestamp
+        tmp = meta_path.with_name(f".{meta_path.name}.tmp-{os.getpid()}")
+        tmp.write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
+        os.replace(tmp, meta_path)
 
 
 def _scheduler_error(job: dict, exc: Exception) -> None:
@@ -144,10 +172,19 @@ def _run_pipeline(job: dict):
                     job["inbox_cleaned"] = False
                     job["log"].append(f"[error] 上传暂存目录清理失败: {type(exc).__name__}")
         succeeded = proc.returncode == 0
+        finished = _now()
         _set_status(job, "done" if succeeded else "failed",
-                    finished=_now(), rc=proc.returncode,
+                    finished=finished, rc=proc.returncode,
                     result={"dry_run": True} if DRY_RUN and succeeded else None)
-        if succeeded and not DRY_RUN and job.get("kind") in {"upload", "regen", "topic_map"}:
+        if succeeded and not DRY_RUN and job.get("kind") in {
+                "upload", "regen", "topic_map", "retranscribe"}:
+            try:
+                _record_meeting_activity(job)
+            except Exception as exc:
+                with BANK_LOCK:
+                    job["log"].append(
+                        f"[error] 会议时间元数据更新失败 ({type(exc).__name__})")
+                    _save_job(job)
             # translations 路由依赖 job_store；这里只能运行时延迟导入，避免模块循环。
             # 自动补翻是低优先级附加作业，失败绝不能反向改坏主作业的 done 状态。
             try:

@@ -415,14 +415,22 @@ def _extract_blocks(text: str):
 
 
 def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
-             refine_model: str = None):
+             refine_model: str = None, reuse_vl_cache_only: bool = False):
     turns, pages = load_inputs(mdir)
     if not pages:
         raise RuntimeError("slides.json 里没有幻灯片页")
     opening, per_page = slice_turns(turns, pages)
 
     descs = {}
-    if vl:
+    if vl and reuse_vl_cache_only:
+        cache = json.loads((mdir / "page_desc.json").read_text(encoding="utf-8")) \
+            if (mdir / "page_desc.json").is_file() else {}
+        for key, value in cache.get("desc", {}).items():
+            cleaned = clean_model_text(value)
+            if str(key).isdigit() and cleaned:
+                descs[int(key)] = cleaned
+        print(f"[meta] 复用 VL 页面解读缓存 {len(descs)} 页，不重跑视觉模型", flush=True)
+    elif vl:
         api, _proc = ensure_vl_server()
         if api:
             descs = describe_pages(mdir, pages, api, video)

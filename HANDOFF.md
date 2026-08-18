@@ -3,14 +3,19 @@
 > 给接手 agent：先读本文件和 `AGENTS.md`，再看 `CHANGELOG.md` 未发布段了解最近改动。
 > 本文件在每次交接或大方向变化时更新；过期的进行中事项完成后删除对应段落。
 
-更新时间：2026-08-18（产品版本 v0.8.2；在线工作台构建号 20260818p54；提交号以 `git log -1` 为准）
+更新时间：2026-08-18（产品版本 v0.8.2；在线工作台构建号 20260818p55；提交号以 `git log -1` 为准）
 
 ## 当前基线
 
 - 仓库：`/home/johnny-tcx_ultra/meeting-minutes`，分支 main。
-- 验证基线：`make check` 全绿、隔离 Web smoke 129/129；真实 Teams DOCX 样本结构验证得到 259 条有效 cue、时间单调且正文/姓名非空，未把内容写入仓库或测试夹具。
+- 验证基线：`make check` 全绿、隔离 Web smoke 137/137；真实 Teams DOCX 样本结构验证得到 259 条有效 cue、时间单调且正文/姓名非空，未把内容写入仓库或测试夹具。
 - 服务：端口 8899，`systemctl --user restart meeting-minutes-web` 重启（挂起 ~45s 是已知 P2 问题，见下）。
 - 隐私红线（详见 AGENTS.md）：不读真实会议正文，只看元数据/结构；上次已获用户授权诊断 Gate B 会议标题形态，新任务需重新授权。
+
+## 当前批次：会议排序与错误逐字稿纠错
+
+- 列表默认按最近导入，可切换会议时间/最近更新并持久化。`meta.json` 增量保存 `imported_at/updated_at`；旧会议有明确估算回退。
+- 新导入可忽略附带 VTT/DOCX 改用本地 ASR；存量外部逐字稿视频会议从「更多」发起本地重转写。`source.json.transcript_source` 是当前来源真源，原文件保留，快照失败恢复，屏幕与 VL 缓存复用。
 
 ## 当前批次：Topic Map 章节级时间线
 

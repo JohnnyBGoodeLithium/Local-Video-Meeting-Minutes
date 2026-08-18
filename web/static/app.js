@@ -87,6 +87,8 @@ const state = {
     utilityOpen: !!workspaceState.utilityOpen,
     utilityTab: workspaceState.utilityTab === "evidence" ? "evidence" : "assistant",
     videoExpanded: !!workspaceState.videoExpanded,
+    meetingSort: ["imported", "meeting", "updated"].includes(workspaceState.meetingSort)
+      ? workspaceState.meetingSort : "imported",
     translationTargets: workspaceState.translationTargets
       && typeof workspaceState.translationTargets === "object"
       ? workspaceState.translationTargets : {},
@@ -114,7 +116,8 @@ const UI_COPY = {
   "zh-CN": {
     title: "会议纪要", brand: "🎙 会议纪要", meetings: "会议", product: "产品介绍", settings: "设置",
     import: "＋ 导入会议", drop: "或拖入视频 + VTT/DOCX，或单个音视频", importSettings: "导入设置",
-    skipVl: "快速处理，不分析共享画面", search: "搜索会议…", transcript: "逐字稿",
+    skipVl: "快速处理，不分析共享画面", ignoreTranscript: "忽略附带逐字稿，改用本地语音识别",
+    search: "搜索会议…", sortImported: "最近导入", sortMeeting: "会议时间", sortUpdated: "最近更新", transcript: "逐字稿",
     original: "原文", translated: "译文", comparison: "对照", translateTo: "译为", follow: "跟随",
     outline: "会议脉络", minutes: "会议纪要", screens: "屏幕内容", audit: "结论审计",
     assistant: "AI 对话", evidence: "证据", send: "发送",
@@ -138,7 +141,8 @@ const UI_COPY = {
   en: {
     title: "Meeting Minutes", brand: "🎙 Meeting Minutes", meetings: "Meetings", product: "Product", settings: "Settings",
     import: "+ Import meeting", drop: "Drop video + VTT/DOCX, or one media file", importSettings: "Import settings",
-    skipVl: "Fast processing; skip shared-screen analysis", search: "Search meetings…", transcript: "Transcript",
+    skipVl: "Fast processing; skip shared-screen analysis", ignoreTranscript: "Ignore attached transcript and use local speech recognition",
+    search: "Search meetings…", sortImported: "Recently imported", sortMeeting: "Meeting time", sortUpdated: "Recently updated", transcript: "Transcript",
     original: "Original", translated: "Translation", comparison: "Side by side", translateTo: "Translate to", follow: "Follow",
     outline: "Meeting map", minutes: "Minutes", screens: "Screen content", audit: "Conclusion audit",
     assistant: "AI chat", evidence: "Evidence", send: "Send",
@@ -172,6 +176,16 @@ function fmt(sec) {
   const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
   const mm = String(m).padStart(2, "0"), ss = String(s).padStart(2, "0");
   return h ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
+function fmtListTimestamp(value) {
+  const date = new Date(Number(value || 0) * 1000);
+  if (!Number.isFinite(date.getTime())) return "";
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hour = String(date.getHours()).padStart(2, "0");
+  const minute = String(date.getMinutes()).padStart(2, "0");
+  return `${month}-${day} ${hour}:${minute}`;
 }
 
 function defaultTranslationTarget() {
@@ -238,6 +252,7 @@ function saveWorkspaceState() {
         utilityOpen: state.workspace.utilityOpen,
         utilityTab: state.workspace.utilityTab,
         videoExpanded: state.workspace.videoExpanded,
+        meetingSort: state.workspace.meetingSort,
         translationTargets: state.workspace.translationTargets,
         anchors: state.workspace.anchors,
       }));
@@ -258,6 +273,7 @@ function applyUiLanguage() {
   text("#drop-hint", ui("drop"));
   text("#import-settings-label", ui("importSettings"));
   text("#skip-vl-label", ui("skipVl"));
+  text("#ignore-transcript-label", ui("ignoreTranscript"));
   text("#transcript-heading", ui("transcript"));
   text('[data-transcript-mode="original"]', ui("original"));
   text('[data-transcript-mode="translated"]', ui("translated"));
@@ -278,6 +294,13 @@ function applyUiLanguage() {
   if (launcher) launcher.textContent = ui("launcher");
   const search = $("#search");
   if (search) search.placeholder = ui("search");
+  const sort = $("#meeting-sort");
+  if (sort) {
+    sort.options[0].textContent = ui("sortImported");
+    sort.options[1].textContent = ui("sortMeeting");
+    sort.options[2].textContent = ui("sortUpdated");
+    sort.setAttribute("aria-label", isEnglishUi() ? "Meeting order" : "会议排序");
+  }
   $$('[data-ui-language]').forEach(button =>
     button.classList.toggle("active", button.dataset.uiLanguage === state.uiLanguage));
   $("#ui-language")?.setAttribute("aria-label", english
@@ -374,19 +397,37 @@ async function loadMeetings() {
     const linked = new URLSearchParams(location.search).get("meeting");
     const remembered = state.meetings.find(m => m.slug ===
       (linked || state.workspace.lastSlug));
-    await loadMeeting((remembered || state.meetings[0]).slug);
+    await loadMeeting((remembered || orderedMeetings()[0]).slug);
   }
+}
+
+function orderedMeetings() {
+  const order = state.workspace.meetingSort;
+  return [...state.meetings].sort((left, right) => {
+    if (order === "meeting") {
+      const dateCompare = String(right.date || right.slug).localeCompare(
+        String(left.date || left.slug));
+      return dateCompare || String(right.slug).localeCompare(String(left.slug));
+    }
+    const key = order === "updated" ? "updated_at" : "imported_at";
+    return Number(right[key] || 0) - Number(left[key] || 0)
+      || String(right.slug).localeCompare(String(left.slug));
+  });
 }
 
 function renderMeetingList() {
   const q = $("#search").value.trim().toLowerCase();
   const ul = $("#meeting-list");
   ul.innerHTML = "";
-  for (const m of state.meetings) {
+  for (const m of orderedMeetings()) {
     if (q && !`${m.title || ""} ${m.date || ""} ${m.slug}`.toLowerCase().includes(q)) continue;
     const li = document.createElement("li");
     li.className = "meeting-item" + (m.slug === state.slug ? " active" : "");
     const meta = [
+      order === "imported" && m.imported_at
+        ? `${isEnglishUi() ? "Imported" : "导入"} ${fmtListTimestamp(m.imported_at)}` : null,
+      order === "updated" && m.updated_at
+        ? `${isEnglishUi() ? "Updated" : "更新"} ${fmtListTimestamp(m.updated_at)}` : null,
       m.date,
       m.duration ? fmt(m.duration) : null,
       m.speaker_count ? (isEnglishUi() ? `${m.speaker_count} people` : `${m.speaker_count} 人`) : null,
@@ -458,6 +499,7 @@ async function deleteMeeting(ev, slug) {
     $("#utterance-controls").classList.add("hidden");
     $("#current-chapter").classList.add("hidden");
     $("#regen-btn").disabled = true;
+    $("#retranscribe-btn").disabled = true;
     $("#refine-btn").disabled = true;
     $("#export-btn").disabled = true;
     $("#storage-btn").disabled = true;
@@ -836,6 +878,11 @@ async function loadMeeting(slug) {
   if (changed) restoreAssistant();  // 刷新/重开浏览器后恢复同 revision 的对话
   const isDraft = b.document_state === "draft";
   $("#regen-btn").disabled = isDraft;
+  const canRetranscribe = !isDraft && b.has_video && b.transcript_source === "external";
+  $("#retranscribe-btn").disabled = !canRetranscribe;
+  $("#retranscribe-btn").title = canRetranscribe
+    ? "保留原 VTT/DOCX，改用视频音轨的本地 ASR 重建逐字稿、纪要、证据与脉络"
+    : (b.transcript_source === "local_asr" ? "当前已使用本地语音识别" : "只有带视频母版的外部逐字稿会议可用");
   $("#refine-btn").disabled = isDraft;
   $("#export-btn").disabled = isDraft;
   $("#storage-btn").disabled = false;
@@ -3913,6 +3960,37 @@ async function regenMinutes(refineModel) {
   });
 }
 
+async function retranscribeLocal() {
+  if (!state.slug || !state.bundle) return;
+  const warning = "改用本地语音识别？\n\n"
+    + "原 VTT/DOCX 和视频母版会保留，并创建可恢复快照。\n"
+    + "系统将重建逐字稿、说话人、纪要、证据和会议脉络；已有屏幕资料会复用。\n"
+    + "本地 ASR 可能会把未绑定人员显示为“说话人 K”，而且需要较长时间。";
+  if (!confirm(warning)) return;
+  $(".more-menu")?.removeAttribute("open");
+  const response = await api(
+    `/api/meetings/${encodeURIComponent(state.slug)}/retranscribe-local`, { method: "POST" });
+  const job = await response.json();
+  if (!response.ok) {
+    toast(`本地重转写失败：${job.detail || response.status}`);
+    return;
+  }
+  $("#retranscribe-btn").disabled = true;
+  toast(`本地重转写作业 ${job.id} 已排队…`);
+  pollJob(job.id, async current => {
+    if (current.status === "done") {
+      toast("已改用本地语音识别，原逐字稿仍已保留");
+      await loadMeetings();
+      await loadMeeting(state.slug);
+    } else if (["failed", "cancelled"].includes(current.status)) {
+      toast(`本地重转写${current.status === "failed" ? "失败，已恢复原资产" : "已取消"}`);
+      $("#retranscribe-btn").disabled = false;
+    } else {
+      toast(`本地重转写：${current.stage || current.status}`);
+    }
+  });
+}
+
 /* ---------- 说话人绑定弹框 ---------- */
 
 async function ensureSpeakers() {
@@ -3981,6 +4059,8 @@ async function uploadFiles(files) {
   const fd = new FormData();
   for (const f of files) fd.append("files", f);
   if ($("#skip-vl") && $("#skip-vl").checked) fd.append("no_vl", "1");
+  if ($("#ignore-transcript") && $("#ignore-transcript").checked)
+    fd.append("ignore_transcript", "1");
   const r = await api("/api/upload", { method: "POST", body: fd });
   const j = await r.json();
   if (!r.ok) { toast(`上传被拒: ${j.detail || r.status}`); return; }
@@ -4035,7 +4115,7 @@ async function pollJobs() {
     state.jobPriorityAvailable = d.capabilities?.job_priority === true;
     renderJobs(d.jobs);
     const completed = d.jobs.filter(job => job.meeting === state.slug
-      && ["upload", "topic_map", "regen"].includes(job.kind)
+      && ["upload", "topic_map", "regen", "retranscribe"].includes(job.kind)
       && job.status === "done"
       && Number(job.finished || 0) >= Number(state.bundleLoadedAt || 0)
       && !state.refreshedArtifactJobs.has(job.id));
@@ -4214,7 +4294,14 @@ function init() {
   $$('[data-ui-language]').forEach(button =>
     button.onclick = () => setUiLanguage(button.dataset.uiLanguage));
   $("#search").addEventListener("input", renderMeetingList);
+  $("#meeting-sort").value = state.workspace.meetingSort;
+  $("#meeting-sort").addEventListener("change", event => {
+    state.workspace.meetingSort = event.target.value;
+    saveWorkspaceState();
+    renderMeetingList();
+  });
   $("#regen-btn").onclick = () => regenMinutes("");
+  $("#retranscribe-btn").onclick = retranscribeLocal;
   $("#rename-btn").onclick = startRename;
   $("#transcript-search").addEventListener("input", applyTranscriptSearch);
   $("#transcript-search").addEventListener("keydown", e => {

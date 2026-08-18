@@ -335,7 +335,14 @@ body.page-index { overflow: hidden; }
 .import-options { text-align: left; }
 .import-options summary { cursor: pointer; }
 .skip-vl { display: block; padding-top: var(--sp-5); }
-#search { margin-bottom: var(--sp-10); }
+.meeting-list-tools {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--sp-6);
+  margin-bottom: var(--sp-10);
+}
+.meeting-list-tools #search { min-width: 0; }
+.meeting-list-tools #meeting-sort { width: 94px; padding-inline: var(--sp-6); }
 
 /* 作业队列面板 */
 #jobs-panel { margin-bottom: var(--sp-10); }

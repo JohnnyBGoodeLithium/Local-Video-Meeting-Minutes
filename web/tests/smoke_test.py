@@ -52,7 +52,7 @@ def multipart(path, field, filename, content, ctype):
     return multipart_files(path, [(field, filename, content, ctype)])
 
 
-def multipart_files(path, files):
+def multipart_files(path, files, fields=None):
     boundary = "----mmtestboundary"
     body = b""
     for field, filename, content, ctype in files:
@@ -61,6 +61,12 @@ def multipart_files(path, files):
             f'Content-Disposition: form-data; name="{field}"; filename="{filename}"\r\n'
             f"Content-Type: {ctype}\r\n\r\n"
         ).encode() + content + b"\r\n"
+    for field, value in (fields or []):
+        body += (
+            f"--{boundary}\r\n"
+            f'Content-Disposition: form-data; name="{field}"\r\n\r\n'
+            f"{value}\r\n"
+        ).encode()
     body += f"--{boundary}--\r\n".encode()
     return req("POST", path, body=body,
                headers={"Content-Type": f"multipart/form-data; boundary={boundary}"})
@@ -133,6 +139,8 @@ check("首页显式展示结论审计和会议脉络入口且禁止缓存旧壳"
       and b'id="ui-language"' in page and b'data-ui-language="en"' in page
       and b'id="product-version"' in page
       and b'id="chapters-tab"' in page and b'id="visuals-tab"' in page
+      and b'id="meeting-sort"' in page and b'id="ignore-transcript"' in page
+      and b'id="retranscribe-btn"' in page
       and b'utility-panel' in page and b'pane-resizer' in page
       and b'export-preflight' in page and b'href="/static/product.html"' in page
       and "no-store" in cache_control)
@@ -157,7 +165,14 @@ check("时间码跳转只滚动内容面板，不带动整页丢失播放器",
 check("在线屏幕舞台支持放大、缩放和相邻屏幕键盘导航",
       b'id="screen-preview-mask"' in page and b'openScreenPreview' in app_js
       and b'navigateScreenPreview' in app_js and b'SCREEN_PREVIEW_ZOOMS' in app_js
-      and b'20260818p54' in page)
+      and b'20260818p55' in page)
+check("会议列表默认按导入时间且可切换并记忆排序",
+      b'meetingSort' in app_js and b'"imported"' in app_js
+      and b'imported_at' in app_js and b'updated_at' in app_js
+      and b'saveWorkspaceState' in app_js)
+check("错误的外部逐字稿可在导入和存量会议两处改用本地 ASR",
+      b'ignore_transcript' in app_js and b'retranscribe-local' in app_js
+      and "保留原 VTT/DOCX".encode() in app_js)
 check("在线端从健康端点显示产品版本，导出预检告知版本化文件名",
       b'function loadProductVersion' in app_js and b'/api/health' in app_js
       and b'filename_pattern' in app_js and b'product_version' in app_js)
@@ -196,7 +211,9 @@ check("GET /api/meetings → 200 且只见隔离夹具", s == 200 and n == 1, f"
 check("列表含 _smoke", any(m["slug"] == "_smoke" for m in j["meetings"]))
 smoke_item = next((m for m in j["meetings"] if m["slug"] == "_smoke"), {})
 check("会议列表含可读标题与人数元数据",
-      smoke_item.get("title") == "smoke" and smoke_item.get("speaker_count") == 2)
+      smoke_item.get("title") == "smoke" and smoke_item.get("speaker_count") == 2
+      and isinstance(smoke_item.get("imported_at"), (int, float))
+      and isinstance(smoke_item.get("updated_at"), (int, float)))
 
 # 2. bundle
 s, _, j = req("GET", "/api/meetings/_smoke/bundle")
@@ -211,7 +228,8 @@ check("bundle 结构数量",
 check("bundle 带逐字稿/纪要 revision",
       bool(j.get("transcript_revision")) and bool(j.get("minutes_revision")))
 check("bundle 含可读会议身份元数据",
-      j.get("title") == "smoke" and j.get("speaker_count") == 2)
+      j.get("title") == "smoke" and j.get("speaker_count") == 2
+      and j.get("transcript_source") == "local_asr")
 check("纯音频未命名声音簇仍可按人跳播",
       len(j.get("speaker_navigation", [])) == 2
       and all(row.get("selectable") is True
@@ -764,6 +782,22 @@ check("Teams DOCX 作业调用 teams_minutes.py 并保留逐字稿参数",
       and teams_done.get("cmd", ["", "", ""])[2].endswith("fictional-review.mp4")
       and teams_done.get("cmd", ["", "", "", ""])[3].endswith("fictional-transcript.docx"))
 
+s, _, ignored_job = multipart_files("/api/upload", [
+    ("files", "fictional-review.mp4", b"fictional video", "video/mp4"),
+    ("files", "fictional-transcript.docx", make_teams_docx(),
+     "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+], fields=[("ignore_transcript", "1")])
+ignored_done = poll_job(ignored_job.get("id"))
+ignored_cmd = ignored_done.get("cmd", [])
+check("导入时可保留 DOCX 但明确改用本地 ASR",
+      s == 200 and ignored_done.get("status") == "done"
+      and ignored_done.get("route") == "video"
+      and ignored_done.get("transcript_policy") == "ignored"
+      and len(ignored_cmd) >= 7
+      and ignored_cmd[1].endswith("bin/video_minutes.py")
+      and "--ignored-transcript" in ignored_cmd
+      and "--slug" in ignored_cmd)
+
 s, _, _ = multipart_files("/api/upload", [
     ("files", "fictional-review.mp4", b"fictional video", "video/mp4"),
     ("files", "fictional.vtt", b"WEBVTT", "text/vtt"),
@@ -771,6 +805,27 @@ s, _, _ = multipart_files("/api/upload", [
      "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
 ])
 check("同一视频同时配 VTT 与 DOCX 时明确拒绝", s == 400)
+
+# 11b. 已有外部逐字稿会议可安全排队为本地 ASR（dry-run 不改资产）
+source_path = SMOKE / "source.json"
+source_before = source_path.read_bytes()
+source_video = SMOKE / "source_video.mp4"
+source_docx = SMOKE / "source.docx"
+source_video.write_bytes(b"fictional protected video")
+source_docx.write_bytes(make_teams_docx())
+source_path.write_text(json.dumps({
+    "mp4": str(source_video), "transcript": str(source_docx),
+    "transcript_format": "docx", "transcript_source": "external",
+}), encoding="utf-8")
+s, _, local_job = req("POST", "/api/meetings/_smoke/retranscribe-local")
+local_done = poll_job(local_job.get("id"))
+check("存量视频会议可排队改用本地 ASR",
+      s == 200 and local_done.get("status") == "done"
+      and local_done.get("kind") == "retranscribe"
+      and local_done.get("cmd", ["", ""])[1].endswith("bin/retranscribe_local.py"))
+source_path.write_bytes(source_before)
+source_video.unlink()
+source_docx.unlink()
 
 # 12. regen（dry-run）
 s, _, j = req("POST", "/api/meetings/_smoke/regen_minutes")

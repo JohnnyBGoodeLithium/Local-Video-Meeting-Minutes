@@ -69,14 +69,34 @@ def main() -> int:
     ap.add_argument("--match-threshold", type=float, default=0.70)
     ap.add_argument("--language", default=None, help="强制语言(如 Chinese)")
     ap.add_argument("--no-vl", action="store_true", help="跳过 VL 画面解读(更快)")
+    ap.add_argument("--ignored-transcript", type=Path, default=None,
+                    help="保留但不用于转写的 VTT/DOCX 原文件")
+    ap.add_argument("--meeting-dir", type=Path, default=None,
+                    help="在已有会议目录中重跑本地 ASR（只供受控包装器调用）")
+    ap.add_argument("--reuse-visuals", action="store_true",
+                    help="复用已有 slides/page_desc，不重新抽帧和读图")
     args = ap.parse_args()
     if not args.mp4.is_file():
         print("输入文件不存在", file=sys.stderr)
         return 1
 
-    date_m = re.search(r"(\d{8})", args.mp4.name)
-    mdir = for_teams(ROOT, args.slug or slugify(args.mp4.stem), date_m.group(1) if date_m else "")
-    mdir.mkdir(parents=True, exist_ok=True)
+    if args.ignored_transcript is not None:
+        if (not args.ignored_transcript.is_file()
+                or args.ignored_transcript.suffix.lower() not in {".vtt", ".docx"}):
+            print("忽略的逐字稿必须是存在的 VTT 或 DOCX", file=sys.stderr)
+            return 1
+    if args.meeting_dir is not None:
+        data_root = Path(os.environ.get(
+            "MEETING_DATA_ROOT", os.environ.get("MEETING_MINUTES_ROOT", ROOT))).resolve()
+        mdir = args.meeting_dir.resolve()
+        if mdir.parent != (data_root / "meetings").resolve() or not mdir.is_dir():
+            print("已有会议目录不在受控 meetings 边界内", file=sys.stderr)
+            return 1
+    else:
+        date_m = re.search(r"(\d{8})", args.mp4.name)
+        mdir = for_teams(ROOT, args.slug or slugify(args.mp4.stem),
+                         date_m.group(1) if date_m else "")
+        mdir.mkdir(parents=True, exist_ok=True)
     original_mp4 = args.mp4.resolve()
     source_mp4 = materialize_source(original_mp4, mdir / f"source_video{args.mp4.suffix.lower()}")
     slug = mdir.name
@@ -124,9 +144,30 @@ def main() -> int:
     md = [f"# {slug} 逐字稿(具名)\n"]
     md += [f"[{mmss(t['start'])}] **{t['speaker']}**: {t['text']}\n" for t in turns]
     (mdir / "transcript.spk.md").write_text("\n".join(md), encoding="utf-8")
-    (mdir / "source.json").write_text(json.dumps(
-        {"mp4": str(source_mp4), "original_mp4": str(original_mp4)},
-        ensure_ascii=False, indent=1), encoding="utf-8")
+    source_path = mdir / "source.json"
+    try:
+        source_meta = json.loads(source_path.read_text(encoding="utf-8")) \
+            if source_path.is_file() else {}
+    except Exception:
+        source_meta = {}
+    if not isinstance(source_meta, dict):
+        source_meta = {}
+    source_meta.setdefault("original_mp4", str(original_mp4))
+    source_meta["mp4"] = str(source_mp4)
+    source_meta["transcript_source"] = "local_asr"
+    if args.ignored_transcript is not None:
+        transcript_format = args.ignored_transcript.suffix.lower().lstrip(".")
+        source_transcript = materialize_source(
+            args.ignored_transcript, mdir / f"source.{transcript_format}")
+        source_meta["external_transcript_status"] = "ignored"
+        source_meta["external_transcript_format"] = transcript_format
+        source_meta.setdefault("original_transcript", str(args.ignored_transcript.resolve()))
+        source_meta["transcript"] = str(source_transcript)
+        source_meta[transcript_format] = str(source_transcript)
+    tmp_source = source_path.with_name(f".{source_path.name}.tmp-{os.getpid()}")
+    tmp_source.write_text(json.dumps(source_meta, ensure_ascii=False, indent=1),
+                          encoding="utf-8")
+    os.replace(tmp_source, source_path)
     print(f"[meta] 声纹库: 新入库 {new} | 跨会议命中 {linked}", flush=True)
     subprocess.run([sys.executable, str(BIN / "voice_tool.py"), "sample", str(mdir)],
                    check=False, capture_output=True)
@@ -135,13 +176,22 @@ def main() -> int:
     meeting_generation.generate_voice_draft(mdir, python=sys.executable)
     meeting_generation.begin_visual_enrichment(mdir)
 
-    print("[5/6] 抽屏幕共享逻辑页 ...", flush=True)
-    t0 = time.time()
-    pages = extract_pages(source_mp4, mdir / "slides", mdir / "slides.json")
-    print(f"[meta] 逻辑页 {len(pages)} 页 | 抽页耗时 {time.time()-t0:.1f}s", flush=True)
+    if args.reuse_visuals and (mdir / "slides.json").is_file():
+        try:
+            pages = json.loads((mdir / "slides.json").read_text(encoding="utf-8"))
+        except Exception:
+            pages = []
+        print(f"[5/6] 复用已有屏幕逻辑页 {len(pages)} 页", flush=True)
+    else:
+        print("[5/6] 抽屏幕共享逻辑页 ...", flush=True)
+        t0 = time.time()
+        pages = extract_pages(source_mp4, mdir / "slides", mdir / "slides.json")
+        print(f"[meta] 逻辑页 {len(pages)} 页 | 抽页耗时 {time.time()-t0:.1f}s", flush=True)
 
     print("[6/6] 用 VL 屏幕资料升级多模态纪要 ...", flush=True)
-    out_path, mstats = generate_minutes(mdir, video=source_mp4, vl=not args.no_vl)
+    out_path, mstats = generate_minutes(
+        mdir, video=source_mp4, vl=not args.no_vl,
+        reuse_vl_cache_only=args.reuse_visuals)
     meeting_generation.finalize(
         mdir, pages=mstats["pages"], vl_pages=mstats["vl_pages"])
     print(f"[meta] 多模态纪要已替换语音草稿 | VL {mstats['vl_pages']}/{mstats['pages']} 页",

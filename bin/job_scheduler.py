@@ -13,6 +13,7 @@ from collections.abc import Callable
 
 KIND_PRIORITIES = {
     "upload": 10,
+    "retranscribe": 10,
     "regen": 20,
     "topic_map": 20,
     "orgchart_extract": 20,
@@ -114,4 +115,3 @@ class SerialPriorityExecutor:
             except Exception as exc:  # pragma: no cover - 防止异常杀死唯一 worker
                 if self._error_handler:
                     self._error_handler(item["job"], exc)
-

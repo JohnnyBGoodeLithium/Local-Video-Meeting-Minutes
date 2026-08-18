@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>会议纪要</title>
-<link rel="stylesheet" href="/static/style.css?v=20260818p54">
-<link rel="stylesheet" href="/static/theme.css?v=20260818p54">
+<link rel="stylesheet" href="/static/style.css?v=20260818p55">
+<link rel="stylesheet" href="/static/theme.css?v=20260818p55">
 </head>
 <body class="page-index">
 <header class="topbar">
@@ -31,13 +31,21 @@
       <details class="import-options">
         <summary id="import-settings-label">导入设置</summary>
         <label class="skip-vl"><input type="checkbox" id="skip-vl"> <span id="skip-vl-label">快速处理，不分析共享画面</span></label>
+        <label class="skip-vl"><input type="checkbox" id="ignore-transcript"> <span id="ignore-transcript-label">忽略附带逐字稿，改用本地语音识别</span></label>
       </details>
     </div>
     <div id="jobs-panel" class="hidden">
       <div class="jobs-head">正在处理</div>
       <ul id="jobs-list"></ul>
     </div>
-    <input id="search" type="search" placeholder="搜索会议…">
+    <div class="meeting-list-tools">
+      <input id="search" type="search" placeholder="搜索会议…">
+      <select id="meeting-sort" aria-label="会议排序">
+        <option value="imported">最近导入</option>
+        <option value="meeting">会议时间</option>
+        <option value="updated">最近更新</option>
+      </select>
+    </div>
     <ul id="meeting-list"></ul>
   </aside>
 
@@ -55,6 +63,7 @@
           <summary>更多</summary>
           <div class="more-menu-pop">
             <button id="regen-btn" type="button" disabled>重新生成纪要</button>
+            <button id="retranscribe-btn" type="button" disabled title="保留原逐字稿，改用本地 ASR 重建逐字稿和纪要">忽略当前逐字稿·本地重转写</button>
             <button id="refine-btn" type="button" disabled title="使用更强的本地模型优化全文">优化全文</button>
             <button id="export-btn" type="button" disabled title="导出前检查证据、媒体和预计大小">分享 / 导出…</button>
             <button id="storage-btn" type="button" disabled title="查看原始母版、阅读资产和可再生缓存">存储与清理…</button>
@@ -258,6 +267,6 @@
 
 <div id="tl-tip" class="tl-tip hidden"></div>
 
-<script src="/static/app.js?v=20260818p54"></script>
+<script src="/static/app.js?v=20260818p55"></script>
 </body>
 </html>

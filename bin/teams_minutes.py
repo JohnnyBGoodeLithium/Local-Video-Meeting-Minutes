@@ -230,6 +230,7 @@ def main() -> int:
     source_meta = {
         "mp4": str(source_mp4),
         "original_mp4": str(original_mp4),
+        "transcript_source": "external",
         "transcript": str(source_transcript),
         "original_transcript": str(original_transcript),
         "transcript_format": transcript_format,

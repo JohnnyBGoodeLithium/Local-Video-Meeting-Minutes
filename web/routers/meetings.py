@@ -5,6 +5,7 @@ meeting-minutes-evidence/v1、meeting-storage/v1。"""
 import json
 import os
 import shutil
+from pathlib import Path
 
 from fastapi import APIRouter, Body, HTTPException, Query
 
@@ -13,25 +14,64 @@ import meeting_structure
 import meeting_topic_map
 import voice_bank as vb
 from deps import (BANK_DIR, BANK_LOCK, DRY_RUN, EVALUATIONS_DIR, MEETINGS, MD, PY, ROOT,
-                  STORAGE_LOCK, artifact, assistant, _audio_path,
+                  MEETING_META_LOCK, STORAGE_LOCK, artifact, assistant, _audio_path,
                   _clean_meeting_cache, _current_evidence, _evidence_state,
-                  _meeting_identity, _meeting_storage, _mdir, _minutes_file,
+                  _meeting_identity, _meeting_storage, _mdir, _minutes_file, _now,
                   _minutes_html, _read_json, _source, _video_path)
 from job_store import EXEC, JOBS, _new_job, _run_pipeline
 
 router = APIRouter()
 
 
+_DERIVED_TIME_FILES = (
+    "transcript.spk.json", "stamps.json", "diarization.json", "minutes.md",
+    "minutes.spk.md", "minutes.evidence.json", "slides.json", "page_desc.json",
+    "meeting.topic-map.json", "meeting.generation.json",
+)
+
+
+def _legacy_meeting_times(mdir: Path, meta: dict) -> tuple[float, float, bool]:
+    """给旧会议提供保守的时间回退。
+
+    优先用历史 upload job；再用派生文件时间。不读源媒体 mtime，
+    因为它会在固化时保留来源设备的原始时间。
+    """
+    imported = float(meta.get("imported_at") or 0)
+    estimated = not bool(imported)
+    if not imported:
+        uploads = [float(job.get("created") or 0) for job in JOBS.values()
+                   if job.get("kind") == "upload" and job.get("meeting") == mdir.name
+                   and job.get("status") == "done" and job.get("created")]
+        if uploads:
+            imported = min(uploads)
+            estimated = False
+    mtimes = [path.stat().st_mtime for name in _DERIVED_TIME_FILES
+              if (path := mdir / name).is_file()]
+    if not imported:
+        imported = min(mtimes) if mtimes else mdir.stat().st_mtime
+    updated = float(meta.get("updated_at") or 0)
+    if not updated:
+        updated = max(mtimes) if mtimes else imported
+    return imported, updated, estimated
+
+
 @router.get("/api/meetings")
 def list_meetings():
     out = []
     if MEETINGS.is_dir():
-        for d in sorted(MEETINGS.iterdir(), key=lambda p: p.name, reverse=True):
+        for d in MEETINGS.iterdir():
             if not d.is_dir():
                 continue
+            meta = _read_json(d / "meta.json", {})
+            if not isinstance(meta, dict):
+                meta = {}
+            imported_at, updated_at, imported_at_estimated = _legacy_meeting_times(d, meta)
             item = {"slug": d.name, "has_transcript": False, "has_minutes": False,
                     "has_video": False, "turns": 0, "pages": 0, "duration": None,
-                    "speaker_count": 0, **_meeting_identity(d.name)}
+                    "speaker_count": 0, "imported_at": imported_at,
+                    "updated_at": updated_at,
+                    "imported_at_estimated": imported_at_estimated,
+                    **_meeting_identity(d.name)}
             turns = _read_json(d / "transcript.spk.json", [])
             if turns:
                 item["has_transcript"] = True
@@ -45,6 +85,7 @@ def list_meetings():
             item["generation_phase"] = meeting_generation.load(d).get("phase") or (
                 "ready" if item["has_minutes"] else "processing")
             out.append(item)
+    out.sort(key=lambda item: (item.get("imported_at") or 0, item["slug"]), reverse=True)
     return {"meetings": out}
 
 
@@ -57,13 +98,15 @@ def rename_meeting(slug: str, title: str = Body(..., embed=True)):
     if not 1 <= len(title) <= 80:
         raise HTTPException(400, "标题需为 1–80 个字符")
     meta_path = mdir / "meta.json"
-    meta = _read_json(meta_path, {})
-    if not isinstance(meta, dict):
-        meta = {}
-    meta["title"] = title
-    tmp = meta_path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
-    os.replace(tmp, meta_path)
+    with MEETING_META_LOCK:
+        meta = _read_json(meta_path, {})
+        if not isinstance(meta, dict):
+            meta = {}
+        meta["title"] = title
+        meta["updated_at"] = _now()
+        tmp = meta_path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
+        os.replace(tmp, meta_path)
     return {"ok": True, **_meeting_identity(slug)}
 
 
@@ -154,8 +197,14 @@ def get_bundle(slug: str):
     if action_candidates is None and minutes_path:
         action_candidates = artifact.action_candidates_from_minutes(
             minutes_path.read_text(encoding="utf-8"), actions)
-    transcript_format = str(src.get("transcript_format") or "").lower()
-    if not transcript_format:
+    transcript_source = str(src.get("transcript_source") or "").lower()
+    if transcript_source not in {"external", "local_asr"}:
+        transcript_source = ("external" if src.get("transcript_format")
+                             or any((mdir / f"source.{suffix}").is_file()
+                                    for suffix in ("vtt", "docx")) else "local_asr")
+    transcript_format = str(src.get("transcript_format") or "").lower() \
+        if transcript_source == "external" else ""
+    if transcript_source == "external" and not transcript_format:
         transcript_format = next((suffix for suffix in ("vtt", "docx")
                                   if (mdir / f"source.{suffix}").is_file()), "")
     profiles = evidence.get("speaker_profiles") or artifact.load_speaker_profiles(
@@ -170,6 +219,9 @@ def get_bundle(slug: str):
         "topics": topics,
         "samples": samples,
         "source": {k: bool(v) for k, v in src.items()},  # 不把原始路径暴露给前端逻辑判断以外
+        "transcript_source": transcript_source,
+        "external_transcript_available": any(
+            (mdir / f"source.{suffix}").is_file() for suffix in ("vtt", "docx")),
         "has_audio": _audio_path(mdir) is not None,
         "has_video": _video_path(mdir) is not None,
         "duration": duration,
@@ -191,6 +243,31 @@ def get_bundle(slug: str):
             "linkage": evidence.get("linkage", {}),
         },
     }
+
+
+@router.post("/api/meetings/{slug}/retranscribe-local")
+def retranscribe_local(slug: str):
+    """保留外部 VTT/DOCX 母版，改用视频音轨跑本地 ASR。"""
+    mdir = _mdir(slug)
+    if any(job.get("meeting") == slug and job.get("status") in {"queued", "running"}
+           for job in JOBS.values()):
+        raise HTTPException(409, "这场会议仍有处理作业，不能并发重转写")
+    if not any(path.is_file() for path in mdir.glob("source_video.*")):
+        raise HTTPException(400, "没有受保护的视频母版，无法改用本地语音识别")
+    src = _source(mdir)
+    transcript_source = str(src.get("transcript_source") or "").lower()
+    if transcript_source not in {"external", "local_asr"}:
+        transcript_source = ("external" if src.get("transcript_format")
+                             or any((mdir / f"source.{suffix}").is_file()
+                                    for suffix in ("vtt", "docx")) else "local_asr")
+    if transcript_source != "external":
+        raise HTTPException(409, "当前逐字稿已经来自本地语音识别")
+    cmd = [str(PY), str(ROOT / "bin" / "retranscribe_local.py"), str(mdir)]
+    job = _new_job("retranscribe", route="video", meeting=slug, cmd=cmd,
+                   transcript_policy="local_asr")
+    response = dict(job)
+    EXEC.submit(_run_pipeline, job)
+    return response
 
 
 @router.post("/api/meetings/{slug}/regen_minutes")

@@ -48,6 +48,7 @@ MD = MarkdownIt("default", {"html": False})
 BANK_LOCK = threading.Lock()      # bank.json / orgchart.json 写操作串行化
 EVALUATION_LOCK = threading.Lock()  # 本地人工验收事件串行化
 STORAGE_LOCK = threading.Lock()     # 会议缓存清理与大小读取串行化
+MEETING_META_LOCK = threading.Lock()  # meta.json 的标题与导入/更新时间原子合并
 
 VIDEO_EXT = {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v", ".mpg", ".mpeg"}
 AUDIO_EXT = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".aac", ".wma", ".aiff"}

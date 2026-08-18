@@ -20,21 +20,24 @@ from job_store import EXEC, JOBS, PROCS, _new_job, _run_pipeline, _save_job, _se
 router = APIRouter()
 
 
-def _predict_meeting(route: str, primary: Path, transcript: Path | None) -> str:
+def _predict_meeting(route: str, primary: Path, transcript: Path | None,
+                     *, prefer_transcript_title: bool = False) -> str:
     if route == "audio":
         return md_util.for_recording(DATA_ROOT, primary.stem, None).name
     date_m = re.search(r"(\d{8})", primary.name)
-    stem = (transcript.stem
-            if route == "teams" and transcript is not None else primary.stem)
+    stem = (transcript.stem if transcript is not None
+            and (route == "teams" or prefer_transcript_title) else primary.stem)
     return md_util.for_teams(DATA_ROOT, _slugify(stem),
                              date_m.group(1) if date_m else "").name
 
 
 @router.post("/api/upload")
-async def upload(files: list[UploadFile] = File(...), no_vl: str = Form("")):
+async def upload(files: list[UploadFile] = File(...), no_vl: str = Form(""),
+                 ignore_transcript: str = Form("")):
     if not files:
         raise HTTPException(400, "没有文件")
     skip_vl = bool(no_vl.strip())
+    ignore_external = bool(ignore_transcript.strip())
     jid = uuid.uuid4().hex[:12]
     dest_dir = INBOX / jid
     dest_dir.mkdir(parents=True, exist_ok=True)
@@ -60,11 +63,15 @@ async def upload(files: list[UploadFile] = File(...), no_vl: str = Form("")):
             if len(transcripts) > 1:
                 raise HTTPException(400, "一次只能给视频配一个 VTT 或 DOCX 逐字稿")
             transcript = transcripts[0] if transcripts else None
-            if transcript is not None:
+            if transcript is not None and not ignore_external:
                 route, script, args = ("teams", "teams_minutes.py",
                                        [str(videos[0]), str(transcript)])
             else:
                 route, script, args = "video", "video_minutes.py", [str(videos[0])]
+                if transcript is not None:
+                    # 保留官方文件作为可回退源，但本次不解析它。
+                    args += ["--slug", _slugify(transcript.stem),
+                             "--ignored-transcript", str(transcript)]
             if skip_vl:
                 args.append("--no-vl")
             primary = videos[0]
@@ -83,7 +90,11 @@ async def upload(files: list[UploadFile] = File(...), no_vl: str = Form("")):
     job = _new_job("upload", route=route, cmd=cmd,
                    files=[p.name for p in saved],
                    inbox=str(dest_dir.relative_to(DATA_ROOT)),
-                   meeting=_predict_meeting(route, primary, transcript))
+                   meeting=_predict_meeting(
+                       route, primary, transcript,
+                       prefer_transcript_title=ignore_external and transcript is not None),
+                   transcript_policy=("ignored" if transcript is not None and ignore_external
+                                      else "external" if transcript is not None else "local_asr"))
     resp = dict(job)  # 快照：避免 worker 线程抢在响应序列化前改状态
     EXEC.submit(_run_pipeline, job)
     return resp

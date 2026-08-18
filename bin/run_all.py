@@ -70,7 +70,8 @@ def main() -> int:
         print(f"失败：transcribe rc={rc_tr} diarize rc={rc_dz}", file=sys.stderr)
         return 1
     (folder / "source.json").write_text(json.dumps(
-        {"audio": str(source_audio), "wav": str(wav), "original_name": original.name},
+        {"audio": str(source_audio), "wav": str(wav), "original_name": original.name,
+         "transcript_source": "local_asr"},
         ensure_ascii=False, indent=1), encoding="utf-8")
 
     print("[2/3] 合并说话人轮次 ...", flush=True)
