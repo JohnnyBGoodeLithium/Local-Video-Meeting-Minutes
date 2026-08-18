@@ -54,6 +54,7 @@ const state = {
   reviewTurnIndex: null,
   playbackScope: "meeting",
   transcriptSearch: null,
+  reviewUnits: [],
   splitMarks: new Set(),
   splitTarget: null,
   splitTargetName: "",
@@ -129,10 +130,10 @@ const UI_COPY = {
     expandLanes: "说话人视图 ▸", collapseLanes: "说话人视图 ▾", expandRestLanes: "展开其余",
     allSpeakers: "全部说话人", fullMeeting: "顺次播放", speakerOnly: "仅听此人",
     previousUtterance: "上一段", replayUtterance: "重播本段", nextUtterance: "下一段",
-    clearSpeaker: "取消人物", utteranceUnit: "段发言",
+    clearSpeaker: "取消人物", utteranceUnit: "个核听段落",
     bindAction: "绑定", legendBindAction: "未绑定声纹：点「绑定」为其指定人员",
     speakerUnavailable: "当前声音过短，未形成可用声音簇，不能按人播放",
-    lowValueHint: "过渡或低讨论密度时段", continued: "继续",
+    lowValueHint: "过渡或低讨论密度时段", continued: "同一发言",
   },
   en: {
     title: "Meeting Minutes", brand: "🎙 Meeting Minutes", meetings: "Meetings", product: "Product", settings: "Settings",
@@ -156,10 +157,10 @@ const UI_COPY = {
     expandRestLanes: "Show the remaining", bindAction: "Bind",
     allSpeakers: "All speakers", fullMeeting: "Full meeting", speakerOnly: "Speaker only",
     previousUtterance: "Previous", replayUtterance: "Replay", nextUtterance: "Next",
-    clearSpeaker: "Clear person", utteranceUnit: "utterances",
+    clearSpeaker: "Clear person", utteranceUnit: "review segments",
     legendBindAction: "No voiceprint bound: use “Bind” to assign a person",
     speakerUnavailable: "This sample is too short to form a usable voice cluster",
-    lowValueHint: "Transitional or low-density segment", continued: "cont.",
+    lowValueHint: "Transitional or low-density segment", continued: "Same utterance",
   },
 };
 
@@ -1665,7 +1666,8 @@ function renderPersonLanes() {
         block.addEventListener("click", event => {
           event.stopPropagation();
           selectPlaybackSpeaker(speaker, false);
-          selectReviewTurn(run.turnIndexes[0], true);
+          const unit = reviewUnitForTurn(run.turnIndexes[0]);
+          if (unit != null) selectReviewTurn(unit, true);
         });
       } else {
         block.title = `${block.title} · ${ui("speakerUnavailable")}`;
@@ -1722,10 +1724,28 @@ function reviewSpeaker() {
   return state.playbackScope === "speaker" ? state.speakerPin : null;
 }
 
-function reviewIndexes(speaker = reviewSpeaker()) {
+function reviewUnitList() {
+  if (state.reviewUnits?.length) return state.reviewUnits;
   const transcript = state.bundle?.transcript || [];
-  return transcript.map((_, index) => index)
-    .filter(index => !speaker || transcript[index].speaker === speaker);
+  return transcript.map((turn, turnIndex) => ({
+    index: turnIndex, turnIndex, chunkIndex: 0, chunkCount: 1,
+    start: Number(turn.start) || 0, end: reviewTurnEnd(turnIndex), speaker: turn.speaker,
+  }));
+}
+
+function reviewIndexes(speaker = reviewSpeaker()) {
+  return reviewUnitList().filter(unit => !speaker || unit.speaker === speaker)
+    .map(unit => unit.index);
+}
+
+function reviewUnitForTurn(turnIndex, time = null) {
+  const units = reviewUnitList().filter(unit => unit.turnIndex === turnIndex);
+  if (!units.length) return null;
+  if (time != null) {
+    const containing = units.find(unit => unit.start <= time && time < unit.end);
+    if (containing) return containing.index;
+  }
+  return units[0].index;
 }
 
 function playbackPosition() {
@@ -1735,15 +1755,12 @@ function playbackPosition() {
 }
 
 function nearestReviewTurn(speaker = reviewSpeaker(), time = playbackPosition()) {
-  const transcript = state.bundle?.transcript || [];
+  const units = reviewUnitList();
   const indexes = reviewIndexes(speaker);
   if (!indexes.length) return null;
-  const containing = indexes.find(index => {
-    const start = Number(transcript[index]?.start) || 0;
-    return start <= time && time < reviewTurnEnd(index);
-  });
+  const containing = indexes.find(index => units[index].start <= time && time < units[index].end);
   if (containing != null) return containing;
-  return indexes.find(index => (Number(transcript[index]?.start) || 0) >= time)
+  return indexes.find(index => units[index].start >= time)
     ?? indexes[indexes.length - 1];
 }
 
@@ -1768,14 +1785,14 @@ function selectPlaybackSpeaker(speaker, toggle = false) {
 }
 
 function selectReviewTurn(index, play = true) {
-  const transcript = state.bundle?.transcript || [];
-  if (!transcript[index]) return;
+  const unit = reviewUnitList()[index];
+  if (!unit) return;
   if (state.playbackScope === "speaker" && state.speakerPin
-      && transcript[index].speaker !== state.speakerPin) return;
+      && unit.speaker !== state.speakerPin) return;
   state.reviewTurnIndex = index;
   updateReviewHighlights();
   renderUtteranceControls();
-  seek(Number(transcript[index].start) || 0, play);
+  seek(unit.start, play);
 }
 
 function stepReviewTurn(delta) {
@@ -1787,12 +1804,12 @@ function stepReviewTurn(delta) {
 }
 
 function setPlaybackScope(scope) {
-  const transcript = state.bundle?.transcript || [];
+  const units = reviewUnitList();
   if (scope === "speaker" && !state.speakerPin) {
     const current = nearestReviewTurn(null);
-    if (current == null || !transcript[current]) return;
-    if (!isSelectableSpeaker(transcript[current].speaker)) return;
-    state.speakerPin = transcript[current].speaker;
+    if (current == null || !units[current]) return;
+    if (!isSelectableSpeaker(units[current].speaker)) return;
+    state.speakerPin = units[current].speaker;
   }
   state.playbackScope = scope;
   state.reviewTurnIndex = nearestReviewTurn(reviewSpeaker());
@@ -1802,8 +1819,8 @@ function setPlaybackScope(scope) {
     const current = ensureReviewTurn();
     if (p && !p.paused && current != null) {
       const time = Number(p.currentTime) || 0;
-      const start = Number(transcript[current].start) || 0;
-      if (time < start - 0.05 || time >= reviewTurnEnd(current) - 0.05)
+      const unit = units[current];
+      if (unit && (time < unit.start - 0.05 || time >= unit.end - 0.05))
         selectReviewTurn(current, true);
     }
   }
@@ -1818,13 +1835,14 @@ function renderUtteranceControls() {
   }
   const indexes = reviewIndexes();
   const current = ensureReviewTurn();
+  const unit = reviewUnitList()[current];
   const position = Math.max(0, indexes.indexOf(current));
   const speaker = state.speakerPin;
-  const inferredSpeaker = speaker || transcript[current]?.speaker;
+  const inferredSpeaker = speaker || unit?.speaker;
   const speakerModeDisabled = !inferredSpeaker || !isSelectableSpeaker(inferredSpeaker);
   const label = reviewSpeaker() || ui("allSpeakers");
   const at = current == null ? 0 : position + 1;
-  const currentTime = current == null ? "" : " · " + fmt(transcript[current].start);
+  const currentTime = !unit ? "" : " · " + fmt(unit.start);
   const scopeLabel = isEnglishUi() ? "Playback range" : "播放范围";
   const html = [
     '<span class="utterance-context"><b>', esc(label), '</b><small>',
@@ -1863,20 +1881,22 @@ function renderUtteranceControls() {
 
 function updateReviewHighlights() {
   const current = ensureReviewTurn();
+  const unit = reviewUnitList()[current];
   $$("#person-lanes .pl-block").forEach(block => {
     const indexes = String(block.dataset.turnIndexes || "").split(",").map(Number);
-    block.classList.toggle("review-current", current != null && indexes.includes(current));
+    block.classList.toggle("review-current", Boolean(unit) && indexes.includes(unit.turnIndex));
   });
   $$("#transcript .turn.review-current").forEach(turn =>
     turn.classList.remove("review-current"));
-  if (current != null) $("#turn-" + current)?.classList.add("review-current");
+  if (current != null)
+    $(`#transcript .turn[data-review-unit="${current}"]`)?.classList.add("review-current");
 }
 
 function syncReviewFromPlayback(activeIndex) {
-  const transcript = state.bundle?.transcript || [];
-  if (activeIndex < 0 || !transcript[activeIndex]) return;
+  const unit = reviewUnitList()[activeIndex];
+  if (!unit) return;
   if (state.playbackScope === "speaker" && state.speakerPin
-      && transcript[activeIndex].speaker !== state.speakerPin) return;
+      && unit.speaker !== state.speakerPin) return;
   if (state.reviewTurnIndex === activeIndex) return;
   state.reviewTurnIndex = activeIndex;
   updateReviewHighlights();
@@ -1888,11 +1908,10 @@ function handleSpeakerOnlyPlayback(p, time) {
   const indexes = reviewIndexes();
   const current = ensureReviewTurn();
   const position = indexes.indexOf(current);
-  if (current == null || position < 0) return false;
-  const turn = state.bundle.transcript[current];
-  const start = Number(turn.start) || 0;
-  const end = reviewTurnEnd(current);
-  if (time >= end - 0.12) {
+  const units = reviewUnitList();
+  const unit = units[current];
+  if (current == null || position < 0 || !unit) return false;
+  if (time >= unit.end - 0.12) {
     const next = indexes[position + 1];
     if (next == null) {
       p.pause();
@@ -1900,17 +1919,16 @@ function handleSpeakerOnlyPlayback(p, time) {
       return true;
     }
     state.reviewTurnIndex = next;
-    p.currentTime = Number(state.bundle.transcript[next].start) || 0;
+    p.currentTime = units[next].start;
     p.play().catch(() => {});
     updateReviewHighlights();
     renderUtteranceControls();
     return true;
   }
-  if (time < start - 0.05 || time > end + 0.05) {
-    const next = indexes.find(index =>
-      (Number(state.bundle.transcript[index].start) || 0) >= time)
+  if (time < unit.start - 0.05 || time > unit.end + 0.05) {
+    const next = indexes.find(index => units[index].start >= time)
       ?? indexes[indexes.length - 1];
-    const targetTime = Number(state.bundle.transcript[next].start) || 0;
+    const targetTime = units[next].start;
     if (next !== current || Math.abs(time - targetTime) > 0.05) {
       state.reviewTurnIndex = next;
       p.currentTime = targetTime;
@@ -1975,19 +1993,17 @@ function onTimeUpdate() {
   if (handleSpeakerOnlyPlayback(p, t)) return;
   updateActiveChapter(t);
   syncTimeFocus(t, false);
-  // 高亮当前轮
-  const turns = state.bundle.transcript;
-  let cur = -1;
-  for (let i = 0; i < turns.length; i++) {
-    if (turns[i].start <= t) cur = i; else break;
-  }
+  // 高亮当前核听段落；长发言的显示分段与上一/下一/重播使用同一索引。
+  const activeUnitIndex = nearestReviewTurn(null, t);
+  const activeUnit = reviewUnitList()[activeUnitIndex];
+  const cur = activeUnit?.turnIndex ?? -1;
   $$(".turn.playing").forEach(el => el.classList.remove("playing"));
   if (cur >= 0) {
-    syncReviewFromPlayback(cur);
-    const el = $(`#turn-${cur}`);
+    syncReviewFromPlayback(activeUnitIndex);
+    const el = $(`#transcript .turn[data-review-unit="${activeUnitIndex}"]`);
     if (el) {
       el.classList.add("playing");
-      if ($("#follow").checked) scrollTranscriptTurn(cur, "nearest", true);
+      if ($("#follow").checked) scrollInside($("#transcript"), el, "nearest", true);
     }
     if (state.translationJob && cur !== state.lastTranslationFocus
         && Date.now() - state.lastTranslationFocusAt > 2500) {
@@ -2068,6 +2084,7 @@ function renderTranscript(preserveScroll = true) {
     .map(item => [item.index, item.source_language]));
   const transcript = state.bundle.transcript;
   const bundleDuration = Number(state.bundle?.duration || 0);
+  state.reviewUnits = [];
   state.bundle.transcript.forEach((t, i) => {
     const div = document.createElement("div");
     div.className = "turn";
@@ -2087,6 +2104,21 @@ function renderTranscript(preserveScroll = true) {
     const turnDuration = Math.max(0,
       (Number(t.end ?? transcript[i + 1]?.start ?? bundleDuration) || 0) - (Number(t.start) || 0));
     const chunks = (showOriginal && !showTranslation) ? splitTurnChunks(t.text, turnDuration) : null;
+    const pieces = chunks || [{ text: t.text, charStart: 0 }];
+    const firstUnitIndex = state.reviewUnits.length;
+    const totalChars = Math.max(1, String(t.text || "").length);
+    pieces.forEach((piece, chunkIndex) => {
+      const start = (Number(t.start) || 0) + piece.charStart / totalChars * turnDuration;
+      const next = pieces[chunkIndex + 1];
+      const end = next
+        ? (Number(t.start) || 0) + next.charStart / totalChars * turnDuration
+        : reviewTurnEnd(i);
+      state.reviewUnits.push({
+        index: state.reviewUnits.length, turnIndex: i, chunkIndex,
+        chunkCount: pieces.length, start, end: Math.max(start, end), speaker: t.speaker,
+      });
+    });
+    div.dataset.reviewUnit = firstUnitIndex;
     let textHtml = '<span class="turn-text">';
     if (showOriginal) {
       textHtml += `<span class="txt source-text">${esc(chunks ? chunks[0].text : t.text)}</span>`;
@@ -2117,7 +2149,7 @@ function renderTranscript(preserveScroll = true) {
     if (state.splitTarget && t.voice === state.splitTarget) div.classList.add("split-candidate");
     $(".tc", div).onclick = ev => {
       ev.stopPropagation();
-      seek(t.start);
+      selectReviewTurn(firstUnitIndex, true);
     };
     $(".chip", div).onclick = ev => {
       ev.stopPropagation();
@@ -2129,7 +2161,7 @@ function renderTranscript(preserveScroll = true) {
       const selection = window.getSelection();
       if (selection && !selection.isCollapsed && String(selection)) return;
       if (state.splitTarget) { tryToggleSplitMark(i, t.voice); return; }
-      seek(t.start);
+      selectReviewTurn(firstUnitIndex, true);
     });
     $(".quote-turn", div).onclick = ev => {
       ev.stopPropagation();
@@ -2144,27 +2176,31 @@ function renderTranscript(preserveScroll = true) {
       scrollTranscriptTurn(i, "center", false);
     };
     box.appendChild(div);
-    // 后续子块:缩进 + 弱化"继续"标记,不重复 chip;点击按字符比例插值 seek(展示层近似)。
+    // 后续子块与控制条共享核听段落索引；重复说话人，并明确标出它属于同一条发言。
     if (chunks) {
-      const totalChars = Math.max(1, String(t.text || "").length);
-      for (const chunk of chunks.slice(1)) {
+      for (const [offset, chunk] of chunks.slice(1).entries()) {
+        const chunkIndex = offset + 1;
+        const unitIndex = firstUnitIndex + chunkIndex;
         const at = (Number(t.start) || 0) + chunk.charStart / totalChars * turnDuration;
         const cont = document.createElement("div");
         cont.className = "turn turn-cont";
         cont.dataset.index = i;
+        cont.dataset.reviewUnit = unitIndex;
         cont.innerHTML =
           `<span class="tc" title="点击跳转(按字符位置估算)">[${fmt(at)}]</span>` +
-          `<span class="chip disabled cont-mark">${ui("continued")}</span>` +
-          `<span class="turn-text"><span class="txt source-text">${esc(chunk.text)}</span></span>`;
+          `<span class="chip cont-speaker" style="border-left: 3px solid ${speakerColor(t.speaker)}" ` +
+          `title="${esc(t.speaker)}" aria-label="说话人：${esc(t.speaker)}">${esc(t.speaker)}</span>` +
+          `<span class="turn-text"><span class="cont-mark">${ui("continued")} · ${chunkIndex + 1}/${chunks.length}</span>` +
+          `<span class="txt source-text">${esc(chunk.text)}</span></span>`;
         $(".tc", cont).onclick = ev => {
           ev.stopPropagation();
-          seek(at);
+          selectReviewTurn(unitIndex, true);
         };
         cont.addEventListener("click", () => {
           const selection = window.getSelection();
           if (selection && !selection.isCollapsed && String(selection)) return;
           if (state.splitTarget) { tryToggleSplitMark(i, t.voice); return; }
-          seek(at);
+          selectReviewTurn(unitIndex, true);
         });
         box.appendChild(cont);
       }
@@ -2181,6 +2217,7 @@ function renderTranscript(preserveScroll = true) {
   } else if (!preserveScroll) {
     box.scrollTop = 0;
   }
+  state.reviewTurnIndex = nearestReviewTurn(reviewSpeaker(), playbackPosition());
   updateFocusedTurns(false);
   updateReviewHighlights();
   // 重渲染后搜索高亮会随 DOM 重建丢失, 有查询词时重新标记(保持当前命中位置, 不滚动)。

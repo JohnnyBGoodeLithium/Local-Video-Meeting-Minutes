@@ -672,9 +672,10 @@ body.resizing-panes { cursor: col-resize; user-select: none; }
 .utterance-controls button:disabled { opacity: .35; cursor: default; }
 .utterance-clear { border: 1px dashed var(--border); }
 .turn.review-current:not(.playing) { background: rgba(79, 124, 255, .08); }
-/* 长轮次后续子块:缩进 + 弱化"继续"标记 */
-.turn-cont { opacity: .92; }
-.turn-cont .cont-mark { justify-self: end; font-style: normal; }
+/* 长发言后续核听段落：保留说话人，明确它与上一段属于同一条发言。 */
+.turn-cont { margin-left: var(--sp-14); border-left: 1px solid var(--border); opacity: .96; }
+.turn-cont .cont-speaker { cursor: default; }
+.turn-cont .cont-mark { justify-self: start; padding: 1px var(--sp-7); border: 1px solid var(--border); border-radius: var(--r-10); color: var(--dim); font-size: var(--fs-10); font-style: normal; }
 .tl-tick {
   position: absolute;
   top: 0;

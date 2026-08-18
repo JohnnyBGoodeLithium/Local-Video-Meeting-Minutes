@@ -28,7 +28,8 @@ EVIDENCE = {
     "actions": [],
     "sources": {
         "transcript": [{"id": "T0001", "index": 0, "speaker": "人员甲",
-                        "start": 0.0, "end": 5.0, "text": "示例发言：周五前给结论。"},
+                        "start": 0.0, "end": 5.0,
+                        "text": "示例长发言：周五前给结论并同步后续计划。" * 40},
                        {"id": "T0002", "index": 1, "speaker": "人员乙",
                         "start": 5.0, "end": 10.0, "text": "示例发言：我来准备材料。"},
                        {"id": "T0003", "index": 2, "speaker": "人员甲",
@@ -71,14 +72,18 @@ page = export_meeting._viewer_html(
          "identity_basis": "insufficient_voice_sample"},
     ])
 contract_probe = b"""<script>
-selectPlaybackSpeaker('\xe4\xba\xba\xe5\x91\x98\xe7\x94\xb2',false);setPlaybackScope('meeting');reviewTurn=0;stepReviewTurn(1);
-const sequentialStep=reviewTurn===1;
-selectPlaybackSpeaker('\xe4\xba\xba\xe5\x91\x98\xe7\x94\xb2',false);setPlaybackScope('speaker');reviewTurn=0;stepReviewTurn(1);
-const speakerStep=reviewTurn===2;
+const units=reviewUnits(),longUnits=units.filter(unit=>unit.turnIndex===0);
+selectPlaybackSpeaker('\xe4\xba\xba\xe5\x91\x98\xe7\x94\xb2',false);setPlaybackScope('meeting');reviewTurn=longUnits[0].index;stepReviewTurn(1);
+const longSegmentStep=longUnits.length>1&&reviewTurn===longUnits[1].index&&units[reviewTurn].turnIndex===0;
+reviewTurn=longUnits[longUnits.length-1].index;stepReviewTurn(1);
+const sequentialStep=units[reviewTurn].turnIndex===1;
+selectPlaybackSpeaker('\xe4\xba\xba\xe5\x91\x98\xe7\x94\xb2',false);setPlaybackScope('speaker');reviewTurn=longUnits[longUnits.length-1].index;stepReviewTurn(1);
+const speakerStep=units[reviewTurn].turnIndex===2;
 selectPlaybackSpeaker(spkPin,true);focusTime(5,false);setPlaybackScope('speaker');
-const inferredSpeaker=spkPin==='\xe4\xba\xba\xe5\x91\x98\xe4\xb9\x99'&&reviewTurn===1;
+const inferredSpeaker=spkPin==='\xe4\xba\xba\xe5\x91\x98\xe4\xb9\x99'&&units[reviewTurn].turnIndex===1;
 const shortSampleDisabled=!speakerSelectable('\xe7\x9f\xad\xe7\x89\x87\xe6\xae\xb5');
-document.body.dataset.reviewContract=[sequentialStep,speakerStep,inferredSpeaker,shortSampleDisabled].join(',');
+const continuationWording=document.querySelector('.turn.cont')?.textContent.includes('\xe5\x90\x8c\xe4\xb8\x80\xe5\x8f\x91\xe8\xa8\x80');
+document.body.dataset.reviewContract=[longSegmentStep,sequentialStep,speakerStep,inferredSpeaker,shortSampleDisabled,continuationWording].join(',');
 renderTopicMap('N0101');
 const topicDetailExpanded=!!document.querySelector('.topic-detail')&&document.querySelector('.topic-detail').textContent.includes('\xe8\xbf\x99\xe6\x98\xaf\xe5\xb1\x95\xe5\xbc\x80\xe5\x90\x8e\xe7\x9a\x84\xe8\x8a\x82\xe7\x82\xb9\xe8\xaf\xb4\xe6\x98\x8e');
 const nodeStaysBrowse=currentMode==='topic_map'&&document.querySelector('#app').classList.contains('browse-mode');
@@ -104,8 +109,8 @@ assert 'id="pack-version"' in proc.stdout and "Meeting Minutes v0.8.2" in proc.s
 assert 'id="utterance-controls"' in proc.stdout and "重播本段" in proc.stdout, \
     "viewer 逐段回听控制未启动"
 assert 'id="focusbar"' not in proc.stdout, "viewer 仍渲染冗余语义摘要条"
-assert 'data-review-contract="true,true,true,true"' in proc.stdout, \
-    "viewer 顺次/个人/当前位置选人契约不一致"
+assert 'data-review-contract="true,true,true,true,true,true"' in proc.stdout, \
+    "viewer 长发言分段/顺次/个人/当前位置选人契约不一致"
 assert 'data-topic-contract="true,true,true"' in proc.stdout, \
     "viewer 节点展开与显式时间进入核听的契约不一致"
 assert "Uncaught" not in proc.stderr, \
