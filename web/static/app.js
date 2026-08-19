@@ -3648,6 +3648,10 @@ function restoreAssistant() {
   try { saved = JSON.parse(localStorage.getItem(key) || "null"); } catch (_) { /* 损坏即弃 */ }
   if (saved && saved.revision === (state.bundle.transcript_revision || null)) {
     state.assistantMessages = Array.isArray(saved.messages) ? saved.messages : [];
+    // 服务端提案只在内存中保留；刷新后不再展示可能已经失效的巨大“待确认”正文。
+    for (const message of state.assistantMessages) {
+      if (message.proposal && !message.proposal.status) message.proposal.status = "expired";
+    }
     state.assistantHistory = Array.isArray(saved.history) ? saved.history : [];
     state.assistantSlug = state.slug;
   } else if (saved) {
@@ -3755,9 +3759,22 @@ function showAssistantSource(source) {
   openUtility("evidence");
 }
 
+function proposalReadingHtml(proposal, side = "after") {
+  const rendered = proposal?.[`${side}_html`];
+  if (rendered) return rendered;
+  // 兼容刷新前保存在 localStorage 的旧提案：宁可退化成干净文本，也不展示内部协议。
+  const clean = String(proposal?.[side] || "")
+    .replace(/`?\s*<!--\s*mm:evidence\s+[^<>]*?-->\s*`?/g, "")
+    .trim();
+  return `<pre>${esc(clean)}</pre>`;
+}
+
 function renderAssistantMessages() {
   const box = $("#assistant-messages");
   if (!box) return;
+  const pendingProposal = state.assistantMessages.some(message =>
+    message.proposal && !message.proposal.status);
+  $("#content-shell")?.classList.toggle("proposal-open", pendingProposal);
   if (!state.assistantMessages.length) {
     box.innerHTML = '<p class="placeholder">你可以直接追问整场会议；引用逐字稿后，回答和修改会优先使用这些内容。</p>';
     persistAssistant();
@@ -3772,14 +3789,22 @@ function renderAssistantMessages() {
     if (msg.proposal) {
       const p = msg.proposal;
       if (p.status === "applied") {
-        el.innerHTML += `<div class="edit-card edit-result"><span class="applied">已更新会议纪要</span>` +
-          `<button type="button" class="undo-edit" data-id="${esc(p.proposal_id)}">撤销</button></div>`;
+        el.innerHTML += `<div class="edit-card edit-result">` +
+          `<div class="edit-result-head"><div><span class="applied">${isEnglishUi() ? "Minutes updated" : "已更新会议纪要"}</span>` +
+          `<small>${esc(p.summary || (isEnglishUi() ? "The requested change is now visible in the minutes." : "修改已同步到会议纪要。"))}</small></div>` +
+          `<button type="button" class="undo-edit" data-id="${esc(p.proposal_id)}">${isEnglishUi() ? "Undo" : "撤销"}</button></div>` +
+          `<details class="edit-version"><summary>${isEnglishUi() ? "View this saved version" : "查看本次写入版本"}</summary>` +
+          `<div class="proposal-reading minutes">${proposalReadingHtml(p)}</div></details></div>`;
       } else if (p.status === "undone") {
         el.innerHTML += '<div class="edit-card edit-result"><span class="dim">这次修改已撤销，纪要已恢复。</span></div>';
       } else if (p.status === "cancelled") {
         el.innerHTML += '<div class="edit-card edit-result"><span class="dim">这次修改已取消。</span></div>';
       } else if (p.status === "superseded") {
         el.innerHTML += '<div class="edit-card edit-result"><span class="dim">正在继续调整，旧方案不会写入。</span></div>';
+      } else if (p.status === "expired") {
+        el.innerHTML += `<div class="edit-card edit-result"><span class="dim">${isEnglishUi()
+          ? "This old preview expired after refresh. Send the instruction again to create and save a reversible version."
+          : "这份旧预览已在刷新后失效。重新发送要求即可生成并写入可撤销的新版本。"}</span></div>`;
       } else {
         el.innerHTML +=
           `<div class="edit-card">` +
@@ -3787,13 +3812,11 @@ function renderAssistantMessages() {
           `<div class="edit-summary">${esc(p.summary || "已根据要求整理修改")}</div>` +
           `<div class="edit-actions">` +
           `<button type="button" class="apply-edit primary" data-id="${esc(p.proposal_id)}">保存到纪要</button>` +
-          `<button type="button" class="adjust-edit">继续调整</button>` +
           `<button type="button" class="dismiss-edit">取消</button>` +
           `</div>` +
-          `<div class="edit-after"><span>修改后</span><pre>${esc(p.after || "")}</pre></div>` +
-          `<details><summary>查看完整修改与原内容</summary>` +
-          `<div class="compare-label">完整修改后</div><pre>${esc(p.after || "")}</pre>` +
-          `<div class="compare-label">修改前</div><pre>${esc(p.before || "")}</pre></details></div>`;
+          `<div class="proposal-reading minutes">${proposalReadingHtml(p)}</div>` +
+          `<details class="edit-before"><summary>${isEnglishUi() ? "Compare with the previous version" : "对照修改前版本"}</summary>` +
+          `<div class="proposal-reading minutes">${proposalReadingHtml(p, "before")}</div></details></div>`;
       }
     }
     $$(".source-link", el).forEach(btn => {
@@ -3806,22 +3829,18 @@ function renderAssistantMessages() {
         showAssistantSource(src);
       };
     });
+    $$('a[href^="#mm-"]', el).forEach(link => {
+      link.onclick = event => {
+        event.preventDefault();
+        const claimId = link.getAttribute("href").slice(4);
+        const source = (msg.proposal?.sources || []).find(item => item.claim_id === claimId);
+        if (source) showAssistantSource(source);
+      };
+    });
     const apply = $(".apply-edit", el);
     if (apply) apply.onclick = () => applyAssistantEdit(apply.dataset.id, apply);
     const undo = $(".undo-edit", el);
     if (undo) undo.onclick = () => undoAssistantEdit(undo.dataset.id, undo);
-    const adjust = $(".adjust-edit", el);
-    if (adjust) adjust.onclick = () => {
-      const p = msg.proposal;
-      const msgIndex = state.assistantMessages.indexOf(msg);
-      const original = state.assistantMessages.slice(0, msgIndex).reverse()
-        .find(item => item.role === "user")?.content || p.summary || "修改纪要";
-      p.status = "superseded";
-      state.assistantNextIntent = p.scope === "document" ? "restructure" : "edit";
-      renderAssistantMessages();
-      $("#assistant-input").value = `${original}\n请继续调整：`;
-      $("#assistant-input").focus();
-    };
     const dismiss = $(".dismiss-edit", el);
     if (dismiss) dismiss.onclick = () => {
       msg.proposal.status = "cancelled";
@@ -3839,6 +3858,9 @@ function inferAssistantIntent(message) {
     /(重组|重新组织|重新编排|调整结构|自定义结构).{0,12}(纪要|总结)/,
     /(纪要|总结).{0,12}(重组|重新组织|重新编排|调整结构|栏目|版式)/,
     /按.{1,30}(结构|栏目|顺序|项目|人员|分享人).{0,12}(整理|生成|重写|组织)/,
+    /按(?:照)?.{0,40}(顺序|人员|分享人|项目|栏目|结构).{0,30}(给出|总结|整理|组织|生成|重写|列出)/,
+    /(个人|每个人|分享人).{0,16}(发言|分享).{0,12}(总结|要点).{0,50}(总体结构|待办|关键结论)/,
+    /(总体结构|待办事项|关键结论).{0,60}(个人|每个人|分享人).{0,20}(总结|顺序)/,
   ];
   if (restructurePatterns.some(pattern => pattern.test(message))) return "restructure";
   const editPatterns = [
@@ -3846,7 +3868,7 @@ function inferAssistantIntent(message) {
     /(纪要|总结|行动项|决定|结论).{0,10}(改成|改为|修改|改写|润色|精简|删除|移除|补充|更新)/,
     /^(请)?(帮我|把|将)?\s*(修改|改写|润色|精简|删除|移除|补充|更新)/,
     /(请|帮我).{0,8}(修改|改写|补充|更新|写入|加入|删除|润色)/,
-    /(把|将).{0,20}(改成|改为|写入|加入|补充到|删除)/,
+    /(把|将).{0,30}(改成|改为|修改|改写|润色|精简|删除|移除|写入|加入|补充到|更新)/,
   ];
   return editPatterns.some(pattern => pattern.test(message)) ? "edit" : "ask";
 }
@@ -3907,13 +3929,36 @@ async function sendAssistant() {
     if (["edit", "restructure"].includes(intent)) {
       const j = await r.json();
       if (!r.ok) throw new Error(assistantError(j.detail));
+      // 明确的修改命令直接写入：生成与校验失败不会碰 canonical 文件；成功后仍可一步撤销。
+      const applyResponse = await api(`/api/meetings/${encodeURIComponent(state.slug)}/assistant/edit/apply`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ proposal_id: j.proposal_id }),
+      });
+      const applied = await applyResponse.json();
+      if (!applyResponse.ok) {
+        addAssistantMessage({
+          role: "assistant",
+          content: isEnglishUi() ? "The change is ready but was not saved automatically. Review and save it below."
+            : "修改已经生成，但自动写入没有完成；请在下方检查后保存。",
+          sources: j.sources || [], proposal: j,
+        });
+        throw new Error(assistantError(applied.detail));
+      }
+      state.bundle = await jget(`/api/meetings/${encodeURIComponent(state.slug)}/bundle`);
+      setReviewMode("minutes");
       addAssistantMessage({
         role: "assistant",
         content: intent === "restructure"
-          ? (isEnglishUi() ? "I reorganized the full minutes from the evidence-backed fact layer. Review it before saving." : "我已基于证据化事实层重组整篇纪要，请确认后再保存。")
-          : "我整理了一项纪要更新，请确认后再保存。",
+          ? (isEnglishUi() ? "I reorganized the full minutes and saved the new version. You can undo it below." : "我已按要求重组并写入整篇纪要，可在下方一步撤销。")
+          : (isEnglishUi() ? "I updated the minutes. You can undo it below." : "我已更新会议纪要，可在下方一步撤销。"),
         sources: j.sources || [],
-        proposal: j,
+        // 已写入卡只保留阅读与撤销所需字段，避免把 before/diff/raw marker 塞满 localStorage。
+        proposal: {
+          proposal_id: j.proposal_id, target_heading: j.target_heading, scope: j.scope,
+          summary: j.summary, sources: j.sources || [], after_html: j.after_html,
+          status: "applied",
+        },
       });
     } else {
       if (!r.ok) {

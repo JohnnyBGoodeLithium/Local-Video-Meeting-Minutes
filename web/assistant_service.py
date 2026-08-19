@@ -81,7 +81,10 @@ def _chat(messages: list[dict], max_tokens: int = 1600, json_mode: bool = False)
     except (OSError, urllib.error.URLError, json.JSONDecodeError) as exc:
         raise AssistantUnavailable(f"本地 LLM 暂不可用：{type(exc).__name__}") from exc
     try:
-        return data["choices"][0]["message"]["content"].strip()
+        choice = data["choices"][0]
+        if choice.get("finish_reason") == "length":
+            raise AssistantUnavailable("本地 LLM 输出达到长度上限，内容没有完整生成")
+        return choice["message"]["content"].strip()
     except (KeyError, IndexError, TypeError, AttributeError) as exc:
         raise AssistantUnavailable("本地 LLM 返回格式不完整") from exc
 
@@ -107,6 +110,7 @@ def _chat_stream(messages: list[dict], max_tokens: int = 1600):
         resp = urllib.request.urlopen(req, timeout=300)
     except (OSError, urllib.error.URLError) as exc:
         raise AssistantUnavailable(f"本地 LLM 暂不可用：{type(exc).__name__}") from exc
+    finish_reason = None
     with resp:
         for raw in resp:
             line = raw.decode("utf-8", "ignore").strip()
@@ -120,11 +124,15 @@ def _chat_stream(messages: list[dict], max_tokens: int = 1600):
             except json.JSONDecodeError:
                 continue
             try:
-                delta = chunk["choices"][0].get("delta", {}).get("content") or ""
+                choice = chunk["choices"][0]
+                finish_reason = choice.get("finish_reason") or finish_reason
+                delta = choice.get("delta", {}).get("content") or ""
             except (KeyError, IndexError, TypeError, AttributeError):
                 continue
             if delta:
                 yield delta
+    if finish_reason == "length":
+        raise AssistantUnavailable("回答达到长度上限，以上是未完成内容；请缩小问题或改为重组纪要")
 
 
 def _terms(text: str) -> set[str]:

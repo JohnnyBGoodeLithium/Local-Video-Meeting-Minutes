@@ -14,6 +14,7 @@ check:
 	$(PY) web/tests/minutes_markdown_test.py
 	$(PY) web/tests/minutes_policy_test.py
 	$(PY) web/tests/minutes_restructure_test.py
+	$(PY) web/tests/assistant_transport_test.py
 	$(PY) web/tests/minutes_overview_test.py
 	$(PY) web/tests/minutes_overview_direct_test.py
 	$(PY) web/tests/minutes_degenerate_test.py
@@ -39,7 +40,7 @@ check:
 	$(PY) web/tests/speaker_navigation_test.py
 	$(PY) web/tests/translation_service_test.py
 	$(PY) web/tests/viewer_boot_test.py
-	@if command -v node >/dev/null 2>&1; then node --check web/static/app.js && node --check web/static/admin.js; else echo "Node unavailable: skipped JS syntax check"; fi
+	@if command -v node >/dev/null 2>&1; then node --check web/static/app.js && node --check web/static/admin.js && node web/tests/assistant_intent_test.mjs; else echo "Node unavailable: skipped JS syntax check"; fi
 	git diff --check
 
 smoke:

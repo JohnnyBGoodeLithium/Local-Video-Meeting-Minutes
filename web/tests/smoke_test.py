@@ -166,7 +166,7 @@ check("时间码跳转只滚动内容面板，不带动整页丢失播放器",
 check("在线屏幕舞台支持放大、缩放和相邻屏幕键盘导航",
       b'id="screen-preview-mask"' in page and b'openScreenPreview' in app_js
       and b'navigateScreenPreview' in app_js and b'SCREEN_PREVIEW_ZOOMS' in app_js
-      and b'20260819p62' in page)
+      and b'20260819p64' in page)
 check("会议列表默认按导入时间且可切换并记忆排序",
       b'meetingSort' in app_js and b'"imported"' in app_js
       and b'imported_at' in app_js and b'updated_at' in app_js
@@ -182,7 +182,11 @@ check("旧 VL 转义换行与协议标题在前端读路径自愈",
 check("正式纪要提供事实层整篇重组入口且不改会议脉络",
       b'assistant/restructure/preview' in app_js
       and b'startMinutesRestructure' in app_js
-      and "时间线性的会议脉络保持不变".encode() in app_js)
+      and "时间线性的会议脉络保持不变".encode() in app_js
+      and b'proposalReadingHtml' in app_js
+      and b'proposal_id: j.proposal_id' in app_js
+      and b'message.proposal.status = "expired"' in app_js
+      and "按要求重组并写入整篇纪要".encode() in app_js)
 check("语音草稿失败按返回码区分空正文、模型请求与内部异常",
       b'function voiceDraftFailureCopy' in app_js
       and "这不是模型空正文".encode() in app_js
@@ -968,7 +972,10 @@ check("assistant/restructure/preview → 整篇事实化结构预览",
       s == 200 and restructure.get("proposal_id")
       and restructure.get("scope") == "document"
       and restructure.get("target_heading") == "整篇纪要"
-      and restructure.get("sources") and restructure.get("diff"),
+      and restructure.get("sources") and restructure.get("diff")
+      and "<h1>" in restructure.get("after_html", "")
+      and "mm:evidence" not in restructure.get("after_html", "")
+      and "<h1>" in restructure.get("before_html", ""),
       f"status={s} detail={restructure.get('detail', '')}")
 # preview 允许把存量/来源已变化会议的完整 evidence 无模型迁移成事实层；
 # 从预览完成后开始，应用和撤销都不得再改写它。

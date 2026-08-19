@@ -9,7 +9,8 @@ from pydantic import BaseModel, Field
 import json
 
 import meeting_generation
-from deps import DRY_RUN, assistant, _minutes_file, _mdir, _refresh_evidence
+from deps import (DRY_RUN, MD, artifact, assistant, _minutes_file, _mdir,
+                  _read_json, _refresh_evidence)
 
 router = APIRouter()
 
@@ -55,6 +56,23 @@ def _assistant_message(text: str) -> str:
 
 def _assistant_http_error(exc: assistant.AssistantError):
     raise HTTPException(exc.status, str(exc)) from exc
+
+
+def _reading_proposal(mdir, proposal: dict, *, restructure: bool = False) -> dict:
+    """给修改卡补充安全、可读的 HTML；原始 marker 只留在写入协议里。
+
+    整篇重组可引用已从当前阅读版省略的事实，所以 after 使用独立事实库存；
+    before 仍使用当前 evidence。Markdown renderer 禁用原始 HTML，模型不能注入脚本。
+    """
+    current = _read_json(mdir / "minutes.evidence.json", {})
+    inventory = _read_json(mdir / "meeting.facts.json", {}) if restructure else current
+    after_source = artifact.normalize_minutes_markdown(str(proposal.get("after") or ""))
+    before_source = artifact.normalize_minutes_markdown(str(proposal.get("before") or ""))
+    proposal["after_html"] = MD.render(artifact.markdown_with_evidence_links(
+        after_source, inventory if inventory.get("claims") else current))
+    proposal["before_html"] = MD.render(artifact.markdown_with_evidence_links(
+        before_source, current))
+    return proposal
 
 
 @router.post("/api/meetings/{slug}/assistant/chat")
@@ -129,9 +147,10 @@ def assistant_edit_preview(slug: str, req: AssistantEditReq):
     if not transcript.is_file() or minutes is None:
         raise HTTPException(400, "需要逐字稿和纪要才能生成修改预览")
     try:
-        return assistant.preview_minutes_edit(
+        proposal = assistant.preview_minutes_edit(
             minutes, transcript, _assistant_message(req.message), req.turn_indexes,
             req.transcript_revision, req.minutes_revision, req.target_heading, DRY_RUN)
+        return _reading_proposal(mdir, proposal)
     except assistant.AssistantError as exc:
         _assistant_http_error(exc)
 
@@ -164,9 +183,10 @@ def assistant_restructure_preview(slug: str, req: AssistantRestructureReq):
     if not transcript.is_file() or minutes is None or not evidence.is_file():
         raise HTTPException(400, "需要逐字稿、纪要和事实依据才能重组")
     try:
-        return assistant.preview_minutes_restructure(
+        proposal = assistant.preview_minutes_restructure(
             minutes, transcript, evidence, _assistant_message(req.message),
             req.transcript_revision, req.minutes_revision, DRY_RUN)
+        return _reading_proposal(mdir, proposal, restructure=True)
     except assistant.AssistantError as exc:
         _assistant_http_error(exc)
 
