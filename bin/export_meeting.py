@@ -25,7 +25,9 @@ from markdown_it import MarkdownIt
 from PIL import Image
 
 from meeting_artifact import (
+    build_fact_document,
     build_evidence_document,
+    fact_document_state,
     load_speaker_profiles,
     markdown_with_evidence_links,
     minutes_reading_markdown,
@@ -291,6 +293,7 @@ _AGENTS_MD = """# MeetingPack — Agent 使用指引
 按任务选择下面的数据源，事实性回答必须给出可核验依据。
 
 ## 文件地图
+- `assets/facts.json` — 与纪要版式解耦的完整事实快照；自然语言重组可能只展示其中一部分，深读和再组织先查这里。
 - `assets/evidence.json` — 结构化结论与待办（claims / actions），每条带 `turn_ids` / `page_ids` 依据。
   核验"会议决定了什么、谁要做什么"先查这里；`status` 确定性：confirmed > working_alignment > proposal > open > informational。
   `sources.transcript` 每条带 `person_id`：**同一个人跨会议、跨数据包恒定**（未绑定声纹为 null，通常是会议机），跨包对人优先用它而不是姓名字符串。
@@ -330,7 +333,7 @@ _AGENTS_MD = """# MeetingPack — Agent 使用指引
 T/P 依据，产出中的引用附时间码；没有依据支撑的内容不要写进产出。
 
 ### 建知识库索引
-用 `assets/rag/records.jsonl`：`record_type` 为 claim / transcript / slide / minutes_section。
+用 `assets/rag/records.jsonl`：`record_type` 为 fact / claim / transcript / slide / minutes_section。
 对 `text` 建索引，其余字段作 metadata；命中 claim 后按 `evidence_ids` 精确回读对应 T/P 来源，
 不要再用向量猜来源。`meeting_id` 归组同一会议的不同版本；记录 ID 以 `artifact_id` 为前缀，
 逐字稿或纪要变化会产生新版本，旧记录保持不可变。`person_ids` / `speakers` 可用于按人过滤。
@@ -461,12 +464,16 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
     speaker_navigation_rows = speaker_navigation(turns, profiles, transcript_format)
     evidence = build_evidence_document(mdir, minutes, turns, pages, descs, profiles,
                                        generation={"export_rebuilt": True})
+    stored_facts = _read_json(mdir / "meeting.facts.json", {})
+    facts = (stored_facts if fact_document_state(mdir, stored_facts) == "ready"
+             else build_fact_document(evidence))
     for page in evidence.get("sources", {}).get("pages", []):
         number = int(page.get("number") or 0)
         page["visual_description"] = clean_model_text(page.get("visual_description") or "")
         page["title"] = visual_title(page["visual_description"], number)
     slide_assets = _viewer_slide_assets(mdir, pages, evidence)
     evidence_bytes = json.dumps(evidence, ensure_ascii=False, indent=2).encode("utf-8")
+    facts_bytes = json.dumps(facts, ensure_ascii=False, indent=2).encode("utf-8")
     integrity = evidence_integrity(evidence)
     topic_state, ready_topic_map = meeting_topic_map.load_current_topic_map(mdir)
     topic_map = (ready_topic_map if topic_state == "ready" else {
@@ -492,7 +499,7 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
     topic_map_languages, topic_map_language_assets = _topic_map_languages(mdir, topic_map)
     visuals_languages, visuals_language_assets = _visuals_languages(
         mdir, evidence.get("sources", {}).get("pages", []))
-    records = rag_records(evidence, reading_minutes)
+    records = rag_records(evidence, reading_minutes, facts)
     rag_bytes = ("\n".join(json.dumps(r, ensure_ascii=False, separators=(",", ":"))
                            for r in records) + "\n").encode("utf-8")
 
@@ -528,6 +535,7 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
             "assets/transcript.json": json.dumps(turns, ensure_ascii=False, indent=2).encode("utf-8"),
             "assets/transcript.md": _transcript_markdown(turns).encode("utf-8"),
             "assets/evidence.json": evidence_bytes,
+            "assets/facts.json": facts_bytes,
             "assets/topic-map.json": topic_map_bytes,
             "assets/rag/records.jsonl": rag_bytes,
             **slide_assets,
@@ -554,10 +562,14 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
                       "source_bytes": media_source_bytes,
                       "included_bytes": media_file.stat().st_size if media_file else 0},
             "evidence": integrity,
+            "facts": {"schema": facts.get("schema"),
+                      "claims": len(facts.get("claims", [])),
+                      "source_artifact_id": facts.get("source_artifact_id")},
             "topic_map": {"state": topic_map.get("state"),
                           "schema": topic_map.get("schema")},
             "counts": {"turns": len(turns), "pages": len(pages),
                        "claims": len(evidence["claims"]),
+                       "facts": len(facts.get("claims", [])),
                        "topics": len(topic_map.get("topics", [])), "rag_records": len(records)},
             "files": sorted(manifest_files, key=lambda x: x["path"]),
         }

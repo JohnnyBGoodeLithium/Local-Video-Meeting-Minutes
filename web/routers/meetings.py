@@ -27,7 +27,7 @@ router = APIRouter()
 
 _DERIVED_TIME_FILES = (
     "transcript.spk.json", "stamps.json", "diarization.json", "minutes.md",
-    "minutes.spk.md", "minutes.evidence.json", "slides.json", "page_desc.json",
+    "minutes.spk.md", "minutes.evidence.json", "meeting.facts.json", "slides.json", "page_desc.json",
     "meeting.topic-map.json", "meeting.generation.json",
 )
 

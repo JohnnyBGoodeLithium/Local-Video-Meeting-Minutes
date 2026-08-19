@@ -129,6 +129,8 @@ T/P/C ID 是机器 linkage，不是员工、Teams 或组织身份。人读纪要
 
 Web 只在 sidecar 的逐字稿和纪要 revision 与当前文件一致时展示“依据”，避免编辑后误指向旧内容。说话人绑定、首选显示名变更、纪要应用或撤销后，由确定性代码刷新 sidecar，不调用模型。
 
+`meeting.facts.json`（schema：`meeting-facts/v1`）是与阅读版式解耦的完整事实快照。它复制终稿 evidence 的 claims、人员语境和 T/P linkage，但不复制逐字稿与页面正文；有效性只绑定逐字稿、slides 和页面理解 revision。整篇自然语言重组可增删栏目、排序和有意省略低优先级事实，但只能使用快照中的原 marker，且不会改写该快照。当前 `minutes.evidence.json` 仍严格描述当前可见纪要，因此审计和跳转不会指向已经不在文档中的结论；RAG 则额外摄入快照中未展示的事实，避免知识丢失。
+
 ## 4. MeetingPack v5
 
 分享格式是普通 ZIP，文件名后缀为 `.meetingpack.zip`。收件人解压后双击 `viewer.html`，不需要安装本项目、不需要运行服务，也不需要 LLM。查看器没有 CDN、外部字体或 `fetch` 依赖，使用 `file://` 即可。
@@ -145,6 +147,7 @@ Web 只在 sidecar 的逐字稿和纪要 revision 与当前文件一致时展示
     ├── transcript.md       # 带可读时间码的完整逐字稿
     ├── transcript.json     # 结构化完整逐字稿
     ├── evidence.json       # canonical 证据关系
+    ├── facts.json          # 与当前纪要版式解耦的完整事实库存
     ├── topic-map.json      # meeting-topic-map/v3 整场语义脉络（v1/v2 旧图仍可消费）
     ├── minutes.{language}.md
     ├── topic-map.{language}.json
@@ -158,7 +161,7 @@ Web 只在 sidecar 的逐字稿和纪要 revision 与当前文件一致时展示
         └── video.mp4       # --media video：H.264 720p/10fps 分享版
 ```
 
-例如 `Project_review_2026-08-18_v0.8.2_20260818-153000.meetingpack.zip`。文件名中的产品版本来自根目录 `VERSION`，导出时间保证同一会议多次导出可并存。`README.txt` 和 `assets/manifest.json.generator.version` 同时记录生成器版本；Viewer 顶栏也显示该版本。
+例如 `Project_review_2026-08-19_v0.9.0_20260819-153000.meetingpack.zip`。文件名中的产品版本来自根目录 `VERSION`，导出时间保证同一会议多次导出可并存。`README.txt` 和 `assets/manifest.json.generator.version` 同时记录生成器版本；Viewer 顶栏也显示该版本。
 
 Viewer 提供四个任务入口：“会议脉络 / 会议纪要 / 逐字稿 / 屏幕内容”，右侧证据以抽屉按需打开。脉络、纪要和屏幕属于全宽浏览态；进入逐字稿才切成左侧媒体/截图内容舞台与时间轴、右侧完整逐字稿和发言级核听控制。浏览期间如果媒体仍在播放，只保留紧凑悬浮播放器。顶部搜索按当前入口限定到脉络节点、结论、逐字稿轮次或屏幕资料，并分别保留关键词。冻结的 `meeting-topic-map/v3`（兼容 v1/v2 旧图）通过质量门槛（`ready` 且 3–8 个一级议题）时默认打开会议脉络，否则安全回退会议纪要。v3 中 `turn_ids` / `evidence_ranges` 是代表论据，供审计和 RAG 回溯；`navigation_turn_ids` / `ranges` 是完整浏览范围，供时间轴、Focus 和播放器定位；顶层 `navigation_segments` 显式保留 `topic`、`transition`、`unclassified` 三类整场序列。`stats.coverage` 是归入业务议题的轮次比例，静音不再拉低该值，实际发言时间比例另见 `time_coverage`。Viewer 与在线端都以灰色斜纹显示过渡/等待、以琥珀色显示尚未分类，绝不把未知内容延长到最近议题。脉络首屏只展示一级议题，选择分支才展开子节点和节点说明；选择节点只建立横跨时间范围、逐字稿、结论和屏幕的 Focus，不自动播放，只有显式时间入口才进入核听并 seek。Viewer 时间轴与在线端同为“Topic 车道 + 说话人像素桶节奏条 + 人物图例 + 可展开逐人车道”，未绑定说话人灰斜纹沉底（离线不可绑定），逐字稿长发言拆成带独立近似起止时间的核听段落，后续段重复说话人并标注“同一发言 · N/M”；上一段、重播、下一段及个人跳播都按可见段落工作。无视频时，截图内容舞台会随音频播放或时间选择切换。“屏幕内容”按缩略图、标题、状态和完整 VL 解读浏览。必须解压整个 ZIP 后再打开，不能只在压缩软件里预览单个 HTML。
 
@@ -193,6 +196,7 @@ Web“更多”菜单提供三种导出；命令行等价用法：
 `assets/rag/records.jsonl` 每行是独立 JSON，`record_type` 包括：
 
 - `claim`：结论、共识、行动、风险等可读归纳，带 `evidence_ids`；
+- `fact`：完整事实层中被当前阅读纪要有意省略的归纳，仍带原 T/P linkage；
 - `transcript`：单轮原文，带时间、说话人、person 和页面；
 - `slide`：完整页面理解，带 `display_status` 与讨论轮次；
 - `minutes_section`：适合宽泛主题检索的可读章节。
@@ -200,7 +204,7 @@ Web“更多”菜单提供三种导出；命令行等价用法：
 推荐索引与检索流程：
 
 1. 对所有记录的 `text` 建全文或向量索引，并把其余字段作为 metadata；
-2. 用户问决定/行动时优先检索 `claim`，问“谁在何时说了什么”时优先检索 `transcript`，问 deck 内容时检索 `slide`；
+2. 用户问决定/行动时优先检索 `claim` 和 `fact`，问“谁在何时说了什么”时优先检索 `transcript`，问 deck 内容时检索 `slide`；
 3. 命中 claim 后，按 `evidence_ids` 精确读取对应 T/P source，而不是再次用向量猜来源；
 4. 回答展示 claim，同时给出发言时间、说话人和页面；`display_only` 页面必须标成“材料展示”，不能表述为会议决定；
 5. `retrieval_priority` 只用于召回排序，不代表真实性。`confidence` 是纪要归纳置信度，也不能覆盖原始证据；
@@ -210,7 +214,7 @@ Web“更多”菜单提供三种导出；命令行等价用法：
 
 ### 5.1 当前本机 RAG 服务
 
-Web 的会议助手使用 `meeting-rag/evidence-hybrid-v1`：在一场会议内统一召回 claim、逐字稿、VL 页面和纪要章节，再把受控上下文交给本机 LLM。命中 claim 或讨论过的页面时会补入少量原始逐字稿，避免回答只引用二次归纳。显式选择的逐字稿及其相邻语境始终优先。
+Web 的会议助手使用 `meeting-rag/evidence-hybrid-v1`：在一场会议内统一召回当前 claim、未展示的 fact、逐字稿、VL 页面和纪要章节，再把受控上下文交给本机 LLM。命中 claim/fact 或讨论过的页面时会补入少量原始逐字稿，避免回答只引用二次归纳。显式选择的逐字稿及其相邻语境始终优先。
 
 `POST /api/meetings/{slug}/rag/search` 只返回召回来源，不调用 LLM，可用于检查为什么命中这些证据；`assistant/chat` 在其上完成生成式回答。旧会议没有 `mm:evidence` marker 时标记为 `partial`，仍能检索逐字稿和纪要章节，但不能伪装成已建立 claim linkage。
 

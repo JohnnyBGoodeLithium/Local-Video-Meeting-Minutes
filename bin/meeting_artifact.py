@@ -12,10 +12,12 @@ import json
 import re
 import unicodedata
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 
 EVIDENCE_SCHEMA = "meeting-minutes-evidence/v1"
+FACTS_SCHEMA = "meeting-facts/v1"
 RAG_SCHEMA = "meeting-minutes-rag/v1"
 MARKER_RE = re.compile(r"<!--\s*mm:evidence\s+([^<>]*?)\s*-->")
 # 模型偶尔会在可读正文里同时写一份 ``（T000001, T000002）`` 引用。T ID 是
@@ -702,13 +704,135 @@ def build_evidence_document(mdir: Path, minutes: str, turns: list[dict], pages: 
     return project_action_semantics(document, minutes)
 
 
+def build_fact_document(evidence: dict) -> dict:
+    """把生成纪要里的全部 claim 固化为与阅读版式解耦的事实快照。
+
+    快照只复制 claim 与来源引用，不复制逐字稿/页面正文。纪要重组后 evidence
+    可以只描述当前阅读文档，而事实快照仍保留生成终稿时的完整信息库存。
+    """
+    revisions = evidence.get("revisions", {})
+    claims = json.loads(json.dumps(evidence.get("claims", []), ensure_ascii=False))
+    return {
+        "schema": FACTS_SCHEMA,
+        "meeting_id": evidence.get("meeting_id"),
+        "source_artifact_id": evidence.get("artifact_id"),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "source_revisions": {
+            "transcript": revisions.get("transcript"),
+            "slides": revisions.get("slides"),
+            "page_descriptions": revisions.get("page_descriptions"),
+        },
+        "source_minutes_revision": revisions.get("minutes"),
+        "policy": evidence.get("policy", CONCLUSION_POLICY),
+        "speaker_profiles": json.loads(json.dumps(
+            evidence.get("speaker_profiles", []), ensure_ascii=False)),
+        "claims": claims,
+        "stats": {
+            "claims": len(claims),
+            "with_transcript": sum(bool(item.get("turn_ids")) for item in claims),
+            "with_pages": sum(bool(item.get("page_ids")) for item in claims),
+            "formal_actions": sum(bool(item.get("formal_action")) for item in claims),
+        },
+    }
+
+
+def fact_document_state(mdir: Path, document: dict | None = None) -> str:
+    """事实快照只跟随原始来源；改变纪要版式不会令它过期。"""
+    mdir = Path(mdir)
+    value = document if document is not None else _read_json(mdir / "meeting.facts.json", {})
+    if value.get("schema") != FACTS_SCHEMA:
+        return "missing"
+    expected = value.get("source_revisions", {})
+    current = {
+        "transcript": file_revision(mdir / "transcript.spk.json"),
+        "slides": file_revision(mdir / "slides.json"),
+        "page_descriptions": file_revision(mdir / "page_desc.json"),
+    }
+    return "ready" if expected == current else "stale"
+
+
+def write_fact_document(mdir: Path, evidence: dict) -> tuple[Path, dict]:
+    mdir = Path(mdir)
+    document = build_fact_document(evidence)
+    path = mdir / "meeting.facts.json"
+    temp = path.with_suffix(path.suffix + ".tmp")
+    temp.write_text(json.dumps(document, ensure_ascii=False, indent=2), encoding="utf-8")
+    temp.replace(path)
+    return path, document
+
+
+def refresh_fact_document_sources(mdir: Path, evidence: dict) -> tuple[Path, dict]:
+    """在说话人等确定性来源变化后重绑完整事实，不用窄纪要覆盖库存。
+
+    纪要重组后 ``evidence.claims`` 可能只是当前阅读投影。此时人员绑定或显示名
+    变化仍需要刷新事实中的 speaker/person/time，但绝不能据此删除未展示 claims。
+    """
+    mdir = Path(mdir)
+    current = _read_json(mdir / "meeting.facts.json", {})
+    if current.get("schema") != FACTS_SCHEMA:
+        return write_fact_document(mdir, evidence)
+    revisions = evidence.get("revisions", {})
+    source_revisions = {
+        "transcript": revisions.get("transcript"),
+        "slides": revisions.get("slides"),
+        "page_descriptions": revisions.get("page_descriptions"),
+    }
+    speaker_profiles = evidence.get("speaker_profiles", [])
+    path = mdir / "meeting.facts.json"
+    if (current.get("source_revisions") == source_revisions
+            and current.get("speaker_profiles", []) == speaker_profiles):
+        return path, current
+    document = json.loads(json.dumps(current, ensure_ascii=False))
+    document["source_revisions"] = source_revisions
+    document["speaker_profiles"] = json.loads(json.dumps(
+        speaker_profiles, ensure_ascii=False))
+    document["updated_at"] = datetime.now(timezone.utc).isoformat()
+    turn_by_id = {
+        str(turn.get("id")): turn
+        for turn in evidence.get("sources", {}).get("transcript", [])
+        if turn.get("id")
+    }
+    for claim in document.get("claims", []):
+        linked = [turn_by_id[str(value)] for value in claim.get("turn_ids", [])
+                  if str(value) in turn_by_id]
+        claim["turn_indexes"] = [int(turn.get("index", 0)) for turn in linked]
+        claim["start"] = min((turn.get("start") for turn in linked), default=None)
+        claim["end"] = max((turn.get("end") for turn in linked), default=None)
+        claim["speakers"] = list(dict.fromkeys(
+            str(turn.get("speaker") or "未知") for turn in linked))
+        claim["person_ids"] = list(dict.fromkeys(
+            str(turn["person_id"]) for turn in linked if turn.get("person_id")))
+    temp = path.with_suffix(path.suffix + ".tmp")
+    temp.write_text(json.dumps(document, ensure_ascii=False, indent=2), encoding="utf-8")
+    temp.replace(path)
+    return path, document
+
+
+def ensure_fact_document(mdir: Path, evidence: dict) -> tuple[str, dict]:
+    """读取当前事实层；旧会议首次使用时从现有完整 evidence 无模型迁移。"""
+    mdir = Path(mdir)
+    current = _read_json(mdir / "meeting.facts.json", {})
+    state = fact_document_state(mdir, current)
+    if state == "ready":
+        return state, current
+    if evidence.get("schema") != EVIDENCE_SCHEMA or not evidence.get("claims"):
+        return state, {}
+    _path, document = write_fact_document(mdir, evidence)
+    return "ready", document
+
+
 def write_evidence_document(mdir: Path, minutes: str, turns: list[dict], pages: list[dict],
                             descs: dict[int, str], profiles: list[dict],
-                            generation: dict | None = None) -> tuple[Path, dict]:
+                            generation: dict | None = None, *,
+                            update_facts: bool = True) -> tuple[Path, dict]:
     document = build_evidence_document(
         mdir, minutes, turns, pages, descs, profiles, generation=generation)
     path = mdir / "minutes.evidence.json"
-    path.write_text(json.dumps(document, ensure_ascii=False, indent=2), encoding="utf-8")
+    temp = path.with_suffix(path.suffix + ".tmp")
+    temp.write_text(json.dumps(document, ensure_ascii=False, indent=2), encoding="utf-8")
+    temp.replace(path)
+    if update_facts:
+        write_fact_document(mdir, document)
     return path, document
 
 
@@ -749,7 +873,7 @@ def _minutes_sections(minutes: str) -> list[dict]:
     return sections
 
 
-def rag_records(evidence: dict, minutes: str) -> list[dict]:
+def rag_records(evidence: dict, minutes: str, facts: dict | None = None) -> list[dict]:
     """生成可直接写 JSONL 的检索记录；结论和原始证据用 ID 显式相连。"""
     meeting_id = evidence["meeting_id"]
     artifact_id = evidence["artifact_id"]
@@ -776,6 +900,38 @@ def rag_records(evidence: dict, minutes: str) -> list[dict]:
             "formal_action": bool(claim.get("formal_action")),
             "retrieval_priority": 1.0 if (
                 claim["kind"] == "decision" or claim.get("formal_action")) else 0.8,
+        }
+        if claim.get("formal_action"):
+            record["action"] = claim.get("action") or _action_fields(claim.get("text", ""))
+        records.append(record)
+    # 当前阅读纪要可以有意筛选事实；完整事实层中的未展示项仍进入 RAG，
+    # 但不重复索引已经出现在当前纪要中的 marker。
+    current_markers = {str(claim.get("marker") or "")
+                       for claim in evidence.get("claims", [])}
+    for index, claim in enumerate((facts or {}).get("claims", []), 1):
+        marker = str(claim.get("marker") or "")
+        if not marker or marker in current_markers:
+            continue
+        record = {
+            **common,
+            "id": f"{artifact_id}:fact:F{index:05d}",
+            "source_id": f"F{index:05d}",
+            "record_type": "fact",
+            "claim_type": claim.get("kind", "discussion"),
+            "status": claim.get("status", "informational"),
+            "confidence": claim.get("confidence", "medium"),
+            "text": claim.get("text", ""),
+            "source_section": claim.get("section", ""),
+            "start": claim.get("start"),
+            "end": claim.get("end"),
+            "speakers": claim.get("speakers", []),
+            "person_ids": claim.get("person_ids", []),
+            "evidence_ids": claim.get("evidence_ids", []),
+            "turn_ids": claim.get("turn_ids", []),
+            "page_ids": claim.get("page_ids", []),
+            "formal_action": bool(claim.get("formal_action")),
+            "retrieval_priority": 0.95 if (
+                claim.get("kind") == "decision" or claim.get("formal_action")) else 0.76,
         }
         if claim.get("formal_action"):
             record["action"] = claim.get("action") or _action_fields(claim.get("text", ""))

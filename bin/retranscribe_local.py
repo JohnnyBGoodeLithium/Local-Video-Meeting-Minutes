@@ -27,7 +27,7 @@ CORE_FILES = {
     "source.json", "transcript.txt", "transcript.json", "transcript.md",
     "transcript.spk.json", "transcript.spk.md", "stamps.json", "segments.json",
     "diarization.json", "minutes.md", "minutes.spk.md", "minutes.prev.md",
-    "minutes.evidence.json", "meeting.generation.json", "meeting.topic-map.json",
+    "minutes.evidence.json", "meeting.facts.json", "meeting.generation.json", "meeting.topic-map.json",
     ".topic-map-work.json",
 }
 

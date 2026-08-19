@@ -277,7 +277,8 @@ def _refresh_evidence(mdir: Path) -> dict:
     previous = _read_json(mdir / "minutes.evidence.json", {}).get("generation", {})
     _path, evidence = artifact.write_evidence_document(
         mdir, minutes_path.read_text(encoding="utf-8"), turns, pages, descs, profiles,
-        generation={**previous, "refreshed_after_edit": True})
+        generation={**previous, "refreshed_after_edit": True}, update_facts=False)
+    artifact.refresh_fact_document_sources(mdir, evidence)
     return evidence
 
 

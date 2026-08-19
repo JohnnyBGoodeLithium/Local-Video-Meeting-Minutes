@@ -13,6 +13,7 @@ check:
 	$(PY) web/tests/orgchart_extract_test.py
 	$(PY) web/tests/minutes_markdown_test.py
 	$(PY) web/tests/minutes_policy_test.py
+	$(PY) web/tests/minutes_restructure_test.py
 	$(PY) web/tests/minutes_overview_test.py
 	$(PY) web/tests/minutes_overview_direct_test.py
 	$(PY) web/tests/minutes_degenerate_test.py

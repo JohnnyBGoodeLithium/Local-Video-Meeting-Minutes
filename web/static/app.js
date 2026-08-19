@@ -120,7 +120,8 @@ const UI_COPY = {
     search: "搜索会议…", sortImported: "最近导入", sortMeeting: "会议时间", sortUpdated: "最近更新", transcript: "逐字稿",
     original: "原文", translated: "译文", comparison: "对照", translateTo: "译为", follow: "跟随",
     outline: "会议脉络", minutes: "会议纪要", screens: "屏幕内容", audit: "结论审计",
-    assistant: "AI 对话", evidence: "证据", send: "发送",
+    assistant: "AI 对话", evidence: "证据", send: "发送", restructure: "✦ 重组纪要",
+    restructurePlaceholder: "描述你希望的栏目、顺序、读者和详略，例如：先给管理层结论，再按项目列进展、分歧、风险和有依据的待办。",
     ask: "问这场会议，或告诉我如何修改纪要…", launcher: "问这场会议，或修改纪要…",
     expanding: "展开画面", collapsing: "收起画面", sourceMinutes: "正在显示原始语言纪要",
     translatingMinutes: "正在生成中文纪要，完成后自动切换", minutesFailed: "中文纪要生成失败，可再次切换重试",
@@ -145,7 +146,8 @@ const UI_COPY = {
     search: "Search meetings…", sortImported: "Recently imported", sortMeeting: "Meeting time", sortUpdated: "Recently updated", transcript: "Transcript",
     original: "Original", translated: "Translation", comparison: "Side by side", translateTo: "Translate to", follow: "Follow",
     outline: "Meeting map", minutes: "Minutes", screens: "Screen content", audit: "Conclusion audit",
-    assistant: "AI chat", evidence: "Evidence", send: "Send",
+    assistant: "AI chat", evidence: "Evidence", send: "Send", restructure: "✦ Restructure",
+    restructurePlaceholder: "Describe the sections, order, audience, and level of detail you want, for example: executive decisions first, then progress, disagreements, risks, and evidenced actions by project.",
     ask: "Ask about this meeting or request a minutes edit…", launcher: "Ask about or edit this meeting…",
     expanding: "Expand screen", collapsing: "Collapse screen", sourceMinutes: "Showing minutes in their original language",
     translatingMinutes: "Generating English minutes; this view will update automatically",
@@ -283,13 +285,15 @@ function applyUiLanguage() {
   text("#chapters-tab", ui("outline"));
   text("#minutes-tab", ui("minutes"));
   text("#visuals-tab", ui("screens"));
+  text("#restructure-minutes", ui("restructure"));
   const qualityTab = $("#quality-tab");
   if (qualityTab) qualityTab.childNodes[0].textContent = `${ui("audit")} `;
   text('[data-utility-tab="assistant"]', ui("assistant"));
   text('[data-utility-tab="evidence"]', ui("evidence"));
   text("#assistant-send", ui("send"));
   const input = $("#assistant-input");
-  if (input) input.placeholder = ui("ask");
+  if (input) input.placeholder = state.assistantNextIntent === "restructure"
+    ? ui("restructurePlaceholder") : ui("ask");
   const launcher = $("#assistant-launcher span:last-child");
   if (launcher) launcher.textContent = ui("launcher");
   const search = $("#search");
@@ -2774,6 +2778,16 @@ function renderMinutes() {
     : state.minutesTranslation?.state === "failed"
       ? `<div class="minutes-language-banner"><b>${esc(ui("minutesFailed"))}</b></div>` : "";
   box.innerHTML = languageBanner + banner + (translated || state.bundle.minutes_html || pending);
+  const restructure = $("#restructure-minutes");
+  if (restructure) {
+    restructure.disabled = !state.bundle?.has_minutes || draft
+      || state.bundle?.evidence?.state !== "ready" || state.assistantBusy;
+    restructure.title = draft
+      ? (isEnglishUi() ? "Wait for the multimodal final minutes" : "等待多模态终稿后再重组")
+      : state.bundle?.evidence?.state !== "ready"
+        ? (isEnglishUi() ? "Regenerate evidence before restructuring" : "事实依据尚未就绪，请先重新生成纪要")
+        : ui("restructurePlaceholder");
+  }
   const candidates = state.bundle?.evidence?.action_candidates || [];
   if (candidates.length) {
     const candidateHtml = `<details class="action-candidate-panel"><summary>` +
@@ -3156,6 +3170,7 @@ function setReviewMode(mode) {
     $(`#${id}`).classList.toggle("hidden", state.viewMode !== id);
   for (const id of ["minutes", "chapters", "visuals", "quality"])
     $(`#${id}-tab`).classList.toggle("active", state.viewMode === id);
+  $("#restructure-minutes")?.classList.toggle("hidden", state.viewMode !== "minutes");
   if (state.viewMode === "chapters") renderChapters();
   if (state.viewMode === "visuals") renderVisuals();
   if (state.viewMode === "quality") renderQualityReview();
@@ -3578,6 +3593,21 @@ function renderAssistantSuggestions() {
   });
 }
 
+function startMinutesRestructure() {
+  if (!state.bundle || state.assistantBusy || state.bundle.document_state === "draft"
+      || state.bundle.evidence?.state !== "ready") return;
+  setReviewMode("minutes");
+  state.assistantNextIntent = "restructure";
+  openUtility("assistant");
+  const input = $("#assistant-input");
+  input.value = "";
+  input.placeholder = ui("restructurePlaceholder");
+  $("#assistant-state").textContent = isEnglishUi()
+    ? "This changes the minutes view only; the chronological meeting map stays unchanged."
+    : "只重组正式纪要；时间线性的会议脉络保持不变。";
+  input.focus();
+}
+
 function resetAssistant() {
   state.assistantRefs = [];
   state.assistantHistory = [];
@@ -3590,7 +3620,7 @@ function resetAssistant() {
   if ($("#assistant-messages")) renderAssistantMessages();
   if ($("#assistant-input")) {
     $("#assistant-input").value = "";
-    $("#assistant-input").placeholder = "问这场会议，或告诉我如何修改纪要…";
+    $("#assistant-input").placeholder = ui("ask");
   }
   renderAssistantSuggestions();
 }
@@ -3753,7 +3783,7 @@ function renderAssistantMessages() {
       } else {
         el.innerHTML +=
           `<div class="edit-card">` +
-          `<div class="edit-card-kicker">准备更新 · ${esc(p.target_heading)}</div>` +
+          `<div class="edit-card-kicker">${p.scope === "document" ? (isEnglishUi() ? "Ready to restructure" : "准备重组") : (isEnglishUi() ? "Ready to update" : "准备更新")} · ${esc(p.target_heading)}</div>` +
           `<div class="edit-summary">${esc(p.summary || "已根据要求整理修改")}</div>` +
           `<div class="edit-actions">` +
           `<button type="button" class="apply-edit primary" data-id="${esc(p.proposal_id)}">保存到纪要</button>` +
@@ -3787,7 +3817,7 @@ function renderAssistantMessages() {
       const original = state.assistantMessages.slice(0, msgIndex).reverse()
         .find(item => item.role === "user")?.content || p.summary || "修改纪要";
       p.status = "superseded";
-      state.assistantNextIntent = "edit";
+      state.assistantNextIntent = p.scope === "document" ? "restructure" : "edit";
       renderAssistantMessages();
       $("#assistant-input").value = `${original}\n请继续调整：`;
       $("#assistant-input").focus();
@@ -3805,6 +3835,12 @@ function renderAssistantMessages() {
 
 function inferAssistantIntent(message) {
   if (state.assistantNextIntent) return state.assistantNextIntent;
+  const restructurePatterns = [
+    /(重组|重新组织|重新编排|调整结构|自定义结构).{0,12}(纪要|总结)/,
+    /(纪要|总结).{0,12}(重组|重新组织|重新编排|调整结构|栏目|版式)/,
+    /按.{1,30}(结构|栏目|顺序|项目|人员|分享人).{0,12}(整理|生成|重写|组织)/,
+  ];
+  if (restructurePatterns.some(pattern => pattern.test(message))) return "restructure";
   const editPatterns = [
     /(写入|加入|添加|补充|更新|同步).{0,10}(纪要|总结|行动项|决定|结论)/,
     /(纪要|总结|行动项|决定|结论).{0,10}(改成|改为|修改|改写|润色|精简|删除|移除|补充|更新)/,
@@ -3827,7 +3863,7 @@ async function sendAssistant() {
   const message = input.value.trim();
   if (!message) return;
   const intent = inferAssistantIntent(message);
-  if (intent === "edit" && state.bundle?.document_state === "draft") {
+  if (["edit", "restructure"].includes(intent) && state.bundle?.document_state === "draft") {
     state.assistantNextIntent = null;
     addAssistantMessage({ role: "user", content: message, sources: [] });
     addAssistantMessage({ role: "assistant", content: "当前是语音草稿，屏幕表格和画面依据还在补充。等多模态终稿替换完成后再修改，避免这次编辑被终稿覆盖。", sources: [] });
@@ -3841,19 +3877,26 @@ async function sendAssistant() {
     turn_indexes: state.assistantRefs,
     transcript_revision: state.bundle.transcript_revision,
   };
-  const path = intent === "edit"
-    ? `/api/meetings/${encodeURIComponent(state.slug)}/assistant/edit/preview`
-    : `/api/meetings/${encodeURIComponent(state.slug)}/assistant/chat/stream`;
-  const body = intent === "edit"
-    ? { ...common, minutes_revision: state.bundle.minutes_revision }
-    : { ...common, history: state.assistantHistory.slice(-8) };
+  const path = intent === "restructure"
+    ? `/api/meetings/${encodeURIComponent(state.slug)}/assistant/restructure/preview`
+    : intent === "edit"
+      ? `/api/meetings/${encodeURIComponent(state.slug)}/assistant/edit/preview`
+      : `/api/meetings/${encodeURIComponent(state.slug)}/assistant/chat/stream`;
+  const body = intent === "restructure"
+    ? { message, transcript_revision: state.bundle.transcript_revision,
+        minutes_revision: state.bundle.minutes_revision }
+    : intent === "edit"
+      ? { ...common, minutes_revision: state.bundle.minutes_revision }
+      : { ...common, history: state.assistantHistory.slice(-8) };
   addAssistantMessage({ role: "user", content: message, sources: [] });
   setAssistantThread(true);
   input.value = "";
-  input.placeholder = "问这场会议，或告诉我如何修改纪要…";
+  input.placeholder = ui("ask");
   state.assistantBusy = true;
   $("#assistant-send").disabled = true;
-  $("#assistant-state").textContent = intent === "edit" ? "正在生成修改预览…" : "正在查找证据并回答…";
+  $("#assistant-state").textContent = intent === "restructure"
+    ? (isEnglishUi() ? "Building a fact-grounded structure preview…" : "正在按事实层生成结构预览…")
+    : intent === "edit" ? "正在生成修改预览…" : "正在查找证据并回答…";
   let streamMsg = null;
   try {
     const r = await api(path, {
@@ -3861,12 +3904,14 @@ async function sendAssistant() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    if (intent === "edit") {
+    if (["edit", "restructure"].includes(intent)) {
       const j = await r.json();
       if (!r.ok) throw new Error(assistantError(j.detail));
       addAssistantMessage({
         role: "assistant",
-        content: "我整理了一项纪要更新，请确认后再保存。",
+        content: intent === "restructure"
+          ? (isEnglishUi() ? "I reorganized the full minutes from the evidence-backed fact layer. Review it before saving." : "我已基于证据化事实层重组整篇纪要，请确认后再保存。")
+          : "我整理了一项纪要更新，请确认后再保存。",
         sources: j.sources || [],
         proposal: j,
       });
@@ -3925,6 +3970,7 @@ async function sendAssistant() {
     state.assistantBusy = false;
     $("#assistant-send").disabled = false;
     $("#assistant-state").textContent = "";
+    renderMinutes();
   }
 }
 
@@ -4472,6 +4518,7 @@ function init() {
   $("#visuals-tab").onclick = () => setReviewMode("visuals");
   $("#quality-tab").onclick = () => setReviewMode("quality");
   $("#quality-entry-btn").onclick = () => setReviewMode("quality");
+  $("#restructure-minutes").onclick = startMinutesRestructure;
   $("#translation-control").onclick = () => {
     if (state.translationJob) stopTranscriptTranslation();
     else startTranscriptTranslation([...state.evidenceBilingual]);

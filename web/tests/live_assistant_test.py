@@ -11,7 +11,9 @@ from pathlib import Path
 
 PROJECT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT / "web"))
+sys.path.insert(0, str(PROJECT / "bin"))
 import assistant_service as assistant  # noqa: E402
+import meeting_artifact as artifact  # noqa: E402
 
 
 def main() -> int:
@@ -25,9 +27,23 @@ def main() -> int:
             {"speaker": "测试乙", "voice": None, "start": 5.0, "end": 9.0,
              "text": "同意，负责人使用虚构代号 Atlas。"},
         ], ensure_ascii=False), encoding="utf-8")
+        decision_marker = (
+            "<!-- mm:evidence kind=decision status=confirmed confidence=high "
+            "turns=T000001,T000002 -->")
+        action_marker = (
+            "<!-- mm:evidence kind=action status=confirmed confidence=high "
+            "turns=T000001,T000002 -->")
         minutes.write_text(
-            "# 虚构测试会议\n\n## 总体摘要\n\n- 讨论了虚构样机。\n\n"
-            "## 行动项\n\n- 暂无。\n", encoding="utf-8")
+            "# 虚构测试会议\n\n## 总体摘要\n\n"
+            f"- 决定星期五完成蓝色样机。 {decision_marker}\n\n"
+            "## 行动项\n\n"
+            "| 事项 | 负责人 | 期限 | 状态 |\n| --- | --- | --- | --- |\n"
+            f"| 完成蓝色样机 | Atlas | 星期五 | 已确认 | {action_marker}\n",
+            encoding="utf-8")
+        _path, _evidence = artifact.write_evidence_document(
+            root, minutes.read_text(encoding="utf-8"),
+            json.loads(transcript.read_text(encoding="utf-8")), [], {}, [],
+            generation={"synthetic_live_test": True})
 
         tr_rev = assistant.revision(transcript)
         result = assistant.answer_question(
@@ -41,8 +57,16 @@ def main() -> int:
         if not proposal.get("proposal_id") or not proposal.get("diff"):
             print("[error] 修改预览未满足结构化协议", file=sys.stderr)
             return 1
+        restructure = assistant.preview_minutes_restructure(
+            minutes, transcript, root / "minutes.evidence.json",
+            "先列已确认决定，再用表格列有依据的行动项",
+            tr_rev, assistant.revision(minutes), False)
+        if restructure.get("scope") != "document" or not restructure.get("diff"):
+            print("[error] 整篇重组未满足事实层协议", file=sys.stderr)
+            return 1
         print(f"[meta] live assistant ok | sources={len(result['sources'])} "
-              f"| target={proposal['target_heading']} | model={result['model']}")
+              f"| target={proposal['target_heading']} | restructure=document "
+              f"| model={result['model']}")
         return 0
 
 

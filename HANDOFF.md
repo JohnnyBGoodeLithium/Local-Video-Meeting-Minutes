@@ -3,14 +3,21 @@
 > 给接手 agent：先读本文件和 `AGENTS.md`，再看 `CHANGELOG.md` 未发布段了解最近改动。
 > 本文件在每次交接或大方向变化时更新；过期的进行中事项完成后删除对应段落。
 
-更新时间：2026-08-18（产品版本 v0.8.2；在线工作台构建号 20260818p60；提交号以 `git log -1` 为准）
+更新时间：2026-08-19（产品版本 v0.9.0；在线工作台构建号 20260819p61；提交号以 `git log -1` 为准）
 
 ## 当前基线
 
 - 仓库：`/home/johnny-tcx_ultra/meeting-minutes`，分支 main。
-- 验证基线：`make check` 全绿、隔离 Web smoke 137/137；真实 Teams DOCX 样本结构验证得到 259 条有效 cue、时间单调且正文/姓名非空，未把内容写入仓库或测试夹具。
+- 验证基线：发布提交前以本轮 `make check`、隔离 Web smoke 和 MeetingPack 启动测试结果为准；所有新增测试只使用虚构数据。
 - 服务：端口 8899，`systemctl --user restart meeting-minutes-web` 重启（挂起 ~45s 是已知 P2 问题，见下）。
 - 隐私红线（详见 AGENTS.md）：不读真实会议正文，只看元数据/结构；上次已获用户授权诊断 Gate B 会议标题形态，新任务需重新授权。
+
+## 当前批次：v0.9.0 事实层与自然语言重组纪要
+
+- `meeting.facts.json`（`meeting-facts/v1`）保存终稿生成时的完整 claim 库，只绑定逐字稿、slides 和 VL 描述 revision；改变 `minutes.md` 的栏目或取舍不会让它过期。
+- 会议纪要标题栏提供“重组纪要”。用户在 AI 栏输入任意结构要求，服务端从事实层生成整篇 Markdown 预览；marker 白名单、逐行依据、正式待办语义和 revision 由代码校验，之后复用既有应用/撤销历史链路。
+- 重组只改变会议纪要，不修改时间线性的 Topic Map。当前纪要的 `minutes.evidence.json` 会刷新，但明确以 `update_facts=False` 防止窄阅读视图覆盖完整库存。
+- 在线 RAG 和 MeetingPack RAG 将当前纪要省略的库存项投影为 `fact` 记录；MeetingPack 新增 `assets/facts.json`，schema 保持兼容的 v5。旧会议首次点击重组时会从仍有效的 evidence 无模型迁移事实层。
 
 ## 当前批次：会议排序与错误逐字稿纠错
 
@@ -36,7 +43,7 @@
 
 - v3 导航直接把同一议题之间不超过 60 秒的短回应、过渡和未分类轮次归回该议题，时间线展示章节，不再暴露逐轮分类噪声。
 - Teams DOCX 中连续发言共用时间戳时，导航投影在重叠区中点按顺序切分，不改 canonical 逐字稿时间。
-- 存量 v3 在读取时确定性收敛，翻译层重用 canonical 时间/linkage，不需重跑 LLM。当前产品版本 `v0.8.2`。
+- 存量 v3 在读取时确定性收敛，翻译层重用 canonical 时间/linkage，不需重跑 LLM。该批发布于 `v0.8.2`。
 
 ## 当前批次：MeetingPack 响应式核听工作台
 

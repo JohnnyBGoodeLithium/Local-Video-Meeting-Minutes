@@ -123,7 +123,7 @@ def poll_job(jid, timeout=60):
 s, _, health = req("GET", "/api/health")
 check("GET /api/health → 200 + dry-run + local assistant",
       s == 200 and health.get("ok") is True and health.get("dry_run") is True
-      and health.get("product", {}).get("version") == "0.8.2"
+      and health.get("product", {}).get("version") == "0.9.0"
       and health.get("assistant", {}).get("local_only") is True
       and health.get("assistant", {}).get("rag") == "meeting-rag/evidence-hybrid-v1"
       and health.get("assistant", {}).get("retrieval_models", {}).get("mode") == "lexical")
@@ -141,6 +141,7 @@ check("首页显式展示结论审计和会议脉络入口且禁止缓存旧壳"
       and b'id="chapters-tab"' in page and b'id="visuals-tab"' in page
       and b'id="meeting-sort"' in page and b'id="ignore-transcript"' in page
       and b'id="retranscribe-btn"' in page
+      and b'id="restructure-minutes"' in page
       and b'utility-panel' in page and b'pane-resizer' in page
       and b'export-preflight' in page and b'href="/static/product.html"' in page
       and "no-store" in cache_control)
@@ -165,7 +166,7 @@ check("时间码跳转只滚动内容面板，不带动整页丢失播放器",
 check("在线屏幕舞台支持放大、缩放和相邻屏幕键盘导航",
       b'id="screen-preview-mask"' in page and b'openScreenPreview' in app_js
       and b'navigateScreenPreview' in app_js and b'SCREEN_PREVIEW_ZOOMS' in app_js
-      and b'20260818p60' in page)
+      and b'20260819p61' in page)
 check("会议列表默认按导入时间且可切换并记忆排序",
       b'meetingSort' in app_js and b'"imported"' in app_js
       and b'imported_at' in app_js and b'updated_at' in app_js
@@ -178,6 +179,10 @@ check("旧 VL 转义换行与协议标题在前端读路径自愈",
       b'function visualTitleCandidate' in app_js
       and b'function visualDescriptionHtml' in app_js
       and b'VISUAL_PROTOCOL_HEADING' in app_js)
+check("正式纪要提供事实层整篇重组入口且不改会议脉络",
+      b'assistant/restructure/preview' in app_js
+      and b'startMinutesRestructure' in app_js
+      and "时间线性的会议脉络保持不变".encode() in app_js)
 check("语音草稿失败按返回码区分空正文、模型请求与内部异常",
       b'function voiceDraftFailureCopy' in app_js
       and "这不是模型空正文".encode() in app_js
@@ -452,8 +457,8 @@ evidence_before_export = (SMOKE / "minutes.evidence.json").read_bytes()
 s, _, preflight = req("GET", "/api/meetings/_smoke/export/preflight")
 check("导出预检只返回内容状态、数量、媒体和预计体积",
       s == 200 and preflight.get("evidence", {}).get("state") == "ready"
-      and preflight.get("product_version") == "0.8.2"
-      and "_v0.8.2_YYYYMMDD-HHMMSS.meetingpack.zip" in preflight.get("filename_pattern", "")
+      and preflight.get("product_version") == "0.9.0"
+      and "_v0.9.0_YYYYMMDD-HHMMSS.meetingpack.zip" in preflight.get("filename_pattern", "")
       and preflight.get("evidence", {}).get("claims") == 3
       and preflight.get("content", {}).get("transcript_turns") == 3
       and preflight.get("media", {}).get("audio", {}).get("available") is True
@@ -468,32 +473,36 @@ content_disposition = next((value for key, value in h.items()
 pack = zipfile.ZipFile(io.BytesIO(pack_bytes)) if s == 200 else None
 names = set(pack.namelist()) if pack else set()
 required = {"viewer.html", "README.txt", "AGENTS.md", "assets/minutes.md", "assets/transcript.json",
-            "assets/transcript.md", "assets/evidence.json",
+            "assets/transcript.md", "assets/evidence.json", "assets/facts.json",
             "assets/topic-map.json", "assets/rag/records.jsonl", "assets/manifest.json",
             "assets/slides/p0001.webp", "assets/slides/p0002.webp"}
 check("导出 MeetingPack → 标准文件齐全且默认无音视频",
       s == 200 and required <= names and not any(n.startswith("assets/media/") for n in names)
-      and re.search(r"_v0\.8\.2_\d{8}-\d{6}\.meetingpack\.zip", content_disposition)
+      and re.search(r"_v0\.9\.0_\d{8}-\d{6}\.meetingpack\.zip", content_disposition)
       and "assets/views.json" not in names
       and {name.split("/", 1)[0] for name in names} == {"viewer.html", "README.txt", "AGENTS.md", "assets"})
 if pack:
     manifest = json.loads(pack.read("assets/manifest.json"))
     evidence = json.loads(pack.read("assets/evidence.json"))
+    facts = json.loads(pack.read("assets/facts.json"))
     exported_topic_map = json.loads(pack.read("assets/topic-map.json"))
     viewer = pack.read("viewer.html").decode("utf-8")
     pack_readme = pack.read("README.txt").decode("utf-8")
     agents_md = pack.read("AGENTS.md").decode("utf-8")
     rag = [json.loads(line) for line in pack.read("assets/rag/records.jsonl").decode("utf-8").splitlines()]
 else:
-    manifest, evidence, exported_topic_map, viewer, pack_readme, agents_md, rag = {}, {}, {}, "", "", "", []
+    manifest, evidence, facts, exported_topic_map, viewer, pack_readme, agents_md, rag = {}, {}, {}, {}, "", "", "", []
 check("包内 AGENTS.md 覆盖 agent 任务菜谱（含同系列多场对比与 person_id 对齐）",
       all(marker in agents_md for marker in
           ("常见任务菜谱", "同系列多场对比", "person_id", "会后产出", "建知识库索引", "事实核对")))
 check("MeetingPack v5 manifest/evidence/RAG/Topic Map 共享稳定 linkage",
       manifest.get("schema") == "meetingpack/v5"
-      and manifest.get("generator", {}).get("version") == "0.8.2"
-      and "Meeting Minutes v0.8.2" in pack_readme
+      and manifest.get("generator", {}).get("version") == "0.9.0"
+      and "Meeting Minutes v0.9.0" in pack_readme
       and evidence.get("schema") == "meeting-minutes-evidence/v1"
+      and facts.get("schema") == "meeting-facts/v1"
+      and manifest.get("facts", {}).get("claims") == len(facts.get("claims", []))
+      and manifest.get("counts", {}).get("facts") == len(facts.get("claims", []))
       and evidence.get("claims", [{}])[0].get("turn_ids") == ["T000001", "T000002"]
       and any(r.get("record_type") == "claim" and r.get("evidence_ids") for r in rag)
       and manifest.get("evidence", {}).get("state") == "ready"
@@ -509,7 +518,7 @@ check("viewer 为无外链、自包含且可浏览逐字稿/媒体/脉络/屏幕
       and "会议脉络" in viewer and "屏幕内容" in viewer
       and "candidatePanel" in viewer and "navigation_segments" in viewer
       and 'id="language-switch"' in viewer
-      and 'id="pack-version"' in viewer and '"version":"0.8.2"' in viewer
+      and 'id="pack-version"' in viewer and '"version":"0.9.0"' in viewer
       and "minutes_languages" in viewer)
 check("MeetingPack 携带已生成双语纪要并可离线切换",
       "assets/minutes.en.md" in names and "assets/minutes.zh-CN.md" in names
@@ -947,8 +956,36 @@ check("assistant/chat/stream → SSE meta/delta/done",
 s, _, _ = req("POST", "/api/meetings/_smoke/assistant/chat/stream", stale, raw=True)
 check("assistant/chat/stream 过期引用在流开始前 409", s == 409)
 
-# 17. 纪要修改必须 preview → revision 校验 → apply → 可安全撤销，并生成历史版本
+# 17. 自然语言整篇重组使用独立事实层，仍走 preview → apply → undo
+restructure_body = {
+    "message": "先列总体摘要，再列有依据的待办",
+    "transcript_revision": bundle.get("transcript_revision"),
+    "minutes_revision": bundle.get("minutes_revision"),
+}
+s, _, restructure = req(
+    "POST", "/api/meetings/_smoke/assistant/restructure/preview", restructure_body)
+check("assistant/restructure/preview → 整篇事实化结构预览",
+      s == 200 and restructure.get("proposal_id")
+      and restructure.get("scope") == "document"
+      and restructure.get("target_heading") == "整篇纪要"
+      and restructure.get("sources") and restructure.get("diff"),
+      f"status={s} detail={restructure.get('detail', '')}")
+# preview 允许把存量/来源已变化会议的完整 evidence 无模型迁移成事实层；
+# 从预览完成后开始，应用和撤销都不得再改写它。
+facts_before_restructure = (SMOKE / "meeting.facts.json").read_bytes()
+s, _, restructured = req("POST", "/api/meetings/_smoke/assistant/edit/apply",
+                         {"proposal_id": restructure.get("proposal_id")})
+check("整篇重组写入后事实快照保持不变",
+      s == 200 and restructured.get("ok") is True
+      and (SMOKE / "meeting.facts.json").read_bytes() == facts_before_restructure)
+s, _, restored = req("POST", "/api/meetings/_smoke/assistant/edit/undo",
+                     {"proposal_id": restructure.get("proposal_id")})
+check("整篇重组可一步撤销", s == 200 and restored.get("ok") is True)
+_, _, bundle = req("GET", "/api/meetings/_smoke/bundle")
+
+# 18. 章节修改必须 preview → revision 校验 → apply → 可安全撤销，并生成历史版本
 minutes_before_edit = (SMOKE / "minutes.md").read_text()
+history_count_before_edit = len(list((SMOKE / ".history" / "minutes").glob("*.md")))
 edit_body = {
     "message": "根据引用补充总体摘要",
     "turn_indexes": [0, 1],
@@ -964,7 +1001,7 @@ s, _, applied = req("POST", "/api/meetings/_smoke/assistant/edit/apply",
                     {"proposal_id": preview.get("proposal_id")})
 history_files = list((SMOKE / ".history" / "minutes").glob("*.md"))
 check("assistant/edit/apply → 写入 + 自动版本备份", s == 200 and applied.get("ok") is True
-      and len(history_files) == 1)
+      and len(history_files) == history_count_before_edit + 1)
 s, _, _ = req("POST", "/api/meetings/_smoke/assistant/edit/apply",
               {"proposal_id": preview.get("proposal_id")})
 check("同一修改提案不能重复应用", s == 409)
@@ -974,12 +1011,12 @@ history_files = list((SMOKE / ".history" / "minutes").glob("*.md"))
 check("assistant/edit/undo → 恢复原纪要并保留修改后版本",
       s == 200 and undone.get("ok") is True
       and (SMOKE / "minutes.md").read_text() == minutes_before_edit
-      and len(history_files) == 2)
+      and len(history_files) == history_count_before_edit + 2)
 s, _, _ = req("POST", "/api/meetings/_smoke/assistant/edit/undo",
               {"proposal_id": preview.get("proposal_id")})
 check("同一修改只能撤销一次", s == 409)
 
-# 18. 删除只作用于隔离数据根，并清理声纹来源引用
+# 19. 删除只作用于隔离数据根，并清理声纹来源引用
 s, _, deleted = req("POST", "/api/meetings/_smoke/delete")
 check("删除隔离会议 → 目录移除", s == 200 and deleted.get("ok") is True and not SMOKE.exists())
 check("删除会议 → 同步移除本地审计记录",

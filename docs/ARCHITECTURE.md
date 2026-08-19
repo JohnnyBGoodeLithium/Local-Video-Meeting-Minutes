@@ -130,7 +130,7 @@ Topic Map reduce 连续出现非 JSON 时依次尝试语法修复与紧凑归并
 
 `slide_pages.py` 的变化检测默认排除画面右侧 15% 的会议 UI/参会人栏，再计算时序活动掩码、页面相似度和代表帧。用于判页的低分辨率 RGB 帧会先抑制稀疏的高饱和红框/激光点；页面距离同时比较全页稳定内容和顶部 22% 标题区，所以同一表格的局部标注不切页，大标题改变仍切页。RGB 逐帧流式转灰度，不使整段三通道帧常驻内存。输出截图仍从原视频抓取完整画面；参数 `--ignore-right-pct 0` 可关闭右栏排除。
 
-Web 与 MeetingPack 的常规纪要通过 `minutes_reading_markdown()` 从 canonical Markdown 做只读投影，在第一个“分页详情/逐页详情”章节前截断。投影层会从 claims 重新计算 `formal_action`，再重建“可核验待办”表：只有来自整场“待办事项/Action Items”章节、带有效逐字稿 T ID、且状态不是 informational 的行动项进入正式表格。语音草稿与多模态生成现在共用同一协议护栏：待办写“无”而其他章节出现非 informational action marker，视为漏投影并触发完整重试/待办定点修复；修复后待办章节之外的 action marker 确定性降为 discussion，保留事实和 T/P 引用但不形成第二套行动。逐页详情里的设备调试、到会确认、议程和汇报事实仍不得晋级。旧 sidecar 继续在读取时重投影。原模型待办表中没有绑定来源的行不会删除，而是进入 `action_candidates`，由在线端和离线 Viewer 默认收起并标为“待核实候选”。人读投影还会清理模型冗余输出的 `（T000001, ...）` 尾注；T ID 继续存在于隐藏 marker、evidence、RAG 和 transcript JSON，正文与证据抽屉只显示“依据 + 时间 + 说话人”。MeetingPack 的 `assets/minutes.md` 是同一常规阅读投影，机器侧完整事实以 `assets/evidence.json` 和 `assets/rag/records.jsonl` 为准。
+Web 与 MeetingPack 的常规纪要通过 `minutes_reading_markdown()` 从 canonical Markdown 做只读投影，在第一个“分页详情/逐页详情”章节前截断。投影层会从 claims 重新计算 `formal_action`，再重建“可核验待办”表：只有来自整场“待办事项/Action Items”章节、带有效逐字稿 T ID、且状态不是 informational 的行动项进入正式表格。语音草稿与多模态生成现在共用同一协议护栏：待办写“无”而其他章节出现非 informational action marker，视为漏投影并触发完整重试/待办定点修复；修复后待办章节之外的 action marker 确定性降为 discussion，保留事实和 T/P 引用但不形成第二套行动。逐页详情里的设备调试、到会确认、议程和汇报事实仍不得晋级。旧 sidecar 继续在读取时重投影。原模型待办表中没有绑定来源的行不会删除，而是进入 `action_candidates`，由在线端和离线 Viewer 默认收起并标为“待核实候选”。人读投影还会清理模型冗余输出的 `（T000001, ...）` 尾注；T ID 继续存在于隐藏 marker、evidence、RAG 和 transcript JSON，正文与证据抽屉只显示“依据 + 时间 + 说话人”。MeetingPack 的 `assets/minutes.md` 是同一常规阅读投影；完整库存另存为 `meeting.facts.json` / `assets/facts.json`，RAG 会同时摄入当前 claim 和被阅读投影省略的 fact。
 
 所有模型文本进入阅读结构前统一剥离完整、残缺或反向出现的 `<think>/<analysis>` 块。新纪要/VL 生成同样在落盘前清洗；如果旧 VL 缓存清洗后没有可靠答案，页面标为需要重新解析，不把推理过程伪装成标题。
 
@@ -150,9 +150,9 @@ Web 与 MeetingPack 的常规纪要通过 `minutes_reading_markdown()` 从 canon
 1. 浏览器提交逐字稿轮次索引与文档 revision，不提交任意文件路径。
 2. `rag_service.py` 在当前会议内对 claim、逐字稿、VL 页面和纪要章节执行词法 + Qwen3 embedding 混合召回、RRF 融合与 Qwen3 reranker 重排；显式引用优先，claim/页面命中时按稳定 ID 补回原始逐字稿。
 3. 问答调用本机 OpenAI-compatible API，返回可点击的统一 `R` 来源编号；检索可通过 `/api/meetings/{slug}/rag/search` 独立检查而不调用模型。回答以 SSE 流式返回：`POST /api/meetings/{slug}/assistant/chat/stream` 在流开始前同步完成校验与检索（revision 冲突仍返回 409），帧序为 meta（证据来源）→ delta（逐段正文）→ done；前端逐段渲染、完成后一次性重渲染接回引用链接，中途失败撤销空气泡；原非流式端点保留。
-4. 修改纪要时，模型只能选择候选 Markdown 章节并返回替换建议。
-5. 服务端生成结构化预览；用户确认后再次校验 revision，保存历史版本，再原子替换文件。
-6. 用户可撤销刚应用的修改；服务端只在当前 revision 仍与该提案一致时恢复历史版本，并留存撤销前副本。
+4. 局部修改时，模型只能选择候选 Markdown 章节并返回替换建议；整篇重组时只能从 `meeting-facts/v1` 白名单中选择、排序和组织，逐条保留原 marker。
+5. 服务端拒绝无依据正文、未知/重复 marker 和正式待办语义升级，再生成结构化预览；用户确认后再次校验 revision，保存历史版本，再原子替换文件。
+6. 纪要应用/撤销只刷新当前 evidence，不覆盖完整事实层；用户可撤销刚应用的修改，服务端只在当前 revision 仍与该提案一致时恢复历史版本，并留存撤销前副本。
 
 默认只允许 `localhost/127.0.0.1/::1` 模型地址。远程模型必须在一次明确授权后设置 `MEETING_ALLOW_REMOTE_LLM=1`。
 向量索引按会议持久化到私有 `.rag/`，manifest 不保存正文并与记录 revision 绑定；模型服务失败时自动降级为词法检索。当前仍是单会议检索，不是跨会议搜索。Web 和两个检索模型服务都只监听回环地址且没有多用户鉴权；在补齐 LAN/VPN 可达性、身份和会议权限之前，不得直接对同事网络开放。

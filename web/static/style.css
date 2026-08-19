@@ -201,6 +201,18 @@ body.page-index { overflow: hidden; }
   white-space: nowrap;
 }
 .mode-tab.active { color: var(--tab-active-color, var(--text)); background: var(--tab-active-bg, var(--panel2)); border-color: var(--tab-active-border, var(--border)); }
+.minutes-restructure {
+  position: sticky;
+  right: 0;
+  margin-left: auto;
+  border-color: rgba(79,124,255,.45);
+  background: var(--panel);
+  color: var(--accent);
+  font-weight: var(--fw-600);
+  white-space: nowrap;
+}
+.minutes-restructure:hover:not(:disabled) { border-color: var(--accent); background: rgba(79,124,255,.12); }
+.minutes-restructure:disabled { opacity: .4; }
 .quality-badge {
   display: inline-block;
   min-width: 17px;

@@ -20,7 +20,7 @@ import retrieval_models
 BIN_DIR = Path(__file__).resolve().parents[1] / "bin"
 if str(BIN_DIR) not in sys.path:
     sys.path.insert(0, str(BIN_DIR))
-from meeting_artifact import project_action_semantics
+from meeting_artifact import fact_document_state, project_action_semantics
 
 
 RAG_VERSION = "meeting-rag/evidence-hybrid-v1"
@@ -150,6 +150,37 @@ def meeting_records(mdir: Path) -> tuple[list[dict], dict]:
             "speakers": list(dict.fromkeys(item["speaker"] for item in linked)),
         })
 
+    # 用户可以把阅读纪要重组为更窄的视角，但在线问答不能因此“忘掉”被省略的
+    # 事实。事实层只随逐字稿/画面来源变化，和当前 minutes.md 的版式无关。
+    facts = _read_json(mdir / "meeting.facts.json", {})
+    facts_state = fact_document_state(mdir, facts)
+    current_markers = {str(claim.get("marker") or "")
+                       for claim in evidence.get("claims", [])}
+    fact_count = 0
+    if facts_state == "ready":
+        for index, claim in enumerate(facts.get("claims", []), 1):
+            marker = str(claim.get("marker") or "")
+            if not marker or marker in current_markers:
+                continue
+            turn_ids = [str(value) for value in claim.get("turn_ids", [])]
+            linked = [turn_by_id[value] for value in turn_ids if value in turn_by_id]
+            records.append({
+                "source_id": f"F{index:05d}",
+                "type": "fact",
+                "text": str(claim.get("text") or ""),
+                "section": str(claim.get("section") or ""),
+                "kind": str(claim.get("kind") or "discussion"),
+                "formal_action": bool(claim.get("formal_action")),
+                "status": str(claim.get("status") or "informational"),
+                "confidence": str(claim.get("confidence") or "medium"),
+                "turn_indexes": [item["turn_indexes"][0] for item in linked],
+                "evidence_ids": [*turn_ids, *map(str, claim.get("page_ids", []))],
+                "start": min((item["start"] for item in linked), default=claim.get("start")),
+                "end": max((item["end"] for item in linked), default=claim.get("end")),
+                "speakers": list(dict.fromkeys(item["speaker"] for item in linked)),
+            })
+            fact_count += 1
+
     page_rows = evidence.get("sources", {}).get("pages", [])
     if not page_rows:
         descriptions = _read_json(mdir / "page_desc.json", {}).get("desc", {})
@@ -188,19 +219,21 @@ def meeting_records(mdir: Path) -> tuple[list[dict], dict]:
         "version": RAG_VERSION,
         "evidence_state": evidence_state,
         "claim_count": len(evidence.get("claims", [])),
+        "fact_state": facts_state,
+        "supplemental_fact_count": fact_count,
     }
 
 
 def _intent_boost(query: str, record: dict) -> float:
     q = query.lower()
     rtype = record["type"]
-    boost = {"claim": 1.22, "transcript": 1.0, "slide": 0.82,
+    boost = {"claim": 1.22, "fact": 1.16, "transcript": 1.0, "slide": 0.82,
              "minutes_section": 0.92}.get(rtype, 1.0)
     if re.search(r"决定|结论|批准|通过|共识|decision|approve", q):
-        if rtype == "claim":
+        if rtype in {"claim", "fact"}:
             boost *= 1.35 if record.get("kind") in {"decision", "alignment"} else 1.12
     if re.search(r"行动|待办|谁负责|截止|follow.?up|action|owner|deadline", q):
-        if rtype == "claim" and record.get("formal_action"):
+        if rtype in {"claim", "fact"} and record.get("formal_action"):
             boost *= 1.5
     if re.search(r"ppt|页面|幻灯片|图表|deck|slide", q) and rtype == "slide":
         boost *= 1.55
@@ -299,11 +332,12 @@ def retrieve(mdir: Path, query: str, explicit_turn_indexes: list[int] | None = N
                 add(record)
         explicit_ids = {f"T{index + 1:06d}" for index in explicit}
         for record in records:
-            if record["type"] in {"claim", "slide"} and explicit_ids.intersection(
+            if record["type"] in {"claim", "fact", "slide"} and explicit_ids.intersection(
                     record.get("evidence_ids", [])):
                 add(record)
 
-    caps = {"claim": 5, "transcript": 10, "slide": 4, "minutes_section": 3}
+    caps = {"claim": 5, "fact": 6, "transcript": 10, "slide": 4,
+            "minutes_section": 3}
     counts = Counter(record["type"] for record in chosen)
     ranked, retrieval_mode = _hybrid_candidates(Path(mdir), records, query)
     for record in ranked:
@@ -334,7 +368,7 @@ def retrieve(mdir: Path, query: str, explicit_turn_indexes: list[int] | None = N
         if key not in expanded_seen and len(expanded) < limit:
             expanded_seen.add(key)
             expanded.append(record)
-        if record["type"] not in {"claim", "slide"}:
+        if record["type"] not in {"claim", "fact", "slide"}:
             continue
         added = 0
         for evidence_id in record.get("evidence_ids", []):
@@ -351,7 +385,7 @@ def retrieve(mdir: Path, query: str, explicit_turn_indexes: list[int] | None = N
             added += 1
 
     sources, blocks = [], []
-    names = {"claim": "纪要结论", "transcript": "逐字稿", "slide": "页面",
+    names = {"claim": "纪要结论", "fact": "完整事实层", "transcript": "逐字稿", "slide": "页面",
              "minutes_section": "纪要章节"}
     for number, record in enumerate(expanded[:limit], 1):
         citation_id = f"R{number}"

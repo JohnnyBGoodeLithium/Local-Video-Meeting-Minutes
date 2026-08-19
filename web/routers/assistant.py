@@ -33,6 +33,12 @@ class AssistantApplyReq(BaseModel):
     proposal_id: str
 
 
+class AssistantRestructureReq(BaseModel):
+    message: str
+    transcript_revision: str | None = None
+    minutes_revision: str | None = None
+
+
 class RagSearchReq(BaseModel):
     query: str = Field(min_length=1, max_length=8000)
     turn_indexes: list[int] = Field(default_factory=list, max_length=30)
@@ -142,6 +148,25 @@ def assistant_edit_apply(slug: str, req: AssistantApplyReq):
         result = assistant.apply_minutes_edit(minutes, req.proposal_id)
         _refresh_evidence(mdir)
         return result
+    except assistant.AssistantError as exc:
+        _assistant_http_error(exc)
+
+
+@router.post("/api/meetings/{slug}/assistant/restructure/preview")
+def assistant_restructure_preview(slug: str, req: AssistantRestructureReq):
+    """按自然语言结构要求重组整篇纪要；Topic Map 始终保持时间线性。"""
+    mdir = _mdir(slug)
+    if meeting_generation.document_state(mdir, _minutes_file(mdir) is not None) == "draft":
+        raise HTTPException(409, "语音草稿正在补充屏幕资料；终稿完成后才能重组纪要")
+    transcript = mdir / "transcript.spk.json"
+    minutes = _minutes_file(mdir)
+    evidence = mdir / "minutes.evidence.json"
+    if not transcript.is_file() or minutes is None or not evidence.is_file():
+        raise HTTPException(400, "需要逐字稿、纪要和事实依据才能重组")
+    try:
+        return assistant.preview_minutes_restructure(
+            minutes, transcript, evidence, _assistant_message(req.message),
+            req.transcript_revision, req.minutes_revision, DRY_RUN)
     except assistant.AssistantError as exc:
         _assistant_http_error(exc)
 
