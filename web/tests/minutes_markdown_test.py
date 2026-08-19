@@ -214,6 +214,20 @@ fullwidth_projected = minutes_reading_markdown(
 assert "｜合成事项丙｜" not in fullwidth_projected
 assert "| 合成事项丙 [依据](#mm-C00001) | Casey Example | 待确认 | 待确认 |" in fullwidth_projected
 
+# 真实存量 sidecar 形态：action.text 为空，但 claim.text 保存完整三单元格行，
+# 其余 action 字段已经右移且非空。不能用 owner 是否为空决定是否回退重拆。
+empty_action_text_claim = {
+    **stale_claim,
+    "text": "| 合成事项丁 | Drew Example | 待确认 |",
+    "action": {"text": None, "owner": "合成事项丁",
+               "deadline": "Drew Example", "status": "待确认"},
+}
+empty_action_text = action_items_from_claims([empty_action_text_claim])[0]
+assert empty_action_text["text"] == "合成事项丁"
+assert empty_action_text["owner"] == "Drew Example"
+assert empty_action_text["deadline"] == "待确认"
+assert empty_action_text["status"] == "待确认"
+
 print("Minutes Markdown: marker-in-status-cell action rows passed")
 
 # 模型把 marker 包在反引号里：替换成“依据”链接时必须拆掉反引号，

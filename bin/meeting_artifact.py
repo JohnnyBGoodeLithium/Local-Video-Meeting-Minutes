@@ -530,10 +530,14 @@ def action_items_from_claims(claims: list[dict]) -> list[dict]:
             if reparsed.get("owner"):
                 reparsed["status"] = fields.get("status") or reparsed.get("status")
                 fields = reparsed
-        if fields.get("owner") is None and re.search(r"[|｜]", str(claim.get("text") or "")):
-            # marker 占状态列的旧 sidecar：退回完整 claim 原文重拆。
+        if (not fields.get("text") or fields.get("owner") is None) and re.search(
+                r"[|｜]", str(claim.get("text") or "")):
+            # marker 位于事项单元格中时，旧 sidecar 可能留下空 action.text，但
+            # owner/deadline 已经整体右移且非空；不能再用 owner 是否为空判断。
+            # 只要 action.text 缺失而 claim.text 仍是完整表格行，就回退重拆。
             reparsed = _action_fields(str(claim.get("text") or ""))
             if reparsed.get("owner"):
+                reparsed["status"] = fields.get("status") or reparsed.get("status")
                 fields = reparsed
         if not fields.get("text"):
             fields["text"] = str(claim.get("text") or "").strip()
