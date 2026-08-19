@@ -454,6 +454,16 @@ body.page-index { overflow: hidden; }
 .pane-resizer:hover, .pane-resizer:focus { background: var(--accent); outline: none; }
 body.resizing-panes { cursor: col-resize; user-select: none; }
 .transcript { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: var(--sp-8) var(--sp-10) var(--sp-48); }
+.transcript-review-bar {
+  flex: 0 0 auto; display: flex; align-items: center; gap: var(--sp-8);
+  min-height: 32px; padding: var(--sp-4) var(--sp-10); border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--accent) 7%, var(--panel)); color: var(--dim);
+  font-size: var(--fs-11);
+}
+.transcript-review-bar strong { color: var(--text); font-weight: 600; }
+.transcript-review-bar button { padding: 1px var(--sp-7); font-size: var(--fs-11); }
+.transcript-review-bar .review-sync { color: #efbd67; }
+.transcript-review-bar .review-spacer { flex: 1; }
 .turn {
   position: relative;
   padding: var(--sp-6);
@@ -519,7 +529,15 @@ body.resizing-panes { cursor: col-resize; user-select: none; }
   color: var(--dim);
   background: var(--panel);
 }
-.turn:hover .quote-turn, .quote-turn:focus { opacity: 1; }
+.edit-turn {
+  position: absolute; top: 5px; right: 48px; opacity: 0; padding: 0 var(--sp-7);
+  font-size: var(--fs-11); color: var(--dim); background: var(--panel);
+}
+.turn:hover .quote-turn, .quote-turn:focus, .turn:hover .edit-turn, .edit-turn:focus { opacity: 1; }
+.turn.review-pending::after {
+  content: ""; position: absolute; left: 2px; top: 50%; width: 5px; height: 5px;
+  border-radius: 50%; background: #e2a13c;
+}
 .turn.split-candidate { cursor: crosshair; }
 .turn.split-candidate:hover { background: rgba(226, 161, 60, .07); }
 .turn.split-marked { background: rgba(226, 161, 60, .12); box-shadow: inset 3px 0 #e2a13c; }
@@ -1416,6 +1434,11 @@ body.resizing-panes { cursor: col-resize; user-select: none; }
 .dialog h3 { margin-top: 0; }
 .dialog audio { width: 100%; margin: var(--sp-8) 0; }
 .dialog-btns { display: flex; gap: var(--sp-10); margin-top: var(--sp-12); }
+.transcript-edit-dialog { width: min(680px, calc(100vw - 30px)); }
+.transcript-edit-dialog textarea { width: 100%; resize: vertical; box-sizing: border-box; }
+.transcript-edit-help { color: var(--dim); font-size: var(--fs-11); }
+.transcript-edit-actions { align-items: center; }
+.dialog-spacer { flex: 1; }
 .cands { margin-top: var(--sp-8); font-size: var(--fs-13); color: var(--dim); }
 .cand { margin: 2px var(--sp-4) 2px 0; }
 

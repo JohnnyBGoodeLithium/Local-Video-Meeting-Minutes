@@ -25,6 +25,7 @@ with tempfile.TemporaryDirectory(prefix="meeting-recovery-") as tmp:
     (meeting / "transcript.txt").write_text("synthetic fixture", encoding="utf-8")
     (meeting / "minutes.md").write_text("# Synthetic", encoding="utf-8")
     (meeting / "slides.json").write_text("[]", encoding="utf-8")
+    (meeting / "audio.wav").write_bytes(b"fictional protected audio")
 
     base = {"status": "failed", "meeting": "synthetic", "log": [], "rc": 1}
     late = recovery_plan({**base, "kind": "upload", "stage": "理解共享画面"})
@@ -42,6 +43,9 @@ with tempfile.TemporaryDirectory(prefix="meeting-recovery-") as tmp:
                                 "translation_artifact": "minutes",
                                 "target_language": "en"})
     assert translated["state"] == "available" and translated["mode"] == "translation"
+
+    retranscribe = recovery_plan({**base, "kind": "retranscribe", "stage": "语音转写"})
+    assert retranscribe["state"] == "available" and retranscribe["mode"] == "retranscribe"
 
     resource = recovery_plan({**base, "kind": "regen", "stage": "生成纪要",
                               "rc": 137, "log": ["[error] 子进程失败 (rc=137)"]})

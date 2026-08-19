@@ -35,7 +35,9 @@ check:
 	$(PY) web/tests/meeting_structure_test.py
 	$(PY) web/tests/meeting_topic_map_test.py
 	$(PY) web/tests/hardware_test.py
+	$(PY) web/tests/asr_provider_test.py
 	$(PY) web/tests/terminology_test.py
+	$(PY) web/tests/transcript_review_test.py
 	$(PY) web/tests/diarization_test.py
 	$(PY) web/tests/voice_split_test.py
 	$(PY) web/tests/speaker_history_test.py

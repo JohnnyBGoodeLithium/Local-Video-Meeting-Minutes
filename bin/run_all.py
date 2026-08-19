@@ -25,6 +25,7 @@ import time
 from pathlib import Path
 
 from meeting_dir import for_recording, materialize_audio, materialize_source
+from meeting_core.transcript_review import bind_review_to_transcript
 
 ROOT = Path(__file__).resolve().parent.parent
 BIN = ROOT / "bin"
@@ -39,13 +40,23 @@ def main() -> int:
     ap.add_argument("--num-speakers", type=int, default=None, help="已知说话人数")
     ap.add_argument("--diarize-device", default=None,
                     help="分离用 cpu/cuda(默认自动，与转写共享 GPU)")
+    ap.add_argument("--meeting-dir", type=Path, default=None,
+                    help="在已有纯音频会议目录中重跑（只供受控包装器调用）")
     args = ap.parse_args()
 
     original = args.wav.resolve()
     if not original.is_file():
         print(f"找不到输入文件: {original}", file=sys.stderr)
         return 1
-    folder = for_recording(ROOT, original.stem, args.title)
+    if args.meeting_dir is not None:
+        data_root = Path(os.environ.get(
+            "MEETING_DATA_ROOT", os.environ.get("MEETING_MINUTES_ROOT", ROOT))).resolve()
+        folder = args.meeting_dir.resolve()
+        if folder.parent != (data_root / "meetings").resolve() or not folder.is_dir():
+            print("已有会议目录不在受控 meetings 边界内", file=sys.stderr)
+            return 2
+    else:
+        folder = for_recording(ROOT, original.stem, args.title)
     folder.mkdir(parents=True, exist_ok=True)
     source_audio = materialize_source(
         original, folder / f"source_audio{original.suffix.lower() or '.audio'}")
@@ -70,10 +81,19 @@ def main() -> int:
     if rc_tr or rc_dz:
         print(f"失败：transcribe rc={rc_tr} diarize rc={rc_dz}", file=sys.stderr)
         return 1
-    (folder / "source.json").write_text(json.dumps(
-        {"audio": str(source_audio), "wav": str(wav), "original_name": original.name,
-         "transcript_source": "local_asr"},
-        ensure_ascii=False, indent=1), encoding="utf-8")
+    source_path = folder / "source.json"
+    try:
+        source_meta = json.loads(source_path.read_text(encoding="utf-8")) \
+            if source_path.is_file() else {}
+    except Exception:
+        source_meta = {}
+    if not isinstance(source_meta, dict):
+        source_meta = {}
+    source_meta.update({"audio": str(source_audio), "wav": str(wav),
+                        "original_name": original.name, "transcript_source": "local_asr"})
+    temp = source_path.with_name(f".{source_path.name}.tmp-{os.getpid()}")
+    temp.write_text(json.dumps(source_meta, ensure_ascii=False, indent=1), encoding="utf-8")
+    os.replace(temp, source_path)
 
     print("[2/3] 合并说话人轮次 ...", flush=True)
     rc = subprocess.run([str(PY), str(BIN / "diarize.py"), str(wav),
@@ -89,6 +109,7 @@ def main() -> int:
     if rc:
         print(f"警告：声纹入库失败(rc={rc})，不影响纪要生成；可稍后手动运行 "
               f"bin/voice_enroll.py {folder}", file=sys.stderr)
+    bind_review_to_transcript(folder)
 
     print("[3/3] 生成分说话人纪要 ...", flush=True)
     rc = subprocess.run([str(PY), str(BIN / "summarize.py"), str(folder / "transcript.txt"),

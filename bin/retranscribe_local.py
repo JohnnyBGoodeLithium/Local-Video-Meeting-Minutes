@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""把已有视频会议改用本地 ASR，并在覆盖派生资产前创建可恢复快照。
+"""使用当前 ASR provider 重建已有会议，并在覆盖前创建可恢复快照。
 
-原始视频和 source.vtt/source.docx 始终保留；只重建逐字稿、说话人归属、
-纪要、证据与会议脉络。屏幕逻辑页和已有 VL 解读缓存复用，不重跑视觉模型。
+原始音视频和 source.vtt/source.docx 始终保留；只重建逐字稿、说话人归属、
+纪要、证据与会议脉络。视频会议复用已有屏幕逻辑页和 VL 解读缓存。
 
 stdout 只打印元数据，不打印会议正文。
 """
@@ -28,7 +28,7 @@ CORE_FILES = {
     "transcript.spk.json", "transcript.spk.md", "stamps.json", "segments.json",
     "diarization.json", "minutes.md", "minutes.spk.md", "minutes.prev.md",
     "minutes.evidence.json", "meeting.facts.json", "meeting.generation.json", "meeting.topic-map.json",
-    ".topic-map-work.json",
+    ".topic-map-work.json", "transcript.review.json", "transcript.edits.json",
 }
 
 
@@ -92,7 +92,7 @@ def _restore(mdir: Path, version: Path, existing: set[Path]) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="已有视频会议改用本地 ASR")
+    parser = argparse.ArgumentParser(description="已有会议使用当前 ASR provider 重新转写")
     parser.add_argument("meeting_dir", type=Path)
     args = parser.parse_args()
     try:
@@ -101,8 +101,11 @@ def main() -> int:
         print(str(exc), file=sys.stderr)
         return 2
     videos = sorted(path for path in mdir.glob("source_video.*") if path.is_file())
-    if not videos:
-        print("没有受保护的本地视频母版，不能重转写", file=sys.stderr)
+    audios = sorted(path for path in mdir.glob("source_audio.*") if path.is_file())
+    if not audios and not videos and (mdir / "audio.wav").is_file():
+        audios = [mdir / "audio.wav"]
+    if not videos and not audios:
+        print("没有受保护的音视频母版，不能重转写", file=sys.stderr)
         return 2
     external = next((mdir / f"source.{suffix}" for suffix in ("docx", "vtt")
                      if (mdir / f"source.{suffix}").is_file()), None)
@@ -113,10 +116,14 @@ def main() -> int:
     signal.signal(signal.SIGINT, interrupted)
     version, existing = _snapshot(mdir)
     print(f"[meta] 已创建重转写前快照，保留 {len(existing)} 个派生文件", flush=True)
-    command = [str(PY), str(ROOT / "bin" / "video_minutes.py"), str(videos[0]),
-               "--meeting-dir", str(mdir), "--reuse-visuals"]
-    if external is not None:
-        command += ["--ignored-transcript", str(external)]
+    if videos:
+        command = [str(PY), str(ROOT / "bin" / "video_minutes.py"), str(videos[0]),
+                   "--meeting-dir", str(mdir), "--reuse-visuals"]
+        if external is not None:
+            command += ["--ignored-transcript", str(external)]
+    else:
+        command = [str(PY), str(ROOT / "bin" / "run_all.py"), str(audios[0]),
+                   "--meeting-dir", str(mdir), "--title", mdir.name]
     try:
         result = subprocess.run(command)
     except (InterruptedError, KeyboardInterrupt):
@@ -130,7 +137,7 @@ def main() -> int:
     rag = mdir / ".rag"
     if rag.is_dir():
         shutil.rmtree(rag)
-    print("[meta] 已改用本地 ASR；原始逐字稿母版和恢复快照均已保留", flush=True)
+    print("[meta] 已使用当前 ASR provider 重建；原始母版和恢复快照均已保留", flush=True)
     return 0
 
 

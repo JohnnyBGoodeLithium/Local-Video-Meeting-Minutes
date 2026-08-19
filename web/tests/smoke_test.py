@@ -168,15 +168,18 @@ check("时间码跳转只滚动内容面板，不带动整页丢失播放器",
 check("在线屏幕舞台支持放大、缩放和相邻屏幕键盘导航",
       b'id="screen-preview-mask"' in page and b'openScreenPreview' in app_js
       and b'navigateScreenPreview' in app_js and b'SCREEN_PREVIEW_ZOOMS' in app_js
-      and b'20260819p78' in page)
+      and b'20260819p79' in page)
+check("逐字稿修正入口保持轻量汇总、逐轮核听和可撤销",
+      b'id="transcript-review-bar"' in page and b'id="transcript-edit-mask"' in page
+      and b'openTranscriptEdit' in app_js and b'undoTranscriptEdit' in app_js)
 check("会议列表默认按导入时间且可切换并记忆排序",
       b'meetingSort' in app_js and b'"imported"' in app_js
       and b'imported_at' in app_js and b'updated_at' in app_js
       and b'const order = state.workspace.meetingSort;' in app_js
       and b'saveWorkspaceState' in app_js)
-check("错误的外部逐字稿可在导入和存量会议两处改用本地 ASR",
+check("现有会议可用当前 ASR provider 和最新上下文重新转写",
       b'ignore_transcript' in app_js and b'retranscribe-local' in app_js
-      and "保留原 VTT/DOCX".encode() in app_js)
+      and "原始音视频、外部 VTT/DOCX".encode() in app_js)
 check("旧 VL 转义换行与协议标题在前端读路径自愈",
       b'function visualTitleCandidate' in app_js
       and b'function visualDescriptionHtml' in app_js
@@ -249,6 +252,9 @@ check("bundle 结构数量",
       f"topics={len(j.get('topics', []))} samples={len(j.get('samples', []))}")
 check("bundle 带逐字稿/纪要 revision",
       bool(j.get("transcript_revision")) and bool(j.get("minutes_revision")))
+check("bundle 提供紧凑逐字稿复核状态而不复制整页告警",
+      j.get("transcript_review", {}).get("schema") == "meeting-transcript-review/v1"
+      and j.get("transcript_review", {}).get("summary", {}).get("pending") == 0)
 check("bundle 含可读会议身份元数据",
       j.get("title") == "smoke" and j.get("speaker_count") == 2
       and j.get("transcript_source") == "local_asr")
@@ -289,7 +295,33 @@ check("bundle 提供可点击纪要依据且 HTML 不泄露机器标记",
       and '#mm-C00001' in j.get("minutes_html", "")
       and 'mm:evidence' not in j.get("minutes_html", ""))
 
-# 2a. 存储分层：母版/阅读资产受保护，智能清理仅移除可再生工作帧
+# 2a. 任何现有逐字稿都可人工修正；乐观锁、下游 stale 与精确撤销形成闭环。
+original_transcript_bytes = (SMOKE / "transcript.spk.json").read_bytes()
+original_transcript_revision = j.get("transcript_revision")
+s, _, edited = req("PATCH", "/api/meetings/_smoke/transcript/0", {
+    "text": "大家好，我们开始虚构评审。",
+    "transcript_revision": original_transcript_revision,
+})
+sb, _, edited_bundle = req("GET", "/api/meetings/_smoke/bundle")
+check("逐轮文本修正更新 canonical revision 并让下游证据诚实过期",
+      s == 200 and edited.get("changed") is True
+      and edited_bundle.get("transcript", [])[0].get("text") == "大家好，我们开始虚构评审。"
+      and edited_bundle.get("transcript_review", {}).get("downstream_state") == "sync_pending"
+      and edited_bundle.get("evidence", {}).get("state") == "stale")
+sstale, _, _ = req("PATCH", "/api/meetings/_smoke/transcript/0", {
+    "text": "不会写入的过期修改", "transcript_revision": original_transcript_revision,
+})
+check("逐字稿文本修正拒绝过期 revision", sstale == 409)
+su, _, undone = req("POST", "/api/meetings/_smoke/transcript/undo")
+check("撤销文本修正逐字节恢复原逐字稿与证据 revision",
+      su == 200 and undone.get("ok") is True
+      and (SMOKE / "transcript.spk.json").read_bytes() == original_transcript_bytes)
+j = req("GET", "/api/meetings/_smoke/bundle")[2]
+check("撤销后下游证据重新成为当前版本",
+      j.get("evidence", {}).get("state") == "ready"
+      and j.get("transcript_review", {}).get("downstream_state") == "current")
+
+# 2b. 存储分层：母版/阅读资产受保护，智能清理仅移除可再生工作帧
 s, _, storage_before = req("GET", "/api/meetings/_smoke/storage")
 cache_ids = {group.get("id") for group in storage_before.get("cache", {}).get("groups", [])}
 check("存储接口区分受保护母版、阅读资产和可再生缓存",
@@ -876,6 +908,11 @@ check("存量视频会议可排队改用本地 ASR",
 source_path.write_bytes(source_before)
 source_video.unlink()
 source_docx.unlink()
+s, _, audio_retranscribe_job = req("POST", "/api/meetings/_smoke/retranscribe-local")
+audio_retranscribe_done = poll_job(audio_retranscribe_job.get("id"))
+check("已经使用本地 ASR 的纯音频旧会议也允许重新转写",
+      s == 200 and audio_retranscribe_done.get("status") == "done"
+      and audio_retranscribe_done.get("kind") == "retranscribe")
 
 # 12. regen（dry-run）
 s, _, j = req("POST", "/api/meetings/_smoke/regen_minutes")

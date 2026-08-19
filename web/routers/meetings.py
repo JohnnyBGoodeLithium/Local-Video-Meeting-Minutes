@@ -13,6 +13,7 @@ import meeting_generation
 import meeting_structure
 import meeting_topic_map
 import minutes_view_service
+import transcript_service
 import voice_bank as vb
 from deps import (BANK_DIR, BANK_LOCK, DRY_RUN, EVALUATIONS_DIR, MEETINGS, MD,
                   MEETING_META_LOCK, STORAGE_LOCK, artifact, assistant, _audio_path,
@@ -251,6 +252,7 @@ def get_bundle(slug: str):
         "speaker_navigation": artifact.speaker_navigation(
             transcript, profiles, transcript_format),
         "transcript_revision": assistant.revision(mdir / "transcript.spk.json"),
+        "transcript_review": transcript_service.project_review(mdir, bool(evidence)),
         "minutes_revision": minutes_revision,
         "minutes_views": minutes_views,
         "minutes_history_available": minutes_history_available,
@@ -271,21 +273,13 @@ def get_bundle(slug: str):
 
 @router.post("/api/meetings/{slug}/retranscribe-local")
 def retranscribe_local(slug: str):
-    """保留外部 VTT/DOCX 母版，改用视频音轨跑本地 ASR。"""
+    """保留母版与旧快照，使用当前显式配置的 ASR provider 重建。"""
     mdir = _mdir(slug)
     if any(job.get("meeting") == slug and job.get("status") in {"queued", "running"}
            for job in JOBS.values()):
         raise HTTPException(409, "这场会议仍有处理作业，不能并发重转写")
-    if not any(path.is_file() for path in mdir.glob("source_video.*")):
-        raise HTTPException(400, "没有受保护的视频母版，无法改用本地语音识别")
-    src = _source(mdir)
-    transcript_source = str(src.get("transcript_source") or "").lower()
-    if transcript_source not in {"external", "local_asr"}:
-        transcript_source = ("external" if src.get("transcript_format")
-                             or any((mdir / f"source.{suffix}").is_file()
-                                    for suffix in ("vtt", "docx")) else "local_asr")
-    if transcript_source != "external":
-        raise HTTPException(409, "当前逐字稿已经来自本地语音识别")
+    if _video_path(mdir) is None and _audio_path(mdir) is None:
+        raise HTTPException(400, "没有受保护的音视频母版，无法重新转写")
     cmd = build_retranscribe_command(mdir)
     job = _new_job("retranscribe", route="video", meeting=slug, cmd=cmd,
                    transcript_policy="local_asr")

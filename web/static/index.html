@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>会议纪要</title>
-<link rel="stylesheet" href="/static/fluent-foundation.css?v=20260819p78">
-<link rel="stylesheet" href="/static/style.css?v=20260819p78">
-<link rel="stylesheet" href="/static/theme.css?v=20260819p78">
+<link rel="stylesheet" href="/static/fluent-foundation.css?v=20260819p79">
+<link rel="stylesheet" href="/static/style.css?v=20260819p79">
+<link rel="stylesheet" href="/static/theme.css?v=20260819p79">
 </head>
 <body class="page-index">
 <header class="topbar">
@@ -64,7 +64,7 @@
           <summary><svg class="fluent-icon" aria-hidden="true"><use href="/static/fluent-icons.svg#fluent-more-horizontal"></use></svg><span>更多</span></summary>
           <div class="more-menu-pop">
             <button id="regen-btn" type="button" disabled>重新生成纪要</button>
-            <button id="retranscribe-btn" type="button" disabled title="保留原逐字稿，改用本地 ASR 重建逐字稿和纪要">忽略当前逐字稿·本地重转写</button>
+            <button id="retranscribe-btn" type="button" disabled title="保留母版与旧版本，使用当前 ASR 配置重建">使用最新上下文重新转写</button>
             <button id="undo-speaker-btn" type="button" disabled>撤销上次说话人修改</button>
             <button id="refine-btn" type="button" disabled title="使用更强的本地模型优化全文">优化全文</button>
             <button id="export-btn" type="button" disabled title="导出前检查证据、媒体和预计大小">分享 / 导出…</button>
@@ -120,6 +120,7 @@
             <label class="follow"><input type="checkbox" id="follow" checked> <span id="follow-label">跟随</span></label>
           </div>
         </div>
+        <div id="transcript-review-bar" class="transcript-review-bar hidden" aria-live="polite"></div>
         <div id="transcript" class="transcript"><p class="placeholder">← 选择一场会议</p></div>
         <div id="split-bar" class="split-bar hidden">
           <span id="split-bar-text"></span>
@@ -199,6 +200,23 @@
   <button type="button" data-intent="edit">用这段更新纪要</button>
 </div>
 
+<div id="transcript-edit-mask" class="mask hidden">
+  <div class="dialog transcript-edit-dialog" role="dialog" aria-modal="true"
+       aria-labelledby="transcript-edit-title">
+    <h3 id="transcript-edit-title">核听并修正原语言逐字稿</h3>
+    <p id="transcript-edit-meta" class="dim"></p>
+    <textarea id="transcript-edit-text" rows="7" maxlength="4000"
+              aria-label="修正后的原语言逐字稿"></textarea>
+    <p class="transcript-edit-help">请按实际音频修正，不翻译、不润色。保存后，纪要、脉络、翻译和检索会标记为待同步。</p>
+    <div class="dialog-btns transcript-edit-actions">
+      <button id="transcript-edit-play" type="button">▶ 播放本段</button>
+      <span class="dialog-spacer"></span>
+      <button id="transcript-edit-cancel" type="button">取消</button>
+      <button id="transcript-edit-save" class="primary" type="button">保存修正</button>
+    </div>
+  </div>
+</div>
+
 <!-- 说话人绑定弹框 -->
 <div id="bind-mask" class="mask hidden">
   <div class="dialog">
@@ -276,6 +294,6 @@
 
 <div id="tl-tip" class="tl-tip hidden"></div>
 
-<script src="/static/app.js?v=20260819p78"></script>
+<script src="/static/app.js?v=20260819p79"></script>
 </body>
 </html>

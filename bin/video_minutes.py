@@ -28,6 +28,7 @@ from pathlib import Path
 
 from meeting_dir import for_teams, materialize_source
 from meeting_core.terminology import configured_bank_dir, safe_harvest_screen_candidates
+from meeting_core.transcript_review import bind_review_to_transcript
 import voice_bank as vb
 from teams_minutes import extract_audio, diarize, slugify, mmss
 from slide_pages import extract_pages
@@ -173,6 +174,11 @@ def main() -> int:
     print(f"[meta] 声纹库: 新入库 {new} | 跨会议命中 {linked}", flush=True)
     subprocess.run([sys.executable, str(BIN / "voice_tool.py"), "sample", str(mdir)],
                    check=False, capture_output=True)
+    review = bind_review_to_transcript(mdir)
+    if review:
+        summary = review.get("summary", {})
+        print(f"[meta] 逐字稿音频复核 | 自动修正 {summary.get('auto_corrected', 0)}"
+              f" | 待核听 {summary.get('pending', 0)}", flush=True)
 
     print("[4/6] 先生成语音草稿纪要 ...", flush=True)
     meeting_generation.generate_voice_draft(mdir, python=sys.executable)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""本地转写：WAV → 逐字稿(纯文本 transcript.txt + 带时间戳段落 transcript.ts.md + 字级 stamps.json)。
+"""可配置 ASR：WAV → 原语言逐字稿、时间戳与音频复核记录。
 
 用法：
     bin/transcribe.py recordings/20260806171137.WAV
@@ -8,28 +8,23 @@
 输出目录：默认 meetings/<日期>_<录音时间或标题>/(每场会议自包含)。
 
 说明：
-    - qwen-asr 内部会把长音频按低能量边界切成 ≤180s 的段再逐段转写+对齐，
-      本脚本直接整文件传入即可。
-    - 隐私红线：全程本地推理；stdout 只打印元数据(语言/时长/段数/字符数)，
-      不打印任何转写内容，避免内容进入云端 agent 上下文。
+    - 默认使用本机 Qwen3-ASR；也可显式配置 OpenAI-compatible 音频端点。
+    - 不会静默把音频回退到云端。stdout 只打印元数据，不打印逐字稿正文。
 """
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
 
 from meeting_dir import for_recording
-from meeting_core.hardware import configured_path, inference_device, inference_dtype
+from meeting_core.asr import create_provider
 from meeting_core.terminology import configured_bank_dir, write_context_pack
+from meeting_core.transcript_review import safe_review_term_confusions, write_review
 
-HOME = Path.home()
 ROOT = Path(__file__).resolve().parent.parent
-ASR_PATH = configured_path(
-    "MEETING_ASR_MODEL", HOME / ".local/share/models/hf/Qwen/Qwen3-ASR-1.7B")
-ALIGNER_PATH = configured_path(
-    "MEETING_ALIGNER_MODEL", HOME / ".local/share/models/hf/Qwen/Qwen3-ForcedAligner-0.6B")
 
 SENT_END = tuple("。！？!?；;\n")
 
@@ -101,7 +96,7 @@ def stamps_to_paragraphs(stamps, max_chars: int = 80):
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="本地 WAV 转写(Qwen3-ASR + ForcedAligner)")
+    ap = argparse.ArgumentParser(description="WAV 转写（本地原生或显式配置的兼容端点）")
     ap.add_argument("wav", type=Path, help="输入 WAV 文件(16kHz 单声道)")
     ap.add_argument("--out", type=Path, default=None,
                     help="输出目录(默认 meetings/<日期>_<时间>，可用 --title 起名)")
@@ -134,53 +129,45 @@ def main() -> int:
             # Context 是增强层；失败不得阻断原有 ASR，也不能把正文/路径写入日志。
             print(f"[meta] ASR context 跳过 | {type(exc).__name__}", flush=True)
 
-    import torch
-    from qwen_asr import Qwen3ASRModel
-
-    device = inference_device(torch, indexed=True)
-    dtype = inference_dtype(torch, device)
-    load_kwargs = dict(
-        dtype=dtype,
-        device_map=device,
-        max_inference_batch_size=args.batch_size,
-        max_new_tokens=args.max_new_tokens,
-    )
-    if not args.no_timestamps:
-        load_kwargs["forced_aligner"] = str(ALIGNER_PATH)
-        load_kwargs["forced_aligner_kwargs"] = dict(dtype=dtype, device_map=device)
+    t0 = time.time()
+    provider = create_provider(batch_size=args.batch_size, max_new_tokens=args.max_new_tokens,
+                               with_aligner=not args.no_timestamps)
+    device_note = (f" device={provider.device} dtype={provider.dtype}"
+                   if hasattr(provider, "device") else " adapter=portable")
+    print(f"[meta] ASR provider={provider.name} 加载 {time.time()-t0:.1f}s{device_note}", flush=True)
 
     t0 = time.time()
-    model = Qwen3ASRModel.from_pretrained(str(ASR_PATH), **load_kwargs)
-    print(f"[meta] 模型加载 {time.time()-t0:.1f}s device={device} dtype={dtype}", flush=True)
-
-    t0 = time.time()
-    results = model.transcribe(
+    results = provider.transcribe(
         audio=str(args.wav),
         context=asr_context,
         language=args.language,
         return_time_stamps=not args.no_timestamps,
     )
     elapsed = time.time() - t0
-    r = results[0]
+    result = results[0]
 
     out.mkdir(parents=True, exist_ok=True)
-    txt_path = out / "transcript.txt"
-    txt_path.write_text(r.text + "\n", encoding="utf-8")
-
     n_stamps, span, n_paras = 0, None, 0
-    stamps = getattr(r, "time_stamps", None)
+    corrected_text = result.text
+    stamps = result.time_stamps
     if stamps:
         # aligner 单元不含空格 → 回填(对齐失败则保持原样)
-        fixed_texts = reinsert_spaces(r.text, [_field(s, "text") for s in stamps])
+        fixed_texts = reinsert_spaces(result.text, [_field(s, "text") for s in stamps])
         stamps = [{"text": t, "start_time": float(_field(s, "start_time")),
                    "end_time": float(_field(s, "end_time"))}
                   for t, s in zip(fixed_texts, stamps)]
+        if os.environ.get("MEETING_ASR_REVIEW", "1") != "0":
+            corrected_text, stamps, review = safe_review_term_confusions(
+                provider, args.wav, corrected_text, stamps, asr_context,
+                configured_bank_dir(ROOT), language=args.language or result.language,
+                template_path=ROOT / "speaker_bank" / "terminology.template.json")
+            write_review(out / "transcript.review.json", review)
         n_stamps = len(stamps)
         span = (stamps[0]["start_time"], stamps[-1]["end_time"])
 
         (out / "stamps.json").write_text(json.dumps({
-            "language": r.language,
-            "text": r.text,
+            "language": result.language,
+            "text": corrected_text,
             "time_stamps": stamps,
         }, ensure_ascii=False, indent=1), encoding="utf-8")
 
@@ -190,8 +177,23 @@ def main() -> int:
         md += [f"[{_fmt_hms(st)}] {tx}\n" for st, tx in paras]
         (out / "transcript.ts.md").write_text("\n".join(md), encoding="utf-8")
 
-    print(f"[meta] 转写耗时 {elapsed:.1f}s | 语言={r.language} | 字符数={len(r.text)}"
-          f" | context术语={context_terms}"
+    txt_path = out / "transcript.txt"
+    txt_path.write_text(corrected_text + "\n", encoding="utf-8")
+
+    context_path = out / "asr.context.json"
+    if context_path.is_file():
+        try:
+            audit = json.loads(context_path.read_text(encoding="utf-8"))
+            audit["provider"] = provider.name
+            audit["context_applied"] = bool(result.context_applied)
+            temp = context_path.with_name(f".{context_path.name}.tmp-{os.getpid()}")
+            temp.write_text(json.dumps(audit, ensure_ascii=False, indent=2), encoding="utf-8")
+            os.replace(temp, context_path)
+        except Exception:
+            pass
+
+    print(f"[meta] 转写耗时 {elapsed:.1f}s | 语言={result.language} | 字符数={len(corrected_text)}"
+          f" | context术语={context_terms} | context应用={'是' if result.context_applied else '否'}"
           + (f" | 时间戳 {n_stamps} 条 覆盖 {span[0]:.1f}s–{span[1]:.1f}s | 段落 {n_paras}" if span else ""),
           flush=True)
     print(f"[meta] 输出目录: {out}", flush=True)

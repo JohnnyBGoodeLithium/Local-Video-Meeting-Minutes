@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from deps import MEETINGS, PY, ROOT, _minutes_file, _video_path
+from deps import MEETINGS, PY, ROOT, _audio_path, _minutes_file, _video_path
 
 
 LATE_UPLOAD_STAGES = {
@@ -58,8 +58,8 @@ def build_topic_map_command(mdir: Path) -> list[str]:
 
 
 def build_retranscribe_command(mdir: Path) -> list[str]:
-    if not any(path.is_file() for path in mdir.glob("source_video.*")):
-        raise ValueError("missing_source_video")
+    if _video_path(mdir) is None and _audio_path(mdir) is None:
+        raise ValueError("missing_source_media")
     return [str(PY), str(ROOT / "bin" / "retranscribe_local.py"), str(mdir)]
 
 

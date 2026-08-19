@@ -105,6 +105,8 @@ const state = {
   exportPreflight: null,
   storage: null,
   progressiveRefreshes: new Set(),
+  transcriptReview: null,
+  transcriptEditIndex: null,
 };
 
 /* ---------- 工具 ---------- */
@@ -308,6 +310,17 @@ function applyUiLanguage() {
   if (launcher) launcher.textContent = ui("launcher");
   const search = $("#search");
   if (search) search.placeholder = ui("search");
+  text("#transcript-edit-title", english
+    ? "Listen and correct the original-language transcript"
+    : "核听并修正原语言逐字稿");
+  text(".transcript-edit-help", english
+    ? "Correct against the audio. Do not translate or polish. Minutes, outline, translations, and search will be marked for update."
+    : "请按实际音频修正，不翻译、不润色。保存后，纪要、脉络、翻译和检索会标记为待同步。");
+  text("#transcript-edit-play", english ? "▶ Play segment" : "▶ 播放本段");
+  text("#transcript-edit-cancel", english ? "Cancel" : "取消");
+  text("#transcript-edit-save", english ? "Save correction" : "保存修正");
+  $("#transcript-edit-text")?.setAttribute("aria-label", english
+    ? "Corrected original-language transcript" : "修正后的原语言逐字稿");
   const sort = $("#meeting-sort");
   if (sort) {
     sort.options[0].textContent = ui("sortImported");
@@ -485,6 +498,9 @@ async function deleteMeeting(ev, slug) {
   if (state.slug === slug) {
     state.slug = null;
     state.bundle = null;
+    state.transcriptReview = null;
+    closeTranscriptEdit();
+    $("#transcript-review-bar")?.classList.add("hidden");
     $("#meeting-title").textContent = "选择一场会议";
     $("#rename-btn").classList.add("hidden");
     $("#transcript-search").value = "";
@@ -962,6 +978,42 @@ function renderMeetingStatuses() {
   ].join("");
 }
 
+function renderTranscriptReviewBar() {
+  const box = $("#transcript-review-bar");
+  const review = state.bundle?.transcript_review;
+  if (!box || !review || !state.bundle?.transcript?.length) {
+    box?.classList.add("hidden");
+    return;
+  }
+  const summary = review.summary || {};
+  const automatic = Number(summary.auto_corrected || 0);
+  const pending = Number(summary.pending || 0);
+  const human = Number(summary.human_corrected || 0);
+  const syncPending = review.downstream_state === "sync_pending";
+  if (!automatic && !pending && !human && !syncPending) {
+    box.classList.add("hidden");
+    return;
+  }
+  const parts = [];
+  if (automatic) parts.push(isEnglishUi() ? `${automatic} audio-confirmed correction(s)` : `已自动音频复核 ${automatic} 处`);
+  if (human) parts.push(isEnglishUi() ? `${human} human correction(s)` : `人工修正 ${human} 处`);
+  if (pending) parts.push(isEnglishUi() ? `${pending} need listening` : `${pending} 处待核听`);
+  box.innerHTML = `<strong>${isEnglishUi() ? "Original transcript" : "原语言逐字稿"}</strong>` +
+    `<span>${esc(parts.join(" · ") || (isEnglishUi() ? "Clean" : "已复核"))}</span>` +
+    (syncPending ? `<span class="review-sync">${isEnglishUi() ? "Minutes and outline need updating" : "纪要与脉络待同步"}</span>` : "") +
+    `<span class="review-spacer"></span>` +
+    (pending ? `<button type="button" data-review-action="pending">${isEnglishUi() ? "Review" : "开始核听"}</button>` : "") +
+    (review.undo_available ? `<button type="button" data-review-action="undo">${isEnglishUi() ? "Undo last edit" : "撤销上次文本修正"}</button>` : "") +
+    (syncPending ? `<button type="button" data-review-action="sync">${isEnglishUi() ? "Update minutes" : "更新纪要"}</button>` : "");
+  box.classList.remove("hidden");
+  $("[data-review-action='pending']", box)?.addEventListener("click", () => {
+    const item = review.pending?.[0];
+    if (Number.isInteger(item?.turn_index)) openTranscriptEdit(item.turn_index, item);
+  });
+  $("[data-review-action='undo']", box)?.addEventListener("click", undoTranscriptEdit);
+  $("[data-review-action='sync']", box)?.addEventListener("click", () => regenMinutes(""));
+}
+
 async function loadMeeting(slug) {
   const changed = state.slug !== slug;
   state.slug = slug;
@@ -984,6 +1036,7 @@ async function loadMeeting(slug) {
   renderMeetingList();
   const b = await jget(`/api/meetings/${encodeURIComponent(slug)}/bundle`);
   state.bundle = b;
+  state.transcriptReview = b.transcript_review || null;
   state.bundleLoadedAt = Date.now() / 1000;
   const savedTarget = state.workspace.translationTargets[slug];
   state.translationTarget = TRANSLATION_TARGETS.has(savedTarget)
@@ -1024,6 +1077,7 @@ async function loadMeeting(slug) {
   renderMeetingHeaderMeta();
   renderPlayer();
   renderTranscript(false);
+  renderTranscriptReviewBar();
   renderMinutes();
   renderChapters();
   renderVisuals();
@@ -1032,12 +1086,12 @@ async function loadMeeting(slug) {
   if (changed) restoreAssistant();  // 刷新/重开浏览器后恢复同 revision 的对话
   const isDraft = b.document_state === "draft";
   $("#regen-btn").disabled = isDraft;
-  const canRetranscribe = !isDraft && b.has_video && b.transcript_source === "external";
+  const canRetranscribe = !isDraft && (b.has_video || b.has_audio);
   $("#retranscribe-btn").disabled = !canRetranscribe;
   loadSpeakerHistoryStatus();
   $("#retranscribe-btn").title = canRetranscribe
-    ? "保留原 VTT/DOCX，改用视频音轨的本地 ASR 重建逐字稿、纪要、证据与脉络"
-    : (b.transcript_source === "local_asr" ? "当前已使用本地语音识别" : "只有带视频母版的外部逐字稿会议可用");
+    ? "保留原始母版和旧版本，使用当前 ASR provider 与最新术语上下文重建逐字稿及下游内容"
+    : "需要保留可读取的音频或视频母版";
   $("#refine-btn").disabled = isDraft;
   $("#export-btn").disabled = isDraft;
   $("#storage-btn").disabled = false;
@@ -2279,6 +2333,78 @@ function splitTurnChunks(text, duration) {
   return chunks.length > 1 ? chunks : null;
 }
 
+function transcriptPendingByTurn() {
+  return new Map((state.bundle?.transcript_review?.pending || [])
+    .filter(item => Number.isInteger(item.turn_index))
+    .map(item => [item.turn_index, item]));
+}
+
+function openTranscriptEdit(index, candidate = null) {
+  const turn = state.bundle?.transcript?.[index];
+  if (!turn) return;
+  state.transcriptEditIndex = index;
+  const pending = candidate || transcriptPendingByTurn().get(index);
+  $("#transcript-edit-meta").textContent = [
+    `${fmt(turn.start)} · ${turn.speaker || (isEnglishUi() ? "Unknown" : "未知")}`,
+    pending?.suggested_text ? (isEnglishUi()
+      ? `ASR review candidate: ${pending.suggested_text}`
+      : `音频复核候选：${pending.suggested_text}`) : null,
+  ].filter(Boolean).join(" · ");
+  $("#transcript-edit-text").value = String(turn.text || "");
+  $("#transcript-edit-mask").classList.remove("hidden");
+  $("#transcript-edit-text").focus();
+  $("#transcript-edit-text").select();
+}
+
+function closeTranscriptEdit() {
+  $("#transcript-edit-mask").classList.add("hidden");
+  state.transcriptEditIndex = null;
+}
+
+async function saveTranscriptEdit() {
+  const index = state.transcriptEditIndex;
+  if (!Number.isInteger(index) || !state.slug) return;
+  const button = $("#transcript-edit-save");
+  button.disabled = true;
+  try {
+    const response = await api(
+      `/api/meetings/${encodeURIComponent(state.slug)}/transcript/${index}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: $("#transcript-edit-text").value,
+          transcript_revision: state.bundle.transcript_revision }),
+      });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.detail || response.status);
+    closeTranscriptEdit();
+    resetAssistant();
+    toast(result.changed
+      ? (isEnglishUi() ? "Transcript corrected; downstream views need updating"
+        : "逐字稿已修正；纪要、脉络、翻译和检索已标记待同步")
+      : (isEnglishUi() ? "No text change" : "文本没有变化"));
+    await loadMeeting(state.slug);
+    scrollTranscriptTurn(index, "center", false);
+  } catch (error) {
+    toast(`${isEnglishUi() ? "Correction failed" : "修正失败"}：${error.message}`);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function undoTranscriptEdit() {
+  if (!state.slug) return;
+  const response = await api(
+    `/api/meetings/${encodeURIComponent(state.slug)}/transcript/undo`, { method: "POST" });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    toast(`${isEnglishUi() ? "Undo failed" : "撤销失败"}：${result.detail || response.status}`);
+    return;
+  }
+  resetAssistant();
+  toast(isEnglishUi() ? "Latest transcript correction undone" : "已撤销上次逐字稿文本修正");
+  await loadMeeting(state.slug);
+  if (Number.isInteger(result.index)) scrollTranscriptTurn(result.index, "center", false);
+}
+
 function renderTranscript(preserveScroll = true) {
   const box = $("#transcript");
   const anchor = preserveScroll ? transcriptScrollAnchor(box) : null;
@@ -2287,6 +2413,7 @@ function renderTranscript(preserveScroll = true) {
   const sourceLanguages = new Map((state.translation?.source_languages || [])
     .map(item => [item.index, item.source_language]));
   const transcript = state.bundle.transcript;
+  const pendingByTurn = transcriptPendingByTurn();
   const bundleDuration = Number(state.bundle?.duration || 0);
   state.reviewUnits = [];
   state.bundle.transcript.forEach((t, i) => {
@@ -2294,6 +2421,7 @@ function renderTranscript(preserveScroll = true) {
     div.className = "turn";
     div.id = `turn-${i}`;
     div.dataset.index = i;
+    if (pendingByTurn.has(i)) div.classList.add("review-pending");
     const chipCls = t.voice ? "chip" : "chip disabled";
     const translated = translations.get(i);
     const sourceLanguage = sourceLanguages.get(i);
@@ -2348,6 +2476,7 @@ function renderTranscript(preserveScroll = true) {
       `title="${esc(t.speaker)} · ${t.voice ? "点击绑定说话人" : "无对应声纹"}" ` +
       `aria-label="说话人：${esc(t.speaker)}">${esc(t.speaker)}</span>` +
       textHtml +
+      `<button type="button" class="edit-turn" title="${isEnglishUi() ? "Listen and correct original transcript" : "核听并修正原语言逐字稿"}">${isEnglishUi() ? "Correct" : "修正"}</button>` +
       `<button type="button" class="quote-turn" title="引用这一轮到会议助手">引用</button>`;
     if (state.splitMarks.has(i)) div.classList.add("split-marked");
     if (state.splitTarget && t.voice === state.splitTarget) div.classList.add("split-candidate");
@@ -2370,6 +2499,10 @@ function renderTranscript(preserveScroll = true) {
     $(".quote-turn", div).onclick = ev => {
       ev.stopPropagation();
       addReferenceRange(i, i);
+    };
+    $(".edit-turn", div).onclick = ev => {
+      ev.stopPropagation();
+      openTranscriptEdit(i, pendingByTurn.get(i));
     };
     const toggleOriginal = $(".toggle-turn-original", div);
     if (toggleOriginal) toggleOriginal.onclick = ev => {
@@ -2871,6 +3004,7 @@ async function setUiLanguage(language) {
   renderMeetingHeaderMeta();
   renderMeetingStatuses();
   renderTranscript();
+  renderTranscriptReviewBar();
   renderUtteranceControls();
   renderMinutes();
   if (state.viewMode === "chapters") renderChapters();
@@ -4351,10 +4485,10 @@ async function regenMinutes(refineModel) {
 
 async function retranscribeLocal() {
   if (!state.slug || !state.bundle) return;
-  const warning = "改用本地语音识别？\n\n"
-    + "原 VTT/DOCX 和视频母版会保留，并创建可恢复快照。\n"
-    + "系统将重建逐字稿、说话人、纪要、证据和会议脉络；已有屏幕资料会复用。\n"
-    + "本地 ASR 可能会把未绑定人员显示为“说话人 K”，而且需要较长时间。";
+  const warning = "使用最新上下文重新转写？\n\n"
+    + "原始音视频、外部 VTT/DOCX 和当前文本会保留为可恢复快照。\n"
+    + "系统将使用当前显式配置的 ASR provider 重建逐字稿、说话人、纪要、证据和会议脉络；已有屏幕资料会复用。\n"
+    + "如果配置的是远程端点，音频只会发送到该显式端点，不会静默切换其他服务。";
   if (!confirm(warning)) return;
   $(".more-menu")?.removeAttribute("open");
   const response = await api(
@@ -4368,14 +4502,14 @@ async function retranscribeLocal() {
   toast(`本地重转写作业 ${job.id} 已排队…`);
   pollJob(job.id, async current => {
     if (current.status === "done") {
-      toast("已改用本地语音识别，原逐字稿仍已保留");
+      toast("已使用最新上下文重新转写，旧逐字稿仍已保留");
       await loadMeetings();
       await loadMeeting(state.slug);
     } else if (["failed", "cancelled"].includes(current.status)) {
-      toast(`本地重转写${current.status === "failed" ? "失败，已恢复原资产" : "已取消"}`);
+      toast(`重新转写${current.status === "failed" ? "失败，已恢复原资产" : "已取消"}`);
       $("#retranscribe-btn").disabled = false;
     } else {
-      toast(`本地重转写：${current.stage || current.status}`);
+      toast(`重新转写：${current.stage || current.status}`);
     }
   });
 }
@@ -4820,6 +4954,22 @@ function init() {
   });
   $("#split-apply").onclick = applySplitMarks;
   $("#split-clear").onclick = () => clearSplitMarking();
+  $("#transcript-edit-cancel").onclick = closeTranscriptEdit;
+  $("#transcript-edit-save").onclick = saveTranscriptEdit;
+  $("#transcript-edit-play").onclick = () => {
+    const index = state.transcriptEditIndex;
+    const turn = Number.isInteger(index) ? state.bundle?.transcript?.[index] : null;
+    if (!turn) return;
+    seek(Number(turn.start) || 0);
+    player()?.play().catch(() => {});
+  };
+  $("#transcript-edit-mask").addEventListener("click", event => {
+    if (event.target.id === "transcript-edit-mask") closeTranscriptEdit();
+  });
+  $("#transcript-edit-text").addEventListener("keydown", event => {
+    if (event.key === "Escape") closeTranscriptEdit();
+    if ((event.ctrlKey || event.metaKey) && event.key === "Enter") saveTranscriptEdit();
+  });
   $("#refine-btn").onclick = () => {
     if (confirm("用 122B 大模型整体重写纪要？首次调用需加载模型(数分钟)，且会挤占常驻模型。"))
       regenMinutes("qwen3.5-122b-a10b-planner");
