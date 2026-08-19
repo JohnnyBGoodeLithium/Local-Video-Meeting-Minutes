@@ -70,8 +70,14 @@ cmake --build build --config Release -j
 |---|---|---|
 | `MEETING_DEVICE` | `auto` | `auto/cpu/cuda/cuda:0`；ROCm 也写 `cuda` |
 | `MEETING_TORCH_DTYPE` | `auto` | `auto/fp32/fp16/bf16` |
-| `MEETING_ASR_MODEL` | 用户模型缓存 | Qwen3-ASR 路径 |
+| `MEETING_ASR_PROVIDER` | `native` | `native` 进程内适配器，或显式 `openai-compatible` HTTP 端点 |
+| `MEETING_ASR_MODEL` | 用户模型缓存 | native provider 的 Qwen3-ASR 路径 |
 | `MEETING_ALIGNER_MODEL` | 用户模型缓存 | ForcedAligner 路径 |
+| `MEETING_ASR_API` | `http://127.0.0.1:11439/v1` | 兼容 provider 的 `/audio/transcriptions` 基址；可为本机、局域网或获批云端 |
+| `MEETING_ASR_API_MODEL` | `whisper-1` | 兼容端点的模型 ID |
+| `MEETING_ASR_CONTEXT_MODE` | `auto` | `auto` 拒绝 prompt 后同端点无 context 重试；`required` 硬失败；`off` 不发送 |
+| `MEETING_ASR_FALLBACK_PROVIDER` | 空 | 只有显式设置才允许跨 provider 故障切换；默认绝不切云端 |
+| `MEETING_ASR_REVIEW` | `1` | 已知术语混淆的短音频定点复核；失败保留第一遍结果 |
 | `MEETING_PYANNOTE_MODEL` | 用户模型缓存 | pyannote pipeline 路径 |
 | `MEETING_LLM_API` | `http://127.0.0.1:11435/v1` | OpenAI-compatible 文本端点 |
 | `MEETING_LLM_MODEL` | `qwen3.6-35b-a3b-operator` | AI 对话、翻译与通用文本模型 ID |
@@ -97,6 +103,24 @@ llama-server --model /models/text-model.gguf \
   --gpu-layers 999 --flash-attn auto --jinja --no-webui
 ```
 
+ASR 兼容端点必须支持 `multipart/form-data` 的 `/audio/transcriptions`，并在
+`response_format=verbose_json`、`timestamp_granularities[]=word` 下返回 `text`、`language` 与
+`words[{word,start,end}]`。这是说话人对齐的数据合同，不满足时系统会明确报告 capability error。
+Context 使用标准 `prompt` 字段；端点不支持时建议保留 `MEETING_ASR_CONTEXT_MODE=auto`。例如：
+
+```bash
+MEETING_ASR_PROVIDER=openai-compatible
+MEETING_ASR_API=http://127.0.0.1:11439/v1
+MEETING_ASR_API_MODEL=local-asr
+MEETING_ASR_CONTEXT_MODE=auto
+MEETING_ASR_FALLBACK_PROVIDER=
+```
+
+远程端点不会被自动发现或自动启用。只有管理员明确设置上述地址，音频才会发送到它；API key 只放在
+机器私有环境文件的 `MEETING_ASR_API_KEY`，不得写进仓库。若确实需要 native 作为备用，再显式设置
+`MEETING_ASR_FALLBACK_PROVIDER=native`。部署验收必须分别测试端点正常、拒绝 prompt、缺 word timestamps
+和完全不可达四种情况，确认不会出现未授权跨端点传输。
+
 本机需要同时提供快速草稿、27B 正式纪要和可选 120B 精修时，使用 llama.cpp router preset；
 仓库提供不含机器路径的 [预设模板](../deploy/llama-models.ini.example)。模板中的 section 名就是 API
 请求里的模型 ID，必须与 `MEETING_DRAFT_MODEL`、`MEETING_MINUTES_MODEL` 和
@@ -119,7 +143,7 @@ llama-server --model /models/vl-model.gguf --mmproj /models/mmproj.gguf \
 .venv/bin/python bin/meeting_terminology.py backfill meetings
 ```
 
-回填不是批量纠错：它不读取或改写 canonical 逐字稿，只从已有 `page_desc.json` 建候选。部署验收应对同一段脱敏音频分别运行默认 context 与 `--no-context`，记录目标术语召回、普通词误识别和 ASR 阶段耗时。
+回填不是批量纠错：它不读取或改写 canonical 逐字稿，只从已有 `page_desc.json` 建候选。部署验收应对同一段脱敏音频分别运行默认 context 与 `--no-context`，记录目标术语召回、普通词误识别和 ASR 阶段耗时；再构造一条确认术语混淆，验证短片复核失败时仍保留第一遍逐字稿。
 
 ## 5. 首次验收
 

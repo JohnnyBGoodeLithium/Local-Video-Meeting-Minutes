@@ -117,7 +117,7 @@ with tempfile.TemporaryDirectory() as td:
 
 assert proc.returncode == 0, proc.stderr[-300:]
 assert "启动冒烟正文标记" in proc.stdout, "viewer 正文未渲染"
-assert 'id="pack-version"' in proc.stdout and "Meeting Minutes v0.9.2" in proc.stdout, \
+assert 'id="pack-version"' in proc.stdout and "Meeting Minutes v0.10.0" in proc.stdout, \
     "viewer 未显示生成器产品版本"
 assert 'data-fluent-theme="light"' in proc.stdout, "viewer 未启用共享 Fluent 浅色 token"
 assert 'id="fluent-zoom-in"' in proc.stdout and "__FLUENT_" not in proc.stdout, \

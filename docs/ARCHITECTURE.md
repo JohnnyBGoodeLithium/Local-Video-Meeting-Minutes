@@ -2,7 +2,7 @@
 
 ## 目标与边界
 
-本项目把本地录音、普通录屏和 Teams 录制转换为可检索逐字稿、说话人信息、幻灯片页和会议纪要。默认情况下，会议正文、录音、声纹和组织架构不离开本机。
+本项目把本地录音、普通录屏和 Teams 录制转换为可检索逐字稿、说话人信息、幻灯片页和会议纪要。默认情况下，会议正文、录音、声纹和组织架构不离开本机。管理员也可显式配置局域网或获批云端模型端点；产品不会自行跨端点或把本地失败静默降级为云端调用。
 
 不在当前范围内：多人账号、远程部署、公网访问、云端模型自动回退、跨会议全局语义搜索。
 
@@ -58,9 +58,11 @@ flowchart LR
 
 ### 录音
 
-`run_all.py` 先把输入固化为会议目录内的 `audio.wav`，再并行执行 ASR 与说话人分离，随后合并轮次并调用本机文本模型生成纪要。
+`run_all.py` 先把输入固化为会议目录内的 `audio.wav`，再并行执行 ASR 与说话人分离，随后合并轮次并调用文本模型生成纪要。`meeting_core.asr` 是与 Web、GPU 和具体供应商无关的 ASR 边界：默认 `NativeQwenProvider` 保留当前进程内本地路径；`OpenAITranscriptionProvider` 可显式连接本机、局域网或获批云端的兼容 `/audio/transcriptions`。后者必须返回 word timestamps 才能进入说话人对齐；能力缺失会显式失败。跨 provider 回退只有设置 `MEETING_ASR_FALLBACK_PROVIDER` 后才启用。
 
-本地 ASR 在加载音频前通过 `meeting_core.terminology` 构建 `meeting-asr-context/v1`：只包含本场标题、私有词表中人工确认的术语，以及至少在两场会议屏幕中重复出现的高置信候选，并以 2400 字符硬上限传给 Qwen3-ASR 原生 `context` 参数。所选术语的 ID、状态和 context 哈希写入会议目录 `asr.context.json`，不复制历史逐字稿。单场候选、低置信候选和模型推断不会进入 ASR，也不会确定性替换转写正文；`--no-context` 可用于同一素材的 A/B 验证。
+ASR 在加载音频前通过 `meeting_core.terminology` 构建 `meeting-asr-context/v1`：只包含本场标题、私有词表中人工确认的术语，以及至少在两场会议屏幕中重复出现的高置信候选，并以 2400 字符硬上限传给 provider。所选术语的 ID、状态、provider 和 context 哈希写入会议目录 `asr.context.json`，不复制历史逐字稿。单场候选、低置信候选和模型推断不会确定性替换转写正文；`--no-context` 可用于同一素材的 A/B 验证。兼容端点在 `MEETING_ASR_CONTEXT_MODE=auto` 下若明确拒绝 `prompt`，只在同一端点去掉 context 重试；`required` 保持硬失败，`off` 不发送。增强能力不触发未配置的远端回退。
+
+完整 ASR 默认只运行一次。`meeting_core.transcript_review` 在第一遍完成后检查人工确认术语中的已知混淆写法，每场最多对 12 个短音频片段做第二次声学识别。只有二次结果包含标准术语且不再包含混淆写法时才自动替换原语言文字；其余项目写入 revision-bound `transcript.review.json` 等待核听。复核异常由 `safe_review_term_confusions` 隔离，保留第一遍逐字稿继续处理。后置 LLM、纪要或翻译都无权改写 canonical 原语言逐字稿。
 
 ASR 与 pyannote 仍是两条独立时间轴：前者产生文字/字级时间戳，后者产生说话人区间，`diarize.py` 最后按时间重叠归属文字。短段平滑不得再无条件吞掉所有亚秒说话人段：会议中已有稳定发言的声音簇，只要该区间存在 ASR 文字就保留单字插话；只出现一次的短标签至少需要两个可读字符；夹在同一说话人中间、无文字或仅孤立单字的新标签继续按抖动吸收。这个规则改善前后相继的短插话，不声称恢复两人真正同时说话时被单流 ASR 漏掉的第二路内容；后者需要多说话人 ASR 或源分离能力。
 
@@ -74,7 +76,7 @@ VL 终稿和 Topic Map 发布后，普通录屏与 Teams 管线会用一次本�
 
 `teams_minutes.py` 使用 Teams VTT 或 DOCX 的姓名线索与本地分离结果对齐；会议室混合通道继续按声纹拆分，然后进入同样的语音草稿 → VL 终稿流程。`teams_transcript.py` 是不依赖 Web 和第三方 Office 库的输入边界：VTT 读取 cue，DOCX 直接读取 OOXML 中“粗体姓名 → 时间码 → 正文”的 run 结构，忽略头像等媒体；DOCX 不含结束时间，因此用下一条开始时间推导，最后一条使用分离得到的媒体时长。解析失败在写 canonical 逐字稿前终止，不降级猜测姓名或正文。
 
-外部逐字稿不是强制真源。上传路由通过 `transcript_policy` 明确选择 `external` / `ignored` / `local_asr`；`source.json.transcript_source` 记录当前 canonical 逐字稿来源。选择忽略时仍把 VTT/DOCX 固化为受保护母版，但 `speaker_navigation` 不得把其姓名标签投影到本地 ASR 结果。`retranscribe_local.py` 为存量视频会议创建 `.versions/before-local-asr-*` 快照，然后重建逐字稿、说话人、纪要、evidence 和 Topic Map；它复用 `slides.json/page_desc.json` 且不启动 VL，子管线失败时恢复快照。
+外部逐字稿不是强制真源。上传路由通过 `transcript_policy` 明确选择 `external` / `ignored` / `local_asr`；`source.json.transcript_source` 记录当前 canonical 逐字稿来源。选择忽略时仍把 VTT/DOCX 固化为受保护母版，但 `speaker_navigation` 不得把其姓名标签投影到本地 ASR 结果。`retranscribe_local.py` 可为存量音频或视频会议创建 `.versions/before-local-asr-*` 快照，再使用当前显式配置的 provider 和最新 Context 重建逐字稿、说话人、纪要、evidence 和 Topic Map；视频复用 `slides.json/page_desc.json` 且不启动 VL，任一子管线失败时恢复快照。
 
 音视频导入后通过 `meeting_dir.materialize_source` 固化到会议目录。优先创建独立 inode 的 CoW reflink，不支持时完整复制；`source.json` 的主媒体路径指向会议内文件。Web 对旧会议继续支持外部 `source.json` 回退，避免迁移前录音因缺少 `audio.wav` 而无法播放。
 
@@ -107,6 +109,12 @@ VL 终稿和 Topic Map 发布后，普通录屏与 Teams 管线会用一次本�
 ### 人工结论审计
 
 `evaluation_service.py` 将当前 evidence claim 与本机追加式审计事件合并。事件只落 claim ID、标签、备注和来源结构指纹；指纹在内存中覆盖结论及其引用的逐字稿/页面内容，但不把来源正文复制到评测文件。浏览器提交 claim 指纹作为乐观锁，服务端重新计算后才接受写入。相关来源发生变化时只让对应判断失效，审计动作不会修改 `minutes.md`。删除会议时同步删除该会议的审计文件。
+
+### 原语言逐字稿人工修正
+
+在线工作台通过 `transcript_service.py` 对 `transcript.spk.json` 做单轮、带乐观锁的文本修正，并同步重建 `transcript.spk.md`。每次写入前把逐字稿、复核 sidecar 和编辑历史复制到会议私有 `.versions/`，`transcript.edits.json` 记录前后 revision 和修正方法；用户可以精确撤销最近一次尚未被后续写入覆盖的修改。原始媒体、第一遍 `transcript.txt` 和外部 VTT/DOCX 母版不被覆盖。
+
+人工修正会删除该会议的可再生 `.rag` 索引，并让 evidence、事实层、Topic Map 和翻译因 transcript revision 不一致而进入 stale/待同步状态；它不会用确定性代码伪造新的结论 linkage。用户明确执行“更新纪要”后，下游从修正后的 canonical 逐字稿重新生成。静态 MeetingPack Viewer 是不可写的分享副本；需要先在在线工作台修正和同步，再重新导出。
 
 ### 上下文感知翻译
 

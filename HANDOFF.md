@@ -3,7 +3,7 @@
 > 给接手 agent：先读本文件和 `AGENTS.md`，再看 `CHANGELOG.md` 未发布段了解最近改动。
 > 本文件在每次交接或大方向变化时更新；过期的进行中事项完成后删除对应段落。
 
-更新时间：2026-08-19（产品版本 v0.9.2；在线工作台构建号 20260819p78；提交号以 `git log -1` 为准）
+更新时间：2026-08-19（产品版本 v0.10.0；在线工作台构建号 20260819p79；提交号以 `git log -1` 为准）
 
 ## 当前基线
 
@@ -12,11 +12,18 @@
 - 服务：端口 8899，`systemctl --user restart meeting-minutes-web` 重启（挂起 ~45s 是已知 P2 问题，见下）。
 - 隐私红线（详见 AGENTS.md）：不读真实会议正文，只看元数据/结构；上次已获用户授权诊断 Gate B 会议标题形态，新任务需重新授权。
 
+## 当前批次：v0.10.0 原语言逐字稿修正与可移植 ASR
+
+- `meeting_core.asr` 提供 native Qwen 和 OpenAI-compatible `/audio/transcriptions` 两个适配器。默认 native；兼容端点只在显式配置后使用，必须返回 word timestamps。`MEETING_ASR_CONTEXT_MODE=auto` 只在同一端点去掉不受支持的 prompt 重试，`MEETING_ASR_FALLBACK_PROVIDER` 为空时不会跨端点或上云。
+- `meeting_core.transcript_review` v1 只检查人工确认术语的已知混淆写法，每场最多重听 12 个短片段；二次音频结果明确支持标准术语才自动修正。异常被隔离，第一遍逐字稿继续进入说话人/纪要流程；后置 LLM 永不重写 canonical 原语言文本。
+- 在线工作台 p79 在逐轮 hover 提供“修正”，支持播放、revision 乐观锁、私有快照和最近一次撤销。保存后 `.rag` 删除，evidence/事实层/Topic Map/翻译因 revision 变化进入待同步；用户点“更新纪要”才重建下游。静态 Viewer 保持只读，修正后需重新导出。
+- `retranscribe_local.py` 现在覆盖已有纯音频和视频会议，使用当前 provider/Context，保留母版并在失败时恢复 `.versions/before-local-asr-*`。合成回归为 `make check` 通过、Web smoke 158/158；实现提交 `9d25c13`。
+
 ## 当前批次：Qwen3.8 正式纪要与终稿覆盖门
 
 - `qwen3.8-27b-minutes` 已加入本机 llama router；Q6_K 文件约 22.9GB，2026-08-19 用纯虚构请求完成实际加载/非 thinking 输出验收。视频早期语音草稿仍走 35B MoE，纯音频正式纪要与多模态终稿走 27B；Topic Map、翻译和 AI 对话仍走通用 35B。`MEETING_RECOVERY_REFINE_MODEL` 在本机计划配置为 `gpt-oss-120b`。
 - 终稿提示接收受限的语音草稿 checklist，但清单不是证据；模型必须回到原始 T 轮次。发布时按材料事项的类型和 T 交集做覆盖审计，`meeting.generation.json` 只记统计。缺项标 `review_needed`，Web p78 显示“终稿待复核”，不阻断阅读/导出。
-- 新增 `docs/PROCESSING_GUIDE.md` 面向非技术读者解释处理阶段、模型分工、状态和 ASR 术语边界。术语的领域化选词与可疑片段二次识别仍是建议方案，尚未实现；当前 Context Pack 仍在 ASR 开始前构建一次，跨会候选池尚未按 Portfolio/GEO、Business Mgmt/Finance 分域。
+- 新增 `docs/PROCESSING_GUIDE.md` 面向非技术读者解释处理阶段、模型分工、状态和 ASR 术语边界。领域化选词仍是建议方案；已上线的定点复核 v1 只覆盖确认词表中的已知混淆，不等价于通用声学低置信检测。Context Pack 仍在 ASR 开始前构建一次，跨会候选池尚未按 Portfolio/GEO、Business Mgmt/Finance 分域。
 - 新增 `docs/PRODUCT_FUNCTIONS.md` 作为四级编号产品功能表，固定记录功能短名、说明、上线版本、关键 Git 与 P0–P3 重要度；AGENTS.md 要求今后功能与重要增强在同批提交中更新。Bug 台账暂未建立，等待产品负责人确认独立字段。
 
 ## 当前批次：ASR 术语 Context Pack
