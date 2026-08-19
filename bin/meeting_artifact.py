@@ -522,7 +522,7 @@ def action_items_from_claims(claims: list[dict]) -> list[dict]:
         if not is_formal_action_claim(claim):
             continue
         fields = dict(claim.get("action") or _action_fields(str(claim.get("text", ""))))
-        if "|" in str(fields.get("text") or ""):
+        if re.search(r"[|｜]", str(fields.get("text") or "")):
             # 旧 sidecar / 小模型偶尔把整行或前三个单元格塞进 text，同时又把
             # text/owner/deadline 向右复制一遍。先重拆被污染的 text；这比继续信任
             # 已经非原子化的 owner 更可靠，且合法单元格内的竖线本就必须转义。
@@ -530,7 +530,7 @@ def action_items_from_claims(claims: list[dict]) -> list[dict]:
             if reparsed.get("owner"):
                 reparsed["status"] = fields.get("status") or reparsed.get("status")
                 fields = reparsed
-        if fields.get("owner") is None and "|" in str(claim.get("text") or ""):
+        if fields.get("owner") is None and re.search(r"[|｜]", str(claim.get("text") or "")):
             # marker 占状态列的旧 sidecar：退回完整 claim 原文重拆。
             reparsed = _action_fields(str(claim.get("text") or ""))
             if reparsed.get("owner"):

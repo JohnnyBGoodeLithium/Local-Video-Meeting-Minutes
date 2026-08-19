@@ -198,6 +198,22 @@ custom_projected = minutes_reading_markdown(
 assert "| 合成事项乙 [依据](#mm-C00001) | Blair Example | 待确认 | 待确认 |" in custom_projected
 assert "| 合成事项乙 | 合成事项乙 | Blair Example |" not in custom_projected
 
+# 同一污染形态使用全角竖线时也必须触发重拆；旧判断只认半角 `|`，会把整行
+# 原样放进事项列，并让事项/负责人/期限重复右移。
+fullwidth_shifted_claim = {
+    **stale_claim,
+    "action": {"text": "｜合成事项丙｜Casey Example｜待确认｜",
+               "owner": "合成事项丙", "deadline": "Casey Example", "status": "待确认"},
+}
+fullwidth_shifted = action_items_from_claims([fullwidth_shifted_claim])[0]
+assert fullwidth_shifted["text"] == "合成事项丙"
+assert fullwidth_shifted["owner"] == "Casey Example"
+assert fullwidth_shifted["deadline"] == "待确认"
+fullwidth_projected = minutes_reading_markdown(
+    custom_action_view, {"claims": [fullwidth_shifted_claim]}, include_topic_section=False)
+assert "｜合成事项丙｜" not in fullwidth_projected
+assert "| 合成事项丙 [依据](#mm-C00001) | Casey Example | 待确认 | 待确认 |" in fullwidth_projected
+
 print("Minutes Markdown: marker-in-status-cell action rows passed")
 
 # 模型把 marker 包在反引号里：替换成“依据”链接时必须拆掉反引号，
