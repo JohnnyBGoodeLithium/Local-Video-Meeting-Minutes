@@ -128,6 +128,7 @@ meeting-minutes/
 | 文档 | 何时阅读 |
 |---|---|
 | [PROCESSING_GUIDE.md](docs/PROCESSING_GUIDE.md) | 第一次了解：一场会议如何处理、为何分阶段、看到各状态该做什么 |
+| [PRODUCT_FUNCTIONS.md](docs/PRODUCT_FUNCTIONS.md) | 按四级编号查看当前功能、上线版本、关键 Git 与重要度 |
 | [PRODUCT_UX.md](docs/PRODUCT_UX.md) | 理解产品定位、阅读旅程和交互原则 |
 | [DESIGN_TOKENS.md](docs/DESIGN_TOKENS.md) | 了解 Fluent 2 适配、共享 token、图标与原生组件合同 |
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | 理解处理流、canonical 数据和模块边界 |

@@ -17,6 +17,7 @@
 - `qwen3.8-27b-minutes` 已加入本机 llama router；Q6_K 文件约 22.9GB，2026-08-19 用纯虚构请求完成实际加载/非 thinking 输出验收。视频早期语音草稿仍走 35B MoE，纯音频正式纪要与多模态终稿走 27B；Topic Map、翻译和 AI 对话仍走通用 35B。`MEETING_RECOVERY_REFINE_MODEL` 在本机计划配置为 `gpt-oss-120b`。
 - 终稿提示接收受限的语音草稿 checklist，但清单不是证据；模型必须回到原始 T 轮次。发布时按材料事项的类型和 T 交集做覆盖审计，`meeting.generation.json` 只记统计。缺项标 `review_needed`，Web p78 显示“终稿待复核”，不阻断阅读/导出。
 - 新增 `docs/PROCESSING_GUIDE.md` 面向非技术读者解释处理阶段、模型分工、状态和 ASR 术语边界。术语的领域化选词与可疑片段二次识别仍是建议方案，尚未实现；当前 Context Pack 仍在 ASR 开始前构建一次，跨会候选池尚未按 Portfolio/GEO、Business Mgmt/Finance 分域。
+- 新增 `docs/PRODUCT_FUNCTIONS.md` 作为四级编号产品功能表，固定记录功能短名、说明、上线版本、关键 Git 与 P0–P3 重要度；AGENTS.md 要求今后功能与重要增强在同批提交中更新。Bug 台账暂未建立，等待产品负责人确认独立字段。
 
 ## 当前批次：ASR 术语 Context Pack
 

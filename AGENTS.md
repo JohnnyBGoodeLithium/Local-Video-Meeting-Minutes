@@ -56,6 +56,7 @@
 - 导出、evidence、action 或 RAG 记录变化：更新 `docs/EXPORT_AND_RAG.md`。
 - 模型、显卡、环境变量或安装方式变化：更新 `docs/DEPLOYMENT.md` 和 `docs/MODELS.md`。
 - 重要功能或修复：更新 `CHANGELOG.md`。Git 提交仍是完整历史真源。
+- 新增用户可感知功能或对现有功能做重要增强：同步更新 `docs/PRODUCT_FUNCTIONS.md`；四级功能编号上线后不得复用或重排，版本号和 Git 号必须来自实际交付，不能写预计值。
 - 工程事故的根因、修复与教训：更新 `docs/ENGINEERING_REVIEW.md` 已处理段。
 - README 只保留稳定入口、结构和文档地图，不复制每份深度文档的全部细节。
 - 产品版本、发布节奏或 Git tag 规则变化：更新 `docs/RELEASES.md`。
