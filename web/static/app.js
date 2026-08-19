@@ -684,25 +684,49 @@ function updateSplitBar() {
 
 async function applySplitMarks() {
   if (!state.slug || !state.splitMarks.size || !state.bundle) return;
-  const groups = {};
-  for (const i of state.splitMarks) {
-    const voice = state.bundle.transcript[i]?.voice;
-    if (voice) (groups[voice] = groups[voice] || []).push(i);
+  const marked = [...state.splitMarks].sort((a, b) => a - b);
+  // 绑定或上一次拆分可能已经更新了磁盘逐字稿，而当前页面仍持有旧 bundle。
+  // 提交前按时间位置读取一次最新归属，避免把“一个人”误判成多条声纹。
+  let currentBundle;
+  try {
+    currentBundle = await jget(`/api/meetings/${encodeURIComponent(state.slug)}/bundle`);
+  } catch (e) {
+    toast(`无法确认最新声纹状态: ${e?.message || e}（标记已保留，可重试）`);
+    return;
   }
-  if (!Object.keys(groups).length) {
+  const stable = marked.every(i => {
+    const before = state.bundle.transcript[i];
+    const current = currentBundle.transcript?.[i];
+    return before && current
+      && Math.abs(Number(before.start || 0) - Number(current.start || 0)) < 0.05;
+  });
+  if (!stable) {
+    state.bundle = currentBundle;
+    state.splitMarks.clear();
+    renderTranscript();
+    updateSplitBar();
+    toast("逐字稿在标记后已重新生成；为避免拆错人，请重新选择轮次");
+    return;
+  }
+  const voices = new Set(marked.map(i => currentBundle.transcript[i]?.voice).filter(Boolean));
+  if (!voices.size) {
     toast("所选轮次没有可用声纹，无法拆分（标记已保留，可重选）");
     return;
   }
+  if (voices.size !== 1) {
+    state.bundle = currentBundle;
+    renderTranscript();
+    toast("所选轮次的声纹归属已发生变化并涉及多人；页面已刷新，请重新选择");
+    return;
+  }
+  const currentVoice = [...voices][0];
+  const voiceRebased = currentVoice !== state.splitTarget;
   const assign = ($("#split-name").value || "").trim();
   // 某条声纹的轮次被全部选中时无需拆分：填了“具名为”就直接整体改派，
   // 否则提示（典型场景：同名碎片声纹只有一两轮，拆分对它没有意义）。
-  const bindDirect = [];
-  const splitGroups = {};
-  for (const [voice, ids] of Object.entries(groups)) {
-    const total = state.bundle.transcript.reduce((n, t) => n + (t.voice === voice ? 1 : 0), 0);
-    if (ids.length >= total) bindDirect.push([voice, ids.length]);
-    else splitGroups[voice] = ids;
-  }
+  const total = currentBundle.transcript.reduce((n, t) => n + (t.voice === currentVoice ? 1 : 0), 0);
+  const bindDirect = marked.length >= total ? [[currentVoice, marked.length]] : [];
+  const splitGroups = bindDirect.length ? {} : { [currentVoice]: marked };
   if (bindDirect.length && !assign) {
     toast(`选中声纹里有 ${bindDirect.length} 条在本会议只有 ${bindDirect.map(b => b[1]).join("/")} 轮` +
       "且被全部选中，无需拆分：在“具名为”填姓名再确认即可整体改派（标记已保留）");
@@ -742,6 +766,7 @@ async function applySplitMarks() {
       }
       moved += j.moved;
       reassigned += j.reassigned || 0;
+      if (j.source_voice_rebased) state.splitTarget = voice;
       names.push(...(j.voices || []).map(v => v.name));
       if (assign) {
         for (const v of j.voices || []) {
@@ -764,6 +789,7 @@ async function applySplitMarks() {
   state.speakers = null;  // 库已变，刷新缓存
   resetAssistant();       // 逐字稿 revision 已变化，旧引用作废
   const done = [];
+  if (voiceRebased) done.push("已按最新声纹归属自动校正");
   if (boundDirect) done.push(`整体改派 ${boundDirect} 条声纹为「${assign}」`);
   if (moved) {
     let s = `拆分 ${moved} 轮`;

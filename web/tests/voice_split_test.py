@@ -8,6 +8,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "bin"))
 
 from voice_enroll import cluster_embeddings, reassign_by_centroids  # noqa: E402
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from routers.speakers import _resolve_current_split_voice  # noqa: E402
+
 DIM = 192
 
 
@@ -73,5 +76,19 @@ assert moves3 == [None, 0, 1, None, 0, 1, None, 0, 1], moves3
 # 9. 空输入 / 无新簇
 assert reassign_by_centroids(np.zeros((0, DIM), dtype=np.float32), base, [example]) == []
 assert reassign_by_centroids(rest_same, base, []) == [None] * 5
+
+# 10. 页面持有旧 voice 时，只要所选轮次在磁盘上仍同属一条当前声纹，就安全纠正。
+turns = [{"voice": "v_new"}, {"voice": "v_new"}, {"voice": "v_other"}]
+assert _resolve_current_split_voice(turns, [0, 1], "v_old") == ("v_new", True)
+assert _resolve_current_split_voice(turns, [0, 1], "v_new") == ("v_new", False)
+
+# 11. 当前所选轮次确实跨声纹时仍必须拒绝，不能为了通过操作而重新混绑。
+try:
+    _resolve_current_split_voice(turns, [0, 2], "v_old")
+except Exception as exc:
+    assert getattr(exc, "status_code", None) == 400
+    assert "多条声纹" in str(getattr(exc, "detail", ""))
+else:
+    raise AssertionError("mixed current voices must be rejected")
 
 print("voice split clustering: synthetic partitions passed")

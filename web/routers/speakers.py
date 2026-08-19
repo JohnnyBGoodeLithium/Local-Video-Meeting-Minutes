@@ -286,6 +286,22 @@ class SplitReq(BaseModel):
     turns: list[int]
 
 
+def _resolve_current_split_voice(turns: list, indexes: list[int], requested: str):
+    """以磁盘上的最新逐字稿为准解析拆分来源声纹。
+
+    浏览器可能在一次绑定/拆分后仍保留旧 bundle。只要当前所选轮次仍明确属于
+    同一条声纹，就可以安全地把旧 voice 纠正为当前 voice；只有当前数据确实混合
+    多条声纹时才拒绝，避免把两个人再次错误合并。
+    """
+    voices = {str(turns[i].get("voice") or "").strip() for i in indexes}
+    if "" in voices:
+        raise HTTPException(400, "所选轮次缺少可用声纹，请刷新后重新选择")
+    if len(voices) != 1:
+        raise HTTPException(400, "所选轮次当前属于多条声纹，请刷新后重新选择")
+    current = next(iter(voices))
+    return current, current != requested
+
+
 def _match_voice_excluding(bank_dir: Path, bank: dict, vec, exclude: str, threshold: float):
     """match_voice 的排除版：拆分出的轮次永不再匹配回它来源的那条声纹。"""
     import numpy as np
@@ -316,11 +332,10 @@ def split_voice_turns(slug: str, req: SplitReq):
     idx = sorted({i for i in req.turns if 0 <= i < len(turns)})
     if not idx:
         raise HTTPException(400, "没有有效轮次")
-    if any(turns[i].get("voice") != req.voice for i in idx):
-        raise HTTPException(400, "只能拆分同一条声纹的轮次")
+    source_voice, voice_rebased = _resolve_current_split_voice(turns, idx, req.voice)
     picked_set = set(idx)
     remaining = [i for i, t in enumerate(turns)
-                 if t.get("voice") == req.voice and i not in picked_set]
+                 if t.get("voice") == source_voice and i not in picked_set]
     if not remaining:
         raise HTTPException(
             400, f"这条声纹在本会议只有 {len(idx)} 轮且全部被选中，无需拆分："
@@ -350,10 +365,10 @@ def split_voice_turns(slug: str, req: SplitReq):
     moved, reassigned, results = 0, 0, []
     with BANK_LOCK:
         bank = vb.load_bank(BANK_DIR)
-        src = next((v for v in bank["voices"] if v["id"] == req.voice), None)
+        src = next((v for v in bank["voices"] if v["id"] == source_voice), None)
         if src is None:
             raise HTTPException(404, "没有这条声纹")
-        src_label = str(turns[idx[0]].get("speaker") or src.get("label_hint") or req.voice)
+        src_label = str(turns[idx[0]].get("speaker") or src.get("label_hint") or source_voice)
         for k in range(n_clusters):
             member_pos = [n for n, c in enumerate(clusters) if c == k]
             moved_pos = [n for n, mk in enumerate(moves) if mk == k]
@@ -362,7 +377,7 @@ def split_voice_turns(slug: str, req: SplitReq):
             if moved_pos:
                 mats.append(rest[moved_pos])
             centroid = np.vstack(mats).mean(axis=0)
-            match, sim = _match_voice_excluding(BANK_DIR, bank, centroid, req.voice, 0.70)
+            match, sim = _match_voice_excluding(BANK_DIR, bank, centroid, source_voice, 0.70)
             if match is None:
                 hint = f"{src_label}(拆分)" if n_clusters == 1 else f"{src_label}(拆分{k + 1})"
                 match = vb.add_voice(BANK_DIR, bank, centroid, label_hint=hint, source=slug)
@@ -394,4 +409,5 @@ def split_voice_turns(slug: str, req: SplitReq):
     subprocess.run([str(PY), str(ROOT / "bin" / "voice_tool.py"), "sample", str(mdir)],
                    check=False, capture_output=True)
     return {"ok": True, "moved": moved, "reassigned": reassigned,
-            "clusters": n_clusters, "voices": results}
+            "clusters": n_clusters, "voices": results,
+            "source_voice_rebased": voice_rebased}
