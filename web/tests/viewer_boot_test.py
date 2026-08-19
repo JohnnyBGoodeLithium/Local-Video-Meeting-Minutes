@@ -89,16 +89,20 @@ const topicDetailExpanded=!!document.querySelector('.topic-detail')&&document.qu
 const nodeStaysContext=currentMode==='topic_map'&&document.querySelector('#app').classList.contains('review-mode')&&document.querySelector('#app').classList.contains('context-active');
 const playerAvailableInContext=getComputedStyle(document.querySelector('.left')).display!=='none'&&getComputedStyle(document.querySelector('.main')).display!=='none'&&getComputedStyle(document.querySelector('.transcript-panel')).display==='none';
 const tabsBefore=document.querySelector('#viewtabs').getBoundingClientRect().left;
+const tabWidthsBefore=[...document.querySelectorAll('#viewtabs [role="tab"]')].map(tab=>tab.getBoundingClientRect().width);
 document.querySelector('[data-view-seek]').click();
 const timeOpensReview=currentMode==='transcript'&&document.querySelector('#app').classList.contains('review-mode');
 const tabsStayPut=Math.abs(tabsBefore-document.querySelector('#viewtabs').getBoundingClientRect().left)<1;
+const tabWidthsAfter=[...document.querySelectorAll('#viewtabs [role="tab"]')].map(tab=>tab.getBoundingClientRect().width);
+const tabWidthsStable=tabWidthsBefore.every((width,index)=>Math.abs(width-tabWidthsAfter[index])<1);
+const singleSelectedTab=document.querySelectorAll('#viewtabs [aria-selected="true"]').length===1&&document.querySelectorAll('#viewtabs .primary-tab').length===0;
 const transcriptReplacesContext=getComputedStyle(document.querySelector('.left')).display!=='none'&&getComputedStyle(document.querySelector('.main')).display==='none'&&getComputedStyle(document.querySelector('.transcript-panel')).display!=='none';
 renderMinutes();
 const leavingTranscriptRestoresContext=currentMode==='minutes'&&getComputedStyle(document.querySelector('.main')).display!=='none'&&getComputedStyle(document.querySelector('.transcript-panel')).display==='none';
 personLanesOpen=true;renderPersonLanes();
 const spaciousPersonLane=parseFloat(getComputedStyle(document.querySelector('.person-lane-track')).height)>=16;
 const neutralTranscriptRow=getComputedStyle(document.querySelector('.turn')).backgroundImage==='none';
-document.body.dataset.topicContract=[topicDetailExpanded,nodeStaysContext,playerAvailableInContext,timeOpensReview,tabsStayPut,transcriptReplacesContext,leavingTranscriptRestoresContext,spaciousPersonLane,neutralTranscriptRow].join(',');
+document.body.dataset.topicContract=[topicDetailExpanded,nodeStaysContext,playerAvailableInContext,timeOpensReview,tabsStayPut,tabWidthsStable,singleSelectedTab,transcriptReplacesContext,leavingTranscriptRestoresContext,spaciousPersonLane,neutralTranscriptRow].join(',');
 </script></body>"""
 page = page.replace(b"</body>", contract_probe)
 
@@ -125,7 +129,7 @@ assert 'id="utterance-controls"' in proc.stdout and "重播本段" in proc.stdou
 assert 'id="focusbar"' not in proc.stdout, "viewer 仍渲染冗余语义摘要条"
 assert 'data-review-contract="true,true,true,true,true,true"' in proc.stdout, \
     "viewer 长发言分段/顺次/个人/当前位置选人契约不一致"
-assert 'data-topic-contract="true,true,true,true,true,true,true,true,true"' in proc.stdout, \
+assert 'data-topic-contract="true,true,true,true,true,true,true,true,true,true,true"' in proc.stdout, \
     ("viewer 全局播放器、Tab 切换与轻量人物标记契约不一致: " +
      (next((part.split('"')[1] for part in proc.stdout.split()
             if part.startswith('data-topic-contract=')), "missing")))
