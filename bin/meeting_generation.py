@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+from difflib import SequenceMatcher
 import shutil
 import subprocess
 import sys
@@ -18,6 +19,8 @@ import meeting_artifact as artifact
 
 SCHEMA = "meeting-generation/v1"
 VOICE_PHASES = {"voice_draft_generating", "voice_draft", "visual_enrichment"}
+MATERIAL_STATUSES = {"confirmed", "working_alignment", "proposal", "open"}
+DETAIL_SECTIONS = ("分页详情", "逐页详情", "页面详情", "附录")
 
 
 def _read_json(path: Path, default):
@@ -96,6 +99,111 @@ def begin_visual_enrichment(mdir: Path) -> dict:
     return update(mdir, "visual_enrichment")
 
 
+def _material_claims(document: dict) -> list[dict]:
+    """只审计语音草稿的决定、行动、方向和未决项，不拿逐页数量制造假覆盖率。"""
+    result = []
+    for claim in document.get("claims", []):
+        section = str(claim.get("section") or "")
+        if any(token in section for token in DETAIL_SECTIONS):
+            continue
+        kind = str(claim.get("kind") or "discussion")
+        status = str(claim.get("status") or "informational")
+        turns = [str(value) for value in claim.get("turn_ids", []) if str(value)]
+        if not turns or kind == "slide_fact":
+            continue
+        if (claim.get("formal_action") or kind in {"decision", "action", "risk", "open_issue"}
+                or status in MATERIAL_STATUSES):
+            result.append(claim)
+    return result
+
+
+def voice_draft_checklist(mdir: Path, *, limit: int = 36) -> dict:
+    """给终稿的低信任覆盖清单；最终仍须逐条回看原始 T 证据。"""
+    claims = _material_claims(_read_json(
+        Path(mdir) / "minutes.voice-draft.evidence.json", {}))
+
+    def priority(claim):
+        if claim.get("formal_action") or claim.get("kind") == "action":
+            return 0
+        if claim.get("kind") == "decision" and claim.get("status") == "confirmed":
+            return 1
+        if claim.get("status") == "open":
+            return 2
+        return 3
+
+    items, chars = [], 0
+    for claim in sorted(claims, key=priority):
+        text = " ".join(str(claim.get("text") or "").split())[:320]
+        if not text or chars + len(text) > 9000 or len(items) >= limit:
+            continue
+        item = {
+            "draft_claim_id": str(claim.get("id") or ""),
+            "kind": str(claim.get("kind") or "discussion"),
+            "status": str(claim.get("status") or "informational"),
+            "formal_action": bool(claim.get("formal_action")),
+            "turn_ids": [str(value) for value in claim.get("turn_ids", []) if str(value)],
+            "text": text,
+        }
+        items.append(item)
+        chars += len(text)
+    return {"schema": "meeting-voice-draft-checklist/v1", "items": items}
+
+
+def _claim_compatible(draft: dict, final: dict) -> bool:
+    if draft.get("formal_action") or draft.get("kind") == "action":
+        return bool(final.get("formal_action") or final.get("kind") == "action")
+    if draft.get("kind") == "decision":
+        return final.get("kind") == "decision" or final.get("status") in {
+            "confirmed", "working_alignment", "proposal"}
+    if draft.get("status") == "open" or draft.get("kind") in {"risk", "open_issue"}:
+        return final.get("status") == "open" or final.get("kind") in {"risk", "open_issue"}
+    return final.get("status") != "informational" or final.get("kind") != "slide_fact"
+
+
+def coverage_audit(draft_document: dict, final_document: dict) -> dict:
+    """用证据重叠审计顶层语音事实是否在终稿中被保留/合并；不比较总字数。"""
+    drafts = _material_claims(draft_document)
+    finals = _material_claims(final_document)
+    covered = []
+    text_only_candidates = 0
+    for draft in drafts:
+        draft_turns = set(map(str, draft.get("turn_ids", [])))
+        draft_text = " ".join(str(draft.get("text") or "").casefold().split())
+        matched = False
+        text_only = False
+        for final in finals:
+            if not _claim_compatible(draft, final):
+                continue
+            final_turns = set(map(str, final.get("turn_ids", [])))
+            overlap = bool(draft_turns & final_turns)
+            final_text = " ".join(str(final.get("text") or "").casefold().split())
+            text_match = bool(draft_text and final_text and SequenceMatcher(
+                None, draft_text, final_text).ratio() >= 0.72)
+            if overlap:
+                matched = True
+                break
+            if text_match:
+                text_only = True
+        if not matched and text_only:
+            text_only_candidates += 1
+        covered.append(matched)
+    missing = sum(not value for value in covered)
+    action_indexes = [index for index, claim in enumerate(drafts)
+                      if claim.get("formal_action") or claim.get("kind") == "action"]
+    missing_actions = sum(not covered[index] for index in action_indexes)
+    total = len(drafts)
+    return {
+        "quality_state": "pass" if missing == 0 else "review_needed",
+        "material_draft_claims": total,
+        "covered_material_claims": total - missing,
+        "unresolved_material_claims": missing,
+        "material_coverage": round((total - missing) / total, 3) if total else 1.0,
+        "draft_actions": len(action_indexes),
+        "unresolved_actions": missing_actions,
+        "text_only_candidates": text_only_candidates,
+    }
+
+
 def finalize(mdir: Path, *, pages: int, vl_pages: int) -> dict:
     mdir = Path(mdir)
     draft_evidence = _read_json(mdir / "minutes.voice-draft.evidence.json", {})
@@ -109,6 +217,7 @@ def finalize(mdir: Path, *, pages: int, vl_pages: int) -> dict:
         "draft_claims": len(draft_claims), "final_claims": len(final_claims),
         "added_claims": len(final_text - draft_text),
         "reframed_or_removed_claims": len(draft_text - final_text),
+        **coverage_audit(draft_evidence, final_evidence),
     }
     return update(
         mdir, "ready", final_revision=artifact.file_revision(mdir / "minutes.md"),

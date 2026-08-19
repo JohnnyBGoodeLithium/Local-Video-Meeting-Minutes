@@ -1,0 +1,18 @@
+version = 1
+
+[*]
+jinja = true
+parallel = 1
+
+# 快速语音草稿、AI 对话、翻译和通用文本。
+[qwen3.6-35b-a3b-operator]
+model = /opt/models/Qwen3.6-35B-A3B-Q4_K_M.gguf
+
+# 纯音频正式纪要与多模态终稿。别名须与 MEETING_MINUTES_MODEL 一致。
+[qwen3.8-27b-minutes]
+model = /opt/models/Qwen3.8-27B-Q6_K.gguf
+
+# 可选：仅在用户明确选择“高质量重试”时加载。
+[gpt-oss-120b]
+model = /opt/models/gpt-oss-120b-Q4_K_M-00001-of-00002.gguf
+mmap = 0

@@ -149,6 +149,8 @@ s, _, app_js = req("GET", "/static/app.js", raw=True)
 check("渐进纪要失败时明确等待终稿，不把空纪要误报为草稿可读",
       s == 200 and "语音草稿生成失败".encode() in app_js
       and "草稿失败，生成终稿".encode() in app_js
+      and "终稿待复核".encode() in app_js
+      and b'unresolved_material_claims' in app_js
       and b'(m.has_minutes ?' in app_js
       and "待核实候选".encode() in app_js)
 check("在线端以合格会议脉络为第一眼，并共享时间聚焦状态",
@@ -166,7 +168,7 @@ check("时间码跳转只滚动内容面板，不带动整页丢失播放器",
 check("在线屏幕舞台支持放大、缩放和相邻屏幕键盘导航",
       b'id="screen-preview-mask"' in page and b'openScreenPreview' in app_js
       and b'navigateScreenPreview' in app_js and b'SCREEN_PREVIEW_ZOOMS' in app_js
-      and b'20260819p77' in page)
+      and b'20260819p78' in page)
 check("会议列表默认按导入时间且可切换并记忆排序",
       b'meetingSort' in app_js and b'"imported"' in app_js
       and b'imported_at' in app_js and b'updated_at' in app_js

@@ -54,6 +54,7 @@ with tempfile.TemporaryDirectory(prefix="summarize-request-test-") as temp:
         sys.argv = original_argv
         llm.urllib.request.urlopen = original_urlopen
     assert captured.get("chat_template_kwargs") == {"enable_thinking": False}
+    assert captured.get("model") == llm.DEFAULT_MINUTES_MODEL
     assert (root / "minutes.md").is_file()
 
 original_main = summarize.main

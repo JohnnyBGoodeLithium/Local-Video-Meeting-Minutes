@@ -21,6 +21,8 @@ CHUNK_PROMPT = """这是整场会议第 {number}/{total} 个连续时间片段�
 working_alignment、proposal、open 和 informational；岗位只用于判断确认权限。每条事实保留
 原始 T 编号，页面内容只能引用输入中存在的 P 编号。不要生成整场摘要。最多保留 12 条
 真正影响整场理解的事实，其中行动最多 5 条；同义重复必须合并。
+片段 JSON 若含 `voice_draft_checklist`，它只是同一片段的低信任提醒：必须回到 `turns` 中对应
+T 编号核验，获支持的决定、行动、风险或未决项应进入事实笔记；不得把清单本身当作证据。
 
 {evidence_rules}
 
@@ -74,6 +76,15 @@ REDUCE_PROMPT = """根据按时间顺序排列的片段事实笔记，生成整�
 ```json
 {pages}
 ```
+
+语音草稿覆盖清单（低信任，不是新证据）：
+```json
+{draft_checklist}
+```
+
+清单中的决定、行动、风险和未决项必须回到片段笔记中的原始 T 编号重新核验；仍获支持的事项
+必须保留或合并进终稿。若后文或页面资料证明其错误、撤回或重复，可以纠正或省略；不得照抄清单，
+也不得因为加入页面资料就静默丢失有逐字稿支持的重要事项。
 
 片段事实笔记：
 {notes}
@@ -332,6 +343,8 @@ def generate(context: dict, policy: dict, evidence_rules: str, *,
     notes = []
     pages = context.get("pages") or []
     profiles = context.get("speaker_profiles") or []
+    draft_checklist = context.get("voice_draft_checklist") or {
+        "schema": "meeting-voice-draft-checklist/v1", "items": []}
     for index, rows in enumerate(chunks, 1):
         if progress:
             progress(index, len(chunks))
@@ -345,6 +358,14 @@ def generate(context: dict, policy: dict, evidence_rules: str, *,
             "pages": _pages_for_rows(pages, rows),
             "turns": rows,
         }
+        row_ids = {str(row.get("id") or "") for row in rows}
+        relevant_draft_items = [item for item in draft_checklist.get("items", [])
+                                if row_ids.intersection(map(str, item.get("turn_ids", [])))]
+        if relevant_draft_items:
+            chunk_context["voice_draft_checklist"] = {
+                "schema": "meeting-voice-draft-checklist/v1",
+                "items": relevant_draft_items,
+            }
         prompt = CHUNK_PROMPT.format(
             number=index, total=len(chunks), evidence_rules=evidence_rules,
             policy=json.dumps(policy, ensure_ascii=False, separators=(",", ":")),
@@ -360,6 +381,7 @@ def generate(context: dict, policy: dict, evidence_rules: str, *,
         "policy": json.dumps(policy, ensure_ascii=False, indent=2),
         "profiles": _compact(profiles),
         "pages": _compact(pages),
+        "draft_checklist": _compact(draft_checklist),
     }
     reduce_prompt = REDUCE_PROMPT.format(**common, notes="\n".join(notes))
     budget = ContextBudget(output_tokens=max_tokens)

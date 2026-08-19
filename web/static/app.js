@@ -928,6 +928,14 @@ function renderMeetingStatuses() {
   const voiceDraft = b.document_state === "draft";
   const voiceDraftFailed = !b.has_minutes && Number(b.generation?.voice_draft_rc || 0) !== 0;
   const draftFailure = voiceDraftFailureCopy(b.generation?.voice_draft_rc);
+  const enrichment = b.generation?.enrichment || {};
+  const finalNeedsReview = documentReady && enrichment.quality_state === "review_needed";
+  const unresolved = Number(enrichment.unresolved_material_claims || 0);
+  const qualityTitle = finalNeedsReview
+    ? (isEnglishUi()
+      ? `${unresolved} material voice-draft item(s) were not matched in the multimodal final. They may have been merged, corrected, or omitted; verify them in Conclusion Audit.`
+      : `语音草稿中有 ${unresolved} 条重要事项未在多模态终稿中找到对应投影；可能被合并、纠正或遗漏，请到“结论审计”核对。`)
+    : "";
   const evidenceState = b.evidence?.state || "partial";
   const evidenceLabel = evidenceState === "ready" ? (isEnglishUi() ? "Traceable" : "可核证")
     : evidenceState === "stale" ? (isEnglishUi() ? "Stale" : "已过期")
@@ -940,10 +948,11 @@ function renderMeetingStatuses() {
       voiceDraft ? (isEnglishUi() ? "Voice draft ready" : "语音草稿可读")
       : voiceDraftFailed ? (isEnglishUi() ? "Draft failed; final running" : "草稿失败，生成终稿")
       : active ? (active.stage || (isEnglishUi() ? "Processing" : "处理中"))
+      : finalNeedsReview ? (isEnglishUi() ? "Final needs review" : "终稿待复核")
       : (documentReady ? (isEnglishUi() ? "Ready" : "可阅读") : (isEnglishUi() ? "Processing" : "处理中")),
-      voiceDraftFailed ? "warn" : voiceDraft || active ? "working" : (documentReady ? "good" : "neutral"),
+      voiceDraftFailed || finalNeedsReview ? "warn" : voiceDraft || active ? "working" : (documentReady ? "good" : "neutral"),
       voiceDraft ? "口头内容已经可读，屏幕表格、数字和画面资料仍在补充"
-        : voiceDraftFailed ? draftFailure.title : ""),
+        : voiceDraftFailed ? draftFailure.title : qualityTitle),
     statusChip(isEnglishUi() ? "Evidence" : "证据", evidenceLabel, evidenceTone,
       evidenceState === "ready" ? "结论可回到逐字稿或共享画面核对" : "重新生成纪要后可补齐结构化依据"),
     statusChip(isEnglishUi() ? "Share" : "分享",

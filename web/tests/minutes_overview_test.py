@@ -49,7 +49,13 @@ pages = [{"id": f"P{number:04d}", "number": number,
           "visual_summary": "合成页面数据表"}
          for number in range(1, 8)]
 context = {"schema": "meeting-minutes-prompt/v1", "speaker_profiles": [],
-           "pages": pages, "turns": turns}
+           "pages": pages, "turns": turns,
+           "voice_draft_checklist": {
+               "schema": "meeting-voice-draft-checklist/v1",
+               "items": [{"draft_claim_id": "C00001", "kind": "action",
+                           "status": "open", "formal_action": True,
+                           "turn_ids": ["T000002"], "text": "合成待办"}],
+           }}
 client = FakeClient()
 result = generate(context, {"version": "synthetic/v1"}, "只使用合成证据。",
                   client=client)
@@ -59,6 +65,9 @@ assert len(client.calls) == result.chunks + 1
 assert "T000001" in client.calls[0][0]
 assert "T000620" in client.calls[-2][0]
 assert "P0001" in client.calls[0][0]
+assert "meeting-voice-draft-checklist/v1" in client.calls[0][0]
+assert "meeting-voice-draft-checklist/v1" in client.calls[-1][0]
+assert "T000002" in client.calls[-1][0]
 assert client.calls[-1][1]["max_tokens"] == 6144
 assert all(call[1]["max_tokens"] == 1400 for call in client.calls[:-1])
 assert result.content.startswith("## 总体摘要")

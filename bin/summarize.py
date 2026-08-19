@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""逐字稿 → 结构化会议纪要(走本机 llama.cpp 路由上的 Qwen3.6，不出本机)。
+"""逐字稿 → 结构化会议纪要(走本机 llama.cpp 路由的纪要专用模型，不出本机)。
 
 用法：
     bin/summarize.py meetings/2026-08-06_171137/transcript.txt
@@ -23,11 +23,12 @@ from meeting_artifact import (
     normalize_minutes_markdown,
     write_evidence_document,
 )
-from meeting_core.llm import DEFAULT_MODEL, LLMError, LocalLLMClient
+from meeting_core.llm import (DEFAULT_MINUTES_MODEL, LLMError, LocalLLMClient,
+                              minutes_model_for_stage)
 from meeting_core import voice_draft
 import meeting_topic_map
 
-MODEL = DEFAULT_MODEL
+MODEL = DEFAULT_MINUTES_MODEL
 
 PROMPT = """你是一名会议纪要助手。下面是会议录音的逐字稿(自动转写，可能有个别错字)。
 请输出 Markdown 格式的结构化会议纪要，包含：
@@ -60,7 +61,7 @@ SPK_PROMPT = (PROMPT
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="本地生成会议纪要(Qwen3.6 @ llama-router)")
+    ap = argparse.ArgumentParser(description="本地生成会议纪要(纪要专用模型 @ llama-router)")
     ap.add_argument("transcript", type=Path, help="逐字稿 .txt 文件")
     ap.add_argument("--out", type=Path, default=None,
                     help="输出目录(默认与逐字稿同目录)")
@@ -74,6 +75,7 @@ def main() -> int:
     ap.add_argument("--skip-topic-map", action="store_true",
                     help="语音草稿阶段不提前生成 Topic Map")
     args = ap.parse_args()
+    model = minutes_model_for_stage(args.generation_stage)
 
     if args.spk:
         if not args.spk.is_file():
@@ -93,7 +95,7 @@ def main() -> int:
             return 1
         prompt = PROMPT.format(transcript=text)
 
-    client = LocalLLMClient()
+    client = LocalLLMClient(model=model)
     try:
         if args.spk:
             result = voice_draft.generate(
@@ -137,7 +139,7 @@ def main() -> int:
             args.spk.parent, minutes + "\n", turns, [], {}, profiles,
             generation={"prompt_schema": "meeting-minutes-prompt/v1",
                         "conclusion_policy": CONCLUSION_POLICY["version"],
-                        "text_model": MODEL, "vl_enabled": False,
+                        "text_model": model, "vl_enabled": False,
                         "generation_stage": args.generation_stage,
                         "generation_mode": generation_mode,
                         "generation_chunks": generation_chunks})

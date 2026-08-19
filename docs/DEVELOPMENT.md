@@ -40,6 +40,9 @@ make run      # 127.0.0.1:8899
 | `MEETING_PYTHON` | `.venv/bin/python` | 管线子进程解释器 |
 | `MEETING_LLM_API` | `http://127.0.0.1:11435/v1` | 本机 OpenAI-compatible API |
 | `MEETING_LLM_MODEL` | `qwen3.6-35b-a3b-operator` | 助手模型 |
+| `MEETING_DRAFT_MODEL` | 跟随 `MEETING_LLM_MODEL` | 视频会议早期语音草稿模型 |
+| `MEETING_MINUTES_MODEL` | `qwen3.8-27b-minutes` | 纯音频正式纪要与多模态终稿模型 |
+| `MEETING_RECOVERY_REFINE_MODEL` | 未设置 | 用户明确选择高质量重试时的精修模型 |
 | `MEETING_LLM_CONTEXT_SIZE` | `65536` | 文本模型服务实际上下文窗口，供请求预算与长文本切分 |
 | `MEETING_ALLOW_REMOTE_LLM` | 未设置 | 只有明确授权远程处理时才可设为 `1` |
 | `MEETING_DEVICE` | `auto` | PyTorch 设备；ROCm 与 CUDA 都使用 `cuda` 设备语义 |

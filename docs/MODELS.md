@@ -16,7 +16,8 @@ Python 管线不绑定 AMD：NVIDIA 使用 PyTorch CUDA，AMD 使用 PyTorch ROC
 | 语音转写 | Qwen3-ASR-1.7B | 4.4G | ROCm GPU ✅；原生 context 注入已确认/跨会重复术语；CPU 可跑约 3–6× 实时 📐 |
 | 字级对齐 | Qwen3-ForcedAligner-0.6B | 1.8G | 随转写加载 ✅ |
 | 说话人分离+声纹 | pyannote community-1 | 33M | GPU/CPU 均可 ✅ |
-| 纪要文本（标准） | Qwen3.6-35B-A3B Q4_K_M（MoE 3B 激活） | 22G | 全速需 ~24G VRAM ✅；可内存卸载慢跑 📐 |
+| 语音草稿/AI 交互 | Qwen3.6-35B-A3B Q4_K_M（MoE 3B 激活） | 22G | 低激活量，优先保证草稿和交互速度 ✅ |
+| 正式纪要（标准） | Qwen3.8-27B Q6_K（dense） | 22.9G | 本机 llama.cpp 路由加载与非 thinking 输出已验证 ✅ |
 | 纪要文本（中杯替代） | Qwen3-14B / GLM-Flash 级 Q4 | 9–18G | 16G 档的现实选择 📐 |
 | 纪要文本（小杯替代） | Qwen3-8B 级 Q4 | ~5G | 8G 档选择 📐 |
 | 纪要精修（重写） | Qwen3.5-122B-A10B Q4_K_M / gpt-oss-120b Q4 | 72G / 59G | 仅 A 档；路由器按模型名自动加载 ✅ |
@@ -27,9 +28,9 @@ Python 管线不绑定 AMD：NVIDIA 使用 PyTorch CUDA，AMD 使用 PyTorch ROC
 ## 2. 档位矩阵
 
 ### A 档：统一内存大盒（本机 Strix Halo 96G VRAM / 124G RAM）✅ 已验证
-- **可用模型**：池内全部，含 122B 精修。
-- **可提供服务**：全量——转写+分离+逻辑页+VL 逐页解读+35B 按页纪要+Web 界面+声纹库+**122B 精修重写**。
-- **速度实测**：录音笔 24m35s 全链路 322s；51m20s Teams 会（复用 VTT 免转写）抽页 ~40s + VL 39页 ~19min + 35B 纪要 ~2min；122B 首次调用需加载 72G（分钟级），之后重写一遍纪要 ~2-5min。
+- **可用模型**：池内全部，含 Qwen3.8-27B 正式纪要与 120B/122B 精修。
+- **可提供服务**：全量——转写+分离+逻辑页+VL 逐页解读+27B 正式纪要+Web 界面+声纹库+**120B/122B 精修重写**。
+- **速度实测**：录音笔 24m35s 旧流程全链路 322s；51m20s Teams 会（复用 VTT 免转写）抽页 ~40s + VL 39页 ~19min + 旧 35B 纪要 ~2min。Qwen3.8-27B 已验证加载和输出，完整长会基准仍待补测；120B/122B 首次加载为分钟级，之后重写一遍纪要约 2–5min。
 - **取舍**：无。
 
 ### B 档：M90t + RTX 5060Ti 16G 📐
@@ -58,7 +59,7 @@ Python 管线不绑定 AMD：NVIDIA 使用 PyTorch CUDA，AMD 使用 PyTorch ROC
 | 说话人分离+声纹 | ✅ | ✅ | ✅ | 📐 慢 |
 | 逻辑页抽取 | ✅ | ✅ | ✅ | ✅ |
 | VL 画面解读 | ✅ 全尺寸 | ✅ 串行 | 可选/1280px | ✘ |
-| 按页纪要 | ✅ 35B | 📐 14B 或卸载 35B | 📐 8B | 📐 8B 慢 |
+| 按页纪要 | ✅ 27B Q6 | 📐 14B 或卸载 27B | 📐 8B | 📐 8B 慢 |
 | 122B 精修重写 | ✅ | ✘ | ✘ | ✘ |
 | Web 界面 | ✅ | ✅ | ✅ | ✅ |
 | 本地 embedding + reranker | ✅ 常驻 | ✅ 可常驻/按需 | 建议按需或仅 embedding | 可用但应评估时延 |

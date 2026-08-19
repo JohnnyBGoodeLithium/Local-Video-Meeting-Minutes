@@ -17,7 +17,14 @@ from urllib.parse import urlparse
 
 DEFAULT_API = os.environ.get("MEETING_LLM_API", "http://127.0.0.1:11435/v1").rstrip("/")
 DEFAULT_MODEL = os.environ.get("MEETING_LLM_MODEL", "qwen3.6-35b-a3b-operator")
+DEFAULT_DRAFT_MODEL = os.environ.get("MEETING_DRAFT_MODEL", DEFAULT_MODEL)
+DEFAULT_MINUTES_MODEL = os.environ.get("MEETING_MINUTES_MODEL", "qwen3.8-27b-minutes")
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
+
+def minutes_model_for_stage(stage: str) -> str:
+    """视频早期草稿优先时延；正式音频/多模态纪要优先质量。"""
+    return DEFAULT_DRAFT_MODEL if str(stage) == "voice_draft" else DEFAULT_MINUTES_MODEL
 
 
 def validated_api_base(api: str) -> str:

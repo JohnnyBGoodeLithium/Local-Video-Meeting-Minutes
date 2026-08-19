@@ -3,7 +3,7 @@
 > 给接手 agent：先读本文件和 `AGENTS.md`，再看 `CHANGELOG.md` 未发布段了解最近改动。
 > 本文件在每次交接或大方向变化时更新；过期的进行中事项完成后删除对应段落。
 
-更新时间：2026-08-19（产品版本 v0.9.2；在线工作台构建号 20260819p77；提交号以 `git log -1` 为准）
+更新时间：2026-08-19（产品版本 v0.9.2；在线工作台构建号 20260819p78；提交号以 `git log -1` 为准）
 
 ## 当前基线
 
@@ -11,6 +11,12 @@
 - 验证基线：发布提交前以本轮 `make check`、隔离 Web smoke 和 MeetingPack 启动测试结果为准；所有新增测试只使用虚构数据。
 - 服务：端口 8899，`systemctl --user restart meeting-minutes-web` 重启（挂起 ~45s 是已知 P2 问题，见下）。
 - 隐私红线（详见 AGENTS.md）：不读真实会议正文，只看元数据/结构；上次已获用户授权诊断 Gate B 会议标题形态，新任务需重新授权。
+
+## 当前批次：Qwen3.8 正式纪要与终稿覆盖门
+
+- `qwen3.8-27b-minutes` 已加入本机 llama router；Q6_K 文件约 22.9GB，2026-08-19 用纯虚构请求完成实际加载/非 thinking 输出验收。视频早期语音草稿仍走 35B MoE，纯音频正式纪要与多模态终稿走 27B；Topic Map、翻译和 AI 对话仍走通用 35B。`MEETING_RECOVERY_REFINE_MODEL` 在本机计划配置为 `gpt-oss-120b`。
+- 终稿提示接收受限的语音草稿 checklist，但清单不是证据；模型必须回到原始 T 轮次。发布时按材料事项的类型和 T 交集做覆盖审计，`meeting.generation.json` 只记统计。缺项标 `review_needed`，Web p78 显示“终稿待复核”，不阻断阅读/导出。
+- 新增 `docs/PROCESSING_GUIDE.md` 面向非技术读者解释处理阶段、模型分工、状态和 ASR 术语边界。术语的领域化选词与可疑片段二次识别仍是建议方案，尚未实现；当前 Context Pack 仍在 ASR 开始前构建一次，跨会候选池尚未按 Portfolio/GEO、Business Mgmt/Finance 分域。
 
 ## 当前批次：ASR 术语 Context Pack
 

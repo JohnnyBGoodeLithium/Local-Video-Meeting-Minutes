@@ -27,6 +27,12 @@ with tempfile.TemporaryDirectory(prefix="minutes-policy-") as tmp:
     ]
     (mdir / "transcript.spk.json").write_text(json.dumps(turns, ensure_ascii=False), encoding="utf-8")
     (mdir / "slides.json").write_text(json.dumps(pages, ensure_ascii=False), encoding="utf-8")
+    (mdir / "minutes.voice-draft.evidence.json").write_text(json.dumps({
+        "schema": "meeting-minutes-evidence/v1",
+        "claims": [{"id": "C00001", "text": "试点建议待确认",
+                    "kind": "decision", "status": "proposal",
+                    "turn_ids": ["T000001"]}],
+    }, ensure_ascii=False), encoding="utf-8")
     (mdir / "slides" / "one.png").write_bytes(b"synthetic-one")
     (mdir / "slides" / "two.png").write_bytes(b"synthetic-two")
 
@@ -117,6 +123,7 @@ with tempfile.TemporaryDirectory(prefix="minutes-policy-") as tmp:
     assert all("Synthetic Director" not in p for p in seen_prompts)
     assert any("Corrected Synthetic Owner" in p for p in seen_prompts)
     assert any("Final Synthetic Owner" in p for p in seen_prompts)
+    assert any("meeting-voice-draft-checklist/v1" in p for p in seen_prompts)
     assert overview_calls == 2 and describe_calls == 1
 
 print("Minutes policy/evidence: synthetic fixture passed")

@@ -51,11 +51,11 @@ from meeting_core.minutes_overview import normalize_action_marker_scope
 import meeting_topic_map
 import meeting_generation
 from meeting_core.hardware import configured_path
-from meeting_core.llm import validated_api_base
+from meeting_core.llm import DEFAULT_MINUTES_MODEL, LocalLLMClient, validated_api_base
 
 ROUTER = validated_api_base(os.environ.get(
     "MEETING_LLM_API", "http://127.0.0.1:11435/v1")) + "/chat/completions"
-MODEL = os.environ.get("MEETING_LLM_MODEL", "qwen3.6-35b-a3b-operator")
+MODEL = DEFAULT_MINUTES_MODEL
 VL_PORT = int(os.environ.get("MEETING_VL_PORT", "11436"))
 VL_MODEL = configured_path(
     "MEETING_VL_MODEL", Path.home() / "视频/joyai-test/models/MiMo-VL-Miloco-7B_Q4_0.gguf")
@@ -109,6 +109,11 @@ SUM_PROMPT = """你是一名严谨的会议纪要编辑。你收到的是 `meeti
 把连续页面严格归并为 3–8 个整场主要议题；优先使用页面读出的 agenda/章节标题，但概括
 必须有逐字稿依据。不要把每个页面或时间片直接当成一个议题。每块必须是独立列表项：
 - 板块名（第X–Y页，mm:ss 起）：一句话概括，并附带含真实 turns 的证据标记。
+
+输入中的 `voice_draft_checklist` 是在 VL 开始前从同一逐字稿提取的低信任覆盖清单，不是新证据，
+也不能照抄。必须回到清单列出的原始 T 轮次重新核验：仍被逐字稿支持的决定、行动、风险和未决项
+必须在终稿中保留或与同义事项合并；若画面资料或后文证明其错误、撤回或重复，可以纠正或省略，
+但不得仅因为加入页面资料就静默丢失。所有保留内容仍须遵守下方证据规则。
 
 {evidence_rules}
 
@@ -263,7 +268,8 @@ def describe_pages(mdir: Path, pages, api: str, video: Path = None):
 def overview_direct(summary_prompt: str, context_json: str):
     """模块级接缝：直出总体纪要（与 map/reduce 共用护栏），测试可替换。"""
     return generate_direct_overview(
-        summary_prompt, EVIDENCE_RULES, notes=context_json, max_tokens=6144)
+        summary_prompt, EVIDENCE_RULES, notes=context_json,
+        client=LocalLLMClient(model=MODEL), max_tokens=6144)
 
 
 def chat(prompt: str, max_tokens: int = 8192, model: str = MODEL):
@@ -447,6 +453,9 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
     bank_dir = Path(os.environ.get("MEETING_WEB_BANK", mdir.parent.parent / "speaker_bank"))
     profiles = load_speaker_profiles(turns, bank_dir)
     summary_context = build_prompt_context(turns, pages, descs, profiles)
+    draft_checklist = meeting_generation.voice_draft_checklist(mdir)
+    if draft_checklist["items"]:
+        summary_context["voice_draft_checklist"] = draft_checklist
     context_json = json.dumps(summary_context, ensure_ascii=False, separators=(",", ":"))
     print(f"[meta] 逐字稿 {len(turns)} 轮/{len(context_json)} 字结构化输入 | 页数 {len(pages)}"
           f" | 开场 {len(opening)} 轮 | VL解读 {len(descs)} 页", flush=True)
@@ -466,6 +475,7 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
     else:
         overview = generate_overview(
             summary_context, CONCLUSION_POLICY, EVIDENCE_RULES,
+            client=LocalLLMClient(model=MODEL),
             progress=lambda current, total: print(
                 f"[meta] 总体纪要长文本分段 {current}/{total}", flush=True),
         )

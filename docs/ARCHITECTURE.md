@@ -82,11 +82,13 @@ VL 终稿和 Topic Map 发布后，普通录屏与 Teams 管线会用一次本�
 
 `meeting_generation.py` 管理 `meeting-generation/v1` sidecar，只保存阶段、revision 和统计，不复制正文。阶段为 `voice_draft_generating → voice_draft → visual_enrichment → ready`。语音草稿请求显式关闭模型 thinking，避免输出预算全部落入隐藏 reasoning 而没有可读正文；失败时记录受控 `voice_draft_rc`，不阻断 VL 终稿，但前端必须明确显示“草稿失败，正在生成终稿”，不能把空纪要误报成草稿可读。语音草稿另存 `minutes.voice-draft.*` 作为可回溯快照；前端检测可读日志后立即打开，终稿 revision 变化时按同名标题尽量恢复阅读位置。草稿可播放、搜索、翻译和追问；服务端同时拒绝编辑应用、结论审计写入、Topic Map、重生成和 MeetingPack 导出。
 
-文本模型协议由不依赖 Web 的 `meeting_core.llm` 统一处理，包括 loopback 边界、模型选择、thinking、超时和安全错误分类；`meeting_core.context_budget` 负责实际上下文窗口与保守 token 预算。`meeting_core.voice_draft` 在完整提示可容纳时直接生成；超限时按连续 T ID 轮次切成受预算约束的片段，先提取事实笔记，再合并为常规纪要。分段笔记是临时推导，不替代 canonical 逐字稿，最终 evidence 仍只能引用原始 T ID。后续 Topic Map、翻译、助手和终稿调用应逐步迁移到同一客户端，避免各自维护协议参数。
+文本模型协议由不依赖 Web 的 `meeting_core.llm` 统一处理，包括 loopback 边界、模型选择、thinking、超时和安全错误分类；`MEETING_LLM_MODEL` 是通用/助手模型，`MEETING_DRAFT_MODEL` 是视频早期草稿模型，`MEETING_MINUTES_MODEL` 是纯音频正式纪要与多模态终稿模型。当前默认让 35B MoE 负责尽快可读，让 Qwen3.8-27B dense 负责正式纪要；高质量恢复模型独立配置，不把 120B 加载成本施加到每场会议。`meeting_core.context_budget` 负责实际上下文窗口与保守 token 预算。`meeting_core.voice_draft` 在完整提示可容纳时直接生成；超限时按连续 T ID 轮次切成受预算约束的片段，先提取事实笔记，再合并为常规纪要。分段笔记是临时推导，不替代 canonical 逐字稿，最终 evidence 仍只能引用原始 T ID。后续 Topic Map、翻译和助手调用应逐步迁移到同一客户端，避免各自维护协议参数。
 
 `minutes_by_page.py` 和 `summarize.py` 使用 `meeting-minutes-prompt/v1` 结构化输入，并在可读 Markdown 中留下隐藏的 T/P 证据 marker。`meeting_artifact.py` 将其规范化为 `minutes.evidence.json`；Web、`export_meeting.py` 和后续 RAG 都消费同一 sidecar。导出器生成 `meetingpack/v5`：顶层只有 `viewer.html + README.txt + AGENTS.md + assets/`。AGENTS.md 是给 AI agent 的一等使用合同：除文件地图与引用规则外，还按任务给出菜谱——单场深读、同系列多场对比（用 `sources.transcript` 里跨包恒定的 `person_id` 对人、topic-map 标题对议题、actions 按负责人+事项语义对待办，输出标注新增/延续/翻案/消失并引用双场 C 编号）、会后产出、知识库索引与事实核对——整包拖进 agent 会话时不只读纪要，也能直接做例行会对比。完整逐字稿、Topic Map、屏幕资料、媒体时间跳转、证据状态及已生成的双语纪要进入同一个无需服务、LLM、CDN 或网络请求的 Viewer。Viewer 只保留与在线工作台一致的“会议脉络 / 会议纪要 / 屏幕内容”，不再导出四种 audience/depth 重排视图。VL 描述在进入 evidence、Viewer 和 RAG 前复用在线端的 reasoning 清洗/标题提取。导出只生成长边 1600px WebP 与压缩分享媒体，不反写 canonical sidecar 或原始母版。完整规范见 `docs/EXPORT_AND_RAG.md`。
 
 视频纪要存在一个明确的身份一致性栅栏：VL 可以与用户的说话人修正并行，但终稿文本不能消费 VL 前的旧逐字稿快照。`minutes_by_page.py` 在 VL 完成后重新载入 `transcript.spk.json`，以该 revision 生成上下文；发布前再次核对 revision。若文本阶段又发生身份修正，丢弃旧文本并复用 `page_desc.json` 重跑文本阶段一次，不重复 ASR、分离或 VL。
+
+多模态终稿还经过一个非阻断覆盖审计。语音草稿 evidence 中的顶层决定、行动、风险和未决项会形成有上限的低信任 checklist，长会议 map 阶段只接收落在当前时间片的相关项；每一层都必须回到原始 T 证据核验，不能把 checklist 当新证据。发布后 `meeting_generation.coverage_audit` 以事项类型与稳定 T 交集判断它们是否在终稿保留或合并；文字相似但 T 不一致只记为诊断候选，不能冒充通过。审计不比较全文字数，也不把逐页页面事实算作“质量”。未匹配事项只在 `meeting.generation.json` 记录数量与 `review_needed`，不复制正文、不自动否决导出，因为后文纠正或合并也可能是合理原因。Web 将其显示为“终稿待复核”，引导用户进入结论审计。
 
 阅读 API 与 Viewer 还消费一个不落盘的 `speaker_navigation` 投影：`verified_voice_binding` 表示声纹已绑定稳定人员；`imported_transcript_label` 表示 VTT/DOCX 明确姓名只在本场可靠；`session_voice_cluster` 表示未命名但已有 `voice_id`，可按本场声音簇跳播；`insufficient_voice_sample` 表示片段过短、没有可用声音簇，才禁止选择。该投影不反向修改声纹库，也不把本场标签/声音簇伪造成 `person_id`；旧导出包没有该字段时仅用匿名占位名启发式兼容。
 

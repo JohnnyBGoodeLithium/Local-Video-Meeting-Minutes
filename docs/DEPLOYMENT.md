@@ -74,7 +74,10 @@ cmake --build build --config Release -j
 | `MEETING_ALIGNER_MODEL` | 用户模型缓存 | ForcedAligner 路径 |
 | `MEETING_PYANNOTE_MODEL` | 用户模型缓存 | pyannote pipeline 路径 |
 | `MEETING_LLM_API` | `http://127.0.0.1:11435/v1` | OpenAI-compatible 文本端点 |
-| `MEETING_LLM_MODEL` | `qwen3.6-35b-a3b-operator` | 文本模型 ID |
+| `MEETING_LLM_MODEL` | `qwen3.6-35b-a3b-operator` | AI 对话、翻译与通用文本模型 ID |
+| `MEETING_DRAFT_MODEL` | 跟随 `MEETING_LLM_MODEL` | 视频会议早期语音草稿模型 ID |
+| `MEETING_MINUTES_MODEL` | `qwen3.8-27b-minutes` | 纯音频正式纪要与多模态终稿模型 ID |
+| `MEETING_RECOVERY_REFINE_MODEL` | 未设置 | 高质量恢复/精修模型 ID；大模型机器可设 `gpt-oss-120b` |
 | `MEETING_TERMINOLOGY_MODEL` | 跟随 `MEETING_LLM_MODEL` | 从已完成屏幕说明提取下一场 ASR 候选的本地模型 ID |
 | `MEETING_LLM_CONTEXT_SIZE` | `65536` | 长会切分预算依据 |
 | `MEETING_VL_MODEL` | 当前用户 Miloco 路径 | VL GGUF |
@@ -93,6 +96,12 @@ llama-server --model /models/text-model.gguf \
   --host 127.0.0.1 --port 11435 --ctx-size 65536 \
   --gpu-layers 999 --flash-attn auto --jinja --no-webui
 ```
+
+本机需要同时提供快速草稿、27B 正式纪要和可选 120B 精修时，使用 llama.cpp router preset；
+仓库提供不含机器路径的 [预设模板](../deploy/llama-models.ini.example)。模板中的 section 名就是 API
+请求里的模型 ID，必须与 `MEETING_DRAFT_MODEL`、`MEETING_MINUTES_MODEL` 和
+`MEETING_RECOVERY_REFINE_MODEL` 一致。模型不存在时不要保留对应环境变量，否则高质量按钮会显示
+但首次请求会失败。
 
 VL 服务示例（逐页解读默认 2 路并发，槽位数要配得上）：
 

@@ -127,6 +127,7 @@ meeting-minutes/
 
 | 文档 | 何时阅读 |
 |---|---|
+| [PROCESSING_GUIDE.md](docs/PROCESSING_GUIDE.md) | 第一次了解：一场会议如何处理、为何分阶段、看到各状态该做什么 |
 | [PRODUCT_UX.md](docs/PRODUCT_UX.md) | 理解产品定位、阅读旅程和交互原则 |
 | [DESIGN_TOKENS.md](docs/DESIGN_TOKENS.md) | 了解 Fluent 2 适配、共享 token、图标与原生组件合同 |
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | 理解处理流、canonical 数据和模块边界 |
@@ -145,7 +146,7 @@ meeting-minutes/
 
 业务代码不依赖 AMD。PyTorch 的 ROCm 版本也使用 `torch.cuda` API；项目会诊断实际 backend 为 `rocm` 或 `cuda`，NVIDIA 不支持 BF16 时自动回退 FP16。`llama.cpp` 则需要在目标机器安装对应的 CUDA 或 HIP backend。
 
-模型路径、设备和端口都可通过环境变量覆盖；完整列表及 NVIDIA 验证矩阵见 [DEPLOYMENT.md](docs/DEPLOYMENT.md)。示例配置位于 [deploy/meeting-minutes.env.example](deploy/meeting-minutes.env.example)。
+模型路径、设备和端口都可通过环境变量覆盖；完整列表及 NVIDIA 验证矩阵见 [DEPLOYMENT.md](docs/DEPLOYMENT.md)。环境变量与多模型路由示例分别位于 [meeting-minutes.env.example](deploy/meeting-minutes.env.example) 和 [llama-models.ini.example](deploy/llama-models.ini.example)。
 
 ## 隐私与维护约束
 
