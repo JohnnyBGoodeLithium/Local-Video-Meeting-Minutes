@@ -414,6 +414,30 @@ def _replace_section_body(markdown: str, title: str, replacement: str) -> str:
     return before + "\n\n" + replacement.strip() + "\n\n" + after
 
 
+def _is_action_heading(title: str) -> bool:
+    """识别带编号、双语括注的待办标题，避免 AI 视图绕过结构化投影。"""
+    value = unicodedata.normalize("NFKC", str(title or "")).strip()
+    value = re.sub(r"^(?:\d+|[一二三四五六七八九十]+)\s*[.)、:：.．-]*\s*", "", value)
+    compact = re.sub(r"[\s_\-:：/()（）.．]+", "", value).casefold()
+    return any(name in compact for name in FORMAL_ACTION_SECTIONS)
+
+
+def _replace_action_section_body(markdown: str, replacement: str) -> str:
+    for match in HEADING_RE.finditer(markdown):
+        if not _is_action_heading(match.group(2)):
+            continue
+        level = len(match.group(1))
+        end = len(markdown)
+        for heading in HEADING_RE.finditer(markdown, match.end()):
+            if len(heading.group(1)) <= level:
+                end = heading.start()
+                break
+        before = markdown[:match.end()].rstrip()
+        after = markdown[end:].lstrip("\n")
+        return before + "\n\n" + replacement.strip() + "\n\n" + after
+    return markdown
+
+
 def _remove_section(markdown: str, title: str) -> str:
     match = re.search(rf"^(?P<marks>#{{1,6}})\s+{re.escape(title)}\s*$", markdown, re.M)
     if not match:
@@ -439,8 +463,7 @@ def minutes_reading_markdown(minutes: str, evidence: dict | None = None, *,
     match = READING_DETAIL_SECTION_RE.search(normalized)
     reading = normalized if not match else normalized[:match.start()].rstrip() + "\n"
     if evidence is not None:
-        reading = _replace_section_body(
-            reading, "待办事项", _grounded_actions_table(evidence))
+        reading = _replace_action_section_body(reading, _grounded_actions_table(evidence))
     # 整场语义脉络已有独立视图；常规纪要不再重复铺一份容易失控的模型长列表。
     if not include_topic_section:
         reading = _remove_section(reading, "议题板块")

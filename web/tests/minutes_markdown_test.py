@@ -180,6 +180,24 @@ assert shifted["owner"] == "Blair Example"
 assert shifted["deadline"] == "待确认"
 assert shifted["status"] == "待确认"
 
+# AI 重组可自由命名栏目；编号和双语括注不能绕过统一的结构化待办投影。
+custom_action_view = """# 自定义纪要
+
+### 1. 待办事项 (Action Items)
+
+| 事项 | 负责人 | 期限 | 状态 |
+| --- | --- | --- | --- |
+| 合成事项乙 | 合成事项乙 | Blair Example | 待确认 |
+
+### 2. 结论
+
+- 合成结论。
+"""
+custom_projected = minutes_reading_markdown(
+    custom_action_view, {"claims": [shifted_claim]}, include_topic_section=False)
+assert "| 合成事项乙 [依据](#mm-C00001) | Blair Example | 待确认 | 待确认 |" in custom_projected
+assert "| 合成事项乙 | 合成事项乙 | Blair Example |" not in custom_projected
+
 print("Minutes Markdown: marker-in-status-cell action rows passed")
 
 # 模型把 marker 包在反引号里：替换成“依据”链接时必须拆掉反引号，

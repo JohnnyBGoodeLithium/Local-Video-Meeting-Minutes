@@ -220,7 +220,8 @@ def get_bundle(slug: str):
     fact_inventory = _read_json(mdir / "meeting.facts.json", {})
     minutes_views = []
     for view in minutes_view_service.list_views(mdir, minutes_revision):
-        reading = artifact.normalize_minutes_markdown(view.get("markdown") or "")
+        reading = artifact.minutes_reading_markdown(
+            view.get("markdown") or "", fact_inventory, include_topic_section=False)
         reading = artifact.markdown_with_evidence_links(reading, fact_inventory)
         minutes_views.append({
             "id": view.get("id"),
