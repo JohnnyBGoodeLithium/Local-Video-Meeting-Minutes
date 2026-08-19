@@ -18,6 +18,12 @@
 - 普通录屏与 Teams 会议在终稿/Topic Map 完成后从 `page_desc.json` 提取候选到私有 `speaker_bank/terminology.candidates.json`。单场候选不复用、不改写逐字稿；后处理失败不影响正式纪要。历史回填入口为 `bin/meeting_terminology.py backfill <meetings-root>`。
 - 仓库只跟踪无人员信息的 `terminology.template.json`；真实确认词表和候选继续由 `speaker_bank/*` ignore。合成回归在 `web/tests/terminology_test.py`，并已加入 `make check`。
 
+## 当前批次：短插话与声纹抖动
+
+- 根因不是声纹绑定，而是旧 `smooth_dia` 在 ASR/分离合并前无条件把所有不足 1 秒的说话人段并给前一人，真实插话与标签抖动一起被删除。
+- 新平滑在字级时间戳可用后运行：已有稳定发言簇的单字插话保留；一次性短标签要有至少两个可读字符；无文字或 ABA 中仅孤立单字的新标签仍过滤。普通视频只把最终逐字稿使用到的声音簇送入声纹库。
+- 能力边界：该修复只覆盖前后相继的短发言。两人真正同时说话时，单流 Qwen3-ASR 若没有输出第二路文字，pyannote 声纹区间无法恢复不存在的文本。虚构回归同时覆盖稳定说话人插话、孤立抖动、一次性多字短发言和无声短段。
+
 ## 当前批次：VL 与说话人修正的身份一致性
 
 - `minutes_by_page.generate` 在 VL 完成后重新读取逐字稿，再开始总体纪要与逐页文本生成；发布前用 transcript revision 做第二道栅栏。文本阶段身份再次变化时，第一次文本结果不落盘，复用 `page_desc.json` 自动重跑一次。

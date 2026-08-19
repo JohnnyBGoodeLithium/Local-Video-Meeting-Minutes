@@ -3,7 +3,7 @@
 
     1. 空格回填: 老版 stamps.json 的字级单元不含空格(英文单词粘连),
        用 stamps.json 里存的原始 text 双指针对齐回填
-    2. 分离段平滑: diarization.json 的亚秒碎段并入前段(防标签抖动切碎轮次)
+    2. 分离段平滑: 结合字级时间戳过滤孤立标签抖动，保留有文字依据的短插话
     3. 重放合并(diarize.py --from-segments)重建 transcript.spk.json/md
        (重放自带 同说话人≤3s 合并)
     4. 回填 voice 字段(backfill_voice_ids.py)
@@ -49,7 +49,10 @@ def main() -> int:
 
     # 2) 分离段平滑
     segs = json.loads(dia_p.read_text(encoding="utf-8"))
-    smoothed = smooth_dia([(float(t["start"]), float(t["end"]), str(t["speaker"])) for t in segs])
+    chars = json.loads(stamps_p.read_text(encoding="utf-8"))["time_stamps"]
+    smoothed = smooth_dia(
+        [(float(t["start"]), float(t["end"]), str(t["speaker"])) for t in segs],
+        chars=chars)
     if len(smoothed) != len(segs):
         dia_p.write_text(json.dumps(
             [{"start": round(s, 3), "end": round(e, 3), "speaker": spk}

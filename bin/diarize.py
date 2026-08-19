@@ -13,6 +13,7 @@
 """
 
 import argparse
+from bisect import bisect_right
 import json
 import sys
 import time
@@ -34,17 +35,66 @@ def _fmt_hms(seconds: float) -> str:
     return f"{s//3600:02d}:{(s%3600)//60:02d}:{s%60:02d}"
 
 
-def smooth_dia(turns, min_dur: float = 1.0):
-    """亚秒碎段并入前一段(防分离标签抖动把轮次切碎); 相邻同说话人直接合并。"""
-    out = []
+def _lexical_support(chars, start: float, end: float, *, starts=None, ends=None) -> int:
+    """统计分离段内被 ASR 实际识别出的字母/数字/CJK 字符数。"""
+    if not chars:
+        return 0
+    starts = starts if starts is not None else [float(ch["start_time"]) for ch in chars]
+    ends = ends if ends is not None else [float(ch["end_time"]) for ch in chars]
+    count = 0
+    index = bisect_right(ends, start)
+    for ch in chars[index:]:
+        cs, ce = float(ch["start_time"]), float(ch["end_time"])
+        if cs >= end:
+            break
+        if min(end, ce) <= max(start, cs):
+            continue
+        count += sum(c.isalnum() or "\u4e00" <= c <= "\u9fff"
+                     for c in str(ch.get("text") or ""))
+    return count
+
+
+def smooth_dia(turns, min_dur: float = 1.0, chars=None):
+    """去掉孤立标签抖动，同时保留有文字依据的真实短插话。
+
+    旧策略无条件把所有亚秒段并给前一人，会抹掉真实插话。现在只有缺少文字依据的
+    短段，或夹在同一说话人中间且只含一个字符的孤立新标签，才按抖动处理；会议中
+    其他位置已有稳定发言的说话人，即使只说一个短词也保留。
+    """
+    turns = sorted((float(s), float(e), str(spk)) for s, e, spk in turns if e > s)
+    total = {}
+    stable = set()
     for s, e, spk in turns:
-        if out and e - s < min_dur:
-            ps, _, pspk = out[-1]
-            out[-1] = (ps, e, pspk)                 # 前段延长覆盖碎段
-        elif out and out[-1][2] == spk:
-            out[-1] = (out[-1][0], e, spk)
-        else:
+        total[spk] = total.get(spk, 0.0) + e - s
+        if e - s >= min_dur:
+            stable.add(spk)
+    stable.update(spk for spk, duration in total.items() if duration >= 2 * min_dur)
+    char_starts = [float(ch["start_time"]) for ch in chars] if chars else []
+    char_ends = [float(ch["end_time"]) for ch in chars] if chars else []
+
+    out = []
+    for index, (s, e, spk) in enumerate(turns):
+        if out and out[-1][2] == spk:
+            out[-1] = (out[-1][0], max(out[-1][1], e), spk)
+            continue
+
+        duration = e - s
+        if duration >= min_dur or not out:
             out.append((s, e, spk))
+            continue
+
+        next_spk = turns[index + 1][2] if index + 1 < len(turns) else None
+        bridge_flicker = next_spk == out[-1][2] and spk != next_spk
+        lexical = _lexical_support(
+            chars, s, e, starts=char_starts, ends=char_ends)
+        # 已在别处形成稳定声音簇：一个短词也足以保留；只出现一次的新标签在 ABA
+        # 桥接位置至少需要两个可读字符，避免把单字时间戳噪声恢复成大量碎轮次。
+        preserve = lexical > 0 and (spk in stable or lexical >= 2 or not bridge_flicker)
+        if preserve:
+            out.append((s, e, spk))
+        else:
+            ps, pe, pspk = out[-1]
+            out[-1] = (ps, max(pe, e), pspk)
     return out
 
 
@@ -156,7 +206,10 @@ def main() -> int:
         annotation = getattr(output, "speaker_diarization", output)
         turns = sorted((t.start, t.end, spk) for t, _, spk in annotation.itertracks(yield_label=True))
 
-    turns = smooth_dia(turns)   # 亚秒碎段平滑(重放旧段文件同样受益)
+    chars = None
+    if stamps_path.is_file():
+        chars = json.loads(stamps_path.read_text(encoding="utf-8"))["time_stamps"]
+    turns = smooth_dia(turns, chars=chars)
 
     speakers = sorted({spk for _, _, spk in turns})
     # 段文件里存的已是 说话人N 标签；--from-segments 重放时不再重映射
@@ -178,7 +231,6 @@ def main() -> int:
 
     n_turns = 0
     if stamps_path.is_file():
-        chars = json.loads(stamps_path.read_text(encoding="utf-8"))["time_stamps"]
         tagged = assign_speakers(chars, turns)
         spk_turns = coalesce_turns(to_turns(tagged))   # 同说话人小间隔合并
         for t in spk_turns:

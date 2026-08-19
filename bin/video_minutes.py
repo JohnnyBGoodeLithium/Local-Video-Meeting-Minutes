@@ -29,7 +29,6 @@ from pathlib import Path
 from meeting_dir import for_teams, materialize_source
 from meeting_core.terminology import configured_bank_dir, safe_harvest_screen_candidates
 import voice_bank as vb
-from diarize import smooth_dia
 from teams_minutes import extract_audio, diarize, slugify, mmss
 from slide_pages import extract_pages
 from minutes_by_page import generate as generate_minutes
@@ -116,9 +115,8 @@ def main() -> int:
     p_tr = subprocess.Popen(tr_cmd, env=env)
     t0 = time.time()
     dia_turns, centroids = diarize(wav, args.num_speakers)
-    dia_turns = smooth_dia(dia_turns)   # 亚秒碎段平滑
     print(f"[meta] 分离 {time.time()-t0:.1f}s | 声纹聚类 {len(centroids)} 个"
-          f" | 平滑后段数 {len(dia_turns)}", flush=True)
+          f" | 原始段数 {len(dia_turns)}", flush=True)
     if p_tr.wait():
         print("转写失败", file=sys.stderr)
         return 1
@@ -135,10 +133,12 @@ def main() -> int:
                          "--out", str(mdir)], env=env).returncode
     if rc:
         return 1
-    name2vec = {name_of[l]: c for l, c in centroids.items()}
-    rename, voice_of, linked, new = enroll(name2vec, slug, args.match_threshold)
     ts_path = mdir / "transcript.spk.json"
     turns = json.loads(ts_path.read_text(encoding="utf-8"))
+    used_speakers = {str(t.get("speaker") or "") for t in turns}
+    name2vec = {name_of[label]: vector for label, vector in centroids.items()
+                if name_of[label] in used_speakers}
+    rename, voice_of, linked, new = enroll(name2vec, slug, args.match_threshold)
     for t in turns:
         t["voice"] = voice_of.get(t["speaker"])
         t["speaker"] = rename.get(t["speaker"], t["speaker"])
