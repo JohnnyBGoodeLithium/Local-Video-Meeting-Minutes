@@ -75,6 +75,7 @@ cmake --build build --config Release -j
 | `MEETING_PYANNOTE_MODEL` | 用户模型缓存 | pyannote pipeline 路径 |
 | `MEETING_LLM_API` | `http://127.0.0.1:11435/v1` | OpenAI-compatible 文本端点 |
 | `MEETING_LLM_MODEL` | `qwen3.6-35b-a3b-operator` | 文本模型 ID |
+| `MEETING_TERMINOLOGY_MODEL` | 跟随 `MEETING_LLM_MODEL` | 从已完成屏幕说明提取下一场 ASR 候选的本地模型 ID |
 | `MEETING_LLM_CONTEXT_SIZE` | `65536` | 长会切分预算依据 |
 | `MEETING_VL_MODEL` | 当前用户 Miloco 路径 | VL GGUF |
 | `MEETING_VL_MMPROJ` | 当前用户 mmproj 路径 | VL projector |
@@ -82,6 +83,7 @@ cmake --build build --config Release -j
 | `MEETING_VL_WORKERS` | `2` | VL 逐页解读的并发请求数；需与 VL 服务 `--parallel` 槽位匹配 |
 | `MEETING_VL_GPU_LAYERS` | `999` | llama.cpp GPU offload；显存不足可降低 |
 | `MEETING_DATA_ROOT` | 仓库根 | 私有会议数据根 |
+| `MEETING_BANK_DIR` | `<MEETING_DATA_ROOT>/speaker_bank` | 可选的独立声纹/身份/术语私有目录；兼容旧 `MEETING_WEB_BANK` |
 | `MEETING_PYTHON` | 当前解释器/Web venv | 作业子进程解释器 |
 
 文本服务示例：
@@ -101,6 +103,14 @@ llama-server --model /models/vl-model.gguf --mmproj /models/mmproj.gguf \
 ```
 
 如果显存/统一内存不允许文本模型与 7B VL 双槽同时驻留，应退回 `--parallel 1` 并设 `MEETING_VL_WORKERS=1`（串行解读）；不要为了常驻而让系统交换或 OOM。
+
+术语私有数据位于数据根的 `speaker_bank/terminology.json`（人工确认）和 `terminology.candidates.json`（自动候选），两者都不得进入 Git。仓库只提供不含人员信息的 `speaker_bank/terminology.template.json` 示例。历史会议回填会调用本机文本服务且只输出数量：
+
+```bash
+.venv/bin/python bin/meeting_terminology.py backfill meetings
+```
+
+回填不是批量纠错：它不读取或改写 canonical 逐字稿，只从已有 `page_desc.json` 建候选。部署验收应对同一段脱敏音频分别运行默认 context 与 `--no-context`，记录目标术语召回、普通词误识别和 ASR 阶段耗时。
 
 ## 5. 首次验收
 

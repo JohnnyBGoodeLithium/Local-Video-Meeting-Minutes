@@ -60,9 +60,13 @@ flowchart LR
 
 `run_all.py` 先把输入固化为会议目录内的 `audio.wav`，再并行执行 ASR 与说话人分离，随后合并轮次并调用本机文本模型生成纪要。
 
+本地 ASR 在加载音频前通过 `meeting_core.terminology` 构建 `meeting-asr-context/v1`：只包含本场标题、私有词表中人工确认的术语，以及至少在两场会议屏幕中重复出现的高置信候选，并以 2400 字符硬上限传给 Qwen3-ASR 原生 `context` 参数。所选术语的 ID、状态和 context 哈希写入会议目录 `asr.context.json`，不复制历史逐字稿。单场候选、低置信候选和模型推断不会进入 ASR，也不会确定性替换转写正文；`--no-context` 可用于同一素材的 A/B 验证。
+
 ### 普通录屏
 
 `video_minutes.py` 抽取音轨，并行执行 ASR/分离，随后入库匿名声纹（入库收尾时 ≤2 轮未绑定碎片声纹以 0.80 高阈值再匹配并入）。逐字稿和说话人稳定后先用文本模型发布语音草稿；之后抽取逻辑页、进行 VL 页面理解（`describe_pages` 为有界并发，`MEETING_VL_WORKERS` 默认 2，需与 VL 服务 `--parallel` 槽位匹配；每页完成即原子落缓存，中断续跑语义不变），再用按页纪要原位替换草稿。
+
+VL 终稿和 Topic Map 发布后，普通录屏与 Teams 管线会用一次本机文本调用从会议标题和 `page_desc.json` 提取术语候选。候选只写入私有 `speaker_bank/terminology.candidates.json`，保存不可逆的会议目录哈希而不是标题或路径；失败只记录异常类型，不改变正式纪要的 ready 状态。历史页面缓存可用 `bin/meeting_terminology.py backfill <meetings-root>` 回填，仍遵守“两场重复才可复用”的门槛。
 
 ### Teams 录制
 

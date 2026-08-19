@@ -22,6 +22,7 @@ from pathlib import Path
 
 from meeting_dir import for_recording
 from meeting_core.hardware import configured_path, inference_device, inference_dtype
+from meeting_core.terminology import configured_bank_dir, write_context_pack
 
 HOME = Path.home()
 ROOT = Path(__file__).resolve().parent.parent
@@ -109,12 +110,29 @@ def main() -> int:
     ap.add_argument("--no-timestamps", action="store_true", help="跳过 ForcedAligner，只出纯文本")
     ap.add_argument("--max-new-tokens", type=int, default=1024, help="每段最大生成 token 数")
     ap.add_argument("--batch-size", type=int, default=8, help="推理批大小")
+    ap.add_argument("--context-title", default=None,
+                    help="ASR context 使用的会议标题（默认取 --title 或输出目录名）")
+    ap.add_argument("--no-context", action="store_true",
+                    help="A/B 测试用：禁用会议标题与术语 context")
     args = ap.parse_args()
 
     if not args.wav.is_file():
         print(f"找不到输入文件: {args.wav}", file=sys.stderr)
         return 1
     out = args.out or for_recording(ROOT, args.wav.stem, args.title)
+
+    asr_context = ""
+    context_terms = 0
+    if not args.no_context:
+        bank_dir = configured_bank_dir(ROOT)
+        try:
+            asr_context, context_meta = write_context_pack(
+                out, args.context_title or args.title or out.name, bank_dir,
+                template_path=ROOT / "speaker_bank" / "terminology.template.json")
+            context_terms = int(context_meta.get("term_count", 0))
+        except Exception as exc:
+            # Context 是增强层；失败不得阻断原有 ASR，也不能把正文/路径写入日志。
+            print(f"[meta] ASR context 跳过 | {type(exc).__name__}", flush=True)
 
     import torch
     from qwen_asr import Qwen3ASRModel
@@ -138,6 +156,7 @@ def main() -> int:
     t0 = time.time()
     results = model.transcribe(
         audio=str(args.wav),
+        context=asr_context,
         language=args.language,
         return_time_stamps=not args.no_timestamps,
     )
@@ -172,6 +191,7 @@ def main() -> int:
         (out / "transcript.ts.md").write_text("\n".join(md), encoding="utf-8")
 
     print(f"[meta] 转写耗时 {elapsed:.1f}s | 语言={r.language} | 字符数={len(r.text)}"
+          f" | context术语={context_terms}"
           + (f" | 时间戳 {n_stamps} 条 覆盖 {span[0]:.1f}s–{span[1]:.1f}s | 段落 {n_paras}" if span else ""),
           flush=True)
     print(f"[meta] 输出目录: {out}", flush=True)

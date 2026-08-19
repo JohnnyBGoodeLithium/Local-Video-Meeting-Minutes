@@ -39,6 +39,7 @@ warnings.filterwarnings("ignore")
 
 from meeting_dir import for_teams, materialize_source
 from meeting_core.hardware import configured_path, inference_device
+from meeting_core.terminology import configured_bank_dir, safe_harvest_screen_candidates
 from teams_transcript import TranscriptFormatError, parse_transcript
 from slide_pages import extract_pages
 from minutes_by_page import generate as generate_minutes
@@ -267,6 +268,10 @@ def main() -> int:
     print(f"[meta] 多模态纪要已替换语音草稿 | VL {mstats['vl_pages']}/{mstats['pages']} 页",
           flush=True)
     meeting_topic_map.generate_for_pipeline(mdir)
+    terminology = safe_harvest_screen_candidates(
+        mdir, title_slug, configured_bank_dir(ROOT))
+    print(f"[meta] 术语候选 {terminology['state']} | 新增 {terminology['added']}"
+          f" | 更新 {terminology['updated']}", flush=True)
 
     speakers = sorted({t["name"] for t in turns})
     print(f"[meta] 总耗时 {time.time()-t_all:.1f}s | 说话人标签 {len(speakers)} 个"

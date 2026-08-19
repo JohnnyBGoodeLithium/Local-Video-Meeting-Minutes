@@ -12,6 +12,12 @@
 - 服务：端口 8899，`systemctl --user restart meeting-minutes-web` 重启（挂起 ~45s 是已知 P2 问题，见下）。
 - 隐私红线（详见 AGENTS.md）：不读真实会议正文，只看元数据/结构；上次已获用户授权诊断 Gate B 会议标题形态，新任务需重新授权。
 
+## 当前批次：ASR 术语 Context Pack
+
+- `meeting_core.terminology` 把会议标题、人工确认词表和至少跨两场重复的高置信屏幕候选压缩为 ≤2400 字符，传给 Qwen3-ASR 原生 `context`；`asr.context.json` 只保留 term ID/状态和 context 哈希，不复制历史正文。
+- 普通录屏与 Teams 会议在终稿/Topic Map 完成后从 `page_desc.json` 提取候选到私有 `speaker_bank/terminology.candidates.json`。单场候选不复用、不改写逐字稿；后处理失败不影响正式纪要。历史回填入口为 `bin/meeting_terminology.py backfill <meetings-root>`。
+- 仓库只跟踪无人员信息的 `terminology.template.json`；真实确认词表和候选继续由 `speaker_bank/*` ignore。合成回归在 `web/tests/terminology_test.py`，并已加入 `make check`。
+
 ## 当前批次：VL 与说话人修正的身份一致性
 
 - `minutes_by_page.generate` 在 VL 完成后重新读取逐字稿，再开始总体纪要与逐页文本生成；发布前用 transcript revision 做第二道栅栏。文本阶段身份再次变化时，第一次文本结果不落盘，复用 `page_desc.json` 自动重跑一次。

@@ -13,7 +13,7 @@ Python 管线不绑定 AMD：NVIDIA 使用 PyTorch CUDA，AMD 使用 PyTorch ROC
 
 | 角色 | 模型 | 体积 | 备注 |
 |---|---|---|---|
-| 语音转写 | Qwen3-ASR-1.7B | 4.4G | ROCm GPU ✅；CPU 可跑约 3–6× 实时 📐 |
+| 语音转写 | Qwen3-ASR-1.7B | 4.4G | ROCm GPU ✅；原生 context 注入已确认/跨会重复术语；CPU 可跑约 3–6× 实时 📐 |
 | 字级对齐 | Qwen3-ForcedAligner-0.6B | 1.8G | 随转写加载 ✅ |
 | 说话人分离+声纹 | pyannote community-1 | 33M | GPU/CPU 均可 ✅ |
 | 纪要文本（标准） | Qwen3.6-35B-A3B Q4_K_M（MoE 3B 激活） | 22G | 全速需 ~24G VRAM ✅；可内存卸载慢跑 📐 |
@@ -70,6 +70,7 @@ Python 管线不绑定 AMD：NVIDIA 使用 PyTorch CUDA，AMD 使用 PyTorch ROC
 
 ## 3. 精度与加载备注
 
+- ASR context 不是转写后替换规则：标题和术语作为 Qwen3-ASR system context 参与声学/语言判断，最多 2400 字符；单场屏幕模型候选不会进入下一次转写，跨两场重复的高置信候选才允许复用。可用 `transcribe.py --no-context` 做基线 A/B，评价专有词召回率的同时检查普通词误替换率和耗时变化。
 - 量化选择：文本 Q4_K_M 为甜点；VL 读小字建议不低于 Q4_0/Q8_0（Miloco Q4_0 与 Qwen3-VL Q8_0 实测均可，后者略准）。
 - 122B/120B 由 llama-router 按请求里的模型名自动加载（--models-max 2，会挤掉最久未用的常驻模型；首次加载 1-4 分钟，之后恢复）。
 - MoE 模型的"内存卸载"只在大统一内存或宽裕系统内存时有意义；8/16G 独显直放 dense 中小杯体验更好。

@@ -1,0 +1,69 @@
+{
+  "schema": "meeting-terminology/v1",
+  "terms": [
+    {
+      "id": "business-margin",
+      "canonical": "margin",
+      "aliases": ["gross margin", "毛利率", "利润率"],
+      "confusions": ["妈的"],
+      "meaning": "财务或产品语境中的利润率、毛利率或利润空间",
+      "category": "metric",
+      "status": "confirmed",
+      "scope": "team"
+    },
+    {
+      "id": "region-emea",
+      "canonical": "EMEA",
+      "aliases": ["Europe, Middle East and Africa"],
+      "meaning": "欧洲、中东和非洲区域",
+      "category": "region",
+      "status": "confirmed",
+      "scope": "team"
+    },
+    {
+      "id": "region-na",
+      "canonical": "NA",
+      "aliases": ["North America", "北美"],
+      "meaning": "北美区域；只有地区语境明确时才采用该缩写",
+      "category": "region",
+      "status": "confirmed",
+      "scope": "team"
+    },
+    {
+      "id": "region-apac",
+      "canonical": "APAC",
+      "aliases": ["Asia Pacific", "亚太"],
+      "meaning": "亚太区域",
+      "category": "region",
+      "status": "confirmed",
+      "scope": "team"
+    },
+    {
+      "id": "desktop-aio",
+      "canonical": "AIO",
+      "aliases": ["All-in-One", "一体机"],
+      "meaning": "一体式台式机产品形态",
+      "category": "product",
+      "status": "confirmed",
+      "scope": "team"
+    },
+    {
+      "id": "desktop-sff",
+      "canonical": "SFF",
+      "aliases": ["Small Form Factor"],
+      "meaning": "小机箱台式机产品形态",
+      "category": "product",
+      "status": "confirmed",
+      "scope": "team"
+    },
+    {
+      "id": "desktop-twr",
+      "canonical": "TWR",
+      "aliases": ["Tower", "塔式机"],
+      "meaning": "塔式台式机产品形态",
+      "category": "product",
+      "status": "confirmed",
+      "scope": "team"
+    }
+  ]
+}

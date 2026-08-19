@@ -54,6 +54,7 @@ def main() -> int:
     env = dict(os.environ, HF_HUB_OFFLINE="1")
 
     tr_cmd = [str(PY), str(BIN / "transcribe.py"), str(wav), "--out", str(folder)]
+    tr_cmd += ["--context-title", args.title or folder.name]
     if args.language:
         tr_cmd += ["--language", args.language]
     dz_cmd = [str(PY), str(BIN / "diarize.py"), str(wav), "--segments-only", "--out", str(folder)]

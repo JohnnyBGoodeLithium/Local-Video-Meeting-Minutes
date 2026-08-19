@@ -27,6 +27,7 @@ import time
 from pathlib import Path
 
 from meeting_dir import for_teams, materialize_source
+from meeting_core.terminology import configured_bank_dir, safe_harvest_screen_candidates
 import voice_bank as vb
 from diarize import smooth_dia
 from teams_minutes import extract_audio, diarize, slugify, mmss
@@ -108,7 +109,8 @@ def main() -> int:
     extract_audio(source_mp4, wav)
 
     print("[2/6] 转写 ∥ 说话人分离 ...", flush=True)
-    tr_cmd = [str(PY), str(BIN / "transcribe.py"), str(wav), "--out", str(mdir)]
+    tr_cmd = [str(PY), str(BIN / "transcribe.py"), str(wav), "--out", str(mdir),
+              "--context-title", args.slug or slug]
     if args.language:
         tr_cmd += ["--language", args.language]
     p_tr = subprocess.Popen(tr_cmd, env=env)
@@ -197,6 +199,10 @@ def main() -> int:
     print(f"[meta] 多模态纪要已替换语音草稿 | VL {mstats['vl_pages']}/{mstats['pages']} 页",
           flush=True)
     meeting_topic_map.generate_for_pipeline(mdir)
+    terminology = safe_harvest_screen_candidates(
+        mdir, args.slug or slug, configured_bank_dir(ROOT))
+    print(f"[meta] 术语候选 {terminology['state']} | 新增 {terminology['added']}"
+          f" | 更新 {terminology['updated']}", flush=True)
     print(f"[meta] 总耗时 {time.time()-t_all:.1f}s | 纪要 {mstats['chars']} 字"
           f" | 页块 {mstats['page_blocks']}/{mstats['pages']} | VL页数 {mstats['vl_pages']}",
           flush=True)
