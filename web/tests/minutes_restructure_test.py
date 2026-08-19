@@ -102,6 +102,19 @@ with tempfile.TemporaryDirectory(prefix="minutes-restructure-test-") as temp:
         raise AssertionError("unknown marker must be rejected")
     except assistant.AssistantUnavailable:
         pass
+    repeated = (
+        "# 会议纪要\n\n## 概览\n\n"
+        f"- 虚构背景概览。 {MARK_INFO}\n\n"
+        f"## 按人\n\n- Alex Example：虚构背景。 {MARK_INFO}\n")
+    assistant._validate_restructured_minutes(repeated, facts)
+    excessive = repeated + "".join(
+        f"\n## 重复视角 {index}\n\n- 虚构重复背景。 {MARK_INFO}\n"
+        for index in range(3, 10))
+    try:
+        assistant._validate_restructured_minutes(excessive, facts)
+        raise AssertionError("more than eight uses of one fact must be rejected")
+    except assistant.AssistantUnavailable:
+        pass
 
     transcript.write_text(json.dumps([*renamed_turns, {
         "speaker": "Casey Example", "start": 9.0, "end": 10.0, "text": "来源改变。"

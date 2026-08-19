@@ -59,7 +59,8 @@ def main() -> int:
             return 1
         restructure = assistant.preview_minutes_restructure(
             minutes, transcript, root / "minutes.evidence.json",
-            "先列已确认决定，再用表格列有依据的行动项",
+            "总结重复耗时、AI 可替代的工作；按依次分享顺序给出每个人的发言总结，"
+            "并列出总体结构、待办事项和关键结论",
             tr_rev, assistant.revision(minutes), False)
         if restructure.get("scope") != "document" or not restructure.get("diff"):
             print("[error] 整篇重组未满足事实层协议", file=sys.stderr)

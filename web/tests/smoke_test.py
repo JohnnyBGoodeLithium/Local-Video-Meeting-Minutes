@@ -123,7 +123,7 @@ def poll_job(jid, timeout=60):
 s, _, health = req("GET", "/api/health")
 check("GET /api/health → 200 + dry-run + local assistant",
       s == 200 and health.get("ok") is True and health.get("dry_run") is True
-      and health.get("product", {}).get("version") == "0.9.0"
+      and health.get("product", {}).get("version") == "0.9.1"
       and health.get("assistant", {}).get("local_only") is True
       and health.get("assistant", {}).get("rag") == "meeting-rag/evidence-hybrid-v1"
       and health.get("assistant", {}).get("retrieval_models", {}).get("mode") == "lexical")
@@ -166,7 +166,7 @@ check("时间码跳转只滚动内容面板，不带动整页丢失播放器",
 check("在线屏幕舞台支持放大、缩放和相邻屏幕键盘导航",
       b'id="screen-preview-mask"' in page and b'openScreenPreview' in app_js
       and b'navigateScreenPreview' in app_js and b'SCREEN_PREVIEW_ZOOMS' in app_js
-      and b'20260819p61' in page)
+      and b'20260819p62' in page)
 check("会议列表默认按导入时间且可切换并记忆排序",
       b'meetingSort' in app_js and b'"imported"' in app_js
       and b'imported_at' in app_js and b'updated_at' in app_js
@@ -457,8 +457,8 @@ evidence_before_export = (SMOKE / "minutes.evidence.json").read_bytes()
 s, _, preflight = req("GET", "/api/meetings/_smoke/export/preflight")
 check("导出预检只返回内容状态、数量、媒体和预计体积",
       s == 200 and preflight.get("evidence", {}).get("state") == "ready"
-      and preflight.get("product_version") == "0.9.0"
-      and "_v0.9.0_YYYYMMDD-HHMMSS.meetingpack.zip" in preflight.get("filename_pattern", "")
+      and preflight.get("product_version") == "0.9.1"
+      and "_v0.9.1_YYYYMMDD-HHMMSS.meetingpack.zip" in preflight.get("filename_pattern", "")
       and preflight.get("evidence", {}).get("claims") == 3
       and preflight.get("content", {}).get("transcript_turns") == 3
       and preflight.get("media", {}).get("audio", {}).get("available") is True
@@ -478,7 +478,7 @@ required = {"viewer.html", "README.txt", "AGENTS.md", "assets/minutes.md", "asse
             "assets/slides/p0001.webp", "assets/slides/p0002.webp"}
 check("导出 MeetingPack → 标准文件齐全且默认无音视频",
       s == 200 and required <= names and not any(n.startswith("assets/media/") for n in names)
-      and re.search(r"_v0\.9\.0_\d{8}-\d{6}\.meetingpack\.zip", content_disposition)
+      and re.search(r"_v0\.9\.1_\d{8}-\d{6}\.meetingpack\.zip", content_disposition)
       and "assets/views.json" not in names
       and {name.split("/", 1)[0] for name in names} == {"viewer.html", "README.txt", "AGENTS.md", "assets"})
 if pack:
@@ -497,8 +497,8 @@ check("包内 AGENTS.md 覆盖 agent 任务菜谱（含同系列多场对比与 
           ("常见任务菜谱", "同系列多场对比", "person_id", "会后产出", "建知识库索引", "事实核对")))
 check("MeetingPack v5 manifest/evidence/RAG/Topic Map 共享稳定 linkage",
       manifest.get("schema") == "meetingpack/v5"
-      and manifest.get("generator", {}).get("version") == "0.9.0"
-      and "Meeting Minutes v0.9.0" in pack_readme
+      and manifest.get("generator", {}).get("version") == "0.9.1"
+      and "Meeting Minutes v0.9.1" in pack_readme
       and evidence.get("schema") == "meeting-minutes-evidence/v1"
       and facts.get("schema") == "meeting-facts/v1"
       and manifest.get("facts", {}).get("claims") == len(facts.get("claims", []))
@@ -518,7 +518,7 @@ check("viewer 为无外链、自包含且可浏览逐字稿/媒体/脉络/屏幕
       and "会议脉络" in viewer and "屏幕内容" in viewer
       and "candidatePanel" in viewer and "navigation_segments" in viewer
       and 'id="language-switch"' in viewer
-      and 'id="pack-version"' in viewer and '"version":"0.9.0"' in viewer
+      and 'id="pack-version"' in viewer and '"version":"0.9.1"' in viewer
       and "minutes_languages" in viewer)
 check("MeetingPack 携带已生成双语纪要并可离线切换",
       "assets/minutes.en.md" in names and "assets/minutes.zh-CN.md" in names
