@@ -38,6 +38,7 @@ from meeting_artifact import (
     CONCLUSION_POLICY,
     MARKER_RE,
     build_prompt_context,
+    file_revision,
     load_speaker_profiles,
     normalize_minutes_markdown,
     write_evidence_document,
@@ -415,11 +416,11 @@ def _extract_blocks(text: str):
 
 
 def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
-             refine_model: str = None, reuse_vl_cache_only: bool = False):
+             refine_model: str = None, reuse_vl_cache_only: bool = False,
+             _identity_retry: int = 1):
     turns, pages = load_inputs(mdir)
     if not pages:
         raise RuntimeError("slides.json 里没有幻灯片页")
-    opening, per_page = slice_turns(turns, pages)
 
     descs = {}
     if vl and reuse_vl_cache_only:
@@ -435,6 +436,14 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
         if api:
             descs = describe_pages(mdir, pages, api, video)
 
+    # VL can take tens of minutes. Speaker corrections are intentionally allowed
+    # while it runs, so the transcript loaded before VL is only a page-extraction
+    # input, never the identity source for the final minutes. Reload immediately
+    # before text synthesis and fence publication with this revision.
+    turns, latest_pages = load_inputs(mdir)
+    pages = latest_pages
+    transcript_revision = file_revision(mdir / "transcript.spk.json")
+    opening, per_page = slice_turns(turns, pages)
     bank_dir = Path(os.environ.get("MEETING_WEB_BANK", mdir.parent.parent / "speaker_bank"))
     profiles = load_speaker_profiles(turns, bank_dir)
     summary_context = build_prompt_context(turns, pages, descs, profiles)
@@ -529,6 +538,14 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
     md = normalize_minutes_markdown(normalize_action_marker_scope(
         insert_images(body, pages, descs)))
     md += appendix_md(pages, descs, per_page)
+    current_transcript_revision = file_revision(mdir / "transcript.spk.json")
+    if current_transcript_revision != transcript_revision:
+        if _identity_retry > 0:
+            print("[meta] 文本生成期间说话人身份已更新，复用 VL 缓存重跑纪要", flush=True)
+            return generate(
+                mdir, out, vl=vl, video=video, refine_model=refine_model,
+                reuse_vl_cache_only=bool(vl), _identity_retry=_identity_retry - 1)
+        raise RuntimeError("transcript_changed_during_minutes_generation")
     out = Path(out) if out else mdir / "minutes.md"
     if out.exists():
         shutil.move(str(out), str(out.with_name("minutes.prev.md")))
