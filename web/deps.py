@@ -46,6 +46,7 @@ from markdown_it import MarkdownIt  # noqa: E402
 MD = MarkdownIt("default", {"html": False})
 
 BANK_LOCK = threading.Lock()      # bank.json / orgchart.json 写操作串行化
+SPEAKER_OP_LOCK = threading.Lock()  # 会议逐字稿 + 声纹库事务快照与撤销串行化
 EVALUATION_LOCK = threading.Lock()  # 本地人工验收事件串行化
 STORAGE_LOCK = threading.Lock()     # 会议缓存清理与大小读取串行化
 MEETING_META_LOCK = threading.Lock()  # meta.json 的标题与导入/更新时间原子合并

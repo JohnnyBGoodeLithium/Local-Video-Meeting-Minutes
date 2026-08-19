@@ -113,8 +113,13 @@ with tempfile.TemporaryDirectory() as td:
 
 assert proc.returncode == 0, proc.stderr[-300:]
 assert "启动冒烟正文标记" in proc.stdout, "viewer 正文未渲染"
-assert 'id="pack-version"' in proc.stdout and "Meeting Minutes v0.9.1" in proc.stdout, \
+assert 'id="pack-version"' in proc.stdout and "Meeting Minutes v0.9.2" in proc.stdout, \
     "viewer 未显示生成器产品版本"
+assert 'data-fluent-theme="light"' in proc.stdout, "viewer 未启用共享 Fluent 浅色 token"
+assert 'id="fluent-zoom-in"' in proc.stdout and "__FLUENT_" not in proc.stdout, \
+    "viewer 未内联共享 Fluent 图标/基础样式"
+assert "prefers-reduced-motion" in proc.stdout and ":focus-visible" in proc.stdout, \
+    "viewer 缺少键盘焦点或减少动态效果合同"
 assert 'id="utterance-controls"' in proc.stdout and "重播本段" in proc.stdout, \
     "viewer 逐段回听控制未启动"
 assert 'id="focusbar"' not in proc.stdout, "viewer 仍渲染冗余语义摘要条"

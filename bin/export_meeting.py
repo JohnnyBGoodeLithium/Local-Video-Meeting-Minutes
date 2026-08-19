@@ -44,6 +44,9 @@ from product_version import PRODUCT_VERSION, PRODUCT_VERSION_LABEL
 PACK_SCHEMA = "meetingpack/v5"
 MD = MarkdownIt("default", {"html": False, "linkify": True})
 VIEWER_TEMPLATE_PATH = Path(__file__).with_name("meetingpack_viewer.html")
+STATIC_PATH = Path(__file__).resolve().parent.parent / "web" / "static"
+FLUENT_FOUNDATION_PATH = STATIC_PATH / "fluent-foundation.css"
+FLUENT_ICONS_PATH = STATIC_PATH / "fluent-icons.svg"
 
 
 def _read_json(path: Path, default):
@@ -420,7 +423,9 @@ def _viewer_html(title: str, date: str, minutes_html: str, evidence: dict, integ
     }
     page = VIEWER_TEMPLATE_PATH.read_text(encoding="utf-8").replace(
         "__TITLE__", html.escape(title)).replace(
-        "__DATA__", _safe_json_script(payload))
+        "__DATA__", _safe_json_script(payload)).replace(
+        "__FLUENT_FOUNDATION__", FLUENT_FOUNDATION_PATH.read_text(encoding="utf-8")).replace(
+        "__FLUENT_ICONS__", FLUENT_ICONS_PATH.read_text(encoding="utf-8"))
     return page.encode("utf-8")
 
 

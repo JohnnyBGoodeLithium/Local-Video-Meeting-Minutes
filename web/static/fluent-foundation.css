@@ -1,0 +1,233 @@
+/* Fluent 2-inspired product foundation.
+   This is a framework-free semantic layer for the online workspace and the
+   self-contained MeetingPack Viewer. Product-specific timelines, evidence,
+   speaker lanes and topic maps remain custom components. */
+:root {
+  color-scheme: dark;
+
+  /* Color roles */
+  --colorNeutralBackgroundCanvas: #14161a;
+  --colorNeutralBackground1: #1c1f26;
+  --colorNeutralBackground2: #22262f;
+  --colorNeutralBackground3: #2a2f39;
+  --colorNeutralForeground1: #f5f5f5;
+  --colorNeutralForeground2: #d6d8dd;
+  --colorNeutralForeground3: #9fa6b2;
+  --colorNeutralStroke1: #3a3f49;
+  --colorNeutralStroke2: #30343e;
+  --colorBrandBackground: #4f7cff;
+  --colorBrandBackgroundHover: #638cff;
+  --colorBrandBackgroundPressed: #3f68dc;
+  --colorBrandForeground1: #8fb0ff;
+  --colorBrandStroke1: #6d94ff;
+  --colorStatusSuccessForeground1: #57c894;
+  --colorStatusDangerForeground1: #ff9b9b;
+  --colorStatusWarningForeground1: #e8b35c;
+  --colorFocusStrokeOuter: #ffffff;
+  --colorFocusStrokeInner: #4f7cff;
+  --colorOverlay: rgba(0, 0, 0, .66);
+
+  /* Typography roles */
+  --fontFamilyBase: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  --fontFamilyMonospace: ui-monospace, "Cascadia Mono", monospace;
+  --fontSizeBase100: 10px;
+  --fontSizeBase200: 12px;
+  --fontSizeBase300: 14px;
+  --fontSizeBase400: 16px;
+  --fontSizeBase500: 20px;
+  --fontSizeBase600: 24px;
+  --fontSizeBase700: 28px;
+  --fontWeightRegular: 400;
+  --fontWeightMedium: 500;
+  --fontWeightSemibold: 600;
+
+  /* 4px layout ramp */
+  --spacingHorizontalXXS: 4px;
+  --spacingHorizontalXS: 8px;
+  --spacingHorizontalS: 12px;
+  --spacingHorizontalM: 16px;
+  --spacingHorizontalL: 20px;
+  --spacingHorizontalXL: 24px;
+  --spacingVerticalXXS: 4px;
+  --spacingVerticalXS: 8px;
+  --spacingVerticalS: 12px;
+  --spacingVerticalM: 16px;
+  --spacingVerticalL: 20px;
+  --spacingVerticalXL: 24px;
+
+  /* Shape, elevation and motion */
+  --borderRadiusSmall: 4px;
+  --borderRadiusMedium: 6px;
+  --borderRadiusLarge: 8px;
+  --borderRadiusXLarge: 12px;
+  --borderRadiusCircular: 9999px;
+  --shadow2: 0 1px 2px rgba(0, 0, 0, .24);
+  --shadow8: 0 4px 12px rgba(0, 0, 0, .28);
+  --shadow16: 0 8px 24px rgba(0, 0, 0, .34);
+  --durationFaster: 100ms;
+  --durationFast: 150ms;
+  --durationNormal: 200ms;
+  --curveEasyEase: cubic-bezier(.33, 0, .67, 1);
+  --curveDecelerateMid: cubic-bezier(0, 0, 0, 1);
+
+  /* Existing product aliases: old components and new primitives share roles. */
+  --bg: var(--colorNeutralBackgroundCanvas);
+  --panel: var(--colorNeutralBackground1);
+  --panel2: var(--colorNeutralBackground2);
+  --border: var(--colorNeutralStroke2);
+  --text: var(--colorNeutralForeground2);
+  --dim: var(--colorNeutralForeground3);
+  --accent: var(--colorBrandBackground);
+  --success: var(--colorStatusSuccessForeground1);
+  --danger: var(--colorStatusDangerForeground1);
+  --font-sans: var(--fontFamilyBase);
+  --font-mono: var(--fontFamilyMonospace);
+  --btn-radius: var(--borderRadiusMedium);
+  --btn-hover-border: var(--colorBrandStroke1);
+  --btn-primary-bg: var(--colorBrandBackground);
+  --input-radius: var(--borderRadiusMedium);
+  --input-border: var(--colorNeutralStroke1);
+  --dialog-radius: var(--borderRadiusXLarge);
+  --dialog-bg: var(--colorNeutralBackground1);
+  --dialog-border: var(--colorNeutralStroke1);
+  --mask-bg: var(--colorOverlay);
+}
+
+:root[data-fluent-theme="light"] {
+  color-scheme: light;
+  --colorNeutralBackgroundCanvas: #f5f7fb;
+  --colorNeutralBackground1: #ffffff;
+  --colorNeutralBackground2: #f7f9fc;
+  --colorNeutralBackground3: #edf2f8;
+  --colorNeutralForeground1: #172033;
+  --colorNeutralForeground2: #344054;
+  --colorNeutralForeground3: #66758f;
+  --colorNeutralStroke1: #cbd6e5;
+  --colorNeutralStroke2: #dfe7f3;
+  --colorBrandBackground: #2f66e8;
+  --colorBrandBackgroundHover: #285acb;
+  --colorBrandBackgroundPressed: #204cae;
+  --colorBrandForeground1: #285acb;
+  --colorBrandStroke1: #7da2f5;
+  --colorStatusSuccessForeground1: #067647;
+  --colorStatusDangerForeground1: #b42318;
+  --colorStatusWarningForeground1: #9a5b00;
+  --colorFocusStrokeOuter: #ffffff;
+  --colorFocusStrokeInner: #2f66e8;
+  --colorOverlay: rgba(16, 24, 40, .58);
+  --shadow2: 0 1px 2px rgba(16, 24, 40, .08);
+  --shadow8: 0 4px 12px rgba(16, 24, 40, .12);
+  --shadow16: 0 12px 32px rgba(16, 24, 40, .16);
+
+  /* MeetingPack legacy aliases */
+  --line: var(--colorNeutralStroke2);
+  --blue: var(--colorBrandBackground);
+  --blue-deep: var(--colorBrandBackgroundPressed);
+  --blue-soft: #edf4ff;
+  --good: var(--colorStatusSuccessForeground1);
+  --warn: var(--colorStatusWarningForeground1);
+}
+
+.fluent-icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  fill: currentColor;
+  pointer-events: none;
+}
+
+.fluent-button {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacingHorizontalXS);
+  padding: 5px var(--spacingHorizontalS);
+  border: 1px solid var(--colorNeutralStroke1);
+  border-radius: var(--borderRadiusMedium);
+  background: var(--colorNeutralBackground1);
+  color: var(--colorNeutralForeground1);
+  box-shadow: var(--shadow2);
+  font-weight: var(--fontWeightSemibold);
+  line-height: 20px;
+  transition: background var(--durationFaster) var(--curveEasyEase),
+    border-color var(--durationFaster) var(--curveEasyEase),
+    color var(--durationFaster) var(--curveEasyEase),
+    box-shadow var(--durationFaster) var(--curveEasyEase);
+}
+.fluent-button:hover:not(:disabled) {
+  border-color: var(--colorBrandStroke1);
+  background: var(--colorNeutralBackground2);
+}
+.fluent-button:active:not(:disabled) { background: var(--colorNeutralBackground3); }
+.fluent-button.primary,
+.fluent-button--primary {
+  border-color: var(--colorBrandBackground);
+  background: var(--colorBrandBackground);
+  color: #fff;
+  box-shadow: none;
+}
+.fluent-button.primary:hover:not(:disabled),
+.fluent-button--primary:hover:not(:disabled) {
+  border-color: var(--colorBrandBackgroundHover);
+  background: var(--colorBrandBackgroundHover);
+}
+.fluent-button--subtle { border-color: transparent; background: transparent; box-shadow: none; }
+.fluent-icon-button { width: 32px; padding: 5px; }
+
+.fluent-field {
+  min-height: 32px;
+  border: 1px solid var(--colorNeutralStroke1);
+  border-radius: var(--borderRadiusMedium);
+  background: var(--colorNeutralBackground1);
+  color: var(--colorNeutralForeground1);
+}
+
+.fluent-tablist { display: flex; align-items: center; gap: var(--spacingHorizontalXXS); }
+.fluent-tab {
+  position: relative;
+  min-height: 32px;
+  border-color: transparent;
+  border-radius: var(--borderRadiusMedium);
+  background: transparent;
+  box-shadow: none;
+}
+.fluent-tab[aria-selected="true"], .fluent-tab.active {
+  color: var(--colorNeutralForeground1);
+  background: var(--colorNeutralBackground2);
+}
+.fluent-tab[aria-selected="true"]::after, .fluent-tab.active::after {
+  position: absolute;
+  right: 8px;
+  bottom: -1px;
+  left: 8px;
+  height: 2px;
+  border-radius: var(--borderRadiusCircular);
+  background: var(--colorBrandBackground);
+  content: "";
+}
+
+.fluent-dialog { border-radius: var(--borderRadiusXLarge); box-shadow: var(--shadow16); }
+.fluent-drawer { box-shadow: var(--shadow16); }
+.fluent-messagebar {
+  padding: var(--spacingVerticalXS) var(--spacingHorizontalS);
+  border: 1px solid var(--colorNeutralStroke2);
+  border-radius: var(--borderRadiusMedium);
+  background: var(--colorNeutralBackground2);
+}
+
+:where(button, [href], input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--colorFocusStrokeOuter);
+  outline-offset: 1px;
+  box-shadow: 0 0 0 4px var(--colorFocusStrokeInner);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}

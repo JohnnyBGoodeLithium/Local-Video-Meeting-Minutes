@@ -4,21 +4,22 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>会议纪要</title>
-<link rel="stylesheet" href="/static/style.css?v=20260819p69">
-<link rel="stylesheet" href="/static/theme.css?v=20260819p64">
+<link rel="stylesheet" href="/static/fluent-foundation.css?v=20260819p75">
+<link rel="stylesheet" href="/static/style.css?v=20260819p75">
+<link rel="stylesheet" href="/static/theme.css?v=20260819p75">
 </head>
 <body class="page-index">
 <header class="topbar">
   <span class="brand">🎙 会议纪要</span>
   <span id="product-version" class="product-version hidden" aria-label="产品版本"></span>
-  <button id="library-toggle" class="library-toggle" type="button" aria-expanded="false">会议</button>
+  <button id="library-toggle" class="library-toggle fluent-button fluent-button--subtle" type="button" aria-expanded="false">会议</button>
   <span id="job-status" class="job-status"></span>
-  <div id="ui-language" class="ui-language" aria-label="界面与纪要语言">
-    <button type="button" data-ui-language="zh-CN" class="active">中文</button>
-    <button type="button" data-ui-language="en">EN</button>
+  <div id="ui-language" class="ui-language" role="group" aria-label="界面与纪要语言">
+    <button type="button" data-ui-language="zh-CN" class="active" aria-pressed="true">中文</button>
+    <button type="button" data-ui-language="en" aria-pressed="false">EN</button>
   </div>
   <a id="product-link" class="toplink" href="/static/product.html">产品介绍</a>
-  <a id="settings-link" class="toplink" href="/admin">设置</a>
+  <a id="settings-link" class="toplink" href="/admin"><svg class="fluent-icon" aria-hidden="true"><use href="/static/fluent-icons.svg#fluent-settings"></use></svg><span>设置</span></a>
 </header>
 
 <main class="layout">
@@ -26,7 +27,7 @@
   <aside class="col-left">
     <div id="dropzone">
       <input type="file" id="file-input" accept="video/*,audio/*,.vtt,.docx" multiple hidden>
-      <button id="pick-btn" class="primary import-button" type="button">＋ 导入会议</button>
+      <button id="pick-btn" class="primary import-button fluent-button fluent-button--primary" type="button"><svg class="fluent-icon" aria-hidden="true"><use href="/static/fluent-icons.svg#fluent-add"></use></svg><span>导入会议</span></button>
       <span id="drop-hint" class="drop-hint">或拖入视频 + VTT/DOCX，或单个音视频</span>
       <details class="import-options">
         <summary id="import-settings-label">导入设置</summary>
@@ -39,7 +40,7 @@
       <ul id="jobs-list"></ul>
     </div>
     <div class="meeting-list-tools">
-      <input id="search" type="search" placeholder="搜索会议…">
+      <input id="search" class="fluent-field" type="search" placeholder="搜索会议…">
       <select id="meeting-sort" aria-label="会议排序">
         <option value="imported">最近导入</option>
         <option value="meeting">会议时间</option>
@@ -60,10 +61,11 @@
       <div class="meeting-head-actions">
         <button id="quality-entry-btn" class="quality-entry" type="button" disabled>审计会议结论</button>
         <details class="more-menu">
-          <summary>更多</summary>
+          <summary><svg class="fluent-icon" aria-hidden="true"><use href="/static/fluent-icons.svg#fluent-more-horizontal"></use></svg><span>更多</span></summary>
           <div class="more-menu-pop">
             <button id="regen-btn" type="button" disabled>重新生成纪要</button>
             <button id="retranscribe-btn" type="button" disabled title="保留原逐字稿，改用本地 ASR 重建逐字稿和纪要">忽略当前逐字稿·本地重转写</button>
+            <button id="undo-speaker-btn" type="button" disabled>撤销上次说话人修改</button>
             <button id="refine-btn" type="button" disabled title="使用更强的本地模型优化全文">优化全文</button>
             <button id="export-btn" type="button" disabled title="导出前检查证据、媒体和预计大小">分享 / 导出…</button>
             <button id="storage-btn" type="button" disabled title="查看原始母版、阅读资产和可再生缓存">存储与清理…</button>
@@ -94,7 +96,7 @@
           <span id="transcript-heading">逐字稿</span>
           <div class="transcript-head-tools">
             <span class="transcript-search-wrap">
-              <input id="transcript-search" type="search" placeholder="搜索逐字稿" disabled
+              <input id="transcript-search" class="fluent-field" type="search" placeholder="搜索逐字稿" disabled
                      aria-label="搜索逐字稿" title="Enter 下一个, Shift+Enter 上一个">
               <span id="transcript-search-count" class="transcript-search-count"></span>
             </span>
@@ -131,11 +133,11 @@
         <div id="pane-resizer" class="pane-resizer" role="separator" aria-label="调整逐字稿与纪要宽度" aria-orientation="vertical" tabindex="0"></div>
 
         <section class="minutes-pane">
-          <div class="col-header minutes-mode-tabs">
-            <button id="chapters-tab" class="mode-tab" type="button" disabled>会议脉络</button>
-            <button id="minutes-tab" class="mode-tab active" type="button">会议纪要</button>
-            <button id="visuals-tab" class="mode-tab" type="button" disabled>屏幕内容</button>
-            <button id="quality-tab" class="mode-tab" type="button" disabled>
+          <div class="col-header minutes-mode-tabs fluent-tablist" role="tablist" aria-label="会议内容">
+            <button id="chapters-tab" class="mode-tab fluent-tab" role="tab" aria-selected="false" type="button" disabled>会议脉络</button>
+            <button id="minutes-tab" class="mode-tab active fluent-tab" role="tab" aria-selected="true" type="button">会议纪要</button>
+            <button id="visuals-tab" class="mode-tab fluent-tab" role="tab" aria-selected="false" type="button" disabled>屏幕内容</button>
+            <button id="quality-tab" class="mode-tab fluent-tab" role="tab" aria-selected="false" type="button" disabled>
               结论审计 <span id="quality-badge" class="quality-badge hidden"></span>
             </button>
             <select id="minutes-view" class="minutes-view-select hidden" aria-label="纪要版本">
@@ -157,11 +159,11 @@
 
       <aside id="utility-panel" class="utility-panel hidden" aria-label="会议智能栏">
         <header class="utility-head">
-          <div class="utility-tabs" role="tablist">
-            <button type="button" data-utility-tab="assistant" class="active" role="tab">AI 对话</button>
-            <button type="button" data-utility-tab="evidence" role="tab">证据</button>
+          <div class="utility-tabs fluent-tablist" role="tablist" aria-label="会议智能栏">
+            <button type="button" data-utility-tab="assistant" class="active fluent-tab" role="tab" aria-selected="true">AI 对话</button>
+            <button type="button" data-utility-tab="evidence" class="fluent-tab" role="tab" aria-selected="false">证据</button>
           </div>
-          <button id="utility-close" class="utility-close" type="button" aria-label="关闭智能栏">×</button>
+          <button id="utility-close" class="utility-close fluent-button fluent-button--subtle fluent-icon-button" type="button" aria-label="关闭智能栏"><svg class="fluent-icon" aria-hidden="true"><use href="/static/fluent-icons.svg#fluent-dismiss"></use></svg></button>
         </header>
         <section id="assistant-pane" class="utility-pane assistant-pane">
           <div id="assistant-suggestions" class="assistant-suggestions"></div>
@@ -174,7 +176,7 @@
                       placeholder="问这场会议，或告诉我如何修改纪要…"></textarea>
             <div class="assistant-compose-actions">
               <span id="assistant-state" class="dim"></span>
-              <button id="assistant-send" class="primary" type="button">发送</button>
+              <button id="assistant-send" class="primary fluent-button fluent-button--primary" type="button">发送</button>
             </div>
           </div>
         </section>
@@ -274,6 +276,6 @@
 
 <div id="tl-tip" class="tl-tip hidden"></div>
 
-<script src="/static/app.js?v=20260819p69"></script>
+<script src="/static/app.js?v=20260819p75"></script>
 </body>
 </html>

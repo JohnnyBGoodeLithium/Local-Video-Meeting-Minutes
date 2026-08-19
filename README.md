@@ -1,6 +1,6 @@
 # Local Video Meeting Minutes
 
-**当前产品版本：v0.9.1**（仓库根目录 `VERSION` 为单一真源）
+**当前产品版本：v0.9.2**（仓库根目录 `VERSION` 为单一真源）
 
 本地多模态会议知识工作台：把录音、录屏、Teams VTT/DOCX 逐字稿、说话人声纹、组织架构和共享画面组织成一套可阅读、可核验、可追问、可修正、可离线分享的会议记录。
 
@@ -127,7 +127,7 @@ meeting-minutes/
 | 文档 | 何时阅读 |
 |---|---|
 | [PRODUCT_UX.md](docs/PRODUCT_UX.md) | 理解产品定位、阅读旅程和交互原则 |
-| [DESIGN_TOKENS.md](docs/DESIGN_TOKENS.md) | 更换主题（字体/配色/间距/圆角）或定制组件外观 |
+| [DESIGN_TOKENS.md](docs/DESIGN_TOKENS.md) | 了解 Fluent 2 适配、共享 token、图标与原生组件合同 |
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | 理解处理流、canonical 数据和模块边界 |
 | [EXPORT_AND_RAG.md](docs/EXPORT_AND_RAG.md) | 实现证据 linkage、MeetingPack 或 RAG 消费方 |
 | [DEPLOYMENT.md](docs/DEPLOYMENT.md) | 在 NVIDIA、AMD 或 CPU 机器部署和验收 |

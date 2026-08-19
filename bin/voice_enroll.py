@@ -130,6 +130,38 @@ def reassign_by_centroids(rest_vecs: np.ndarray, base_centroid: np.ndarray,
     return out
 
 
+def suggest_reassignments(rest_vecs: np.ndarray, base_centroid: np.ndarray,
+                          new_centroids: list, *, threshold: float = 0.78,
+                          margin: float = 0.08) -> tuple[list, list[bool]]:
+    """给人工拆分生成保守扩散建议，而不是强制二选一。
+
+    新簇相似度必须同时达到绝对门槛，并比原簇高出 ``margin`` 才建议移动；
+    仅仅“略像新簇”的轮次进入 ambiguous，保持原状等待人工判断。
+    """
+    if not len(rest_vecs):
+        return [], []
+    if not len(new_centroids):
+        return [None] * len(rest_vecs), [False] * len(rest_vecs)
+    norm = rest_vecs / (np.linalg.norm(rest_vecs, axis=1, keepdims=True) + 1e-9)
+    base = np.asarray(base_centroid, dtype=np.float32)
+    base = base / (np.linalg.norm(base) + 1e-9)
+    cents = [np.asarray(value, dtype=np.float32) for value in new_centroids]
+    cents = [value / (np.linalg.norm(value) + 1e-9) for value in cents]
+    moves, ambiguous = [], []
+    for vector in norm:
+        base_sim = float(np.dot(vector, base))
+        scores = [float(np.dot(vector, centroid)) for centroid in cents]
+        best = int(np.argmax(scores))
+        best_sim = scores[best]
+        accepted = best_sim >= threshold and best_sim - base_sim >= margin
+        moves.append(best if accepted else None)
+        # 达到基础相似度、但没有拉开足够优势的轮次属于“存疑”；等距或轻微
+        # 偏向原簇也应交给用户判断，不能悄悄当作无关项隐藏。
+        ambiguous.append(not accepted and best_sim >= threshold
+                         and best_sim >= base_sim - margin)
+    return moves, ambiguous
+
+
 def enroll(name2vec: dict, slug: str, threshold: float = 0.70, bank_dir: Path = None):
     """匿名声纹入库/比对。返回 (显示名映射, voice_id映射, linked, new)。
     与 video_minutes 同一语义: 占位名(说话人K)不自动建 person, 等人工绑定。"""

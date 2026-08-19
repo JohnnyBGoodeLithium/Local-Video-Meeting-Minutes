@@ -13,8 +13,11 @@ from pydantic import BaseModel, Field
 
 import voice_bank as vb
 import voice_enroll as ve
-from deps import (BANK_DIR, BANK_LOCK, MEETINGS, PY, ROOT, _audio_path, _hms,
-                  _mmss, _mdir, _read_json, _refresh_evidence, _safe)
+import speaker_corrections as sc
+import speaker_history as sh
+from deps import (BANK_DIR, BANK_LOCK, MEETINGS, PY, ROOT, SPEAKER_OP_LOCK,
+                  _audio_path, _hms, _mmss, _mdir, _read_json,
+                  _refresh_evidence, _safe)
 
 router = APIRouter()
 
@@ -50,7 +53,8 @@ def _bind_voice(voice_id: str, name: str, create: bool = False):
             person, how = _resolve_or_409(bank, name, orgchart=org)
         voice["person_id"] = person["id"]
         vb.save_bank(BANK_DIR, bank)
-        return vb.person_name(bank, person["id"]), (how if isinstance(how, str) else "新建")
+        return (vb.person_name(bank, person["id"]),
+                (how if isinstance(how, str) else "新建"), person["id"])
 
 
 TURN_LINE_RE = re.compile(r"^\[\d{1,3}:\d{2}(?::\d{2})?\] \*\*")
@@ -105,11 +109,46 @@ class BindReq(BaseModel):
 def bind_in_meeting(slug: str, req: BindReq):
     """一次交互绑定该 voice 在本会议的全部语句。"""
     mdir = _mdir(slug)
-    new_name, how = _bind_voice(req.voice, req.name, req.create)
-    n = _rename_voice_in_meeting(mdir, slug, req.voice, new_name)
-    if n:
+    with SPEAKER_OP_LOCK, sh.transaction(mdir, BANK_DIR, "bind"):
+        new_name, how, person_id = _bind_voice(req.voice, req.name, req.create)
+        n = _rename_voice_in_meeting(mdir, slug, req.voice, new_name)
+        if n:
+            turns = _read_json(mdir / "transcript.spk.json", [])
+            indexes = [index for index, turn in enumerate(turns)
+                       if turn.get("voice") == req.voice]
+            sc.lock_turns(mdir, turns, indexes, person_id=person_id,
+                          voice_id=req.voice, operation="bind")
+            _refresh_evidence(mdir)
+    return {"ok": True, "name": new_name, "turns": n, "how": how,
+            "undo_available": True}
+
+
+@router.get("/api/meetings/{slug}/speakers/history")
+def speaker_history_status(slug: str):
+    mdir = _mdir(slug)
+    available = sh.latest_available(mdir, BANK_DIR)
+    return {"available": bool(available),
+            "operation": available[1].get("operation") if available else None,
+            "created_at": available[1].get("created_at") if available else None}
+
+
+@router.post("/api/meetings/{slug}/speakers/undo")
+def undo_speaker_operation(slug: str):
+    mdir = _mdir(slug)
+    with SPEAKER_OP_LOCK:
+        available = sh.latest_available(mdir, BANK_DIR)
+        if available is None:
+            raise HTTPException(404, "没有可撤销的说话人修改，或此后数据已经变化")
+        op_dir, manifest = available
+        try:
+            with BANK_LOCK:
+                sh.restore(op_dir, mdir, BANK_DIR, require_current=True)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
         _refresh_evidence(mdir)
-    return {"ok": True, "name": new_name, "turns": n, "how": how}
+        subprocess.run([str(PY), str(ROOT / "bin" / "voice_tool.py"), "sample", str(mdir)],
+                       check=False, capture_output=True)
+    return {"ok": True, "operation": manifest.get("operation")}
 
 
 @router.get("/api/speakers")
@@ -211,7 +250,7 @@ def update_person(person_id: str, req: PersonPutReq):
 @router.post("/api/speakers/bind")
 def bind_voice_only(req: BindReq):
     """只在声纹库层面绑定（不改任何会议）。"""
-    new_name, how = _bind_voice(req.voice, req.name, req.create)
+    new_name, how, _person_id = _bind_voice(req.voice, req.name, req.create)
     return {"ok": True, "name": new_name, "how": how}
 
 
@@ -284,6 +323,13 @@ def unbind_voice(req: VoiceReq):
 class SplitReq(BaseModel):
     voice: str
     turns: list[int]
+    name: str = ""
+    expand_similar: bool = False
+
+
+class SplitPreviewReq(BaseModel):
+    voice: str
+    turns: list[int]
 
 
 def _resolve_current_split_voice(turns: list, indexes: list[int], requested: str):
@@ -300,6 +346,47 @@ def _resolve_current_split_voice(turns: list, indexes: list[int], requested: str
         raise HTTPException(400, "所选轮次当前属于多条声纹，请刷新后重新选择")
     current = next(iter(voices))
     return current, current != requested
+
+
+@router.post("/api/meetings/{slug}/split/preview")
+def preview_split_voice_turns(slug: str, req: SplitPreviewReq):
+    """只计算高置信扩散建议；不改逐字稿、声纹库或人工锁。"""
+    import numpy as np
+
+    mdir = _mdir(slug)
+    turns = _read_json(mdir / "transcript.spk.json", [])
+    selected = sorted({index for index in req.turns if 0 <= index < len(turns)})
+    if not selected:
+        raise HTTPException(400, "没有有效轮次")
+    source_voice, voice_rebased = _resolve_current_split_voice(turns, selected, req.voice)
+    selected_set = set(selected)
+    source_indexes = [index for index, turn in enumerate(turns)
+                      if turn.get("voice") == source_voice]
+    protected = sorted((sc.locked_indexes(mdir, turns) - selected_set) & set(source_indexes))
+    candidates = [index for index in source_indexes
+                  if index not in selected_set and index not in set(protected)]
+    wav = _audio_path(mdir)
+    if wav is None:
+        raise HTTPException(400, "会议没有可用音频，无法预览声纹拆分")
+    picked = ve.embed_ranges(wav, [(float(turns[i].get("start", 0)),
+                                    float(turns[i].get("end", 0))) for i in selected])
+    if not len(picked):
+        raise HTTPException(500, "所选轮次声纹嵌入提取失败")
+    clusters = ve.cluster_embeddings(picked)
+    centroids = [picked[[pos for pos, value in enumerate(clusters) if value == cluster]].mean(axis=0)
+                 for cluster in range(max(clusters) + 1)]
+    suggested, ambiguous = [], []
+    if candidates:
+        rest = ve.embed_ranges(wav, [(float(turns[i].get("start", 0)),
+                                      float(turns[i].get("end", 0))) for i in candidates])
+        if len(rest):
+            base = rest.mean(axis=0).astype(np.float32)
+            moves, uncertain = ve.suggest_reassignments(rest, base, centroids)
+            suggested = [candidates[pos] for pos, move in enumerate(moves) if move is not None]
+            ambiguous = [candidates[pos] for pos, value in enumerate(uncertain) if value]
+    return {"ok": True, "voice": source_voice, "source_voice_rebased": voice_rebased,
+            "selected": selected, "suggested": suggested, "protected": protected,
+            "ambiguous": ambiguous, "threshold": 0.78, "margin": 0.08}
 
 
 def _match_voice_excluding(bank_dir: Path, bank: dict, vec, exclude: str, threshold: float):
@@ -321,12 +408,17 @@ def _match_voice_excluding(bank_dir: Path, bank: dict, vec, exclude: str, thresh
 
 @router.post("/api/meetings/{slug}/split")
 def split_voice_turns(slug: str, req: SplitReq):
+    mdir = _mdir(slug)
+    with SPEAKER_OP_LOCK, sh.transaction(mdir, BANK_DIR, "split"):
+        return _split_voice_turns(slug, req, mdir)
+
+
+def _split_voice_turns(slug: str, req: SplitReq, mdir: Path):
     """把一条声纹在本会议中的部分轮次拆出（两位声音相近者被并入同一声纹时用）：
     只对所选轮次的音频段重提嵌入 → 贪心聚类（可能不止一个人）→ 逐簇匹配库内
-    其他声纹或匿名新建 → 只改派这些轮次；原声纹质心用剩余轮次自动重算校正。"""
+    其他声纹或匿名新建 → 默认只改派明确选择；用户另行明确要求时才扩展相似轮次。"""
     import numpy as np
 
-    mdir = _mdir(slug)
     tp = mdir / "transcript.spk.json"
     turns = _read_json(tp, [])
     idx = sorted({i for i in req.turns if 0 <= i < len(turns)})
@@ -357,17 +449,31 @@ def split_voice_turns(slug: str, req: SplitReq):
     # 自动重排——长会议里用户只需标出少量样例，不必逐条找出所有错分轮次。
     new_cents = [picked[[n for n, c in enumerate(clusters) if c == k]].mean(axis=0)
                  for k in range(n_clusters)]
-    moves = ve.reassign_by_centroids(rest, rest.mean(axis=0), new_cents)
+    # 人工确认过的轮次属于硬保护区：即使与新簇很相似，也不能被扩散改派。
+    # 仅对未锁定的剩余轮次给出保守建议，并把结果映射回完整 rest 序列。
+    protected_indexes = sc.locked_indexes(mdir, turns) - picked_set
+    expandable_pos = [pos for pos, index in enumerate(remaining)
+                      if index not in protected_indexes]
+    moves = [None] * len(rest)
+    if req.expand_similar and expandable_pos:
+        suggested, _ambiguous = ve.suggest_reassignments(
+            rest[expandable_pos], rest.mean(axis=0), new_cents)
+        for pos, cluster in zip(expandable_pos, suggested):
+            moves[pos] = cluster
     keep_rest = [n for n, mk in enumerate(moves) if mk is None]
     if not keep_rest:
         raise HTTPException(400, "重排后原声纹在本会议不再剩轮次；若它整体属于别人请改用绑定")
 
-    moved, reassigned, results = 0, 0, []
+    moved, reassigned, results, lock_groups = 0, 0, [], []
     with BANK_LOCK:
         bank = vb.load_bank(BANK_DIR)
         src = next((v for v in bank["voices"] if v["id"] == source_voice), None)
         if src is None:
             raise HTTPException(404, "没有这条声纹")
+        assigned_person = None
+        if req.name.strip():
+            assigned_person, _how = _resolve_or_409(
+                bank, req.name.strip(), orgchart=vb.load_orgchart(BANK_DIR))
         src_label = str(turns[idx[0]].get("speaker") or src.get("label_hint") or source_voice)
         for k in range(n_clusters):
             member_pos = [n for n, c in enumerate(clusters) if c == k]
@@ -378,36 +484,55 @@ def split_voice_turns(slug: str, req: SplitReq):
                 mats.append(rest[moved_pos])
             centroid = np.vstack(mats).mean(axis=0)
             match, sim = _match_voice_excluding(BANK_DIR, bank, centroid, source_voice, 0.70)
+            if match is not None and assigned_person is not None:
+                same_person = match.get("person_id") == assigned_person["id"]
+                meeting_local_unbound = (not match.get("person_id")
+                                         and set(match.get("sources", [])) <= {slug})
+                if not same_person and not meeting_local_unbound:
+                    match = None
             if match is None:
                 hint = f"{src_label}(拆分)" if n_clusters == 1 else f"{src_label}(拆分{k + 1})"
-                match = vb.add_voice(BANK_DIR, bank, centroid, label_hint=hint, source=slug)
+                match = vb.add_voice(BANK_DIR, bank, centroid, label_hint=hint, source=slug,
+                                     person_id=assigned_person["id"] if assigned_person else None)
                 matched = False
             else:
                 if slug not in match.setdefault("sources", []):
                     match["sources"].append(slug)
                 matched = True
+            if assigned_person is not None:
+                match["person_id"] = assigned_person["id"]
             new_name = vb.display_name(bank, match)
             for i in members:
                 turns[i]["voice"] = match["id"]
                 turns[i]["speaker"] = new_name
             moved += len(members)
             reassigned += len(moved_pos)
+            lock_groups.append((members, match["id"]))
             results.append({"voice": match["id"], "name": new_name,
                             "turns": len(members), "matched": matched,
                             "similarity": round(sim, 3)})
         # 原声纹质心用重排后剩余的轮次重算，避免继续被混入的发音污染
-        new_centroid = rest[keep_rest].mean(axis=0).astype(np.float32)
-        np.save(Path(BANK_DIR) / src["emb"],
-                new_centroid / (np.linalg.norm(new_centroid) + 1e-9))
+        # 已确认且跨会议复用的声纹不能被单场剩余音频覆盖全局质心。
+        if not (src.get("person_id") and len(src.get("sources", [])) > 1):
+            new_centroid = rest[keep_rest].mean(axis=0).astype(np.float32)
+            np.save(Path(BANK_DIR) / src["emb"],
+                    new_centroid / (np.linalg.norm(new_centroid) + 1e-9))
         vb.save_bank(BANK_DIR, bank)
 
     tmp = tp.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(turns, ensure_ascii=False, indent=1), encoding="utf-8")
     tmp.replace(tp)
     _rewrite_spk_md(mdir, slug, turns)
+    for members, voice_id in lock_groups:
+        sc.lock_turns(mdir, turns, members,
+                      person_id=assigned_person["id"] if assigned_person else None,
+                      voice_id=voice_id, operation="split")
     _refresh_evidence(mdir)
     subprocess.run([str(PY), str(ROOT / "bin" / "voice_tool.py"), "sample", str(mdir)],
                    check=False, capture_output=True)
     return {"ok": True, "moved": moved, "reassigned": reassigned,
             "clusters": n_clusters, "voices": results,
-            "source_voice_rebased": voice_rebased}
+            "source_voice_rebased": voice_rebased,
+            "name_applied": bool(assigned_person),
+            "expanded_similar": bool(req.expand_similar),
+            "protected": len(protected_indexes & set(remaining))}

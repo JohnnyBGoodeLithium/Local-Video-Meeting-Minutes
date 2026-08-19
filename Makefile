@@ -36,6 +36,7 @@ check:
 	$(PY) web/tests/meeting_topic_map_test.py
 	$(PY) web/tests/hardware_test.py
 	$(PY) web/tests/voice_split_test.py
+	$(PY) web/tests/speaker_history_test.py
 	$(PY) web/tests/voice_fragment_merge_test.py
 	$(PY) web/tests/speaker_navigation_test.py
 	$(PY) web/tests/translation_service_test.py

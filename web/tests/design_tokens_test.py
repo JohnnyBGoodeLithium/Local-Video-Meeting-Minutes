@@ -13,7 +13,7 @@ from pathlib import Path
 
 STATIC = Path(__file__).resolve().parents[1] / "static"
 css = "".join((STATIC / name).read_text(encoding="utf-8")
-              for name in ("style.css", "theme.css"))
+              for name in ("fluent-foundation.css", "style.css", "theme.css"))
 
 defined = set(re.findall(r"(--[\w-]+)\s*:", css))
 used_with_fallback = set()
@@ -31,6 +31,26 @@ assert not bad_font, f"font-size 字面值回潮: {bad_font[:5]}"
 
 # 花括号平衡
 assert css.count("{") == css.count("}"), "CSS 花括号不平衡"
+
+required_fluent = {
+    "--colorNeutralBackground1", "--colorNeutralForeground1",
+    "--colorBrandBackground", "--colorFocusStrokeInner",
+    "--fontFamilyBase", "--spacingHorizontalM", "--borderRadiusMedium",
+    "--shadow16", "--durationNormal",
+}
+assert required_fluent <= defined, \
+    f"Fluent 语义 token 缺失: {sorted(required_fluent - defined)}"
+
+foundation = (STATIC / "fluent-foundation.css").read_text(encoding="utf-8")
+assert ":focus-visible" in foundation, "缺少统一键盘焦点合同"
+assert "prefers-reduced-motion" in foundation, "缺少减少动态效果合同"
+assert ".fluent-button" in foundation and ".fluent-tab" in foundation, \
+    "公共原生组件合同不完整"
+
+icons = (STATIC / "fluent-icons.svg").read_text(encoding="utf-8")
+for icon in ("add", "settings", "more-horizontal", "dismiss", "arrow-left",
+             "arrow-right", "zoom-in", "zoom-out"):
+    assert f'id="fluent-{icon}"' in icons, f"Fluent 图标缺失: {icon}"
 
 print(f"Design tokens: {len(defined)} defined, {len(used_bare)} bare refs all resolve, "
       f"{len(used_with_fallback)} fallback refs OK")

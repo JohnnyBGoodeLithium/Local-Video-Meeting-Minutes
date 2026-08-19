@@ -139,6 +139,7 @@ const UI_COPY = {
     clearSpeaker: "取消人物", utteranceUnit: "个核听段落",
     bindAction: "绑定", legendBindAction: "未绑定声纹：点「绑定」为其指定人员",
     speakerUnavailable: "当前声音过短，未形成可用声音簇，不能按人播放",
+    undoSpeaker: "撤销上次说话人修改",
     lowValueHint: "过渡或低讨论密度时段", continued: "同一发言",
   },
   en: {
@@ -168,6 +169,7 @@ const UI_COPY = {
     clearSpeaker: "Clear person", utteranceUnit: "review segments",
     legendBindAction: "No voiceprint bound: use “Bind” to assign a person",
     speakerUnavailable: "This sample is too short to form a usable voice cluster",
+    undoSpeaker: "Undo last speaker change",
     lowValueHint: "Transitional or low-density segment", continued: "Same utterance",
   },
 };
@@ -273,8 +275,9 @@ function applyUiLanguage() {
   text(".brand", ui("brand"));
   text("#library-toggle", ui("meetings"));
   text("#product-link", ui("product"));
-  text("#settings-link", ui("settings"));
-  text("#pick-btn", ui("import"));
+  text("#settings-link span", ui("settings"));
+  text("#pick-btn span", ui("import"));
+  text("#undo-speaker-btn", ui("undoSpeaker"));
   text("#drop-hint", ui("drop"));
   text("#import-settings-label", ui("importSettings"));
   text("#skip-vl-label", ui("skipVl"));
@@ -312,8 +315,11 @@ function applyUiLanguage() {
     sort.options[2].textContent = ui("sortUpdated");
     sort.setAttribute("aria-label", isEnglishUi() ? "Meeting order" : "会议排序");
   }
-  $$('[data-ui-language]').forEach(button =>
-    button.classList.toggle("active", button.dataset.uiLanguage === state.uiLanguage));
+  $$('[data-ui-language]').forEach(button => {
+    const active = button.dataset.uiLanguage === state.uiLanguage;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
   $("#ui-language")?.setAttribute("aria-label", english
     ? "Interface and minutes language" : "界面与纪要语言");
 }
@@ -648,7 +654,7 @@ function startSplitMarking(voice, name) {
   state.splitMarks.clear();
   renderTranscript();
   updateSplitBar();
-  toast(`标记模式：点击逐字稿中不属于「${name}」的轮次（少量样例即可，其余会自动重排），然后点底部操作条的「确认拆分」`);
+  toast(`标记模式：先选择不属于「${name}」的轮次；确认前会预览高置信相似发言，已确认身份不会被自动改派`);
 }
 
 function clearSplitMarking(rerender = true) {
@@ -732,10 +738,54 @@ async function applySplitMarks() {
       "且被全部选中，无需拆分：在“具名为”填姓名再确认即可整体改派（标记已保留）");
     return;
   }
+  let expandSimilar = false;
+  let splitPreview = null;
+  if (Object.keys(splitGroups).length) {
+    // 预览接口同时作为安全能力协商：旧 /split 会静默扩散，因此旧后台下禁止提交。
+    const [previewVoice, previewTurns] = Object.entries(splitGroups)[0];
+    $("#split-apply").disabled = true;
+    try {
+      const response = await api(
+        `/api/meetings/${encodeURIComponent(state.slug)}/split/preview`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ voice: previewVoice, turns: previewTurns }),
+        });
+      splitPreview = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        if (response.status === 404) {
+          toast("当前会议任务仍在运行，安全拆分后台尚未加载；已阻止旧版自动扩散。任务完成后会升级，标记仍保留");
+        } else {
+          toast(`拆分预览失败: ${splitPreview.detail || response.status}（标记已保留）`);
+        }
+        return;
+      }
+    } catch (error) {
+      toast(`拆分预览异常: ${error?.message || error}（标记已保留）`);
+      return;
+    } finally {
+      $("#split-apply").disabled = false;
+    }
+    const suggested = splitPreview.suggested?.length || 0;
+    const protectedCount = splitPreview.protected?.length || 0;
+    const ambiguous = splitPreview.ambiguous?.length || 0;
+    if (suggested) {
+      expandSimilar = confirm(
+        `已手选 ${marked.length} 轮；另发现 ${suggested} 轮高置信相似发言。` +
+        `\n已保护 ${protectedCount} 轮，不会改派；另有 ${ambiguous} 轮存疑，保持原状。` +
+        "\n\n确定：同时处理高置信建议\n取消：只处理手选轮次");
+    }
+  }
   const parts = [];
-  if (Object.keys(splitGroups).length)
-    parts.push(`对标记的 ${Object.values(splitGroups).flat().length} 轮重新提取声纹拆分，` +
-      "并以标记轮次为样例把该说话人本场其余轮次按相似度自动重排（可能需要几十秒）");
+  if (Object.keys(splitGroups).length) {
+    const suggested = splitPreview?.suggested?.length || 0;
+    const protectedCount = splitPreview?.protected?.length || 0;
+    parts.push(expandSimilar
+      ? `拆分手选 ${marked.length} 轮，并处理 ${suggested} 轮高置信建议`
+      : `只拆分明确手选的 ${marked.length} 轮`);
+    if (protectedCount) parts.push(`${protectedCount} 轮已确认身份保持不变`);
+    parts.push("操作完成后可撤销（可能需要几十秒）");
+  }
   if (bindDirect.length)
     parts.push(`${bindDirect.length} 条声纹全部被选中，直接整体改派为「${assign}」`);
   if (!confirm(parts.join("；") + "。继续？")) return;
@@ -751,13 +801,12 @@ async function applySplitMarks() {
         body: JSON.stringify({ voice, name: assign, create: false }),
       });
       if (br.ok) boundDirect += 1;
-      else bindFailures.push(voice);
     }
     for (const [voice, turns] of Object.entries(splitGroups)) {
       const r = await api(`/api/meetings/${encodeURIComponent(state.slug)}/split`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ voice, turns }),
+        body: JSON.stringify({ voice, turns, name: assign, expand_similar: expandSimilar }),
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) {
@@ -768,14 +817,21 @@ async function applySplitMarks() {
       reassigned += j.reassigned || 0;
       if (j.source_voice_rebased) state.splitTarget = voice;
       names.push(...(j.voices || []).map(v => v.name));
-      if (assign) {
-        for (const v of j.voices || []) {
+      // 兼容尚未重启的旧后台：旧 /split 会忽略 name，并且不会返回
+      // name_applied。此时继续逐条调用旧 /bind，避免“拆分成功但姓名没改”。
+      if (assign && !j.name_applied) {
+        for (const splitVoice of j.voices || []) {
+          const targetVoice = splitVoice.voice || splitVoice.id;
+          if (!targetVoice) {
+            bindFailures.push(splitVoice.name || "未知声纹");
+            continue;
+          }
           const br = await api(`/api/meetings/${encodeURIComponent(state.slug)}/bind`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ voice: v.voice, name: assign, create: false }),
+            body: JSON.stringify({ voice: targetVoice, name: assign, create: false }),
           });
-          if (!br.ok) bindFailures.push(v.name);
+          if (!br.ok) bindFailures.push(splitVoice.name || targetVoice);
         }
       }
     }
@@ -795,12 +851,43 @@ async function applySplitMarks() {
     let s = `拆分 ${moved} 轮`;
     if (reassigned) s += `（含按相似度自动重排的 ${reassigned} 轮）`;
     if (assign && !bindFailures.length) s += `，具名为「${assign}」`;
+    else if (assign) s += `；但 ${bindFailures.length} 条姓名绑定失败，请保留页面并重试`;
     else if (!assign) s += ` → ${[...new Set(names)].join("、")}（可点说话人 chip 具名）`;
     done.push(s);
   }
-  if (bindFailures.length) done.push(`具名失败 ${bindFailures.length} 条，请点说话人 chip 手动具名`);
-  toast(done.join("；") || "未改动");
+  toast((done.join("；") || "未改动") + "；可在“更多”中撤销");
   await loadMeeting(state.slug);
+}
+
+async function loadSpeakerHistoryStatus() {
+  const button = $("#undo-speaker-btn");
+  if (!button || !state.slug) return;
+  try {
+    const status = await jget(`/api/meetings/${encodeURIComponent(state.slug)}/speakers/history`);
+    button.disabled = !status.available;
+  } catch (_) {
+    button.disabled = true;
+  }
+}
+
+async function undoSpeakerOperation() {
+  if (!state.slug) return;
+  const button = $("#undo-speaker-btn");
+  button.disabled = true;
+  try {
+    const response = await api(
+      `/api/meetings/${encodeURIComponent(state.slug)}/speakers/undo`, { method: "POST" });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.detail || response.status);
+    state.speakers = null;
+    resetAssistant();
+    $(".more-menu")?.removeAttribute("open");
+    toast("已撤销上次说话人修改");
+    await loadMeeting(state.slug);
+  } catch (error) {
+    toast(`撤销失败：${error.message}`);
+    await loadSpeakerHistoryStatus();
+  }
 }
 
 /* ---------- 会议详情 ---------- */
@@ -938,6 +1025,7 @@ async function loadMeeting(slug) {
   $("#regen-btn").disabled = isDraft;
   const canRetranscribe = !isDraft && b.has_video && b.transcript_source === "external";
   $("#retranscribe-btn").disabled = !canRetranscribe;
+  loadSpeakerHistoryStatus();
   $("#retranscribe-btn").title = canRetranscribe
     ? "保留原 VTT/DOCX，改用视频音轨的本地 ASR 重建逐字稿、纪要、证据与脉络"
     : (b.transcript_source === "local_asr" ? "当前已使用本地语音识别" : "只有带视频母版的外部逐字稿会议可用");
@@ -3225,8 +3313,11 @@ function setReviewMode(mode) {
     state.viewMode = "minutes";
   for (const id of ["minutes", "chapters", "visuals", "quality"])
     $(`#${id}`).classList.toggle("hidden", state.viewMode !== id);
-  for (const id of ["minutes", "chapters", "visuals", "quality"])
-    $(`#${id}-tab`).classList.toggle("active", state.viewMode === id);
+  for (const id of ["minutes", "chapters", "visuals", "quality"]) {
+    const active = state.viewMode === id;
+    $(`#${id}-tab`).classList.toggle("active", active);
+    $(`#${id}-tab`).setAttribute("aria-selected", String(active));
+  }
   $("#restructure-minutes")?.classList.toggle("hidden", state.viewMode !== "minutes");
   $("#minutes-view")?.classList.toggle("hidden", state.viewMode !== "minutes"
     || !(state.bundle?.minutes_views || []).length);
@@ -4667,8 +4758,30 @@ function screenPreviewShortcut(event) {
   event.stopImmediatePropagation();
 }
 
+function wireTablistKeyboard(tablist) {
+  if (!tablist || tablist.dataset.keyboardReady === "true") return;
+  tablist.dataset.keyboardReady = "true";
+  tablist.addEventListener("keydown", event => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    const tabs = [...tablist.querySelectorAll('[role="tab"]')]
+      .filter(tab => !tab.disabled && !tab.hidden);
+    const current = tabs.indexOf(document.activeElement);
+    if (current < 0 || !tabs.length) return;
+    let next = current;
+    if (event.key === "Home") next = 0;
+    else if (event.key === "End") next = tabs.length - 1;
+    else next = (current + (event.key === "ArrowRight" ? 1 : -1) + tabs.length)
+      % tabs.length;
+    event.preventDefault();
+    tabs[next].focus();
+    tabs[next].click();
+  });
+}
+
 function init() {
   applyUiLanguage();
+  wireTablistKeyboard(document.querySelector(".minutes-mode-tabs"));
+  wireTablistKeyboard(document.querySelector(".utility-tabs"));
   loadProductVersion();
   $$('[data-ui-language]').forEach(button =>
     button.onclick = () => setUiLanguage(button.dataset.uiLanguage));
@@ -4688,6 +4801,7 @@ function init() {
   $("#restore-minutes").onclick = restorePreviousMinutes;
   $("#regen-btn").onclick = () => regenMinutes("");
   $("#retranscribe-btn").onclick = retranscribeLocal;
+  $("#undo-speaker-btn").onclick = undoSpeakerOperation;
   $("#rename-btn").onclick = startRename;
   $("#transcript-search").addEventListener("input", applyTranscriptSearch);
   $("#transcript-search").addEventListener("keydown", e => {

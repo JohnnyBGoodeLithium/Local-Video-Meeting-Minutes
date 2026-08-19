@@ -159,6 +159,7 @@ input[type="search"], input[type="text"], input:not([type]), select, textarea {
 .product-version { padding: 1px var(--sp-7); border: 1px solid var(--border); border-radius: 999px; background: var(--panel2); color: var(--dim); font-size: var(--fs-10); font-variant-numeric: tabular-nums; }
 .job-status { color: var(--dim); font-size: var(--fs-12); flex: 1; }
 .toplink { color: var(--accent); text-decoration: none; }
+.toplink:has(.fluent-icon), .more-menu > summary { display: inline-flex; align-items: center; gap: var(--sp-5); }
 .library-toggle { display: none; padding: 2px var(--sp-8); }
 .library-scrim { display: none; }
 
