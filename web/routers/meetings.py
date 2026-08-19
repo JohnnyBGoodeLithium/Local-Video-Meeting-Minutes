@@ -12,6 +12,7 @@ from fastapi import APIRouter, Body, HTTPException, Query
 import meeting_generation
 import meeting_structure
 import meeting_topic_map
+import minutes_view_service
 import voice_bank as vb
 from deps import (BANK_DIR, BANK_LOCK, DRY_RUN, EVALUATIONS_DIR, MEETINGS, MD,
                   MEETING_META_LOCK, STORAGE_LOCK, artifact, assistant, _audio_path,
@@ -211,6 +212,24 @@ def get_bundle(slug: str):
                                   if (mdir / f"source.{suffix}").is_file()), "")
     profiles = evidence.get("speaker_profiles") or artifact.load_speaker_profiles(
         transcript, BANK_DIR)
+    minutes_revision = assistant.revision(minutes_path) if minutes_path else None
+    minutes_history = mdir / ".history" / "minutes"
+    minutes_history_available = bool(minutes_path and minutes_history.is_dir() and any(
+        path.is_file() and path.read_bytes() != minutes_path.read_bytes()
+        for path in minutes_history.glob("*.md")))
+    fact_inventory = _read_json(mdir / "meeting.facts.json", {})
+    minutes_views = []
+    for view in minutes_view_service.list_views(mdir, minutes_revision):
+        reading = artifact.normalize_minutes_markdown(view.get("markdown") or "")
+        reading = artifact.markdown_with_evidence_links(reading, fact_inventory)
+        minutes_views.append({
+            "id": view.get("id"),
+            "title": view.get("title") or "AI 重组纪要",
+            "summary": view.get("summary") or "",
+            "created_at": view.get("created_at"),
+            "html": MD.render(reading),
+            "sources": view.get("sources") or [],
+        })
     return {
         "slug": slug,
         **_meeting_identity(slug),
@@ -231,7 +250,9 @@ def get_bundle(slug: str):
         "speaker_navigation": artifact.speaker_navigation(
             transcript, profiles, transcript_format),
         "transcript_revision": assistant.revision(mdir / "transcript.spk.json"),
-        "minutes_revision": assistant.revision(_minutes_file(mdir)) if _minutes_file(mdir) else None,
+        "minutes_revision": minutes_revision,
+        "minutes_views": minutes_views,
+        "minutes_history_available": minutes_history_available,
         "document_state": document_state,
         "generation": generation,
         "structure": structure,

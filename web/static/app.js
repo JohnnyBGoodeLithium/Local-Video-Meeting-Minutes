@@ -92,6 +92,8 @@ const state = {
     translationTargets: workspaceState.translationTargets
       && typeof workspaceState.translationTargets === "object"
       ? workspaceState.translationTargets : {},
+    minutesViews: workspaceState.minutesViews && typeof workspaceState.minutesViews === "object"
+      ? workspaceState.minutesViews : {},
     anchors: workspaceState.anchors && typeof workspaceState.anchors === "object"
       ? workspaceState.anchors : {},
   },
@@ -256,6 +258,7 @@ function saveWorkspaceState() {
         videoExpanded: state.workspace.videoExpanded,
         meetingSort: state.workspace.meetingSort,
         translationTargets: state.workspace.translationTargets,
+        minutesViews: state.workspace.minutesViews,
         anchors: state.workspace.anchors,
       }));
     } catch (_) { /* 私密浏览或存储已满时不阻断阅读 */ }
@@ -286,6 +289,10 @@ function applyUiLanguage() {
   text("#minutes-tab", ui("minutes"));
   text("#visuals-tab", ui("screens"));
   text("#restructure-minutes", ui("restructure"));
+  text("#restore-minutes", isEnglishUi() ? "Restore previous" : "恢复上一版");
+  const minutesView = $("#minutes-view");
+  if (minutesView?.options?.length) minutesView.options[0].textContent = isEnglishUi()
+    ? "Standard minutes" : "标准纪要";
   const qualityTab = $("#quality-tab");
   if (qualityTab) qualityTab.childNodes[0].textContent = `${ui("audit")} `;
   text('[data-utility-tab="assistant"]', ui("assistant"));
@@ -2754,6 +2761,23 @@ async function setUiLanguage(language) {
 
 function renderMinutes() {
   const box = $("#minutes");
+  const availableViews = state.bundle?.minutes_views || [];
+  let selectedViewId = state.workspace.minutesViews[state.slug] || "standard";
+  let selectedView = availableViews.find(item => item.id === selectedViewId) || null;
+  if (selectedViewId !== "standard" && !selectedView) {
+    selectedViewId = "standard";
+    state.workspace.minutesViews[state.slug] = "standard";
+    saveWorkspaceState();
+  }
+  const viewSelect = $("#minutes-view");
+  if (viewSelect) {
+    viewSelect.innerHTML = `<option value="standard">${isEnglishUi() ? "Standard minutes" : "标准纪要"}</option>` +
+      availableViews.map(view => `<option value="${esc(view.id)}">AI · ${esc(view.title)}</option>`).join("");
+    viewSelect.value = selectedViewId;
+    viewSelect.classList.toggle("hidden", !availableViews.length || state.viewMode !== "minutes");
+  }
+  $("#restore-minutes")?.classList.toggle("hidden", state.viewMode !== "minutes"
+    || selectedViewId !== "standard" || !state.bundle?.minutes_history_available);
   const draft = state.bundle?.document_state === "draft";
   const phase = state.bundle?.generation?.phase;
   const draftFailed = !state.bundle?.has_minutes
@@ -2777,7 +2801,11 @@ function renderMinutes() {
     ? `<div class="minutes-language-banner"><b>${esc(ui("translatingMinutes"))}</b><span>…</span></div>`
     : state.minutesTranslation?.state === "failed"
       ? `<div class="minutes-language-banner"><b>${esc(ui("minutesFailed"))}</b></div>` : "";
-  box.innerHTML = languageBanner + banner + (translated || state.bundle.minutes_html || pending);
+  box.innerHTML = selectedView
+    ? `<section class="minutes-view-banner"><b>${isEnglishUi() ? "AI minutes view" : "AI 纪要视图"}</b>` +
+      `<span>${esc(selectedView.title)}</span><small>${isEnglishUi() ? "The standard minutes are preserved; switch back above at any time." : "标准纪要未被覆盖，可从上方随时切回。"}</small></section>` +
+      (selectedView.html || pending)
+    : languageBanner + banner + (translated || state.bundle.minutes_html || pending);
   const restructure = $("#restructure-minutes");
   if (restructure) {
     restructure.disabled = !state.bundle?.has_minutes || draft
@@ -2788,7 +2816,7 @@ function renderMinutes() {
         ? (isEnglishUi() ? "Regenerate evidence before restructuring" : "事实依据尚未就绪，请先重新生成纪要")
         : ui("restructurePlaceholder");
   }
-  const candidates = state.bundle?.evidence?.action_candidates || [];
+  const candidates = selectedView ? [] : (state.bundle?.evidence?.action_candidates || []);
   if (candidates.length) {
     const candidateHtml = `<details class="action-candidate-panel"><summary>` +
       `<span>${isEnglishUi() ? "Unverified candidates" : "待核实候选"}</span>` +
@@ -2812,14 +2840,17 @@ function renderMinutes() {
   });
   $$('a[href^="#mm-"]', box).forEach(link => {
     const claimId = link.getAttribute("href").slice(4);
-    const claim = (state.bundle?.evidence?.claims || []).find(item => item.id === claimId);
+    const claim = (state.bundle?.evidence?.claims || []).find(item => item.id === claimId)
+      || selectedView?.sources?.find(item => item.claim_id === claimId);
     if (claim?.start != null) {
       link.textContent = `${isEnglishUi() ? "Evidence" : "依据"} · ${fmt(claim.start)}`;
       link.title = isEnglishUi() ? "Jump to the first supporting excerpt" : "跳到第一条原文依据";
     }
     link.onclick = ev => {
       ev.preventDefault();
-      showMinutesEvidence(claimId, true);
+      const canonical = (state.bundle?.evidence?.claims || []).some(item => item.id === claimId);
+      if (canonical) showMinutesEvidence(claimId, true);
+      else if (claim) showAssistantSource(claim);
     };
   });
   updateFocusedClaims();
@@ -3171,6 +3202,11 @@ function setReviewMode(mode) {
   for (const id of ["minutes", "chapters", "visuals", "quality"])
     $(`#${id}-tab`).classList.toggle("active", state.viewMode === id);
   $("#restructure-minutes")?.classList.toggle("hidden", state.viewMode !== "minutes");
+  $("#minutes-view")?.classList.toggle("hidden", state.viewMode !== "minutes"
+    || !(state.bundle?.minutes_views || []).length);
+  $("#restore-minutes")?.classList.toggle("hidden", state.viewMode !== "minutes"
+    || (state.workspace.minutesViews[state.slug] || "standard") !== "standard"
+    || !state.bundle?.minutes_history_available);
   if (state.viewMode === "chapters") renderChapters();
   if (state.viewMode === "visuals") renderVisuals();
   if (state.viewMode === "quality") renderQualityReview();
@@ -3739,6 +3775,19 @@ function citedText(text, sources) {
       ids.has(id) ? `<button type="button" class="source-link" data-source="${id}">${all}</button>` : all);
 }
 
+function assistantMessageBody(message) {
+  if (message.role !== "assistant") return citedText(message.content, message.sources);
+  if (message.html) return message.html;
+  // p64 以前持久化的回答没有服务端安全 HTML；长表格默认折叠，避免再次铺满窄栏。
+  if (/^\s*\|.+\|\s*$/m.test(String(message.content || ""))) {
+    return `<details class="legacy-assistant-answer"><summary>${isEnglishUi()
+      ? "Older unformatted answer · ask again for the formatted view"
+      : "旧版未格式化回答 · 重新提问可获得新版排版"}</summary>` +
+      `<pre>${esc(message.content)}</pre></details>`;
+  }
+  return citedText(message.content, message.sources);
+}
+
 function showAssistantSource(source) {
   const indexes = source?.turn_indexes || [];
   const turns = indexes.map(index => ({ index, turn: state.bundle?.transcript?.[index] }))
@@ -3784,15 +3833,21 @@ function renderAssistantMessages() {
   for (const msg of state.assistantMessages) {
     const el = document.createElement("div");
     el.className = `assistant-msg ${msg.role}`;
+    const bodyClass = msg.role === "assistant" && msg.html ? "msg-body assistant-markdown" : "msg-body";
     el.innerHTML = `<div class="msg-role">${msg.role === "user" ? "你" : "助手"}</div>` +
-      `<div class="msg-body">${citedText(msg.content, msg.sources)}</div>`;
+      `<div class="${bodyClass}">${assistantMessageBody(msg)}</div>`;
     if (msg.proposal) {
       const p = msg.proposal;
       if (p.status === "applied") {
+        const isView = p.scope === "document" && p.view_id;
         el.innerHTML += `<div class="edit-card edit-result">` +
-          `<div class="edit-result-head"><div><span class="applied">${isEnglishUi() ? "Minutes updated" : "已更新会议纪要"}</span>` +
+          `<div class="edit-result-head"><div><span class="applied">${isView
+            ? (isEnglishUi() ? "AI view saved" : "已保存 AI 纪要视图")
+            : (isEnglishUi() ? "Minutes updated" : "已更新会议纪要")}</span>` +
           `<small>${esc(p.summary || (isEnglishUi() ? "The requested change is now visible in the minutes." : "修改已同步到会议纪要。"))}</small></div>` +
-          `<button type="button" class="undo-edit" data-id="${esc(p.proposal_id)}">${isEnglishUi() ? "Undo" : "撤销"}</button></div>` +
+          (isView
+            ? `<button type="button" class="show-standard-minutes">${isEnglishUi() ? "Standard minutes" : "切回标准纪要"}</button>`
+            : `<button type="button" class="undo-edit" data-id="${esc(p.proposal_id)}">${isEnglishUi() ? "Undo" : "撤销"}</button>`) + `</div>` +
           `<details class="edit-version"><summary>${isEnglishUi() ? "View this saved version" : "查看本次写入版本"}</summary>` +
           `<div class="proposal-reading minutes">${proposalReadingHtml(p)}</div></details></div>`;
       } else if (p.status === "undone") {
@@ -3829,6 +3884,14 @@ function renderAssistantMessages() {
         showAssistantSource(src);
       };
     });
+    $$('a[href^="#assistant-source-"]', el).forEach(link => {
+      link.onclick = event => {
+        event.preventDefault();
+        const id = link.getAttribute("href").slice("#assistant-source-".length);
+        const source = (msg.sources || []).find(item => item.id === id);
+        if (source) showAssistantSource(source);
+      };
+    });
     $$('a[href^="#mm-"]', el).forEach(link => {
       link.onclick = event => {
         event.preventDefault();
@@ -3841,6 +3904,12 @@ function renderAssistantMessages() {
     if (apply) apply.onclick = () => applyAssistantEdit(apply.dataset.id, apply);
     const undo = $(".undo-edit", el);
     if (undo) undo.onclick = () => undoAssistantEdit(undo.dataset.id, undo);
+    const standard = $(".show-standard-minutes", el);
+    if (standard) standard.onclick = () => {
+      state.workspace.minutesViews[state.slug] = "standard";
+      saveWorkspaceState();
+      renderMinutes();
+    };
     const dismiss = $(".dismiss-edit", el);
     if (dismiss) dismiss.onclick = () => {
       msg.proposal.status = "cancelled";
@@ -3929,8 +3998,9 @@ async function sendAssistant() {
     if (["edit", "restructure"].includes(intent)) {
       const j = await r.json();
       if (!r.ok) throw new Error(assistantError(j.detail));
-      // 明确的修改命令直接写入：生成与校验失败不会碰 canonical 文件；成功后仍可一步撤销。
-      const applyResponse = await api(`/api/meetings/${encodeURIComponent(state.slug)}/assistant/edit/apply`, {
+      // 局部修改写入标准纪要并可撤销；整篇重组只保存为可切换 AI 视图。
+      const applyPath = intent === "restructure" ? "assistant/restructure/apply" : "assistant/edit/apply";
+      const applyResponse = await api(`/api/meetings/${encodeURIComponent(state.slug)}/${applyPath}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ proposal_id: j.proposal_id }),
@@ -3946,18 +4016,22 @@ async function sendAssistant() {
         throw new Error(assistantError(applied.detail));
       }
       state.bundle = await jget(`/api/meetings/${encodeURIComponent(state.slug)}/bundle`);
+      if (intent === "restructure" && applied.view_id) {
+        state.workspace.minutesViews[state.slug] = applied.view_id;
+        saveWorkspaceState();
+      }
       setReviewMode("minutes");
       addAssistantMessage({
         role: "assistant",
         content: intent === "restructure"
-          ? (isEnglishUi() ? "I reorganized the full minutes and saved the new version. You can undo it below." : "我已按要求重组并写入整篇纪要，可在下方一步撤销。")
+          ? (isEnglishUi() ? "I saved this as an AI minutes view. The standard minutes remain unchanged." : "已保存为 AI 纪要视图，标准纪要保持不变。")
           : (isEnglishUi() ? "I updated the minutes. You can undo it below." : "我已更新会议纪要，可在下方一步撤销。"),
         sources: j.sources || [],
         // 已写入卡只保留阅读与撤销所需字段，避免把 before/diff/raw marker 塞满 localStorage。
         proposal: {
           proposal_id: j.proposal_id, target_heading: j.target_heading, scope: j.scope,
           summary: j.summary, sources: j.sources || [], after_html: j.after_html,
-          status: "applied",
+          status: "applied", view_id: applied.view_id || null,
         },
       });
     } else {
@@ -3994,6 +4068,8 @@ async function sendAssistant() {
             if (el) el.textContent = msg.content;
             const box = $("#assistant-messages");
             if (box) box.scrollTop = box.scrollHeight;
+          } else if (ev.type === "done") {
+            msg.html = ev.answer_html || null;
           } else if (ev.type === "error") {
             throw new Error(ev.message || "生成失败");
           }
@@ -4021,7 +4097,10 @@ async function sendAssistant() {
 
 async function applyAssistantEdit(proposalId, button) {
   button.disabled = true;
-  const r = await api(`/api/meetings/${encodeURIComponent(state.slug)}/assistant/edit/apply`, {
+  const msg = state.assistantMessages.find(item => item.proposal?.proposal_id === proposalId);
+  const isView = msg?.proposal?.scope === "document";
+  const applyPath = isView ? "assistant/restructure/apply" : "assistant/edit/apply";
+  const r = await api(`/api/meetings/${encodeURIComponent(state.slug)}/${applyPath}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ proposal_id: proposalId }),
@@ -4033,9 +4112,15 @@ async function applyAssistantEdit(proposalId, button) {
     return;
   }
   state.bundle = await jget(`/api/meetings/${encodeURIComponent(state.slug)}/bundle`);
+  if (isView && j.view_id) {
+    state.workspace.minutesViews[state.slug] = j.view_id;
+    saveWorkspaceState();
+  }
   renderMinutes();
-  const msg = state.assistantMessages.find(item => item.proposal?.proposal_id === proposalId);
-  if (msg) msg.proposal.status = "applied";
+  if (msg) {
+    msg.proposal.status = "applied";
+    msg.proposal.view_id = j.view_id || null;
+  }
   renderAssistantMessages();
 }
 
@@ -4057,6 +4142,33 @@ async function undoAssistantEdit(proposalId, button) {
   const msg = state.assistantMessages.find(item => item.proposal?.proposal_id === proposalId);
   if (msg) msg.proposal.status = "undone";
   renderAssistantMessages();
+}
+
+async function restorePreviousMinutes() {
+  if (!state.slug || !state.bundle?.minutes_history_available) return;
+  if (!confirm(isEnglishUi()
+    ? "Restore the previous saved minutes? The current version will be backed up first."
+    : "恢复上一份已保存的纪要？当前版本会先自动备份，之后仍可恢复。")) return;
+  const button = $("#restore-minutes");
+  button.disabled = true;
+  try {
+    const response = await api(`/api/meetings/${encodeURIComponent(state.slug)}/assistant/edit/restore-previous`, {
+      method: "POST",
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(assistantError(result.detail));
+    state.workspace.minutesViews[state.slug] = "standard";
+    state.bundle = await jget(`/api/meetings/${encodeURIComponent(state.slug)}/bundle`);
+    saveWorkspaceState();
+    renderMinutes();
+    addAssistantMessage({ role: "assistant", content: isEnglishUi()
+      ? "The previous minutes were restored. The replaced version was backed up locally."
+      : "已恢复上一版纪要；刚才被替换的版本也已在本机备份。", sources: [] });
+  } catch (error) {
+    addAssistantMessage({ role: "assistant", content: `恢复失败：${error.message}`, sources: [] });
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function setupTranscriptSelection() {
@@ -4541,6 +4653,13 @@ function init() {
     saveWorkspaceState();
     renderMeetingList();
   });
+  $("#minutes-view").addEventListener("change", event => {
+    if (!state.slug) return;
+    state.workspace.minutesViews[state.slug] = event.target.value || "standard";
+    saveWorkspaceState();
+    renderMinutes();
+  });
+  $("#restore-minutes").onclick = restorePreviousMinutes;
   $("#regen-btn").onclick = () => regenMinutes("");
   $("#retranscribe-btn").onclick = retranscribeLocal;
   $("#rename-btn").onclick = startRename;

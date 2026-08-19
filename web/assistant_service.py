@@ -368,6 +368,7 @@ def _store_proposal(minutes_path: Path, before: str, after: str, summary: str,
         "after": after,
         "summary": summary,
         "scope": scope,
+        "sources": sources or [],
         "created": time.time(),
         "applied": False,
     }
@@ -623,6 +624,9 @@ def apply_minutes_edit(minutes_path: Path, proposal_id: str) -> dict:
         proposal = _PROPOSALS.get(proposal_id)
         if proposal is None or proposal["minutes_path"] != str(minutes_path):
             raise AssistantError("修改提案不存在或已经过期")
+        if proposal.get("scope") == "document":
+            raise AssistantConflict(
+                "整篇重组不能覆盖标准纪要；请保存为 AI 纪要视图")
         if proposal["applied"]:
             raise AssistantConflict("该修改提案已经应用")
 
@@ -652,6 +656,33 @@ def apply_minutes_edit(minutes_path: Path, proposal_id: str) -> dict:
                 "minutes_revision": proposal["applied_revision"]}
 
 
+def accept_minutes_view(minutes_path: Path, proposal_id: str) -> dict:
+    """验收整篇重组提案，但不写 canonical minutes.md。
+
+    路由层会把返回的 Markdown 保存为独立阅读视图；这里仍负责一次性消费、
+    revision 校验和提案类型校验，避免旧客户端把整篇提案误走章节写入接口。
+    """
+    with _PROPOSAL_LOCK:
+        proposal = _PROPOSALS.get(proposal_id)
+        if proposal is None or proposal["minutes_path"] != str(minutes_path):
+            raise AssistantError("重组提案不存在或已经过期")
+        if proposal.get("scope") != "document":
+            raise AssistantConflict("这不是整篇重组提案")
+        if proposal.get("applied"):
+            raise AssistantConflict("该重组提案已经保存")
+        if revision(minutes_path) != proposal.get("base_revision"):
+            raise AssistantConflict("标准纪要已经变化，请重新生成重组视图")
+        proposal["applied"] = True
+        return {
+            "ok": True,
+            "proposal_id": proposal_id,
+            "markdown": proposal["after"],
+            "summary": proposal.get("summary") or "AI 重组纪要",
+            "sources": proposal.get("sources") or [],
+            "minutes_revision": proposal.get("base_revision"),
+        }
+
+
 def undo_minutes_edit(minutes_path: Path, proposal_id: str) -> dict:
     """撤销刚应用的助手修改；只在纪要没有再次变化时恢复。"""
     with _PROPOSAL_LOCK:
@@ -679,4 +710,27 @@ def undo_minutes_edit(minutes_path: Path, proposal_id: str) -> dict:
         tmp.replace(minutes_path)
         proposal["undone"] = True
         return {"ok": True, "proposal_id": proposal_id,
+                "minutes_revision": revision(minutes_path)}
+
+
+def restore_previous_minutes(minutes_path: Path) -> dict:
+    """显式恢复最近一个不同于当前内容的本地历史版本，并先备份当前版本。"""
+    with _PROPOSAL_LOCK:
+        history = minutes_path.parent / ".history" / "minutes"
+        if not history.is_dir():
+            raise AssistantConflict("没有可恢复的纪要历史版本")
+        current = minutes_path.read_bytes()
+        previous = next((path for path in sorted(history.glob("*.md"), reverse=True)
+                         if path.read_bytes() != current), None)
+        if previous is None:
+            raise AssistantConflict("没有找到不同于当前纪要的历史版本")
+        current_revision = revision(minutes_path)
+        stamp = f"{time.strftime('%Y%m%d-%H%M%S')}-{time.time_ns() % 1_000_000_000:09d}"
+        current_backup = history / f"{stamp}_{current_revision}_before-restore.md"
+        shutil.copy2(minutes_path, current_backup)
+        tmp = minutes_path.with_suffix(minutes_path.suffix + ".tmp")
+        shutil.copy2(previous, tmp)
+        tmp.replace(minutes_path)
+        return {"ok": True, "restored_from": previous.name,
+                "backup": current_backup.name,
                 "minutes_revision": revision(minutes_path)}

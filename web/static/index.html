@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>会议纪要</title>
-<link rel="stylesheet" href="/static/style.css?v=20260819p64">
+<link rel="stylesheet" href="/static/style.css?v=20260819p65">
 <link rel="stylesheet" href="/static/theme.css?v=20260819p64">
 </head>
 <body class="page-index">
@@ -138,6 +138,10 @@
             <button id="quality-tab" class="mode-tab" type="button" disabled>
               结论审计 <span id="quality-badge" class="quality-badge hidden"></span>
             </button>
+            <select id="minutes-view" class="minutes-view-select hidden" aria-label="纪要版本">
+              <option value="standard">标准纪要</option>
+            </select>
+            <button id="restore-minutes" class="restore-minutes hidden" type="button">恢复上一版</button>
             <button id="restructure-minutes" class="minutes-restructure" type="button" disabled>
               ✦ 重组纪要
             </button>
@@ -270,6 +274,6 @@
 
 <div id="tl-tip" class="tl-tip hidden"></div>
 
-<script src="/static/app.js?v=20260819p64"></script>
+<script src="/static/app.js?v=20260819p65"></script>
 </body>
 </html>

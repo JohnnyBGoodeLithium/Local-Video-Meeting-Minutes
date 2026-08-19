@@ -151,8 +151,10 @@ Web 与 MeetingPack 的常规纪要通过 `minutes_reading_markdown()` 从 canon
 2. `rag_service.py` 在当前会议内对 claim、逐字稿、VL 页面和纪要章节执行词法 + Qwen3 embedding 混合召回、RRF 融合与 Qwen3 reranker 重排；显式引用优先，claim/页面命中时按稳定 ID 补回原始逐字稿。
 3. 问答调用本机 OpenAI-compatible API，返回可点击的统一 `R` 来源编号；检索可通过 `/api/meetings/{slug}/rag/search` 独立检查而不调用模型。回答以 SSE 流式返回：`POST /api/meetings/{slug}/assistant/chat/stream` 在流开始前同步完成校验与检索（revision 冲突仍返回 409），帧序为 meta（证据来源）→ delta（逐段正文）→ done；前端逐段渲染、完成后一次性重渲染接回引用链接。模型以 `finish_reason=length` 结束时服务端发送明确 error，不把半截正文伪装成成功；原非流式端点同样拒绝截断输出。
 4. 局部修改时，模型只能选择候选 Markdown 章节并返回替换建议；整篇重组时只能从 `meeting-facts/v1` 白名单中选择、排序和组织，逐条保留原 marker。
-5. 服务端拒绝无依据正文、未知 marker、异常循环重复和正式待办语义升级，再生成结构化提案。Web 对明确修改命令自动调用 apply；apply 仍会再次校验 revision、保存历史版本并原子替换文件，任何生成或校验失败都不会触碰 canonical 纪要。preview 响应同时包含由禁用原始 HTML 的 Markdown renderer 生成的 `after_html/before_html`，供结果卡阅读；原 marker 只保留在写入协议字段，不直接展示。
-6. 纪要应用/撤销只刷新当前 evidence，不覆盖完整事实层；用户可撤销刚应用的修改，服务端只在当前 revision 仍与该提案一致时恢复历史版本，并留存撤销前副本。
+5. `minutes.md` 始终是标准纪要 canonical。局部修改走原子替换与 `.history/minutes/` 备份；整篇重组经 `accept_minutes_view` 验收后只写 `minutes.views.json`（`meeting-minutes-views/v1`），绑定标准纪要与事实层 revision。旧客户端把整篇提案提交到局部写入接口会收到 409，不允许覆盖 canonical。
+6. `minutes_view_service.py` 独立负责 AI 视图原子保存、数量上限和 revision 失效；bundle 只返回安全渲染 HTML 与必要来源，不向前端暴露 marker 协议正文。跨重启恢复从 `.history/minutes/` 选择最近的不同版本，恢复前先备份当前版本。
+7. 服务端拒绝无依据正文、未知 marker、异常循环重复和正式待办语义升级，再生成结构化提案。Web 对明确修改命令自动选择“局部 apply”或“视图保存”；两条路径都会再次校验 revision，任何生成或校验失败都不会触碰 canonical 纪要。preview 响应同时包含由禁用原始 HTML 的 Markdown renderer 生成的 `after_html/before_html`，供结果卡阅读；原 marker 只保留在写入协议字段，不直接展示。
+8. 局部纪要应用/撤销只刷新当前 evidence，不覆盖完整事实层；用户可撤销刚应用的修改，服务端只在当前 revision 仍与该提案一致时恢复历史版本，并留存撤销前副本。
 
 默认只允许 `localhost/127.0.0.1/::1` 模型地址。远程模型必须在一次明确授权后设置 `MEETING_ALLOW_REMOTE_LLM=1`。
 向量索引按会议持久化到私有 `.rag/`，manifest 不保存正文并与记录 revision 绑定；模型服务失败时自动降级为词法检索。当前仍是单会议检索，不是跨会议搜索。Web 和两个检索模型服务都只监听回环地址且没有多用户鉴权；在补齐 LAN/VPN 可达性、身份和会议权限之前，不得直接对同事网络开放。

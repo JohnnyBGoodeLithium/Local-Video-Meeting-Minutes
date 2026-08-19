@@ -7,8 +7,10 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 import json
+import re
 
 import meeting_generation
+import minutes_view_service
 from deps import (DRY_RUN, MD, artifact, assistant, _minutes_file, _mdir,
                   _read_json, _refresh_evidence)
 
@@ -75,6 +77,12 @@ def _reading_proposal(mdir, proposal: dict, *, restructure: bool = False) -> dic
     return proposal
 
 
+def _answer_html(value: str) -> str:
+    """把助手 Markdown 安全渲染为 HTML，并把来源编号变成可绑定的本地锚点。"""
+    linked = re.sub(r"【([RT]\d+)】", r"[\1](#assistant-source-\1)", str(value or ""))
+    return MD.render(linked)
+
+
 @router.post("/api/meetings/{slug}/assistant/chat")
 def assistant_chat(slug: str, req: AssistantChatReq):
     mdir = _mdir(slug)
@@ -82,9 +90,11 @@ def assistant_chat(slug: str, req: AssistantChatReq):
     if not transcript.is_file():
         raise HTTPException(400, "没有逐字稿，无法进行会议问答")
     try:
-        return assistant.answer_question(
+        result = assistant.answer_question(
             mdir, _assistant_message(req.message), req.turn_indexes,
             req.transcript_revision, req.history, DRY_RUN)
+        result["answer_html"] = _answer_html(result.get("answer", ""))
+        return result
     except assistant.AssistantError as exc:
         _assistant_http_error(exc)
 
@@ -113,7 +123,8 @@ def assistant_chat_stream(slug: str, req: AssistantChatReq):
             for delta in assistant.stream_answer(prepared, req.message, req.history, DRY_RUN):
                 full.append(delta)
                 yield f"data: {json.dumps({'type': 'delta', 'text': delta}, ensure_ascii=False)}\n\n"
-            done = {"type": "done", "answer": "".join(full)}
+            answer = "".join(full)
+            done = {"type": "done", "answer": answer, "answer_html": _answer_html(answer)}
             yield f"data: {json.dumps(done, ensure_ascii=False)}\n\n"
         except assistant.AssistantError as exc:
             err = {"type": "error", "message": str(exc)}
@@ -191,6 +202,30 @@ def assistant_restructure_preview(slug: str, req: AssistantRestructureReq):
         _assistant_http_error(exc)
 
 
+@router.post("/api/meetings/{slug}/assistant/restructure/apply")
+def assistant_restructure_apply(slug: str, req: AssistantApplyReq):
+    """把整篇重组保存为独立 AI 阅读视图；永不覆盖标准 minutes.md。"""
+    mdir = _mdir(slug)
+    minutes = _minutes_file(mdir)
+    if minutes is None:
+        raise HTTPException(400, "没有标准纪要，无法保存重组视图")
+    try:
+        accepted = assistant.accept_minutes_view(minutes, req.proposal_id)
+        view = minutes_view_service.save_view(
+            mdir,
+            markdown=accepted["markdown"],
+            summary=accepted["summary"],
+            instruction="",
+            minutes_revision=accepted["minutes_revision"],
+            sources=accepted["sources"],
+        )
+        return {"ok": True, "proposal_id": req.proposal_id,
+                "view_id": view["id"], "title": view["title"],
+                "minutes_revision": accepted["minutes_revision"]}
+    except assistant.AssistantError as exc:
+        _assistant_http_error(exc)
+
+
 @router.post("/api/meetings/{slug}/assistant/edit/undo")
 def assistant_edit_undo(slug: str, req: AssistantApplyReq):
     mdir = _mdir(slug)
@@ -199,6 +234,21 @@ def assistant_edit_undo(slug: str, req: AssistantApplyReq):
         raise HTTPException(400, "没有可恢复的纪要")
     try:
         result = assistant.undo_minutes_edit(minutes, req.proposal_id)
+        _refresh_evidence(mdir)
+        return result
+    except assistant.AssistantError as exc:
+        _assistant_http_error(exc)
+
+
+@router.post("/api/meetings/{slug}/assistant/edit/restore-previous")
+def assistant_edit_restore_previous(slug: str):
+    """供刷新/重启后仍可见的显式恢复入口；恢复前再次备份当前版本。"""
+    mdir = _mdir(slug)
+    minutes = _minutes_file(mdir)
+    if minutes is None:
+        raise HTTPException(400, "没有可恢复的纪要")
+    try:
+        result = assistant.restore_previous_minutes(minutes)
         _refresh_evidence(mdir)
         return result
     except assistant.AssistantError as exc:

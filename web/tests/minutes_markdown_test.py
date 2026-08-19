@@ -168,6 +168,18 @@ assert stale_actions[0]["text"] == "合成事项甲"
 assert stale_actions[0]["owner"] == "Alex Example"
 assert stale_actions[0]["deadline"] == "周五"
 
+# 旧 action 字段虽然非空，却已经发生“整行塞进 text + 字段右移复制”；读取时自愈。
+shifted_claim = {
+    **stale_claim,
+    "action": {"text": "合成事项乙 | Blair Example | 待确认",
+               "owner": "合成事项乙", "deadline": "Blair Example", "status": "待确认"},
+}
+shifted = action_items_from_claims([shifted_claim])[0]
+assert shifted["text"] == "合成事项乙"
+assert shifted["owner"] == "Blair Example"
+assert shifted["deadline"] == "待确认"
+assert shifted["status"] == "待确认"
+
 print("Minutes Markdown: marker-in-status-cell action rows passed")
 
 # 模型把 marker 包在反引号里：替换成“依据”链接时必须拆掉反引号，

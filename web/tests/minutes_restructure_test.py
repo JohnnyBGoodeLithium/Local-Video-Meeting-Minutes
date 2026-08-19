@@ -15,6 +15,7 @@ sys.path.insert(0, str(PROJECT / "web"))
 
 import assistant_service as assistant  # noqa: E402
 import meeting_artifact as artifact  # noqa: E402
+import minutes_view_service  # noqa: E402
 import rag_service  # noqa: E402
 
 
@@ -58,10 +59,20 @@ with tempfile.TemporaryDirectory(prefix="minutes-restructure-test-") as temp:
         assistant.revision(minutes), True)
     assert proposal["scope"] == "document" and proposal["target_heading"] == "整篇纪要"
     assert proposal["proposal_id"] and proposal["sources"] and MARK_INFO in proposal["after"]
-    applied = assistant.apply_minutes_edit(minutes, proposal["proposal_id"])
-    assert applied["ok"] is True and minutes.read_text(encoding="utf-8") != original
+    try:
+        assistant.apply_minutes_edit(minutes, proposal["proposal_id"])
+        raise AssertionError("document proposal must not overwrite canonical minutes")
+    except assistant.AssistantConflict:
+        pass
+    accepted = assistant.accept_minutes_view(minutes, proposal["proposal_id"])
+    view = minutes_view_service.save_view(
+        mdir, markdown=accepted["markdown"], summary=accepted["summary"],
+        instruction="先列背景，再列有依据的待办",
+        minutes_revision=accepted["minutes_revision"], sources=accepted["sources"])
+    assert view["id"] and minutes.read_text(encoding="utf-8") == original
+    assert minutes_view_service.list_views(mdir, assistant.revision(minutes))[0]["id"] == view["id"]
     assert facts_path.read_bytes() == facts_before
-    rewritten = minutes.read_text(encoding="utf-8")
+    rewritten = proposal["after"]
     _path, projected_evidence = artifact.write_evidence_document(
         mdir, rewritten, turns, [], {}, [], generation={"synthetic": True},
         update_facts=False)
@@ -86,8 +97,7 @@ with tempfile.TemporaryDirectory(prefix="minutes-restructure-test-") as temp:
         "测试必须证明窄阅读投影没有覆盖完整事实库存"
     assert refreshed_facts["claims"][0]["speakers"] == ["Alex Renamed"]
     assert artifact.fact_document_state(mdir, refreshed_facts) == "ready"
-    undone = assistant.undo_minutes_edit(minutes, proposal["proposal_id"])
-    assert undone["ok"] is True and minutes.read_text(encoding="utf-8") == original
+    assert minutes.read_text(encoding="utf-8") == original
 
     try:
         assistant._validate_restructured_minutes(

@@ -166,7 +166,7 @@ check("时间码跳转只滚动内容面板，不带动整页丢失播放器",
 check("在线屏幕舞台支持放大、缩放和相邻屏幕键盘导航",
       b'id="screen-preview-mask"' in page and b'openScreenPreview' in app_js
       and b'navigateScreenPreview' in app_js and b'SCREEN_PREVIEW_ZOOMS' in app_js
-      and b'20260819p64' in page)
+      and b'20260819p65' in page)
 check("会议列表默认按导入时间且可切换并记忆排序",
       b'meetingSort' in app_js and b'"imported"' in app_js
       and b'imported_at' in app_js and b'updated_at' in app_js
@@ -179,14 +179,16 @@ check("旧 VL 转义换行与协议标题在前端读路径自愈",
       b'function visualTitleCandidate' in app_js
       and b'function visualDescriptionHtml' in app_js
       and b'VISUAL_PROTOCOL_HEADING' in app_js)
-check("正式纪要提供事实层整篇重组入口且不改会议脉络",
+check("整篇重组保存为可切换 AI 视图，不覆盖标准纪要或会议脉络",
       b'assistant/restructure/preview' in app_js
+      and b'assistant/restructure/apply' in app_js
       and b'startMinutesRestructure' in app_js
       and "时间线性的会议脉络保持不变".encode() in app_js
       and b'proposalReadingHtml' in app_js
       and b'proposal_id: j.proposal_id' in app_js
       and b'message.proposal.status = "expired"' in app_js
-      and "按要求重组并写入整篇纪要".encode() in app_js)
+      and "标准纪要保持不变".encode() in app_js
+      and b'minutesViews' in app_js)
 check("语音草稿失败按返回码区分空正文、模型请求与内部异常",
       b'function voiceDraftFailureCopy' in app_js
       and "这不是模型空正文".encode() in app_js
@@ -960,7 +962,7 @@ check("assistant/chat/stream → SSE meta/delta/done",
 s, _, _ = req("POST", "/api/meetings/_smoke/assistant/chat/stream", stale, raw=True)
 check("assistant/chat/stream 过期引用在流开始前 409", s == 409)
 
-# 17. 自然语言整篇重组使用独立事实层，仍走 preview → apply → undo
+# 17. 自然语言整篇重组使用独立事实层，保存为 AI 视图且不覆盖标准纪要
 restructure_body = {
     "message": "先列总体摘要，再列有依据的待办",
     "transcript_revision": bundle.get("transcript_revision"),
@@ -980,15 +982,19 @@ check("assistant/restructure/preview → 整篇事实化结构预览",
 # preview 允许把存量/来源已变化会议的完整 evidence 无模型迁移成事实层；
 # 从预览完成后开始，应用和撤销都不得再改写它。
 facts_before_restructure = (SMOKE / "meeting.facts.json").read_bytes()
-s, _, restructured = req("POST", "/api/meetings/_smoke/assistant/edit/apply",
+minutes_before_restructure = (SMOKE / "minutes.md").read_bytes()
+s, _, restructured = req("POST", "/api/meetings/_smoke/assistant/restructure/apply",
                          {"proposal_id": restructure.get("proposal_id")})
-check("整篇重组写入后事实快照保持不变",
+check("整篇重组保存为独立 AI 视图，标准纪要与事实快照保持不变",
       s == 200 and restructured.get("ok") is True
+      and restructured.get("view_id")
+      and (SMOKE / "minutes.md").read_bytes() == minutes_before_restructure
       and (SMOKE / "meeting.facts.json").read_bytes() == facts_before_restructure)
-s, _, restored = req("POST", "/api/meetings/_smoke/assistant/edit/undo",
-                     {"proposal_id": restructure.get("proposal_id")})
-check("整篇重组可一步撤销", s == 200 and restored.get("ok") is True)
 _, _, bundle = req("GET", "/api/meetings/_smoke/bundle")
+check("bundle 同时提供标准纪要与 AI 纪要视图",
+      bundle.get("minutes_views")
+      and bundle["minutes_views"][0].get("id") == restructured.get("view_id")
+      and "<h1>" in bundle["minutes_views"][0].get("html", ""))
 
 # 18. 章节修改必须 preview → revision 校验 → apply → 可安全撤销，并生成历史版本
 minutes_before_edit = (SMOKE / "minutes.md").read_text()
@@ -1019,6 +1025,16 @@ check("assistant/edit/undo → 恢复原纪要并保留修改后版本",
       s == 200 and undone.get("ok") is True
       and (SMOKE / "minutes.md").read_text() == minutes_before_edit
       and len(history_files) == history_count_before_edit + 2)
+s, _, restored_previous = req(
+    "POST", "/api/meetings/_smoke/assistant/edit/restore-previous")
+check("刷新后仍可从持久历史恢复上一版，并先备份当前标准纪要",
+      s == 200 and restored_previous.get("ok") is True
+      and (SMOKE / "minutes.md").read_text() != minutes_before_edit)
+s, _, restored_original = req(
+    "POST", "/api/meetings/_smoke/assistant/edit/restore-previous")
+check("历史恢复本身可逆，可再次切回原标准纪要",
+      s == 200 and restored_original.get("ok") is True
+      and (SMOKE / "minutes.md").read_text() == minutes_before_edit)
 s, _, _ = req("POST", "/api/meetings/_smoke/assistant/edit/undo",
               {"proposal_id": preview.get("proposal_id")})
 check("同一修改只能撤销一次", s == 409)
