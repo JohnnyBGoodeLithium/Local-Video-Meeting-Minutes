@@ -16,6 +16,9 @@ LATE_UPLOAD_STAGES = {
     "生成语音草稿", "提取共享画面", "理解共享画面",
     "升级多模态纪要", "生成纪要", "构建会议脉络",
 }
+PREEMPTIBLE_STAGES = {
+    "理解共享画面", "升级多模态纪要", "生成纪要", "构建会议脉络",
+}
 
 
 def meeting_dir_for_job(job: dict) -> Path | None:
@@ -81,6 +84,27 @@ def build_speaker_resume_command(mdir: Path) -> list[str]:
             "--meeting-dir", str(mdir), "--reuse-asr"]
 
 
+def preemption_resume_spec(job: dict) -> dict:
+    """为正在运行且已有安全检查点的重任务构造自动续跑规格。
+
+    第一版只允许已经形成 canonical 逐字稿与页面清单的 upload/regen 后半段。
+    进程暂停后以 ``minutes_by_page`` 复用逐页 VL 缓存；ASR、说话人和已完成
+    页面不重跑。早期 ASR/分离、重转写和无页面检查点任务明确拒绝抢占。
+    """
+    if job.get("status") != "running":
+        raise ValueError("job_not_running")
+    if job.get("kind") not in {"upload", "regen"}:
+        raise ValueError("unsupported_job_kind")
+    if str(job.get("stage") or "") not in PREEMPTIBLE_STAGES:
+        raise ValueError("stage_not_checkpointed")
+    mdir = meeting_dir_for_job(job)
+    if mdir is None:
+        raise ValueError("missing_meeting")
+    command = build_minutes_command(mdir)
+    return {"kind": "regen", "meeting": mdir.name, "cmd": command,
+            "scope": "minutes", "retained": _retained_assets(mdir)}
+
+
 def _failure_category(job: dict) -> str:
     safe_log = "\n".join(str(line) for line in job.get("log", [])[-12:])
     rc = job.get("rc")
@@ -135,7 +159,7 @@ def recovery_plan(job: dict) -> dict:
         "action": "reimport",
         "high_quality_available": False,
     }
-    if job.get("status") not in {"failed", "cancelled"}:
+    if job.get("status") not in {"failed", "cancelled", "paused"}:
         plan.update(state="unavailable", action="none")
         return plan
     if mdir is None:

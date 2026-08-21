@@ -115,7 +115,7 @@ def poll_job(jid, timeout=60):
     j = {}
     while time.time() < deadline:
         s, _, j = req("GET", f"/api/jobs/{jid}")
-        if s == 200 and j["status"] in ("done", "failed", "cancelled"):
+        if s == 200 and j["status"] in ("done", "failed", "cancelled", "paused"):
             return j
         time.sleep(1)
     return j
@@ -170,10 +170,13 @@ check("时间码跳转只滚动内容面板，不带动整页丢失播放器",
 check("在线屏幕舞台支持放大、缩放和相邻屏幕键盘导航",
       b'id="screen-preview-mask"' in page and b'openScreenPreview' in app_js
       and b'navigateScreenPreview' in app_js and b'SCREEN_PREVIEW_ZOOMS' in app_js
-      and b'20260821p82' in page)
+      and b'20260821p83' in page)
 check("可恢复失败不会在一小时后失去续跑入口",
       b'j.recovery?.state === "available"' in app_js
       and b'Date.now() / 1000 - Number(j.finished || j.created || 0) < 60 * 60' in app_js)
+check("等待急件可在安全检查点让当前任务暂停并自动续跑",
+      b'force-prioritize' in app_js and "立即处理失败".encode() in app_js
+      and b'jobPreemptionAvailable' in app_js and b'runningJob?.preemptible' in app_js)
 check("逐字稿修正入口保持轻量汇总、逐轮核听和可撤销",
       b'id="transcript-review-bar"' in page and b'id="transcript-edit-mask"' in page
       and b'openTranscriptEdit' in app_js and b'undoTranscriptEdit' in app_js)
@@ -380,7 +383,7 @@ check("本地评测文件只存指纹/标签，不复制 claim 正文",
       evaluation_disk.get("schema") == "meeting-minutes-evaluation/v1"
       and len(events) == 2 and all("text" not in event for event in events))
 
-# 2c. 渐进式纪要：语音草稿可读/追问，但暂停审计、修改、脉络和导出。
+# 2c. 渐进式纪要：语音草稿可读/追问/导出核听快照，但暂停审计、修改和脉络。
 generation_path = SMOKE / "meeting.generation.json"
 generation_path.write_text(json.dumps({
     "schema": "meeting-generation/v1", "phase": "visual_enrichment",
@@ -393,16 +396,38 @@ try:
         "label": "correct", "note": "", "claim_fingerprint": first.get("fingerprint"),
     })
     st, _, _ = req("POST", "/api/meetings/_smoke/topic-map")
-    sx, _, _ = req("GET", "/api/meetings/_smoke/export?media=none")
+    sx, _, draft_pack_bytes = req(
+        "GET", "/api/meetings/_smoke/export?media=none", raw=True)
     sp, _, draft_preflight = req("GET", "/api/meetings/_smoke/export/preflight")
+    draft_manifest = (json.loads(zipfile.ZipFile(io.BytesIO(draft_pack_bytes)).read(
+        "assets/manifest.json")) if sx == 200 else {})
+    draft_minutes_path = SMOKE / "minutes.md"
+    draft_minutes_bytes = draft_minutes_path.read_bytes()
+    draft_minutes_path.unlink()
+    try:
+        sn, _, no_minutes_pack_bytes = req(
+            "GET", "/api/meetings/_smoke/export?media=none", raw=True)
+        no_minutes_pack = zipfile.ZipFile(io.BytesIO(no_minutes_pack_bytes)) if sn == 200 else None
+        no_minutes_manifest = (json.loads(no_minutes_pack.read("assets/manifest.json"))
+                               if no_minutes_pack else {})
+        no_minutes_markdown = (no_minutes_pack.read("assets/minutes.md").decode("utf-8")
+                               if no_minutes_pack else "")
+    finally:
+        draft_minutes_path.write_bytes(draft_minutes_bytes)
     check("语音草稿通过 bundle 可读且暴露明确阶段",
           s == 200 and draft_bundle.get("document_state") == "draft"
           and draft_bundle.get("generation", {}).get("phase") == "visual_enrichment")
-    check("草稿阶段暂停结论审计、Topic Map 和导出",
+    check("草稿阶段暂停结论审计与 Topic Map，但允许导出核听快照",
           sq == 200 and draft_quality.get("evidence_state") == "draft"
           and draft_quality.get("summary", {}).get("total") == 0
-          and se == 409 and st == 409 and sx == 409
-          and sp == 200 and draft_preflight.get("document_state") == "draft")
+          and se == 409 and st == 409 and sx == 200
+          and sp == 200 and draft_preflight.get("document_state") == "draft"
+          and draft_preflight.get("export_mode") == "review_snapshot"
+          and draft_manifest.get("document", {}).get("snapshot") is True)
+    check("纪要尚未生成时也可从 canonical 逐字稿导出核听版",
+          sn == 200 and no_minutes_manifest.get("document", {}).get("snapshot") is True
+          and ("会议处理中" in no_minutes_markdown
+               or "Processing snapshot" in no_minutes_markdown))
     s_resume, _, resume_job = req("POST", "/api/meetings/_smoke/regen_minutes")
     resume_done = poll_job(resume_job.get("id")) if resume_job.get("id") else resume_job
     check("服务中断后的视觉补充阶段可复用现有资产续跑",
@@ -945,6 +970,7 @@ failed_fixture = next((job for job in j.get("jobs", [])
                        if job.get("id") == "smokefail001"), {})
 check("失败作业返回有限恢复计划与已保留资产",
       j.get("capabilities", {}).get("job_recovery") is True
+      and j.get("capabilities", {}).get("checkpointed_preemption") is True
       and failed_fixture.get("recovery", {}).get("state") == "available"
       and failed_fixture.get("recovery", {}).get("mode") == "topic_map"
       and "transcript" in failed_fixture.get("recovery", {}).get("retained", []))

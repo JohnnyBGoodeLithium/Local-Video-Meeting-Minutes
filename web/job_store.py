@@ -175,9 +175,11 @@ def _run_pipeline(job: dict):
         job["log"].append(f"[error] 子进程失败 (rc={proc.returncode})")
     job["log"] = job["log"][-300:]
     if job.get("cancel_requested"):
-        _set_status(job, "cancelled", finished=_now(), rc=proc.returncode)
+        stopped_status = "paused" if job.get("pause_requested") else "cancelled"
+        _set_status(job, stopped_status, finished=_now(), rc=proc.returncode)
     else:
-        if proc.returncode == 0 and job.get("kind") == "upload" and not DRY_RUN:
+        if proc.returncode == 0 and (job.get("kind") == "upload"
+                                     or job.get("auto_resume")) and not DRY_RUN:
             inbox_rel = str(job.get("inbox") or "")
             inbox_dir = (DATA_ROOT / inbox_rel).resolve()
             if inbox_rel and inbox_dir.is_dir() and inbox_dir.is_relative_to(INBOX.resolve()):

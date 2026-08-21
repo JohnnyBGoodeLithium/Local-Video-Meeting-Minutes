@@ -32,10 +32,8 @@ def _download_filename(ident: dict, now: datetime | None = None) -> str:
 
 @router.get("/api/meetings/{slug}/export")
 def export_meeting_pack(slug: str, media: str = Query("none", pattern="^(none|audio|video)$")):
-    """生成静态 MeetingPack；默认不带媒体，收件人无需本机模型或 Web 服务。"""
+    """生成静态 MeetingPack；逐字稿形成后即可导出核听快照。"""
     mdir = _mdir(slug)
-    if meeting_generation.document_state(mdir, _minutes_file(mdir) is not None) == "draft":
-        raise HTTPException(409, "屏幕资料仍在补充；多模态终稿完成后再导出")
     fd, temp_name = tempfile.mkstemp(prefix="meetingpack-", suffix=".zip")
     os.close(fd)
     archive = Path(temp_name)
@@ -100,6 +98,8 @@ def export_meeting_preflight(slug: str):
     audio_export_bytes = int(duration * 5_300) if audio else 0  # AAC 40kbps + container
     video_export_bytes = (min(video_bytes, int(duration * 35_000))
                           if video else 0)  # 720p/10fps CRF30 的保守估计
+    document_state = meeting_generation.document_state(
+        mdir, bool(transcript and _minutes_file(mdir)))
     return {
         **ident,
         "product_version": PRODUCT_VERSION,
@@ -107,8 +107,8 @@ def export_meeting_preflight(slug: str):
             f"{_safe(ident['title']) or 'meeting'}"
             f"{'_' + ident['date'] if ident.get('date') else ''}"
             f"_{PRODUCT_VERSION_LABEL}_YYYYMMDD-HHMMSS.meetingpack.zip"),
-        "document_state": meeting_generation.document_state(
-            mdir, bool(transcript and _minutes_file(mdir))),
+        "document_state": document_state,
+        "export_mode": "final" if document_state == "ready" else "review_snapshot",
         "generation": meeting_generation.load(mdir),
         "evidence": {
             "state": _evidence_state(mdir, evidence),

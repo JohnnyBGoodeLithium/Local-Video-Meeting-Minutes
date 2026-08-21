@@ -52,7 +52,7 @@ VL 页面理解和逐字稿承担不同职责：
 
 生成阶段的 canonical `minutes.md` 目前仍可保留“分页详情”作为证据构建输入，但 Web 和 MeetingPack 使用确定性的常规纪要投影；逐页事实继续保存在 `evidence.json`、Visual 和 RAG，不会丢失整套 deck，也不会把页面上的目标、方案或数字误写成会议共识。
 
-带录屏管线会先发布仅基于 turns/说话人的语音草稿，再用 pages/VL 生成多模态终稿。草稿 evidence 的 `generation_stage=voice_draft` 并保存独立快照；终稿为 `generation_stage=final`。MeetingPack 只允许在 `meeting-generation/v1.phase=ready` 后导出，因为离线包没有后续自动替换机制，不能把临时草稿当成可分享定稿。
+带录屏管线会先发布仅基于 turns/说话人的语音草稿，再用 pages/VL 生成多模态终稿。草稿 evidence 的 `generation_stage=voice_draft` 并保存独立快照；终稿为 `generation_stage=final`。只要 `transcript.spk.json` 已形成至少一条发言，MeetingPack 就允许导出核听快照；没有纪要时使用确定性占位页，不调用模型、不写回会议目录。快照只承诺说话人、完整逐字稿、时间导航和所选媒体，manifest 写入 `document.snapshot=true`，Viewer 顶栏与 README 均标明处理中；已有纪要、脉络、证据、页面和译文只冻结导出当刻状态，终稿完成后需要重新导出正式分享版。
 
 ## 2. Prompt 传输结构
 
@@ -132,6 +132,8 @@ Web 只在 sidecar 的逐字稿和纪要 revision 与当前文件一致时展示
 `meeting.facts.json`（schema：`meeting-facts/v1`）是与阅读版式解耦的完整事实快照。它复制终稿 evidence 的 claims、人员语境和 T/P linkage，但不复制逐字稿与页面正文；有效性只绑定逐字稿、slides 和页面理解 revision。整篇自然语言重组可增删栏目、排序和有意省略低优先级事实，但只能使用快照中的原 marker，且不会改写该快照。当前 `minutes.evidence.json` 仍严格描述当前可见纪要，因此审计和跳转不会指向已经不在文档中的结论；RAG 则额外摄入快照中未展示的事实，避免知识丢失。
 
 ## 4. MeetingPack v5
+
+正式包与处理中核听快照共用 `meetingpack/v5` 文件结构。快照不是另一套轻量 schema：缺失纪要时 `assets/minutes.md` 是确定性处理中说明，缺失/过期脉络和页面继续使用既有安全回退，`assets/transcript.json`、`speaker_navigation` 和可选媒体仍提供完整核听能力。消费端通过 manifest 的 `document.state/snapshot` 判断用途，不能把 snapshot 当成定稿归档。
 
 分享格式是普通 ZIP，文件名后缀为 `.meetingpack.zip`。收件人解压后双击 `viewer.html`，不需要安装本项目、不需要运行服务，也不需要 LLM。查看器没有 CDN、外部字体或 `fetch` 依赖，使用 `file://` 即可。
 

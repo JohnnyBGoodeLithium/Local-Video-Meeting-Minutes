@@ -17,7 +17,8 @@ with tempfile.TemporaryDirectory(prefix="meeting-recovery-") as tmp:
     os.environ["MEETING_DATA_ROOT"] = str(root)
     os.environ["MEETING_WEB_JOBS"] = str(root / "jobs")
 
-    from job_recovery import meeting_dir_for_job, recovery_plan  # noqa: E402
+    from job_recovery import (meeting_dir_for_job, preemption_resume_spec,
+                              recovery_plan)  # noqa: E402
     from teams_minutes import slugify  # noqa: E402
 
     meeting = root / "meetings" / "synthetic"
@@ -36,6 +37,27 @@ with tempfile.TemporaryDirectory(prefix="meeting-recovery-") as tmp:
     assert late["state"] == "available" and late["mode"] == "minutes"
     assert late["scope"] == "minutes" and "transcript" in late["retained"]
     assert "visual_cache" in late["retained"] and late["schema"] == "job-recovery/v1"
+
+    running = {**base, "status": "running", "kind": "upload", "stage": "理解共享画面"}
+    preempt = preemption_resume_spec(running)
+    assert preempt["kind"] == "regen" and preempt["meeting"] == "synthetic"
+    assert preempt["scope"] == "minutes" and "visual_cache" in preempt["retained"]
+    assert preempt["cmd"][1].endswith("minutes_by_page.py")
+    try:
+        preemption_resume_spec({**running, "stage": "语音转写"})
+    except ValueError as exc:
+        assert str(exc) == "stage_not_checkpointed"
+    else:
+        raise AssertionError("早期 ASR 阶段不得被强制抢占")
+    try:
+        preemption_resume_spec({**running, "stage": "提取共享画面"})
+    except ValueError as exc:
+        assert str(exc) == "stage_not_checkpointed"
+    else:
+        raise AssertionError("页面清单尚未完成时不得被强制抢占")
+    paused = recovery_plan({**base, "status": "paused", "kind": "upload",
+                            "stage": "理解共享画面"})
+    assert paused["state"] == "available" and paused["mode"] == "minutes"
 
     early = recovery_plan({**base, "kind": "upload", "stage": "语音转写"})
     assert early["state"] == "available" and early["action"] == "resume_from_asr"

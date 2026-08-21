@@ -18,7 +18,7 @@ from deps import (AUDIO_EXT, BANK_LOCK, DATA_ROOT, DOCX_EXT, INBOX, PY, ROOT,
 from job_store import EXEC, JOBS, PROCS, _new_job, _run_pipeline, _save_job, _set_status
 from job_recovery import (build_minutes_command, build_retranscribe_command,
                           build_speaker_resume_command, build_topic_map_command,
-                          meeting_dir_for_job, recovery_plan)
+                          meeting_dir_for_job, preemption_resume_spec, recovery_plan)
 
 router = APIRouter()
 
@@ -26,7 +26,7 @@ router = APIRouter()
 def _job_with_recovery(original: dict) -> dict:
     """给失败卡片附加有限恢复状态，不暴露判断所用日志正文或文件路径。"""
     job = dict(original)
-    if job.get("status") not in {"failed", "cancelled"}:
+    if job.get("status") not in {"failed", "cancelled", "paused"}:
         return job
     plan = recovery_plan(job)
     successor = JOBS.get(str(job.get("recovered_by") or ""))
@@ -136,13 +136,20 @@ def list_jobs():
         job = _job_with_recovery(original)
         if job.get("status") == "running":
             job["queue_position"] = 0
+            try:
+                preemption_resume_spec(job)
+            except ValueError:
+                job["preemptible"] = False
+            else:
+                job["preemptible"] = True
         elif job.get("status") == "queued" and job["id"] in queue:
             job["queue_position"] = queue[job["id"]]["position"]
             job["queue_priority"] = queue[job["id"]]["priority"]
         jobs.append(job)
     return {
         "jobs": sorted(jobs, key=lambda j: j["created"], reverse=True),
-        "capabilities": {"job_priority": True, "running_preemption": False,
+        "capabilities": {"job_priority": True, "running_preemption": True,
+                         "checkpointed_preemption": True,
                          "job_recovery": True},
         "queue_policy": ["用户优先", "会议处理", "纪要与脉络", "逐字稿翻译"],
     }
@@ -162,8 +169,8 @@ def retry_job(jid: str, quality: str = Query("standard", pattern="^(standard|hig
     source = JOBS.get(jid)
     if not source:
         raise HTTPException(404, "没有这条作业")
-    if source.get("status") not in {"failed", "cancelled"}:
-        raise HTTPException(409, "只有失败或已取消的任务可以恢复")
+    if source.get("status") not in {"failed", "cancelled", "paused"}:
+        raise HTTPException(409, "只有失败、已取消或已暂停的任务可以恢复")
     plan = recovery_plan(source)
     if plan.get("state") != "available":
         raise HTTPException(409, "现有资产不足以安全续跑，请按卡片提示重新导入")
@@ -247,6 +254,80 @@ def prioritize_job(jid: str):
                                     if item["id"] == jid), None)}
 
 
+def _terminate_process_group(jid: str) -> None:
+    proc = PROCS.get(jid)
+    if not proc or proc.poll() is not None:
+        return
+    try:
+        os.killpg(proc.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+
+    def _hard_kill(p=proc):
+        if p.poll() is None:
+            try:
+                os.killpg(p.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+    threading.Timer(5.0, _hard_kill).start()
+
+
+@router.post("/api/jobs/{jid}/force-prioritize")
+def force_prioritize_job(jid: str):
+    """暂停当前可恢复重任务，让等待中的急件先跑，随后自动续跑原任务。"""
+    target = JOBS.get(jid)
+    if not target:
+        raise HTTPException(404, "没有这条作业")
+    if target.get("status") != "queued":
+        raise HTTPException(409, "只有等待中的任务可以立即处理")
+    running = next((job for job in JOBS.values() if job.get("status") == "running"), None)
+    if running is None:
+        # 没有运行项时退化为普通置顶，不制造空暂停记录。
+        return prioritize_job(jid)
+    if running.get("meeting") == target.get("meeting"):
+        raise HTTPException(409, "同一场会议已有任务运行，请等待该阶段完成")
+    try:
+        resume = preemption_resume_spec(running)
+    except ValueError as exc:
+        raise HTTPException(
+            409, "当前任务尚未到可恢复检查点，不能强制让路；可先普通置顶") from exc
+    proc = PROCS.get(str(running.get("id") or ""))
+    if proc is None or proc.poll() is not None:
+        raise HTTPException(409, "当前阶段正在切换，请稍后再点立即处理")
+    if not EXEC.prioritize(jid):
+        raise HTTPException(409, "急件已经开始，无法再调整顺序")
+
+    now = _now()
+    with BANK_LOCK:
+        target["priority_boost"] = True
+        target["queue_priority"] = 0
+        target["forced_after"] = running["id"]
+        target["prioritized_at"] = now
+        running["cancel_requested"] = True
+        running["pause_requested"] = True
+        running["preempted_by"] = target["id"]
+        running["paused_at"] = now
+        _save_job(target)
+        _save_job(running)
+
+    # 自动续跑与急件同属用户优先级，但急件已被 prioritize 为负 sequence，
+    # 因而一定先运行；续跑随后排在普通 upload/translation 之前。
+    successor = _new_job(
+        resume["kind"], meeting=resume["meeting"], cmd=resume["cmd"],
+        recovery_scope=resume["scope"], queue_priority=0,
+        priority_boost=True, auto_resume=True, resume_after=target["id"],
+        inbox=running.get("inbox"))
+    EXEC.submit(_run_pipeline, successor)
+    _link_recovery(running, successor, "standard")
+    _set_status(running, "paused", finished=now, rc=None)
+    _terminate_process_group(running["id"])
+    queue = EXEC.snapshot()
+    return {"ok": True, "id": target["id"], "paused": running["id"],
+            "resume_job": successor["id"],
+            "queue_position": next((item["position"] for item in queue
+                                    if item["id"] == target["id"]), None)}
+
+
 @router.post("/api/jobs/{jid}/cancel")
 def cancel_job(jid: str):
     """取消作业：排队的直接作废；运行中的整进程组 SIGTERM(5s 不死再 SIGKILL)。"""
@@ -259,19 +340,6 @@ def cancel_job(jid: str):
     job["cancel_requested"] = True
     if was_queued:
         EXEC.discard(jid)
-    proc = PROCS.get(jid)
-    if proc and proc.poll() is None:
-        try:
-            os.killpg(proc.pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
-
-        def _hard_kill(p=proc):
-            if p.poll() is None:
-                try:
-                    os.killpg(p.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-        threading.Timer(5.0, _hard_kill).start()
+    _terminate_process_group(jid)
     _set_status(job, "cancelled", finished=_now())
     return {"ok": True}

@@ -38,6 +38,7 @@ from meeting_artifact import (
 from meeting_views import evidence_integrity
 from meeting_structure import clean_model_text, visual_title
 import meeting_topic_map
+import meeting_generation
 from product_version import PRODUCT_VERSION, PRODUCT_VERSION_LABEL
 
 
@@ -202,7 +203,7 @@ def _document_language(text: str) -> str:
     return "en"
 
 
-def _minutes_languages(mdir: Path, minutes_path: Path, reading_minutes: str,
+def _minutes_languages(mdir: Path, minutes_path: Path | None, reading_minutes: str,
                        evidence: dict) -> tuple[str, dict[str, dict], dict[str, bytes]]:
     """收集已完成且仍绑定当前 canonical 纪要的译文；导出过程绝不调用模型。"""
     source_language = _document_language(reading_minutes)
@@ -214,8 +215,11 @@ def _minutes_languages(mdir: Path, minutes_path: Path, reading_minutes: str,
         }
     }
     assets = {f"assets/minutes.{source_language}.md": reading_minutes.encode("utf-8")}
-    source_revision = hashlib.sha256(minutes_path.read_bytes()).hexdigest()[:16]
+    source_revision = (hashlib.sha256(minutes_path.read_bytes()).hexdigest()[:16]
+                       if minutes_path is not None else None)
     for target in ("zh-CN", "en"):
+        if source_revision is None:
+            continue
         sidecar = _read_json(mdir / f"minutes.translation.{target}.json", {})
         markdown = strip_visible_evidence_ids(str(sidecar.get("markdown") or ""))
         if (sidecar.get("schema") != "meeting-minutes-translation/v1"
@@ -285,14 +289,17 @@ def _visuals_languages(mdir: Path, pages: list[dict]) -> tuple[dict[str, list[di
     return languages, assets
 
 
-def _readme(media_mode: str) -> str:
+def _readme(media_mode: str, document_state: str = "ready") -> str:
     media_note = {
         "none": "本包未包含源音视频；时间戳仍可用于回到原系统定位。",
         "audio": "本包包含 AAC 分享版音频，可在 viewer.html 中按证据时间跳转。",
         "video": "本包包含 720p/10fps 分享版视频，可在 viewer.html 中按证据时间跳转。",
     }[media_mode]
+    snapshot_note = ("\n处理状态\n- 这是会议处理中的核听快照：逐字稿、说话人、跳播和已选媒体可用；纪要、脉络、证据与屏幕资料仅代表导出当刻，终稿完成后请重新导出正式分享版。\n"
+                     if document_state != "ready" else "")
     return f"""MeetingPack 离线会议查看包
 由 Meeting Minutes {PRODUCT_VERSION_LABEL} 生成
+{snapshot_note}
 
 使用方式
 1. 解压整个 zip；不要只从压缩软件预览单个文件。
@@ -435,7 +442,8 @@ def _viewer_html(title: str, date: str, minutes_html: str, evidence: dict, integ
                  minutes_languages: dict[str, dict] | None = None,
                  topic_map_languages: dict[str, dict] | None = None,
                  visuals_languages: dict[str, list[dict]] | None = None,
-                 speaker_navigation_rows: list[dict] | None = None) -> bytes:
+                 speaker_navigation_rows: list[dict] | None = None,
+                 document_state: str = "ready") -> bytes:
     duration = max((float(t.get("end", 0)) for t in evidence["sources"]["transcript"]), default=0)
     payload = {
         "title": title,
@@ -452,6 +460,7 @@ def _viewer_html(title: str, date: str, minutes_html: str, evidence: dict, integ
         "media_path": media_path,
         "media_kind": media_kind,
         "speaker_navigation": speaker_navigation_rows or [],
+        "document_state": document_state,
         "product": {"name": "Meeting Minutes", "version": PRODUCT_VERSION},
     }
     page = VIEWER_TEMPLATE_PATH.read_text(encoding="utf-8").replace(
@@ -482,10 +491,20 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
     if media_mode not in {"none", "audio", "video"}:
         raise ValueError("media_mode 必须是 none/audio/video")
     minutes_path = next((mdir / n for n in ("minutes.md", "minutes.spk.md") if (mdir / n).is_file()), None)
-    if minutes_path is None or not (mdir / "transcript.spk.json").is_file():
-        raise ValueError("会议目录需要 minutes.md/minutes.spk.md 与 transcript.spk.json")
-    minutes = minutes_path.read_text(encoding="utf-8")
+    if not (mdir / "transcript.spk.json").is_file():
+        raise ValueError("会议目录需要 transcript.spk.json；逐字稿形成后即可导出核听版")
     turns = _read_json(mdir / "transcript.spk.json", [])
+    if not turns:
+        raise ValueError("逐字稿尚未形成可导出的发言段")
+    document_state = meeting_generation.document_state(mdir, minutes_path is not None)
+    if minutes_path is not None:
+        minutes = minutes_path.read_text(encoding="utf-8")
+    else:
+        transcript_language = _document_language("\n".join(
+            str(turn.get("text") or "") for turn in turns[:200]))
+        minutes = ("# 会议处理中\n\n这是一份用于逐句核听的处理中快照。正式纪要、会议脉络、证据与屏幕资料尚未完成。\n"
+                   if transcript_language == "zh-CN" else
+                   "# Processing snapshot\n\nThis snapshot is intended for transcript review. Formal minutes, meeting map, evidence, and screen analysis are not complete yet.\n")
     timeline = _read_json(mdir / "slides.json", [])
     pages = [p for p in timeline if p.get("kind", "slide") == "slide" and p.get("page") is not None]
     raw_desc = _read_json(mdir / "page_desc.json", {}).get("desc", {})
@@ -563,8 +582,8 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
             "viewer.html": _viewer_html(title, date, minutes_html, evidence, integrity, topic_map,
                                         media_arc, media_kind, source_language, minutes_languages,
                                         topic_map_languages, visuals_languages,
-                                        speaker_navigation_rows),
-            "README.txt": _readme(media_mode).encode("utf-8"),
+                                        speaker_navigation_rows, document_state),
+            "README.txt": _readme(media_mode, document_state).encode("utf-8"),
             "AGENTS.md": _AGENTS_MD.encode("utf-8"),
             "assets/minutes.md": reading_minutes.encode("utf-8"),
             **minutes_language_assets,
@@ -607,6 +626,8 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
                       "source_artifact_id": facts.get("source_artifact_id")},
             "topic_map": {"state": topic_map.get("state"),
                           "schema": topic_map.get("schema")},
+            "document": {"state": document_state,
+                         "snapshot": document_state != "ready"},
             "counts": {"turns": len(turns), "pages": len(pages),
                        "claims": len(evidence["claims"]),
                        "facts": len(facts.get("claims", [])),

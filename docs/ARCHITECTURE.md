@@ -158,10 +158,10 @@ Web 与 MeetingPack 的常规纪要通过 `minutes_reading_markdown()` 从 canon
 
 ## Web 作业模型
 
-- GPU/重模型管线统一进入单 worker `SerialPriorityExecutor`，避免互相争抢模型资源，同时允许尚未开始的任务重排。默认顺序为“用户置顶 > 新会议处理 > 纪要/脉络/组织图 > 逐字稿翻译”；同级保持提交顺序，手动“优先处理”的任务排到当前运行任务之后，不抢占或强杀运行中的进程。
+- GPU/重模型管线统一进入单 worker `SerialPriorityExecutor`，避免互相争抢模型资源，同时允许尚未开始的任务重排。默认顺序为“用户置顶 > 新会议处理 > 纪要/脉络/组织图 > 逐字稿翻译”；同级保持提交顺序。普通“优先”只把等待项排到当前任务之后；“立即处理”只在当前 upload/regen 已进入后半程、canonical 逐字稿与 `slides.json` 均存在时开放。后者先验证 `minutes_by_page` 白名单续跑命令，再暂停当前进程组，把急件和自动续跑项依次置于用户优先队列。逐页 VL 结果原子落盘，因此续跑只补缺页，不重跑 ASR、说话人和已完成页面；语音转写、说话人分离、重转写及无页面检查点任务拒绝抢占。
 - 每个外部管线运行在独立进程组，取消时先发 `SIGTERM`，5 秒后仍未退出则 `SIGKILL`。
 - 作业 JSON 只保存状态和以 `[` 开头的元数据行，不保存任意 stderr 或会议正文。
-- `/api/jobs` 返回实际 `queue_position`；`POST /api/jobs/{id}/prioritize` 只接受 queued 作业，取消 queued 作业会同时从内存等待队列移除。
+- `/api/jobs` 返回实际 `queue_position` 与运行项的 `preemptible`；`POST /api/jobs/{id}/prioritize` 只接受 queued 作业，`POST /api/jobs/{id}/force-prioritize` 还要求当前进程仍存活且具备安全检查点。暂停源作业记录 `preempted_by/recovered_by`，自动续跑记录 `retry_of/auto_resume/resume_after`；续跑成功后才清理原 upload 暂存目录。取消 queued 作业会同时从内存等待队列移除。
 - 服务重启时，遗留的 `queued/running` 作业会标为失败；系统不自动加载更大模型或盲目重放整条管线。`job-recovery/v1` 只依据安全作业元数据和资产存在性生成恢复计划：翻译、Topic Map、本地重转写，以及已形成逐字稿和所需页面缓存的纪要阶段可由用户显式续跑；早期导入失败要求重新导入。
 - `POST /api/jobs/{id}/retry` 永不信任或直接执行旧作业 JSON 中的 `cmd`，而是从受控 builder 重新构造白名单脚本命令。新作业记录 `retry_of/recovery_attempt/recovery_quality`，旧作业记录 `recovered_by`；已有活动或成功 successor 时拒绝重复恢复。高质量恢复默认关闭，只能由部署者通过 `MEETING_RECOVERY_REFINE_MODEL` 显式开放。
 

@@ -377,16 +377,19 @@ body.page-index { overflow: hidden; }
 }
 #jobs-list li:hover { background: var(--panel2); }
 #jobs-list li.job-failed { border: 1px solid rgba(194, 80, 80, .45); background: rgba(194, 80, 80, .08); }
+#jobs-list li.job-paused { border: 1px solid rgba(226, 161, 60, .45); background: rgba(226, 161, 60, .08); }
 .j-name { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .j-st { grid-column: 1 / -1; grid-row: 2; min-width: 0; overflow: hidden; color: var(--dim); white-space: nowrap; text-overflow: ellipsis; }
 .st-running { color: var(--accent); }
 .st-queued { color: #e2a13c; }
 .st-done { color: #22a06b; }
 .st-failed { color: #c25050; }
+.st-paused { color: #e2a13c; }
 .st-cancelled { color: #e2a13c; }
 .j-actions { grid-column: 2; grid-row: 1 / span 2; display: flex; gap: var(--sp-4); align-items: center; }
 .j-actions button { padding: 0 var(--sp-7); font-size: var(--fs-11); }
 .j-priority { border-color: rgba(80, 125, 245, .55); color: var(--accent); }
+.j-preempt { border-color: rgba(226, 161, 60, .72); color: #e2a13c; }
 .j-recovery {
   grid-column: 1 / -1;
   display: grid;

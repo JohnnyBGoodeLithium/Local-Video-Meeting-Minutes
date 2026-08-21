@@ -99,6 +99,8 @@ const state = {
   },
   activeJobs: [],
   jobPriorityAvailable: false,
+  jobPreemptionAvailable: false,
+  jobRecoveryAvailable: false,
   bundleLoadedAt: 0,
   refreshedArtifactJobs: new Set(),
   bundleRefreshInFlight: false,
@@ -961,7 +963,7 @@ function renderMeetingStatuses() {
       : (isEnglishUi() ? "Partial evidence" : "部分证据");
   const evidenceTone = evidenceState === "ready" ? "good"
     : evidenceState === "stale" ? "warn" : "neutral";
-  const shareReady = documentReady && Boolean(b.transcript?.length);
+  const shareReady = Boolean(b.transcript?.length);
   box.innerHTML = [
     statusChip(isEnglishUi() ? "Document" : "资料",
       voiceDraft ? (isEnglishUi() ? "Voice draft ready" : "语音草稿可读")
@@ -975,9 +977,13 @@ function renderMeetingStatuses() {
     statusChip(isEnglishUi() ? "Evidence" : "证据", evidenceLabel, evidenceTone,
       evidenceState === "ready" ? "结论可回到逐字稿或共享画面核对" : "重新生成纪要后可补齐结构化依据"),
     statusChip(isEnglishUi() ? "Share" : "分享",
-      shareReady ? (isEnglishUi() ? "Export ready" : "可导出") : (isEnglishUi() ? "Incomplete" : "待补齐"),
+      shareReady ? (voiceDraft
+        ? (isEnglishUi() ? "Review snapshot ready" : "可导出核听版")
+        : (isEnglishUi() ? "Export ready" : "可导出"))
+        : (isEnglishUi() ? "Transcript pending" : "等待逐字稿"),
       shareReady ? "good" : "neutral",
-      b.has_video || b.has_audio ? "可选择是否随包包含媒体" : "当前只能导出文字与屏幕内容"),
+      voiceDraft ? "逐字稿、说话人和跳播可用；终稿完成后可重新导出正式版"
+        : b.has_video || b.has_audio ? "可选择是否随包包含媒体" : "当前只能导出文字与屏幕内容"),
   ].join("");
 }
 
@@ -1096,7 +1102,7 @@ async function loadMeeting(slug) {
     ? "保留原始母版和旧版本，使用当前 ASR provider 与最新术语上下文重建逐字稿及下游内容"
     : "需要保留可读取的音频或视频母版";
   $("#refine-btn").disabled = isDraft;
-  $("#export-btn").disabled = isDraft;
+  $("#export-btn").disabled = !(b.transcript?.length);
   $("#storage-btn").disabled = false;
   $("#assistant-launcher").disabled = false;
   if (state.workspace.utilityOpen) openUtility(state.workspace.utilityTab);
@@ -3759,6 +3765,9 @@ function renderExportPreflight() {
       `<input type="radio" name="export-media" value="${id}" ${index === 0 ? "checked" : ""} ${available ? "" : "disabled"}>` +
       `<span><b>${title}</b><small>${detail}</small></span>` +
       `<strong>约 ${formatBytes(data.estimated_bytes[id])}</strong></label>`).join("")}</div>` +
+    (data.export_mode === "review_snapshot"
+      ? '<div class="export-warning"><b>处理中核听快照</b><br>说话人、逐字稿、跳播和所选媒体可用；纪要、脉络、证据与屏幕资料仅代表现在，终稿完成后请重新导出正式分享版。</div>'
+      : "") +
     (data.evidence.state === "ready" ? "" :
       '<div class="export-warning">当前包仍可阅读，但部分结论不能回到原文核对。建议重新生成纪要后再正式分享。</div>') +
     `<p class="export-note">由 Meeting Minutes v${esc(data.product_version || "-")} 生成；文件名格式 <code>${esc(data.filename_pattern || "")}</code>。<br>` +
@@ -4625,7 +4634,7 @@ function pollJob(id, onUpdate) {
     try {
       const j = await jget(`/api/jobs/${id}`);
       onUpdate(j);
-      if (["done", "failed", "cancelled"].includes(j.status)) {
+      if (["done", "failed", "cancelled", "paused"].includes(j.status)) {
         clearInterval(state.poller);
         state.poller = null;
       }
@@ -4639,6 +4648,7 @@ async function pollJobs() {
   try {
     const d = await jget("/api/jobs");
     state.jobPriorityAvailable = d.capabilities?.job_priority === true;
+    state.jobPreemptionAvailable = d.capabilities?.checkpointed_preemption === true;
     state.jobRecoveryAvailable = d.capabilities?.job_recovery === true;
     renderJobs(d.jobs);
     const completed = d.jobs.filter(job => job.meeting === state.slug
@@ -4663,18 +4673,19 @@ function renderJobs(jobs) {
     .sort((a, b) => a.status === b.status
       ? Number(a.queue_position || 9999) - Number(b.queue_position || 9999)
       : a.status === "running" ? -1 : 1);
+  const runningJob = activeJobs.find(j => j.status === "running");
   const activeMeetings = new Set(activeJobs.map(job => job.meeting).filter(Boolean));
-  const recentFailures = jobs.filter(j => j.status === "failed"
+  const recoverableStops = jobs.filter(j => ["failed", "paused"].includes(j.status)
     && j.recovery?.state !== "recovered"
     && !activeMeetings.has(j.meeting)
     && (j.recovery?.state === "available"
       || Date.now() / 1000 - Number(j.finished || j.created || 0) < 60 * 60)).slice(0, 2);
-  const visibleJobs = [...activeJobs, ...recentFailures]
+  const visibleJobs = [...activeJobs, ...recoverableStops]
     .filter((job, index, all) => all.findIndex(item => item.id === job.id) === index);
   state.activeJobs = activeJobs;
   $("#jobs-panel").classList.toggle("hidden", visibleJobs.length === 0);
   $(".jobs-head").textContent = activeJobs.length
-    ? (isEnglishUi() ? "Processing" : "正在处理") : (isEnglishUi() ? "Recent failures" : "最近处理失败");
+    ? (isEnglishUi() ? "Processing" : "正在处理") : (isEnglishUi() ? "Needs attention" : "需要处理");
   ul.innerHTML = "";
   for (const j of visibleJobs.slice(0, 8)) {
     const li = document.createElement("li");
@@ -4714,9 +4725,11 @@ function renderJobs(jobs) {
     const status = j.status === "queued" ? `${kindLabel ? `${kindLabel} · ` : ""}等待处理` +
         `${queueLabel ? ` · ${queueLabel}` : ""}`
       : j.status === "failed" ? `失败 · ${liveStage || "处理阶段"}`
+      : j.status === "paused" ? `已暂停 · ${liveStage || "可从检查点恢复"}`
       : `${kindLabel ? `${kindLabel} · ` : ""}${liveStage || "处理中"}${liveProgress}` +
         `${voiceDraftFailed ? " · 草稿未生成" : ""}${elapsed}`;
     li.classList.toggle("job-failed", j.status === "failed");
+    li.classList.toggle("job-paused", j.status === "paused");
     li.innerHTML =
       `<span class="j-name" title="${esc(j.id)}">${esc(name)}</span>` +
       `<span class="j-st st-${esc(j.status)}">${esc(status)}</span>`;
@@ -4742,6 +4755,34 @@ function renderJobs(jobs) {
         };
         actions.appendChild(priority);
       }
+      if (state.jobPreemptionAvailable && j.status === "queued"
+          && runningJob?.preemptible && runningJob.id !== j.id) {
+        const force = document.createElement("button");
+        force.type = "button";
+        force.className = "j-preempt";
+        force.textContent = isEnglishUi() ? "Now" : "立即";
+        force.title = isEnglishUi()
+          ? "Pause the current checkpointed task, process this item, then resume automatically"
+          : "暂停当前已有检查点的任务，先处理此项，完成后自动续跑";
+        force.onclick = async () => {
+          const confirmed = window.confirm(isEnglishUi()
+            ? "Pause the current task and process this urgent item now? Completed transcript, speaker identity and per-page screen cache will be retained, and the paused task will resume automatically afterward."
+            : "暂停当前任务并立即处理这项急件？已完成的逐字稿、说话人和逐页画面缓存会保留；急件完成后系统会自动续跑原任务。");
+          if (!confirmed) return;
+          force.disabled = true;
+          const response = await api(`/api/jobs/${j.id}/force-prioritize`, { method: "POST" });
+          const body = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            toast(`${isEnglishUi() ? "Could not preempt" : "立即处理失败"}：${body.detail || response.status}`);
+          } else {
+            toast(isEnglishUi()
+              ? "Current task paused; urgent item will run now and the original task will resume automatically"
+              : "当前任务已让路；急件将立即处理，原任务随后自动续跑");
+          }
+          pollJobs();
+        };
+        actions.appendChild(force);
+      }
       const cancel = document.createElement("button");
       cancel.type = "button";
       cancel.className = "j-cancel";
@@ -4752,7 +4793,7 @@ function renderJobs(jobs) {
       };
       actions.appendChild(cancel);
       li.appendChild(actions);
-    } else if (j.status === "failed" && j.recovery) {
+    } else if (["failed", "paused"].includes(j.status) && j.recovery) {
       const recovery = j.recovery;
       const retainedLabels = {
         source_media: isEnglishUi() ? "source media" : "源媒体",
@@ -4781,7 +4822,11 @@ function renderJobs(jobs) {
       detail.className = "j-recovery";
       const explanation = document.createElement("span");
       explanation.className = "j-recovery-note";
-      explanation.textContent = categoryLabels[recovery.category] || categoryLabels.pipeline;
+      explanation.textContent = j.status === "paused"
+        ? (isEnglishUi()
+          ? "Paused at a safe checkpoint; completed assets will not be repeated."
+          : "任务已在安全检查点暂停，已经完成的资产不会重跑。")
+        : (categoryLabels[recovery.category] || categoryLabels.pipeline);
       detail.appendChild(explanation);
       const retained = (recovery.retained || []).map(id => retainedLabels[id]).filter(Boolean);
       if (retained.length) {
