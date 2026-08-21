@@ -12,6 +12,11 @@
 - 服务：端口 8899，`systemctl --user restart meeting-minutes-web` 重启（挂起 ~45s 是已知 P2 问题，见下）。
 - 隐私红线（详见 AGENTS.md）：不读真实会议正文，只看元数据/结构；上次已获用户授权诊断 Gate B 会议标题形态，新任务需重新授权。
 
+## 当前批次：同场匿名声纹隔离
+
+- 声纹入库不再让本场刚创建的匿名 voice 参与同一轮后续匹配；一条未绑定 voice 在一场会议最多认领一个原始聚类，已绑定 person 仍可承载同场多簇。`source_clusters` 保存会议+原始聚类的唯一幂等映射，会议删除和碎片清理同步清除。
+- 该规则可在受控说话人重跑中拆开旧的同场匿名多对一，不重跑 ASR 文字；真正重叠说话时单流 ASR 漏掉的第二路文字仍不在本修复范围。实现提交 `6b52345`，合成 `make check` 与隔离 smoke 161/161 通过。
+
 ## 当前批次：ASR 断点恢复与 VL JPEG 导出
 
 - v0.10.0 的 `transcribe.py` 在正常 ASR/aligner 完成并写出 `stamps.json` 后，生成 `transcript.ts.md` 时仍访问重构前变量 `r.language`，真实长视频因此在“区分发言人”卡片报 `NameError`。实现提交 `5796d2d` 改用单一确定性落盘函数，并增加 `--reuse-stamps` / `--reuse-asr`：受控恢复要求视频母版、音频与完整 stamps，同一 ASR 不再重复计算；pyannote 说话人分离仍需重跑。
