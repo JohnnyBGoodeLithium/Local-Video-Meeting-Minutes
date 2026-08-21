@@ -155,7 +155,7 @@ Web 只在 sidecar 的逐字稿和纪要 revision 与当前文件一致时展示
     ├── rag/
     │   └── records.jsonl   # meeting-minutes-rag/v1
     ├── slides/
-    │   └── ...             # 长边 1600px WebP 阅读图（按放大预览窗设计），不包含 VL full_* 工作帧
+    │   └── pNNNN.jpg       # 与 P 编号一一对应的 VL 原生分析 JPEG，可直接用于 PPT/Word/邮件
     └── media/              # 默认不存在
         ├── audio.m4a       # --media audio：AAC 40kbps 分享版
         └── video.mp4       # --media video：H.264 720p/10fps 分享版
@@ -173,9 +173,9 @@ Viewer 提供四个任务入口：“会议脉络 / 会议纪要 / 逐字稿 / �
 
 默认不需要。纪要阅读、页面浏览、逐字稿检索和 RAG 都由 `assets/minutes.md + assets/evidence.json + assets/topic-map.json + assets/slides + assets/rag/records.jsonl` 完成。源视频通常体积最大，并不会提高文本检索质量。
 
-应用中的原始媒体是项目母版；MeetingPack 中的音视频只是面向分享的派生副本。导出不会覆盖或重新编码项目母版：音频统一生成 AAC 40kbps，视频生成 H.264 720p/10fps，屏幕图生成长边 1600px、quality 80 的 WebP（按 Viewer 放大预览窗尺寸设计，支持 125–300% 缩放阅读）。以 78 分钟会议估算，AAC 约 24–27MB；视频大小依画面变化量而异。需要逐像素、原码流审计时应访问项目母版，而不是把 MeetingPack 当作原始档案。
+应用中的原始媒体是项目母版；MeetingPack 中的音视频只是面向分享的派生副本。导出不会覆盖或重新编码项目母版：音频统一生成 AAC 40kbps，视频生成 H.264 720p/10fps。屏幕图不再生成低分辨率 WebP，而是直接复用本次 VL 实际分析的原生分辨率 JPEG；若高分辨率缓存已由清理策略回收，则从受保护视频母版按同一 `captured` 时间点和同一 JPEG 参数恢复。包内文件固定命名为 `assets/slides/pNNNN.jpg`，可直接复制到 PPT、Word 或邮件，P 编号与 evidence、Topic Map 保持一一对应。旧会议只有 PNG 等逻辑页时才兼容转换为高质量 JPEG。以 78 分钟会议估算，AAC 约 24–27MB；视频大小依画面变化量而异。需要逐像素、原码流审计时仍应访问项目母版，而不是把 MeetingPack 当作原始档案。
 
-当前 Gate B 实测：无媒体包 2.52MB；AAC 包 23.60MB，相比 149.55MB PCM 工作音轨减少约 84%；视频包 40.27MB，其中分享视频 37.74MB，相比 206.92MB 母版减少约 82%。这些是实际内容的参考值，导出预检仍按每场会议时长和源媒体单独估算。
+151 个实际页面的体积对比中，旧 1600px WebP 图层为 8.66MiB，VL 原生分析 JPEG 图层为 36.78MiB，增加 28.12MiB（约 +325%，4.25 倍）。这是换取原分析分辨率、无需二次生成和办公软件直接取用的明确取舍；无缓存时导出预检按逻辑页大小的保守倍数估算，实际打包仍以恢复出的 JPEG 为准。音频/视频分享副本的压缩策略不变，导出预检继续按每场会议时长和源媒体单独估算。
 
 只有以下情况建议包含媒体：
 

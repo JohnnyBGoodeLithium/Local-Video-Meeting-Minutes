@@ -86,7 +86,7 @@ VL 终稿和 Topic Map 发布后，普通录屏与 Teams 管线会用一次本�
 
 文本模型协议由不依赖 Web 的 `meeting_core.llm` 统一处理，包括 loopback 边界、模型选择、thinking、超时和安全错误分类；`MEETING_LLM_MODEL` 是通用/助手模型，`MEETING_DRAFT_MODEL` 是视频早期草稿模型，`MEETING_MINUTES_MODEL` 是纯音频正式纪要与多模态终稿模型。当前默认让 35B MoE 负责尽快可读，让 Qwen3.8-27B dense 负责正式纪要；高质量恢复模型独立配置，不把 120B 加载成本施加到每场会议。`meeting_core.context_budget` 负责实际上下文窗口与保守 token 预算。`meeting_core.voice_draft` 在完整提示可容纳时直接生成；超限时按连续 T ID 轮次切成受预算约束的片段，先提取事实笔记，再合并为常规纪要。分段笔记是临时推导，不替代 canonical 逐字稿，最终 evidence 仍只能引用原始 T ID。后续 Topic Map、翻译和助手调用应逐步迁移到同一客户端，避免各自维护协议参数。
 
-`minutes_by_page.py` 和 `summarize.py` 使用 `meeting-minutes-prompt/v1` 结构化输入，并在可读 Markdown 中留下隐藏的 T/P 证据 marker。`meeting_artifact.py` 将其规范化为 `minutes.evidence.json`；Web、`export_meeting.py` 和后续 RAG 都消费同一 sidecar。导出器生成 `meetingpack/v5`：顶层只有 `viewer.html + README.txt + AGENTS.md + assets/`。AGENTS.md 是给 AI agent 的一等使用合同：除文件地图与引用规则外，还按任务给出菜谱——单场深读、同系列多场对比（用 `sources.transcript` 里跨包恒定的 `person_id` 对人、topic-map 标题对议题、actions 按负责人+事项语义对待办，输出标注新增/延续/翻案/消失并引用双场 C 编号）、会后产出、知识库索引与事实核对——整包拖进 agent 会话时不只读纪要，也能直接做例行会对比。完整逐字稿、Topic Map、屏幕资料、媒体时间跳转、证据状态及已生成的双语纪要进入同一个无需服务、LLM、CDN 或网络请求的 Viewer。Viewer 只保留与在线工作台一致的“会议脉络 / 会议纪要 / 屏幕内容”，不再导出四种 audience/depth 重排视图。VL 描述在进入 evidence、Viewer 和 RAG 前复用在线端的 reasoning 清洗/标题提取。导出只生成长边 1600px WebP 与压缩分享媒体，不反写 canonical sidecar 或原始母版。完整规范见 `docs/EXPORT_AND_RAG.md`。
+`minutes_by_page.py` 和 `summarize.py` 使用 `meeting-minutes-prompt/v1` 结构化输入，并在可读 Markdown 中留下隐藏的 T/P 证据 marker。`meeting_artifact.py` 将其规范化为 `minutes.evidence.json`；Web、`export_meeting.py` 和后续 RAG 都消费同一 sidecar。导出器生成 `meetingpack/v5`：顶层只有 `viewer.html + README.txt + AGENTS.md + assets/`。AGENTS.md 是给 AI agent 的一等使用合同：除文件地图与引用规则外，还按任务给出菜谱——单场深读、同系列多场对比（用 `sources.transcript` 里跨包恒定的 `person_id` 对人、topic-map 标题对议题、actions 按负责人+事项语义对待办，输出标注新增/延续/翻案/消失并引用双场 C 编号）、会后产出、知识库索引与事实核对——整包拖进 agent 会话时不只读纪要，也能直接做例行会对比。完整逐字稿、Topic Map、屏幕资料、媒体时间跳转、证据状态及已生成的双语纪要进入同一个无需服务、LLM、CDN 或网络请求的 Viewer。Viewer 只保留与在线工作台一致的“会议脉络 / 会议纪要 / 屏幕内容”，不再导出四种 audience/depth 重排视图。VL 描述在进入 evidence、Viewer 和 RAG 前复用在线端的 reasoning 清洗/标题提取。`assets/slides/pNNNN.jpg` 与 VL 原生分析帧共用同一份 JPEG：缓存存在时逐字节复用，缓存已清理时按同一页面时间点和分析参数从受保护视频母版恢复；不再为导出生成第二套 WebP。压缩分享媒体仍是独立派生副本，导出不会反写 canonical sidecar 或原始母版。完整规范见 `docs/EXPORT_AND_RAG.md`。
 
 视频纪要存在一个明确的身份一致性栅栏：VL 可以与用户的说话人修正并行，但终稿文本不能消费 VL 前的旧逐字稿快照。`minutes_by_page.py` 在 VL 完成后重新载入 `transcript.spk.json`，以该 revision 生成上下文；发布前再次核对 revision。若文本阶段又发生身份修正，丢弃旧文本并复用 `page_desc.json` 重跑文本阶段一次，不重复 ASR、分离或 VL。
 
@@ -97,6 +97,8 @@ VL 终稿和 Topic Map 发布后，普通录屏与 Teams 管线会用一次本�
 多模态终稿的总体部分同样受 `ContextBudget` 约束。短会议直接生成；超限会议由 `meeting_core.minutes_overview` 按连续 T ID 切片，每段只携带关联 P 页面，再用人员语境和全页目录归并为总体摘要、行动、风险及 3–8 个议题板块。map/reduce 输出带退化防护：检测到自我修正循环或同一长句反复重述时，以 `repeat_penalty=1.2` 完整重试一次，仍退化则确定性清理（重复长行留首现、自我修正链整行删）后继续，不把循环垃圾写进 `minutes.md`；reduce 缺“总体摘要/待办事项”章节同样触发重试。待办章节另有合规校验：有表格行就必须逐行带 `kind=action`+`turns=` 证据标记，不合规先随防护重试，仍不合规按片段事实笔记定点重写该章节（`REPAIR_TODO_PROMPT`）并拼接回终稿。逐页讨论块继续按页面分组生成并独立控制输入规模。Web 重生成复用现有逐字稿、逻辑页和有效 VL 缓存，有源视频时只重抓缺页；成功后通过 `--publish` 更新 ready 状态并刷新 Topic Map。
 
 若服务在 `visual_enrichment` 阶段中断，旧作业在重启时先标记失败；只要不存在同会议活动 writer，且 transcript/slides 仍完整，`regen_minutes` 可作为阶段级续跑入口，复用已完成的 VL cache，仅补缺页并发布终稿。其他草稿阶段仍拒绝重生成，避免 revision 竞态。
+
+`stamps.json` 是 ASR 与字级对齐完整结束后的早期检查点，不在半截识别时发布。上传作业若在“语音转写”或“区分发言人”阶段失败，且受保护视频/音频和完整 stamps 仍存在，可通过 `speaker_resume` 恢复：`transcribe.py --reuse-stamps` 确定性重建 `transcript.ts.md`/`transcript.txt`，`video_minutes.py --reuse-asr` 随后重跑 pyannote 说话人分离、声纹与纪要等下游；不会重复 ASR，但当前仍需重跑说话人分离。任一必需资产缺失时拒绝伪续跑并要求重新导入。
 
 ### 媒体固化与存储生命周期
 

@@ -3,7 +3,7 @@
 > 给接手 agent：先读本文件和 `AGENTS.md`，再看 `CHANGELOG.md` 未发布段了解最近改动。
 > 本文件在每次交接或大方向变化时更新；过期的进行中事项完成后删除对应段落。
 
-更新时间：2026-08-19（产品版本 v0.10.0；在线工作台构建号 20260819p79；提交号以 `git log -1` 为准）
+更新时间：2026-08-21（产品版本 v0.10.0；在线工作台构建号 20260821p80；提交号以 `git log -1` 为准）
 
 ## 当前基线
 
@@ -11,6 +11,13 @@
 - 验证基线：发布提交前以本轮 `make check`、隔离 Web smoke 和 MeetingPack 启动测试结果为准；所有新增测试只使用虚构数据。
 - 服务：端口 8899，`systemctl --user restart meeting-minutes-web` 重启（挂起 ~45s 是已知 P2 问题，见下）。
 - 隐私红线（详见 AGENTS.md）：不读真实会议正文，只看元数据/结构；上次已获用户授权诊断 Gate B 会议标题形态，新任务需重新授权。
+
+## 当前批次：ASR 断点恢复与 VL JPEG 导出
+
+- v0.10.0 的 `transcribe.py` 在正常 ASR/aligner 完成并写出 `stamps.json` 后，生成 `transcript.ts.md` 时仍访问重构前变量 `r.language`，真实长视频因此在“区分发言人”卡片报 `NameError`。实现提交 `5796d2d` 改用单一确定性落盘函数，并增加 `--reuse-stamps` / `--reuse-asr`：受控恢复要求视频母版、音频与完整 stamps，同一 ASR 不再重复计算；pyannote 说话人分离仍需重跑。
+- 失败恢复计划新增 `speaker_resume`，工作台 p80 显示“从说话人识别继续”；不会重放 job JSON 旧命令，不会自动跨 provider 或上云。目标真实失败任务已经保留约 20 分钟 ASR 结果，部署重启后由用户点击续跑，不自动占用 GPU。
+- MeetingPack `assets/slides/` 改为 `pNNNN.jpg`：优先逐字节复用 `full_XX.jpg` VL 分析帧；缓存清理后按同一 `captured` 时间和 `ffmpeg -q:v 2` 从母版恢复；无视频/旧格式才回退逻辑页并统一 JPEG。manifest 记录 `slides.format/source/included_bytes`，README 提示可直接取图且保留 P 证据编号。
+- 合成验证：`make check` 通过；隔离 smoke 159/159；Viewer 启动回归通过。三场 151 页实测中，分析 JPEG 为 36.78MiB，旧 WebP 为 8.66MiB，包体绝对增加 28.12MiB；这是换取原分析分辨率与办公软件直接使用的明确取舍。
 
 ## 当前批次：v0.10.0 原语言逐字稿修正与可移植 ASR
 
