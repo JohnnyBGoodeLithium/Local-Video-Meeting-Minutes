@@ -63,6 +63,16 @@ def build_retranscribe_command(mdir: Path) -> list[str]:
     return [str(PY), str(ROOT / "bin" / "retranscribe_local.py"), str(mdir)]
 
 
+def build_speaker_resume_command(mdir: Path) -> list[str]:
+    """复用已完整落盘的 ASR，只重跑说话人分离及视频后续阶段。"""
+    video = _video_path(mdir)
+    if video is None or not (mdir / "audio.wav").is_file() \
+            or not (mdir / "stamps.json").is_file():
+        raise ValueError("missing_asr_checkpoint")
+    return [str(PY), str(ROOT / "bin" / "video_minutes.py"), str(video),
+            "--meeting-dir", str(mdir), "--reuse-asr"]
+
+
 def _failure_category(job: dict) -> str:
     safe_log = "\n".join(str(line) for line in job.get("log", [])[-12:])
     rc = job.get("rc")
@@ -92,6 +102,8 @@ def _retained_assets(mdir: Path | None) -> list[str]:
         retained.append("source_transcript")
     if (mdir / "transcript.spk.json").is_file():
         retained.append("transcript")
+    if (mdir / "stamps.json").is_file():
+        retained.append("asr_timestamps")
     if (mdir / "slides.json").is_file() or (mdir / "page_desc.json").is_file():
         retained.append("visual_cache")
     if _minutes_file(mdir) is not None:
@@ -149,6 +161,15 @@ def recovery_plan(job: dict) -> dict:
         return plan
 
     if kind in {"regen", "upload"}:
+        if kind == "upload" and stage in {"语音转写", "区分发言人"}:
+            try:
+                build_speaker_resume_command(mdir)
+            except ValueError:
+                pass
+            else:
+                plan.update(state="available", mode="speaker_resume",
+                            scope="speaker_identity", action="resume_from_asr")
+                return plan
         if kind == "upload" and stage == "构建会议脉络":
             try:
                 build_topic_map_command(mdir)

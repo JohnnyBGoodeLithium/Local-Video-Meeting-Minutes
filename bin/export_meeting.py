@@ -100,32 +100,60 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _viewer_slide_assets(mdir: Path, pages: list[dict], evidence: dict) -> dict[str, bytes]:
-    """生成仅供阅读的 WebP：长边上限 1600px、quality 80。
-    尺寸按 Viewer 放大预览窗（min(1500px,96vw) × min(940px,94vh)，支持 125–300% 缩放）
-    设计，不按小舞台缩略图；不改会议目录中的原截图。"""
+def _capture_analysis_frame(video: Path, captured: float) -> bytes | None:
+    """用 VL 抓帧的同一参数，从母版恢复一个原生分辨率 JPEG。"""
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        return None
+    try:
+        completed = subprocess.run(
+            [ffmpeg, "-nostdin", "-hide_banner", "-loglevel", "error",
+             "-ss", f"{captured:.2f}", "-i", str(video), "-frames:v", "1",
+             "-q:v", "2", "-f", "image2pipe", "-vcodec", "mjpeg", "pipe:1"],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=120,
+        )
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+    data = completed.stdout
+    return data if completed.returncode == 0 and data.startswith(b"\xff\xd8") else None
+
+
+def _jpeg_asset(image: Path) -> bytes:
+    """保留已有 JPEG；仅为旧 PNG 等逻辑页生成兼容 JPEG 兜底。"""
+    data = image.read_bytes()
+    if data.startswith(b"\xff\xd8"):
+        return data
+    with Image.open(io.BytesIO(data)) as opened:
+        frame = opened.convert("RGB")
+        output = io.BytesIO()
+        frame.save(output, "JPEG", quality=95, subsampling=0, optimize=True)
+        return output.getvalue()
+
+
+def _analysis_slide_assets(mdir: Path, pages: list[dict], evidence: dict) -> dict[str, bytes]:
+    """导出 VL 分析 JPEG；缓存缺失时按同一时间点恢复，不另造 WebP 派生图。"""
     source_by_number = {int(page["page"]): page for page in pages if page.get("page") is not None}
+    video = _media_source(mdir, "video")
     assets: dict[str, bytes] = {}
     for item in evidence.get("sources", {}).get("pages", []):
-        source = source_by_number.get(int(item.get("number", 0)))
+        number = int(item.get("number", 0))
+        source = source_by_number.get(number)
         image_name = str((source or {}).get("image") or "")
         image = (mdir / "slides" / image_name).resolve()
         if not image_name or not image.is_file() or not image.is_relative_to((mdir / "slides").resolve()):
             item["image"] = None
             continue
-        arcname = f"assets/slides/{item['id'].lower()}.webp"
+        arcname = f"assets/slides/{item['id'].lower()}.jpg"
         try:
-            with Image.open(image) as opened:
-                frame = opened.convert("RGB")
-                frame.thumbnail((1600, 1600), Image.Resampling.LANCZOS)
-                output = io.BytesIO()
-                frame.save(output, "WEBP", quality=80, method=4)
-                assets[arcname] = output.getvalue()
-                item["image"] = arcname
-        except (OSError, ValueError):
-            arcname = f"assets/slides/{item['id'].lower()}{image.suffix.lower() or '.jpg'}"
-            assets[arcname] = image.read_bytes()
+            analysis_frame = mdir / "slides" / f"full_{number:02d}.jpg"
+            data = _jpeg_asset(analysis_frame) if analysis_frame.is_file() else None
+            if data is None and video is not None:
+                captured = float((source or {}).get("captured", (source or {}).get("first", 0)))
+                data = _capture_analysis_frame(video, captured)
+            assets[arcname] = data if data is not None else _jpeg_asset(image)
             item["image"] = arcname
+        except (OSError, ValueError):
+            item["image"] = None
     return assets
 
 
@@ -281,8 +309,13 @@ def _readme(media_mode: str) -> str:
   - minutes.md、transcript.*：常规纪要与完整逐字稿
   - evidence.json、topic-map.json：证据与整场语义脉络
   - rag/records.jsonl：可直接送入后续向量/全文索引的记录
-  - slides/：屏幕内容缩略图；media/：可选音视频
+  - slides/：VL 分析页面 JPEG；media/：可选音视频
   - manifest.json：格式版本、内容清单、哈希和媒体策略
+
+取用屏幕图片
+- `assets/slides/p0001.jpg`、`p0002.jpg`……是 VL 分析使用的原生分辨率页面帧，可直接复制到 PPT、Word、邮件或其他材料中。
+- P 编号与 viewer.html、evidence.json 和 topic-map.json 中的 `page_id` 一一对应；复制后可以另行改名，但建议保留原包中的文件名以便回查证据。
+- 图片来自共享画面，只证明当时屏幕展示了什么；会议是否形成决定仍需结合逐字稿和 evidence.json。
 
 媒体策略
 {media_note}
@@ -306,7 +339,7 @@ _AGENTS_MD = """# MeetingPack — Agent 使用指引
   适合回答"会议讨论了哪些议题、某议题在什么时段"。`low_value` 议题是过渡与杂项，权重放低。
 - `assets/rag/records.jsonl` — 检索用记录（每行一条 JSON），可直接建向量/全文索引。
 - `assets/minutes.md` — 会议纪要（人读版）；结论/待办末尾的 `mm:evidence` 注释是机器可读依据标记。
-- `assets/slides/` — 屏幕页面图，`page_id`（P0001…）对应页面内容；页面只能证明"展示了什么"，不能单独证明"决定了什么"。
+- `assets/slides/` — VL 分析使用的 JPEG 页面帧，可直接用于 PPT/文档；`page_id`（P0001…）对应页面内容。页面只能证明"展示了什么"，不能单独证明"决定了什么"。
 - `assets/manifest.json` — 格式版本、会议标题/日期、文件清单与 sha256 校验。
 - `viewer.html` / `README.txt` — 人类查看器与说明，agent 无需读取。
 
@@ -476,7 +509,7 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
         number = int(page.get("number") or 0)
         page["visual_description"] = clean_model_text(page.get("visual_description") or "")
         page["title"] = visual_title(page["visual_description"], number)
-    slide_assets = _viewer_slide_assets(mdir, pages, evidence)
+    slide_assets = _analysis_slide_assets(mdir, pages, evidence)
     evidence_bytes = json.dumps(evidence, ensure_ascii=False, indent=2).encode("utf-8")
     facts_bytes = json.dumps(facts, ensure_ascii=False, indent=2).encode("utf-8")
     integrity = evidence_integrity(evidence)
@@ -566,6 +599,8 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
                       "optimized_for_sharing": bool(media_file),
                       "source_bytes": media_source_bytes,
                       "included_bytes": media_file.stat().st_size if media_file else 0},
+            "slides": {"format": "image/jpeg", "source": "vl_analysis_frame",
+                       "included_bytes": sum(len(data) for data in slide_assets.values())},
             "evidence": integrity,
             "facts": {"schema": facts.get("schema"),
                       "claims": len(facts.get("claims", [])),

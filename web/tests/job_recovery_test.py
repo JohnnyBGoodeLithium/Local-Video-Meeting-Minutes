@@ -26,6 +26,9 @@ with tempfile.TemporaryDirectory(prefix="meeting-recovery-") as tmp:
     (meeting / "minutes.md").write_text("# Synthetic", encoding="utf-8")
     (meeting / "slides.json").write_text("[]", encoding="utf-8")
     (meeting / "audio.wav").write_bytes(b"fictional protected audio")
+    (meeting / "source_video.mp4").write_bytes(b"fictional protected video")
+    (meeting / "stamps.json").write_text(
+        '{"language":"English","text":"synthetic","time_stamps":[]}', encoding="utf-8")
 
     base = {"status": "failed", "meeting": "synthetic", "log": [], "rc": 1}
     late = recovery_plan({**base, "kind": "upload", "stage": "理解共享画面"})
@@ -34,7 +37,14 @@ with tempfile.TemporaryDirectory(prefix="meeting-recovery-") as tmp:
     assert "visual_cache" in late["retained"] and late["schema"] == "job-recovery/v1"
 
     early = recovery_plan({**base, "kind": "upload", "stage": "语音转写"})
-    assert early["state"] == "manual" and early["action"] == "reimport"
+    assert early["state"] == "available" and early["action"] == "resume_from_asr"
+    assert early["mode"] == "speaker_resume" and "asr_timestamps" in early["retained"]
+
+    (meeting / "stamps.json").unlink()
+    no_checkpoint = recovery_plan({**base, "kind": "upload", "stage": "语音转写"})
+    assert no_checkpoint["state"] == "manual" and no_checkpoint["action"] == "reimport"
+    (meeting / "stamps.json").write_text(
+        '{"language":"English","text":"synthetic","time_stamps":[]}', encoding="utf-8")
 
     topic = recovery_plan({**base, "kind": "topic_map", "stage": "构建会议脉络"})
     assert topic["state"] == "available" and topic["mode"] == "topic_map"

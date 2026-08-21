@@ -76,16 +76,24 @@ def export_meeting_preflight(slug: str):
         if path and path.is_file():
             base_bytes += path.stat().st_size
     slides_dir = mdir / "slides"
+    video = _video_path(mdir)
     slide_images = []
+    analysis_bytes = 0
     for page in slides:
         image = slides_dir / str(page.get("image") or "")
         if image.is_file() and image not in slide_images:
             slide_images.append(image)
-    # 导出会生成长边 1600px、quality 80 的 WebP 阅读图，不把 full_* VL 工作帧放入包中。
-    base_bytes += sum(min(path.stat().st_size, max(8_000, int(path.stat().st_size * .55)))
-                      for path in slide_images)
+        number = page.get("page")
+        analysis_frame = slides_dir / f"full_{int(number):02d}.jpg" if number is not None else None
+        if analysis_frame and analysis_frame.is_file():
+            analysis_bytes += analysis_frame.stat().st_size
+        elif image.is_file():
+            # 缓存被清理后，正式导出会从同一时间点恢复原生分辨率 JPEG。
+            # 预检用逻辑页的 2.5 倍作保守估计；没有视频时使用逻辑页 JPEG。
+            analysis_bytes += (max(image.stat().st_size, int(image.stat().st_size * 2.5))
+                               if video else image.stat().st_size)
+    base_bytes += analysis_bytes
     audio = meeting_export._media_source(mdir, "audio")
-    video = _video_path(mdir)
     audio_bytes = audio.stat().st_size if audio else 0
     video_bytes = video.stat().st_size if video else 0
     duration = max((float(turn.get("end", 0)) for turn in transcript), default=0)

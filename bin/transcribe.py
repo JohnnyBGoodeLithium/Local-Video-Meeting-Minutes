@@ -95,6 +95,27 @@ def stamps_to_paragraphs(stamps, max_chars: int = 80):
     return [(st, tx) for st, tx in paras if tx]
 
 
+def write_transcript_outputs(out: Path, wav_stem: str, language: str,
+                             text: str, stamps: list[dict]) -> tuple[int, tuple[float, float] | None]:
+    """ASR 完成后的确定性落盘，可从已保存 stamps 恢复而不重跑模型。"""
+    out.mkdir(parents=True, exist_ok=True)
+    span = None
+    if stamps:
+        span = (float(stamps[0]["start_time"]), float(stamps[-1]["end_time"]))
+        (out / "stamps.json").write_text(json.dumps({
+            "language": language, "text": text, "time_stamps": stamps,
+        }, ensure_ascii=False, indent=1), encoding="utf-8")
+        paras = stamps_to_paragraphs(stamps)
+        md = [f"# {wav_stem} 逐字稿\n",
+              f"> 语言: {language} | 模型: Qwen3-ASR-1.7B + ForcedAligner-0.6B\n"]
+        md += [f"[{_fmt_hms(st)}] {tx}\n" for st, tx in paras]
+        (out / "transcript.ts.md").write_text("\n".join(md), encoding="utf-8")
+    else:
+        paras = []
+    (out / "transcript.txt").write_text(text + "\n", encoding="utf-8")
+    return len(paras), span
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="WAV 转写（本地原生或显式配置的兼容端点）")
     ap.add_argument("wav", type=Path, help="输入 WAV 文件(16kHz 单声道)")
@@ -109,12 +130,32 @@ def main() -> int:
                     help="ASR context 使用的会议标题（默认取 --title 或输出目录名）")
     ap.add_argument("--no-context", action="store_true",
                     help="A/B 测试用：禁用会议标题与术语 context")
+    ap.add_argument("--reuse-stamps", action="store_true",
+                    help="故障恢复：从当前输出目录的完整 stamps.json 继续，不加载 ASR")
     args = ap.parse_args()
 
     if not args.wav.is_file():
         print(f"找不到输入文件: {args.wav}", file=sys.stderr)
         return 1
     out = args.out or for_recording(ROOT, args.wav.stem, args.title)
+
+    if args.reuse_stamps:
+        try:
+            cached = json.loads((out / "stamps.json").read_text(encoding="utf-8"))
+            language = str(cached["language"])
+            corrected_text = str(cached["text"])
+            stamps = cached["time_stamps"]
+            if not isinstance(stamps, list) or not stamps:
+                raise ValueError("empty_stamps")
+            n_paras, span = write_transcript_outputs(
+                out, args.wav.stem, language, corrected_text, stamps)
+        except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            print(f"已保存时间戳不可恢复: {type(exc).__name__}", file=sys.stderr)
+            return 2
+        print(f"[meta] 复用已完成 ASR | 语言={language} | 字符数={len(corrected_text)}"
+              f" | 时间戳 {len(stamps)} 条 覆盖 {span[0]:.1f}s–{span[1]:.1f}s"
+              f" | 段落 {n_paras}", flush=True)
+        return 0
 
     asr_context = ""
     context_terms = 0
@@ -165,20 +206,9 @@ def main() -> int:
         n_stamps = len(stamps)
         span = (stamps[0]["start_time"], stamps[-1]["end_time"])
 
-        (out / "stamps.json").write_text(json.dumps({
-            "language": result.language,
-            "text": corrected_text,
-            "time_stamps": stamps,
-        }, ensure_ascii=False, indent=1), encoding="utf-8")
-
-        paras = stamps_to_paragraphs(stamps)
-        n_paras = len(paras)
-        md = [f"# {args.wav.stem} 逐字稿\n", f"> 语言: {r.language} | 模型: Qwen3-ASR-1.7B + ForcedAligner-0.6B\n"]
-        md += [f"[{_fmt_hms(st)}] {tx}\n" for st, tx in paras]
-        (out / "transcript.ts.md").write_text("\n".join(md), encoding="utf-8")
-
-    txt_path = out / "transcript.txt"
-    txt_path.write_text(corrected_text + "\n", encoding="utf-8")
+    n_paras, written_span = write_transcript_outputs(
+        out, args.wav.stem, result.language, corrected_text, stamps or [])
+    span = written_span or span
 
     context_path = out / "asr.context.json"
     if context_path.is_file():

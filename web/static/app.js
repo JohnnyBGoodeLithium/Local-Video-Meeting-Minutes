@@ -4750,6 +4750,7 @@ function renderJobs(jobs) {
       const retainedLabels = {
         source_media: isEnglishUi() ? "source media" : "源媒体",
         source_transcript: isEnglishUi() ? "source transcript" : "官方逐字稿",
+        asr_timestamps: isEnglishUi() ? "completed ASR timestamps" : "已完成的语音转写",
         transcript: isEnglishUi() ? "transcript" : "逐字稿",
         visual_cache: isEnglishUi() ? "screen cache" : "画面缓存",
         minutes: isEnglishUi() ? "existing minutes" : "现有纪要",
@@ -4766,6 +4767,7 @@ function renderJobs(jobs) {
         translation: isEnglishUi() ? "Retry translation" : "重试翻译",
         topic_map: isEnglishUi() ? "Rebuild topic map" : "重建会议脉络",
         retranscribe: isEnglishUi() ? "Retry transcription" : "重跑转写",
+        speaker_resume: isEnglishUi() ? "Resume speaker detection" : "从说话人识别继续",
         minutes: isEnglishUi() ? "Resume from saved assets" : "从现有资料续跑",
       };
       const detail = document.createElement("div");

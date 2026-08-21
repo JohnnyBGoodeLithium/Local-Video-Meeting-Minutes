@@ -76,6 +76,8 @@ def main() -> int:
                     help="在已有会议目录中重跑本地 ASR（只供受控包装器调用）")
     ap.add_argument("--reuse-visuals", action="store_true",
                     help="复用已有 slides/page_desc，不重新抽帧和读图")
+    ap.add_argument("--reuse-asr", action="store_true",
+                    help="故障恢复：复用完整 stamps.json，只重跑说话人及后续阶段")
     args = ap.parse_args()
     if not args.mp4.is_file():
         print("输入文件不存在", file=sys.stderr)
@@ -111,6 +113,8 @@ def main() -> int:
     print("[2/6] 转写 ∥ 说话人分离 ...", flush=True)
     tr_cmd = [str(PY), str(BIN / "transcribe.py"), str(wav), "--out", str(mdir),
               "--context-title", args.slug or slug]
+    if args.reuse_asr:
+        tr_cmd += ["--reuse-stamps"]
     if args.language:
         tr_cmd += ["--language", args.language]
     p_tr = subprocess.Popen(tr_cmd, env=env)

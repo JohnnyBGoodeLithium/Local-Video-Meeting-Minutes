@@ -13,6 +13,8 @@ import urllib.error
 import zipfile
 from pathlib import Path
 
+from PIL import Image
+
 BASE = os.environ.get("MM_TEST_BASE", "http://127.0.0.1:8899")
 TEST_ROOT = Path(os.environ.get("MM_TEST_ROOT", Path(__file__).resolve().parents[2])).resolve()
 FAKE_BANK = Path(os.environ.get("MM_TEST_BANK", "/tmp/mm_fake_bank")).resolve()
@@ -168,7 +170,7 @@ check("时间码跳转只滚动内容面板，不带动整页丢失播放器",
 check("在线屏幕舞台支持放大、缩放和相邻屏幕键盘导航",
       b'id="screen-preview-mask"' in page and b'openScreenPreview' in app_js
       and b'navigateScreenPreview' in app_js and b'SCREEN_PREVIEW_ZOOMS' in app_js
-      and b'20260819p79' in page)
+      and b'20260821p80' in page)
 check("逐字稿修正入口保持轻量汇总、逐轮核听和可撤销",
       b'id="transcript-review-bar"' in page and b'id="transcript-edit-mask"' in page
       and b'openTranscriptEdit' in app_js and b'undoTranscriptEdit' in app_js)
@@ -507,6 +509,10 @@ check("导出预检只返回内容状态、数量、媒体和预计体积",
       and preflight.get("estimated_bytes", {}).get("audio", 0)
       > preflight.get("estimated_bytes", {}).get("none", 0)
       and "transcript" not in preflight and "path" not in str(preflight))
+# 模拟仍保留的 VL 工作帧：MeetingPack 应逐字节复用，而不是另转 WebP。
+analysis_frame = SMOKE / "slides" / "full_01.jpg"
+Image.new("RGB", (640, 360), (211, 219, 231)).save(analysis_frame, "JPEG", quality=91)
+analysis_frame_bytes = analysis_frame.read_bytes()
 s, h, pack_bytes = req("GET", "/api/meetings/_smoke/export?media=none", raw=True)
 content_disposition = next((value for key, value in h.items()
                             if key.lower() == "content-disposition"), "")
@@ -515,7 +521,7 @@ names = set(pack.namelist()) if pack else set()
 required = {"viewer.html", "README.txt", "AGENTS.md", "assets/minutes.md", "assets/transcript.json",
             "assets/transcript.md", "assets/evidence.json", "assets/facts.json",
             "assets/topic-map.json", "assets/rag/records.jsonl", "assets/manifest.json",
-            "assets/slides/p0001.webp", "assets/slides/p0002.webp"}
+            "assets/slides/p0001.jpg", "assets/slides/p0002.jpg"}
 check("导出 MeetingPack → 标准文件齐全且默认无音视频",
       s == 200 and required <= names and not any(n.startswith("assets/media/") for n in names)
       and re.search(r"_v0\.10\.0_\d{8}-\d{6}\.meetingpack\.zip", content_disposition)
@@ -535,6 +541,13 @@ else:
 check("包内 AGENTS.md 覆盖 agent 任务菜谱（含同系列多场对比与 person_id 对齐）",
       all(marker in agents_md for marker in
           ("常见任务菜谱", "同系列多场对比", "person_id", "会后产出", "建知识库索引", "事实核对")))
+check("MeetingPack 直接复用 VL JPEG，README 说明图片可独立取用",
+      pack is not None
+      and pack.read("assets/slides/p0001.jpg") == analysis_frame_bytes
+      and pack.read("assets/slides/p0002.jpg").startswith(b"\xff\xd8")
+      and "可直接复制到 PPT、Word、邮件" in pack_readme
+      and manifest.get("slides", {}).get("format") == "image/jpeg"
+      and manifest.get("slides", {}).get("source") == "vl_analysis_frame")
 check("MeetingPack v5 manifest/evidence/RAG/Topic Map 共享稳定 linkage",
       manifest.get("schema") == "meetingpack/v5"
       and manifest.get("generator", {}).get("version") == "0.10.0"

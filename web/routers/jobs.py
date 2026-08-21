@@ -17,7 +17,8 @@ from deps import (AUDIO_EXT, BANK_LOCK, DATA_ROOT, DOCX_EXT, INBOX, PY, ROOT,
                   VIDEO_EXT, VTT_EXT, _now, _safe, _slugify)
 from job_store import EXEC, JOBS, PROCS, _new_job, _run_pipeline, _save_job, _set_status
 from job_recovery import (build_minutes_command, build_retranscribe_command,
-                          build_topic_map_command, meeting_dir_for_job, recovery_plan)
+                          build_speaker_resume_command, build_topic_map_command,
+                          meeting_dir_for_job, recovery_plan)
 
 router = APIRouter()
 
@@ -209,6 +210,9 @@ def retry_job(jid: str, quality: str = Query("standard", pattern="^(standard|hig
             elif mode == "retranscribe":
                 command = build_retranscribe_command(mdir)
                 kind = "retranscribe"
+            elif mode == "speaker_resume":
+                command = build_speaker_resume_command(mdir)
+                kind = "upload"
             else:
                 raise ValueError("unsupported_recovery")
         except ValueError as exc:
