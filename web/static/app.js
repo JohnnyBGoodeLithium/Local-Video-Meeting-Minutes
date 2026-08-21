@@ -4664,7 +4664,8 @@ function renderJobs(jobs) {
   const recentFailures = jobs.filter(j => j.status === "failed"
     && j.recovery?.state !== "recovered"
     && !activeMeetings.has(j.meeting)
-    && Date.now() / 1000 - Number(j.finished || j.created || 0) < 60 * 60).slice(0, 2);
+    && (j.recovery?.state === "available"
+      || Date.now() / 1000 - Number(j.finished || j.created || 0) < 60 * 60)).slice(0, 2);
   const visibleJobs = [...activeJobs, ...recentFailures]
     .filter((job, index, all) => all.findIndex(item => item.id === job.id) === index);
   state.activeJobs = activeJobs;

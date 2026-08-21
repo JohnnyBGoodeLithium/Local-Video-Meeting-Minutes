@@ -170,7 +170,10 @@ check("时间码跳转只滚动内容面板，不带动整页丢失播放器",
 check("在线屏幕舞台支持放大、缩放和相邻屏幕键盘导航",
       b'id="screen-preview-mask"' in page and b'openScreenPreview' in app_js
       and b'navigateScreenPreview' in app_js and b'SCREEN_PREVIEW_ZOOMS' in app_js
-      and b'20260821p80' in page)
+      and b'20260821p81' in page)
+check("可恢复失败不会在一小时后失去续跑入口",
+      b'j.recovery?.state === "available"' in app_js
+      and b'Date.now() / 1000 - Number(j.finished || j.created || 0) < 60 * 60' in app_js)
 check("逐字稿修正入口保持轻量汇总、逐轮核听和可撤销",
       b'id="transcript-review-bar"' in page and b'id="transcript-edit-mask"' in page
       and b'openTranscriptEdit' in app_js and b'undoTranscriptEdit' in app_js)
