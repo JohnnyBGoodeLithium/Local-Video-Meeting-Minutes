@@ -17,7 +17,8 @@ with tempfile.TemporaryDirectory(prefix="meeting-recovery-") as tmp:
     os.environ["MEETING_DATA_ROOT"] = str(root)
     os.environ["MEETING_WEB_JOBS"] = str(root / "jobs")
 
-    from job_recovery import recovery_plan  # noqa: E402
+    from job_recovery import meeting_dir_for_job, recovery_plan  # noqa: E402
+    from teams_minutes import slugify  # noqa: E402
 
     meeting = root / "meetings" / "synthetic"
     meeting.mkdir(parents=True)
@@ -63,5 +64,17 @@ with tempfile.TemporaryDirectory(prefix="meeting-recovery-") as tmp:
 
     missing = recovery_plan({**base, "kind": "regen", "meeting": "missing"})
     assert missing["state"] == "manual" and not missing["retained"]
+
+    legacy = root / "meetings" / "legacy-Meeting_Recording"
+    legacy.mkdir()
+    (legacy / "audio.wav").write_bytes(b"fictional protected audio")
+    (legacy / "source_video.mp4").write_bytes(b"fictional protected video")
+    (legacy / "stamps.json").write_text(
+        '{"language":"English","text":"synthetic","time_stamps":[]}', encoding="utf-8")
+    legacy_job = {**base, "meeting": "legacy", "kind": "upload", "stage": "区分发言人"}
+    assert meeting_dir_for_job(legacy_job) == legacy.resolve()
+    legacy_plan = recovery_plan(legacy_job)
+    assert legacy_plan["state"] == "available" and legacy_plan["mode"] == "speaker_resume"
+    assert slugify("Example-20260820_202825-Meeting_Recording") == "Example"
 
 print("Job recovery: stage scope, retained assets, and failure classes passed")

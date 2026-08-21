@@ -56,7 +56,8 @@ BANK_DIR = ROOT / "speaker_bank"
 
 def slugify(name: str) -> str:
     name = re.sub(r"-?\d{8}(_\d{6})?", "", name)          # 去日期时间
-    name = re.sub(r"-?Meeting Recording", "", name, flags=re.I)
+    # Web 上传会先把文件名中的空格固化为下划线；两种形态必须得到同一会议目录。
+    name = re.sub(r"-?Meeting[_ ]Recording", "", name, flags=re.I)
     name = re.sub(r"[^\w一-鿿-]+", "-", name).strip("-")  # 非字母数字转 -
     return re.sub(r"-{2,}", "-", name) or "meeting"
 

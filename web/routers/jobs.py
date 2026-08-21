@@ -173,10 +173,11 @@ def retry_job(jid: str, quality: str = Query("standard", pattern="^(standard|hig
     successor = JOBS.get(str(source.get("recovered_by") or ""))
     if successor and successor.get("status") in {"queued", "running", "done"}:
         raise HTTPException(409, "这条失败任务已经恢复，无需重复提交")
-    slug = str(source.get("meeting") or "")
     mdir = meeting_dir_for_job(source)
     if mdir is None:
         raise HTTPException(409, "会议资产已经不存在，请重新导入")
+    # 旧上传任务可能保存了 p80 前预测出的短 slug；后续任务必须绑定到实际目录。
+    slug = mdir.name
 
     mode = plan["mode"]
     if mode == "translation":

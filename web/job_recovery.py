@@ -21,9 +21,17 @@ LATE_UPLOAD_STAGES = {
 def meeting_dir_for_job(job: dict) -> Path | None:
     slug = str(job.get("meeting") or "")
     candidate = (MEETINGS / slug).resolve()
-    if not slug or candidate.parent != MEETINGS.resolve() or not candidate.is_dir():
+    if not slug or candidate.parent != MEETINGS.resolve():
         return None
-    return candidate
+    if candidate.is_dir():
+        return candidate
+    # p80 之前普通视频上传的 Web 预测器会清掉 `_Meeting_Recording`，而视频脚本
+    # 只清理空格形态，导致 job.meeting 与实际目录差一个固定后缀。仅接受这个
+    # 精确、受控的历史形态，不做前缀/模糊目录匹配，避免恢复到同名会议。
+    legacy = (MEETINGS / f"{slug}-Meeting_Recording").resolve()
+    if legacy.parent == MEETINGS.resolve() and legacy.is_dir():
+        return legacy
+    return None
 
 
 def build_minutes_command(mdir: Path, refine: str = "") -> list[str]:
