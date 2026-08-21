@@ -167,9 +167,12 @@ def enroll(name2vec: dict, slug: str, threshold: float = 0.70, bank_dir: Path = 
     与 video_minutes 同一语义: 占位名(说话人K)不自动建 person, 等人工绑定。"""
     bank_dir = bank_dir or (ROOT / "speaker_bank")
     bank = vb.load_bank(bank_dir)
+    candidates = list(bank["voices"])
+    claimed_unbound = set()
     rename, voice_of, linked, new = {}, {}, 0, 0
     for name, vec in name2vec.items():
-        entry, sim = vb.match_voice(bank_dir, bank, vec, threshold)
+        entry, sim, _ = vb.match_session_voice(
+            bank_dir, bank, candidates, vec, threshold, slug, name, claimed_unbound)
         if entry is None:
             entry = vb.add_voice(bank_dir, bank, vec, label_hint=name, source=slug)
             new += 1
@@ -177,6 +180,7 @@ def enroll(name2vec: dict, slug: str, threshold: float = 0.70, bank_dir: Path = 
             if slug not in entry.setdefault("sources", []):
                 entry["sources"].append(slug)
             linked += 1
+        vb.remember_source_cluster(entry, slug, name, bank=bank)
         rename[name] = vb.display_name(bank, entry)
         voice_of[name] = entry["id"]
     vb.save_bank(bank_dir, bank)
@@ -225,7 +229,7 @@ def merge_fragment_voices(mdir: Path, bank_dir: Path = None, max_turns: int = 2,
             bank["voices"].remove(entry)
             (bank_dir / entry["emb"]).unlink(missing_ok=True)
         else:
-            entry["sources"] = [s for s in entry.get("sources", []) if s != mdir.name]
+            vb.forget_source(entry, mdir.name)
         merged += 1
     if not merged:
         return {"merged": 0, "turns": 0}
@@ -264,7 +268,7 @@ def enroll_meeting(mdir: Path, threshold: float = 0.70, device: str = None) -> i
     md = [f"# {mdir.name} 逐字稿(具名)\n"]
     md += [f"[{mmss(t['start'])}] **{t['speaker']}**: {t['text']}\n" for t in turns]
     (mdir / "transcript.spk.md").write_text("\n".join(md), encoding="utf-8")
-    print(f"[meta] 声纹库: 新入库 {new} | 跨会议命中 {linked} | 轮次 {len(turns)}", flush=True)
+    print(f"[meta] 声纹库: 新入库 {new} | 已有声纹命中 {linked} | 轮次 {len(turns)}", flush=True)
     frag = merge_fragment_voices(mdir)
     if frag["merged"]:
         print(f"[meta] 碎片声纹清理: 合并 {frag['merged']} 条 | 改派 {frag['turns']} 轮",

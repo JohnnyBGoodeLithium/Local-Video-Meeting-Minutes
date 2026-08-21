@@ -1120,6 +1120,9 @@ check("删除会议 → 同步移除本地审计记录",
 bank_after_delete = json.loads((FAKE_BANK / "bank.json").read_text())
 check("删除会议 → 清理声纹 sources", all("_smoke" not in v.get("sources", [])
       for v in bank_after_delete["voices"]))
+check("删除会议 → 同步清理声纹原始聚类映射",
+      all("_smoke" not in v.get("source_clusters", {})
+          for v in bank_after_delete["voices"]))
 
 print(f"\n== {len(PASS)} passed, {len(FAIL)} failed ==")
 if FAIL:

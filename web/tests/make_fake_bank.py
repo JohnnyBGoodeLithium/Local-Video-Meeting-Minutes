@@ -32,7 +32,8 @@ bank = {
                  "created": "2026-01-01"}],
     "voices": [
         {"id": "v_9001", "person_id": None, "label_hint": "Alice",
-         "emb": "emb/v_9001.npy", "sources": ["_smoke"], "created": "2026-01-01"},
+         "emb": "emb/v_9001.npy", "sources": ["_smoke"],
+         "source_clusters": {"_smoke": ["说话人1"]}, "created": "2026-01-01"},
         {"id": "v_9002", "person_id": None, "label_hint": "Bob",
          "emb": "emb/v_9002.npy", "sources": ["_smoke"], "created": "2026-01-01"},
     ],

@@ -137,8 +137,89 @@ def match_voice(bank_dir: Path, bank: dict, vec, threshold: float):
     return None, best_sim
 
 
+def source_cluster_voice(bank: dict, source: str, cluster_label: str):
+    """返回先前为同一场会议、同一原始聚类保存的 voice；旧库无该字段时返回 None。"""
+    for entry in bank.get("voices", []):
+        labels = entry.get("source_clusters", {}).get(source, [])
+        if cluster_label in labels:
+            return entry
+    return None
+
+
+def remember_source_cluster(entry: dict, source: str, cluster_label: str,
+                            bank: dict = None) -> None:
+    """保存唯一、可幂等的本场聚类映射。
+
+    ``bank`` 存在时先清掉其他 voice 上同一 source+cluster 的旧映射。这让曾经
+    坍缩到一个匿名 voice 的坏数据在下一次受控重跑后真正收敛，而不是留下两个
+    相互冲突的精确映射。
+    """
+    if bank is not None:
+        for other in bank.get("voices", []):
+            if other is entry:
+                continue
+            by_source = other.get("source_clusters")
+            labels = by_source.get(source, []) if isinstance(by_source, dict) else []
+            if cluster_label not in labels:
+                continue
+            by_source[source] = [value for value in labels if value != cluster_label]
+            if not by_source[source]:
+                del by_source[source]
+            if not by_source:
+                other.pop("source_clusters", None)
+    by_source = entry.setdefault("source_clusters", {})
+    labels = by_source.setdefault(source, [])
+    if cluster_label not in labels:
+        labels.append(cluster_label)
+
+
+def forget_source(entry: dict, source: str) -> bool:
+    """从一条 voice 同步移除会议来源及其原始聚类映射。"""
+    changed = False
+    sources = entry.get("sources", [])
+    if source in sources:
+        entry["sources"] = [value for value in sources if value != source]
+        changed = True
+    by_source = entry.get("source_clusters")
+    if isinstance(by_source, dict) and source in by_source:
+        del by_source[source]
+        if not by_source:
+            entry.pop("source_clusters", None)
+        changed = True
+    return changed
+
+
+def match_session_voice(bank_dir: Path, bank: dict, candidates: list, vec,
+                        threshold: float, source: str, cluster_label: str,
+                        claimed_unbound: set):
+    """为本场一个原始聚类匹配声纹，并阻止匿名簇在同场多对一坍缩。
+
+    ``candidates`` 必须是入库循环开始前冻结的 voice 列表，因此本场刚创建的
+    voice 不会被后续聚类当成“跨会议命中”。已有的 source+cluster 映射优先，
+    使恢复重跑保持幂等。已绑定 person 的 voice 可承载同一人的多个声学簇；
+    未绑定 voice 在一场会议里最多认领一个原始聚类。
+    """
+    entry = source_cluster_voice(bank, source, cluster_label)
+    if entry is not None:
+        if entry.get("person_id") or entry.get("id") not in claimed_unbound:
+            if not entry.get("person_id"):
+                claimed_unbound.add(entry["id"])
+            return entry, 1.0, "session"
+        # 兼容曾经把多个本场聚类记进同一匿名 voice 的坏数据：本轮将其拆开。
+        entry = None
+
+    frozen_bank = {"voices": candidates}
+    matched, similarity = match_voice(bank_dir, frozen_bank, vec, threshold)
+    if matched is not None and not matched.get("person_id"):
+        if matched["id"] in claimed_unbound:
+            return None, similarity, "collision"
+        claimed_unbound.add(matched["id"])
+    return matched, similarity, "matched" if matched is not None else "new"
+
+
 def add_voice(bank_dir: Path, bank: dict, vec, label_hint: str, source: str,
               person_id=None) -> dict:
+    (Path(bank_dir) / "emb").mkdir(parents=True, exist_ok=True)
     vid = f"v_{len(bank['voices'])+1:04d}"
     v = np.asarray(vec, dtype=np.float32)
     np.save(Path(bank_dir) / "emb" / f"{vid}.npy", v / (np.linalg.norm(v) + 1e-9))

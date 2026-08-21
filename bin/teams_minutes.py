@@ -147,9 +147,12 @@ def align(transcript_cues, dia_turns):
 def update_bank(name2vec, slug, threshold):
     """声纹入库/比对。返回 (rename映射, voice_id映射, linked, new)。命中库的输入名会改成库内人名。"""
     bank = vb.load_bank(BANK_DIR)
+    candidates = list(bank["voices"])
+    claimed_unbound = set()
     rename, voice_of, linked, new = {}, {}, 0, 0
     for name, vec in name2vec.items():
-        entry, sim = vb.match_voice(BANK_DIR, bank, vec, threshold)
+        entry, sim, _ = vb.match_session_voice(
+            BANK_DIR, bank, candidates, vec, threshold, slug, name, claimed_unbound)
         if entry is not None:
             if slug not in entry.setdefault("sources", []):
                 entry["sources"].append(slug)
@@ -164,6 +167,7 @@ def update_bank(name2vec, slug, threshold):
                                  source=slug, person_id=pid)
             rename[name] = vb.display_name(bank, entry)
             new += 1
+        vb.remember_source_cluster(entry, slug, name, bank=bank)
         voice_of[name] = entry["id"]
     vb.save_bank(BANK_DIR, bank)
     return rename, voice_of, linked, new
@@ -227,7 +231,7 @@ def main() -> int:
     for t in turns:
         if t["name"] in rename:
             t["name"] = rename[t["name"]]
-    print(f"[meta] 声纹库: 新入库 {new} | 跨会议命中 {linked}", flush=True)
+    print(f"[meta] 声纹库: 新入库 {new} | 已有声纹命中 {linked}", flush=True)
 
     source_meta = {
         "mp4": str(source_mp4),

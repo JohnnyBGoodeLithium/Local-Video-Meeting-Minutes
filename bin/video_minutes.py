@@ -46,9 +46,12 @@ def enroll(name2vec, slug, threshold=0.70):
     """匿名声纹入库/比对。返回 (显示名映射, voice_id映射, linked, new)。
     与 teams 版不同: 占位名(说话人K)不自动建 person, 等人工绑定。"""
     bank = vb.load_bank(BANK_DIR)
+    candidates = list(bank["voices"])
+    claimed_unbound = set()
     rename, voice_of, linked, new = {}, {}, 0, 0
     for name, vec in name2vec.items():
-        entry, sim = vb.match_voice(BANK_DIR, bank, vec, threshold)
+        entry, sim, _ = vb.match_session_voice(
+            BANK_DIR, bank, candidates, vec, threshold, slug, name, claimed_unbound)
         if entry is None:
             entry = vb.add_voice(BANK_DIR, bank, vec, label_hint=name, source=slug)
             new += 1
@@ -56,6 +59,7 @@ def enroll(name2vec, slug, threshold=0.70):
             if slug not in entry.setdefault("sources", []):
                 entry["sources"].append(slug)
             linked += 1
+        vb.remember_source_cluster(entry, slug, name, bank=bank)
         rename[name] = vb.display_name(bank, entry)
         voice_of[name] = entry["id"]
     vb.save_bank(BANK_DIR, bank)
@@ -175,7 +179,7 @@ def main() -> int:
     tmp_source.write_text(json.dumps(source_meta, ensure_ascii=False, indent=1),
                           encoding="utf-8")
     os.replace(tmp_source, source_path)
-    print(f"[meta] 声纹库: 新入库 {new} | 跨会议命中 {linked}", flush=True)
+    print(f"[meta] 声纹库: 新入库 {new} | 已有声纹命中 {linked}", flush=True)
     subprocess.run([sys.executable, str(BIN / "voice_tool.py"), "sample", str(mdir)],
                    check=False, capture_output=True)
     review = bind_review_to_transcript(mdir)

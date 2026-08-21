@@ -72,4 +72,58 @@ with tempfile.TemporaryDirectory() as td:
     # 幂等：再跑一次无变化
     assert ve.merge_fragment_voices(mdir, bank_dir=bank_dir) == {"merged": 0, "turns": 0}
 
-print("voice fragment merge: synthetic bank passed")
+with tempfile.TemporaryDirectory() as td:
+    # 两个高度相似的 pyannote 聚类仍必须保留两个匿名 voice；本场刚创建的
+    # voice 不能在同一 enrollment 循环中吞并后续聚类。再次运行应按
+    # source_clusters 幂等复用，而不是继续增殖 voice。
+    bank_dir = Path(td) / "bank"
+    first = {"说话人1": vec(10, 20), "说话人2": vec(10, 21)}
+    _, voice_of, linked, new = ve.enroll(first, "session-a", bank_dir=bank_dir)
+    assert new == 2 and linked == 0
+    assert voice_of["说话人1"] != voice_of["说话人2"]
+    saved = vb.load_bank(bank_dir)
+    assert len(saved["voices"]) == 2
+    assert all(v.get("source_clusters", {}).get("session-a") for v in saved["voices"])
+
+    _, again, linked2, new2 = ve.enroll(first, "session-a", bank_dir=bank_dir)
+    assert again == voice_of
+    assert linked2 == 2 and new2 == 0
+    assert len(vb.load_bank(bank_dir)["voices"]) == 2
+
+with tempfile.TemporaryDirectory() as td:
+    # 旧版本曾把两个本场聚类压进同一匿名 voice。受控重跑应复用其中一个、
+    # 为另一个建立独立 voice，并把精确映射迁移到唯一归属。
+    bank_dir = Path(td) / "bank"
+    bank = {"schema": "speaker-bank/v3", "voices": [], "persons": []}
+    collapsed = vb.add_voice(bank_dir, bank, vec(12, 30), "说话人6", "session-b")
+    collapsed["source_clusters"] = {"session-b": ["说话人6", "说话人8"]}
+    vb.save_bank(bank_dir, bank)
+    labels = {"说话人6": vec(12, 31), "说话人8": vec(12, 32)}
+    _, split_map, _, split_new = ve.enroll(labels, "session-b", bank_dir=bank_dir)
+    assert split_new == 1
+    assert split_map["说话人6"] == collapsed["id"]
+    assert split_map["说话人8"] != collapsed["id"]
+    saved = vb.load_bank(bank_dir)
+    owners = {
+        label: [v["id"] for v in saved["voices"]
+                if label in v.get("source_clusters", {}).get("session-b", [])]
+        for label in labels
+    }
+    assert all(len(ids) == 1 for ids in owners.values()), owners
+
+with tempfile.TemporaryDirectory() as td:
+    # 已由用户确认归属同一人的 voice 允许吸收同场多个声学聚类；隔离规则只约束
+    # 未绑定匿名 voice，不能破坏跨设备/音色变化下的一人多簇能力。
+    bank_dir = Path(td) / "bank"
+    bank = {"schema": "speaker-bank/v3", "voices": [], "persons": []}
+    person = vb.add_person(bank, "Synthetic Person")
+    known = vb.add_voice(bank_dir, bank, vec(14, 40), "Synthetic Person", "older-session",
+                         person_id=person["id"])
+    vb.save_bank(bank_dir, bank)
+    labels = {"说话人1": vec(14, 41), "说话人2": vec(14, 42)}
+    _, known_map, known_linked, known_new = ve.enroll(
+        labels, "session-c", bank_dir=bank_dir)
+    assert known_new == 0 and known_linked == 2
+    assert set(known_map.values()) == {known["id"]}
+
+print("voice enrollment isolation and fragment merge: synthetic bank passed")

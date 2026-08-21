@@ -128,9 +128,7 @@ def delete_meeting(slug: str):
     with BANK_LOCK:
         bank = vb.load_bank(BANK_DIR)
         for v in bank["voices"]:
-            srcs = v.get("sources", [])
-            if slug in srcs:
-                srcs.remove(slug)
+            if vb.forget_source(v, slug):
                 removed += 1
         if removed:
             vb.save_bank(BANK_DIR, bank)
