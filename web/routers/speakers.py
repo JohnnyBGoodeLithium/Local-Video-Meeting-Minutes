@@ -330,6 +330,7 @@ class SplitReq(BaseModel):
 class SplitPreviewReq(BaseModel):
     voice: str
     turns: list[int]
+    name: str = ""
 
 
 def _resolve_current_split_voice(turns: list, indexes: list[int], requested: str):
@@ -346,6 +347,26 @@ def _resolve_current_split_voice(turns: list, indexes: list[int], requested: str
         raise HTTPException(400, "所选轮次当前属于多条声纹，请刷新后重新选择")
     current = next(iter(voices))
     return current, current != requested
+
+
+def _existing_voice_for_person(bank: dict, turns: list, person_id: str, *,
+                               source_voice: str, slug: str):
+    """为人工逐轮改派选择已存在的目标声纹，不凭短音频重新猜身份。"""
+    counts: dict[str, int] = {}
+    for turn in turns:
+        voice_id = str(turn.get("voice") or "")
+        counts[voice_id] = counts.get(voice_id, 0) + 1
+    candidates = [voice for voice in bank.get("voices", [])
+                  if voice.get("person_id") == person_id
+                  and voice.get("id") != source_voice]
+    if not candidates:
+        return None
+    # 优先复用本会议已出现且轮次最多的已确认声纹；其次才用跨会议声纹。
+    return max(candidates, key=lambda voice: (
+        counts.get(str(voice.get("id") or ""), 0),
+        slug in set(voice.get("sources") or []),
+        str(voice.get("id") or ""),
+    ))
 
 
 @router.post("/api/meetings/{slug}/split/preview")
@@ -365,6 +386,20 @@ def preview_split_voice_turns(slug: str, req: SplitPreviewReq):
     protected = sorted((sc.locked_indexes(mdir, turns) - selected_set) & set(source_indexes))
     candidates = [index for index in source_indexes
                   if index not in selected_set and index not in set(protected)]
+    if req.name.strip():
+        with BANK_LOCK:
+            bank = vb.load_bank(BANK_DIR)
+            person, _how = _resolve_or_409(
+                bank, req.name.strip(), orgchart=vb.load_orgchart(BANK_DIR))
+            target = _existing_voice_for_person(
+                bank, turns, person["id"], source_voice=source_voice, slug=slug)
+        if target is not None:
+            return {"ok": True, "voice": source_voice,
+                    "source_voice_rebased": voice_rebased,
+                    "selected": selected, "suggested": [], "protected": protected,
+                    "ambiguous": [], "threshold": None, "margin": None,
+                    "direct_assignment": True,
+                    "target_voice": target["id"]}
     wav = _audio_path(mdir)
     if wav is None:
         raise HTTPException(400, "会议没有可用音频，无法预览声纹拆分")
@@ -432,6 +467,44 @@ def _split_voice_turns(slug: str, req: SplitReq, mdir: Path):
         raise HTTPException(
             400, f"这条声纹在本会议只有 {len(idx)} 轮且全部被选中，无需拆分："
                  "点该轮的说话人 chip 直接绑定姓名即可整体改派")
+    # 用户明确标记具体轮次并选择一个已有人员时，人工判断优先于声纹相似度。
+    # 尤其 0 时长或极短的边界轮次没有可靠 embedding；强制重提声纹会让用户
+    # 明明知道是谁却无法改正。这里只改手选轮次，不扩散、不改目标声纹质心。
+    if req.name.strip() and not req.expand_similar:
+        with BANK_LOCK:
+            bank = vb.load_bank(BANK_DIR)
+            assigned_person, _how = _resolve_or_409(
+                bank, req.name.strip(), orgchart=vb.load_orgchart(BANK_DIR))
+            target = _existing_voice_for_person(
+                bank, turns, assigned_person["id"], source_voice=source_voice, slug=slug)
+            if target is not None:
+                if slug not in target.setdefault("sources", []):
+                    target["sources"].append(slug)
+                new_name = vb.display_name(bank, target)
+                for index in idx:
+                    turns[index]["voice"] = target["id"]
+                    turns[index]["speaker"] = new_name
+                vb.save_bank(BANK_DIR, bank)
+
+        if target is not None:
+            tmp = tp.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(turns, ensure_ascii=False, indent=1), encoding="utf-8")
+            tmp.replace(tp)
+            _rewrite_spk_md(mdir, slug, turns)
+            sc.lock_turns(mdir, turns, idx, person_id=assigned_person["id"],
+                          voice_id=target["id"], operation="direct-assign")
+            _refresh_evidence(mdir)
+            subprocess.run([str(PY), str(ROOT / "bin" / "voice_tool.py"), "sample", str(mdir)],
+                           check=False, capture_output=True)
+            return {"ok": True, "moved": len(idx), "reassigned": 0,
+                    "clusters": 1,
+                    "voices": [{"voice": target["id"], "name": new_name,
+                                "turns": len(idx), "matched": True,
+                                "similarity": None}],
+                    "source_voice_rebased": voice_rebased,
+                    "name_applied": True, "expanded_similar": False,
+                    "protected": len(sc.locked_indexes(mdir, turns) & set(remaining)),
+                    "direct_assignment": True}
     wav = _audio_path(mdir)
     if wav is None:
         raise HTTPException(400, "会议没有可用音频，无法重提声纹")

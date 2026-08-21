@@ -765,7 +765,7 @@ async function applySplitMarks() {
         `/api/meetings/${encodeURIComponent(state.slug)}/split/preview`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ voice: previewVoice, turns: previewTurns }),
+          body: JSON.stringify({ voice: previewVoice, turns: previewTurns, name: assign }),
         });
       splitPreview = await response.json().catch(() => ({}));
       if (!response.ok) {
@@ -785,6 +785,9 @@ async function applySplitMarks() {
     const suggested = splitPreview.suggested?.length || 0;
     const protectedCount = splitPreview.protected?.length || 0;
     const ambiguous = splitPreview.ambiguous?.length || 0;
+    if (splitPreview.direct_assignment) {
+      toast(`将只改派手选的 ${marked.length} 轮；人工确认优先，不重新猜测极短音频`);
+    }
     if (suggested) {
       expandSimilar = confirm(
         `已手选 ${marked.length} 轮；另发现 ${suggested} 轮高置信相似发言。` +
@@ -4680,7 +4683,10 @@ function renderJobs(jobs) {
     const name = meeting?.title || j.meeting || "会议处理";
     const kindLabel = j.kind === "translation"
       ? `${translationTargetLabel(j.target_language)} ${j.translation_artifact === "minutes"
-        ? (isEnglishUi() ? "minutes" : "纪要") : (isEnglishUi() ? "transcript" : "逐字稿")} ${isEnglishUi() ? "translation" : "翻译"}`
+        ? (j.translation_source_state === "draft"
+          ? (isEnglishUi() ? "voice-draft minutes" : "语音草稿纪要")
+          : (isEnglishUi() ? "minutes" : "纪要"))
+        : (isEnglishUi() ? "transcript" : "逐字稿")} ${isEnglishUi() ? "translation" : "翻译"}`
       : j.kind === "regen" ? "生成纪要" : j.kind === "topic_map" ? "生成会议脉络"
       : j.kind === "upload" ? "会议处理" : "";
     const progress = j.progress?.total

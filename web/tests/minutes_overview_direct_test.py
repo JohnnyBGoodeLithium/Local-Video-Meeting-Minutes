@@ -47,15 +47,16 @@ OUTSIDE_ACTION = ("## 总体摘要\n- **主旨**：合成会议。\n\n"
 
 
 class SequenceClient:
-    def __init__(self, outputs):
+    def __init__(self, outputs, *, usage=None):
         self.outputs = list(outputs)
         self.calls = []
+        self.usage = usage or {"prompt_tokens": 10, "completion_tokens": 5}
 
     def complete(self, prompt, **kwargs):
         self.calls.append((prompt, kwargs))
         content = self.outputs.pop(0)
         return Completion(content=content,
-                          usage={"prompt_tokens": 10, "completion_tokens": 5},
+                          usage=self.usage,
                           elapsed=0.01)
 
 
@@ -104,5 +105,18 @@ result = generate_direct("合成直出 prompt", "只使用合成证据。", note
                          client=client)
 assert result.content.count("kind=action") == 1
 assert "kind=discussion status=confirmed" in result.content
+
+# 7. llama.cpp/OpenAI-compatible usage 可含嵌套 token 明细；待办定点修复只能
+# 汇总数值计数，不能因统计对象无法 int() 而把已经生成的纪要判为失败。
+client = SequenceClient(
+    [BAD_TODO, BAD_TODO, REPAIRED_TODO],
+    usage={"prompt_tokens": 10, "completion_tokens": 5,
+           "prompt_tokens_details": {"cached_tokens": 3}},
+)
+result = generate_direct(
+    "合成直出 prompt", "只使用合成证据。", notes="合成上下文含 T000001",
+    client=client)
+assert "kind=action" in result.content
+assert result.usage == {"prompt_tokens": 20, "completion_tokens": 10}
 
 print("Minutes overview direct: guard, retry and todo repair passed")

@@ -98,7 +98,11 @@ def _run_minutes_translation(job: dict, mdir, title: str, target: str) -> None:
         return
     target_label = translation.TARGETS[target]["label"]
     source, evidence = _minutes_reading_source(mdir)
-    _set_status(job, "running", started=_now(), stage=f"生成{target_label}纪要",
+    source_state = meeting_generation.document_state(mdir, bool(source))
+    stage_label = (f"生成{target_label}语音草稿译文" if source_state == "draft"
+                   else f"生成{target_label}纪要")
+    _set_status(job, "running", started=_now(), stage=stage_label,
+                translation_source_state=source_state,
                 progress={"done": 0, "total": 0})
 
     def cancelled() -> bool:
@@ -128,6 +132,7 @@ def _run_minutes_translation(job: dict, mdir, title: str, target: str) -> None:
         return
     _set_status(job, "done", finished=_now(), rc=0,
                 result={"target_language": target, "artifact": "minutes",
+                        "source_state": source_state,
                         "done": document.get("done", 1), "total": document.get("total", 1),
                         "dry_run": DRY_RUN})
 
@@ -284,7 +289,9 @@ def create_minutes_translation(
     if existing:
         return dict(existing)
     job = _new_job("translation", meeting=slug, target_language=target,
-                   translation_artifact="minutes", progress={"done": 0, "total": 0})
+                   translation_artifact="minutes",
+                   translation_source_state=meeting_generation.document_state(mdir, True),
+                   progress={"done": 0, "total": 0})
     response = dict(job)
     EXEC.submit(_run_minutes_translation, job, mdir, _meeting_identity(slug)["title"], target)
     return response

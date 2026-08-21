@@ -109,6 +109,24 @@ def _usage_total(results, key: str) -> int:
     return sum(int(result.usage.get(key) or 0) for result in results)
 
 
+def _merge_numeric_usage(*values: dict) -> dict:
+    """只合并 token usage 中的数值字段。
+
+    OpenAI-compatible 服务可能同时返回 ``prompt_tokens_details`` 等嵌套对象。
+    它们是诊断明细，不是可相加的计数；把所有字段无差别 ``int()`` 会让已经
+    生成成功的待办修复稿在收尾时触发 TypeError，进而误判整场纪要失败。
+    """
+    merged: dict[str, int | float] = {}
+    for value in values:
+        if not isinstance(value, dict):
+            continue
+        for key, item in value.items():
+            if isinstance(item, bool) or not isinstance(item, (int, float)):
+                continue
+            merged[key] = merged.get(key, 0) + item
+    return merged
+
+
 # 长输出偶发退化：模型陷入“自我修正”循环，同一长句反复重述直至耗尽输出预算，
 # 排在其后的章节（如待办事项）被整体截断。检测靠两类信号：长行重复与自我修正链标记。
 REPEAT_LINE_MIN = 40
@@ -295,8 +313,7 @@ def _repair_todo(client: LocalLLMClient, final: Completion, evidence_rules: str,
         todo=_todo_section(final.content).strip() or "（空）")
     repair = _complete_with_guard(client, repair_prompt, max_tokens=2048,
                                   validator=_todo_compliant)
-    usage = {key: int(final.usage.get(key) or 0) + int(repair.usage.get(key) or 0)
-             for key in set(final.usage) | set(repair.usage)}
+    usage = _merge_numeric_usage(final.usage, repair.usage)
     repaired = _strip_fence(repair.content)
     if _todo_compliant(repaired):
         print("[minutes] 待办章节证据标记缺失，已定点修复", file=sys.stderr)

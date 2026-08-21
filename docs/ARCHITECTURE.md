@@ -76,6 +76,8 @@ VL 终稿和 Topic Map 发布后，普通录屏与 Teams 管线会用一次本�
 
 `teams_minutes.py` 使用 Teams VTT 或 DOCX 的姓名线索与本地分离结果对齐；会议室混合通道继续按声纹拆分，然后进入同样的语音草稿 → VL 终稿流程。`teams_transcript.py` 是不依赖 Web 和第三方 Office 库的输入边界：VTT 读取 cue，DOCX 直接读取 OOXML 中“粗体姓名 → 时间码 → 正文”的 run 结构，忽略头像等媒体；DOCX 不含结束时间，因此用下一条开始时间推导，最后一条使用分离得到的媒体时长。解析失败在写 canonical 逐字稿前终止，不降级猜测姓名或正文。
 
+说话人修正区分两类证据：未具名拆分或相似扩展需要音频 embedding；用户明确手选轮次并指定已有人员时，人工身份判断是更高优先级证据，服务端可直接复用该人员现有 voice。直接改派不改声纹质心、不写原始 cluster 映射，只更新选中 turn 的 `voice/speaker` 并写 `speaker.corrections.json` 硬锁；整个 bank、逐字稿和锁文件仍包含在 `speaker_history` 可撤销事务中。这样 0 时长/极短边界轮次不依赖模型可提取性，未选轮次也不会被隐式扩散。
+
 外部逐字稿不是强制真源。上传路由通过 `transcript_policy` 明确选择 `external` / `ignored` / `local_asr`；`source.json.transcript_source` 记录当前 canonical 逐字稿来源。选择忽略时仍把 VTT/DOCX 固化为受保护母版，但 `speaker_navigation` 不得把其姓名标签投影到本地 ASR 结果。`retranscribe_local.py` 可为存量音频或视频会议创建 `.versions/before-local-asr-*` 快照，再使用当前显式配置的 provider 和最新 Context 重建逐字稿、说话人、纪要、evidence 和 Topic Map；视频复用 `slides.json/page_desc.json` 且不启动 VL，任一子管线失败时恢复快照。
 
 音视频导入后通过 `meeting_dir.materialize_source` 固化到会议目录。优先创建独立 inode 的 CoW reflink，不支持时完整复制；`source.json` 的主媒体路径指向会议内文件。Web 对旧会议继续支持外部 `source.json` 回退，避免迁移前录音因缺少 `audio.wav` 而无法播放。

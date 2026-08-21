@@ -10,7 +10,8 @@ from voice_enroll import (cluster_embeddings, reassign_by_centroids,
                           suggest_reassignments)  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from routers.speakers import _resolve_current_split_voice  # noqa: E402
+from routers.speakers import (_existing_voice_for_person,
+                              _resolve_current_split_voice)  # noqa: E402
 
 DIM = 192
 
@@ -100,5 +101,21 @@ except Exception as exc:
     assert "多条声纹" in str(getattr(exc, "detail", ""))
 else:
     raise AssertionError("mixed current voices must be rejected")
+
+# 13. 人工逐轮具名优先复用本会议已经出现最多的目标人员声纹；不靠极短音频猜。
+bank = {"voices": [
+    {"id": "v_source", "person_id": "p_source", "sources": ["synthetic"]},
+    {"id": "v_target_old", "person_id": "p_target", "sources": ["other"]},
+    {"id": "v_target_here", "person_id": "p_target", "sources": ["synthetic"]},
+]}
+synthetic_turns = [
+    {"voice": "v_source"}, {"voice": "v_source"},
+    {"voice": "v_target_here"}, {"voice": "v_target_here"},
+]
+target = _existing_voice_for_person(
+    bank, synthetic_turns, "p_target", source_voice="v_source", slug="synthetic")
+assert target["id"] == "v_target_here"
+assert _existing_voice_for_person(
+    bank, synthetic_turns, "p_missing", source_voice="v_source", slug="synthetic") is None
 
 print("voice split clustering: synthetic partitions passed")
