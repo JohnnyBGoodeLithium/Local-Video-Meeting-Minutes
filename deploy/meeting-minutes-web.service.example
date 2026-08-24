@@ -10,6 +10,9 @@ EnvironmentFile=-/etc/meeting-minutes.env
 ExecStart=/opt/meeting-minutes/.venv/bin/python /opt/meeting-minutes/web/server.py
 Restart=on-failure
 RestartSec=3
+# 优雅退出上限：应用层默认 8s 排空连接（MEETING_WEB_GRACEFUL_SHUTDOWN），
+# 这里再给一层兜底，超时由 systemd 强杀，部署不再无限期等待。
+TimeoutStopSec=15
 
 [Install]
 WantedBy=default.target

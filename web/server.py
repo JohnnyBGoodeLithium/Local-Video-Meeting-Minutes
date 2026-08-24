@@ -13,6 +13,8 @@ job_store.py，全部 HTTP 路由在 routers/（注册顺序见 routers/__init__
     MEETING_WEB_JOBS       作业 JSON 目录（默认 web/jobs）
     MEETING_WEB_DRYRUN=1   作业干跑模式：管线只执行 `<脚本> --help` 校验调用链，
                            regen 直接标记完成（供冒烟测试，不碰 GPU 模型）
+    MEETING_WEB_GRACEFUL_SHUTDOWN   收到停止信号后等待连接排空的秒数（默认 8），
+                           超时强制关闭剩余连接，避免部署重启被长连接挂住
 
 隐私约定：stdout/作业日志只保留管线脚本的元数据行（以 "[" 开头的进度行），
 不写任何转写/纪要正文。作业 json 只存元数据。
@@ -49,5 +51,8 @@ load_jobs()
 if __name__ == "__main__":
     import uvicorn
 
+    # 浏览器长连接（SSE/挂起请求）曾让旧进程在 SIGTERM 后等待 45s+ 才被 systemd 强杀；
+    # 这里给连接排空一个有界窗口，超时后 uvicorn 主动关闭剩余连接。
+    graceful_shutdown = int(os.environ.get("MEETING_WEB_GRACEFUL_SHUTDOWN", "8"))
     uvicorn.run(app, host="127.0.0.1", port=int(os.environ.get("MEETING_WEB_PORT", 8899)),
-                log_level="info")
+                log_level="info", timeout_graceful_shutdown=graceful_shutdown)

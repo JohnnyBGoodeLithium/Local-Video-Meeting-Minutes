@@ -182,3 +182,5 @@ make smoke
 ## Web 常驻
 
 `deploy/meeting-minutes-web.service.example` 是 systemd 示例。复制前必须修改 `User`、`WorkingDirectory`、环境文件和数据目录；服务仍只监听 `127.0.0.1`。未来给同事开放上传/阅读时，应在外层增加企业身份、会议级 ACL、TLS、配额、审计和生命周期，不能直接把 8899 或模型端口暴露到局域网。
+
+优雅退出：收到 SIGTERM 后应用最多等待 `MEETING_WEB_GRACEFUL_SHUTDOWN` 秒（默认 8）让在途连接排空，超时由 uvicorn 强制关闭剩余连接；systemd 侧 `TimeoutStopSec=15` 作为兜底。浏览器长连接不再把部署重启挂住；正在执行的后台作业在下次启动时仍按既有规则标记为中断并走恢复流程。

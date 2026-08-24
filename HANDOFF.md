@@ -3,14 +3,19 @@
 > 给接手 agent：先读本文件和 `AGENTS.md`，再看 `CHANGELOG.md` 未发布段了解最近改动。
 > 本文件在每次交接或大方向变化时更新；过期的进行中事项完成后删除对应段落。
 
-更新时间：2026-08-21（产品版本 v0.10.0；在线工作台构建号 20260821p83；提交号以 `git log -1` 为准）
+更新时间：2026-08-24（产品版本 v0.10.0；在线工作台构建号 20260821p83；提交号以 `git log -1` 为准）
 
 ## 当前基线
 
 - 仓库：`/home/johnny-tcx_ultra/meeting-minutes`，分支 main。
 - 验证基线：发布提交前以本轮 `make check`、隔离 Web smoke 和 MeetingPack 启动测试结果为准；所有新增测试只使用虚构数据。
-- 服务：端口 8899，`systemctl --user restart meeting-minutes-web` 重启（挂起 ~45s 是已知 P2 问题，见下）。
+- 服务：端口 8899，`systemctl --user restart meeting-minutes-web` 重启。优雅退出已有界：`MEETING_WEB_GRACEFUL_SHUTDOWN` 默认 8 秒强制关闭残留连接，restart 不再挂起 45s。
 - 隐私红线（详见 AGENTS.md）：不读真实会议正文，只看元数据/结构；上次已获用户授权诊断 Gate B 会议标题形态，新任务需重新授权。
+
+## 当前批次：Web 优雅退出有界超时
+
+- `web/server.py` 给 `uvicorn.run` 加 `timeout_graceful_shutdown`（env `MEETING_WEB_GRACEFUL_SHUTDOWN`，默认 8）；deploy 示例 unit 加 `TimeoutStopSec=15`。挂起连接实测退出 8.2s；`make check` 全绿。
+- 本机 user unit `~/.config/systemd/user/meeting-minutes-web.service` 未改：应用层 8s 已够，systemd 默认 90s 兜底足够。
 
 ## 当前批次：处理中核听快照与检查点强制调度
 
@@ -166,9 +171,14 @@
 
 ## 其他遗留（不主动做，等用户发起）
 
-- 速度：VL 双槽/语音草稿/SSE 流式已上线；文本路由单槽刻意不动（避免争抢）；Web 优雅退出有界超时（P2）仍欠，表现为 restart 挂起 ~45s。
-- 已讨论未做：会议关键字/标签（用户说过"先作第一项"但一直未启动）、术语替换预览（人名批量纠错）、补充事实强制带依据、跨会议检索。
+- 速度：VL 双槽/语音草稿/SSE 流式已上线；文本路由单槽刻意不动（避免争抢）。
+- 已讨论未做：会议关键字/标签（本轮已立项，见下）、术语替换预览（人名批量纠错）、补充事实强制带依据、跨会议检索。
 - 大屏滚动链修复（b8c2d4e）探针验证过收敛，用户未回复确认。
+
+## 进行中：会议关键字/标签（2026-08-24 立项，用户选定）
+
+- 用户诉求（原话整理）：导出数据既方便人类浏览纪要，也方便进知识库检索与结论查找；参考其他产品的会议关键字功能，展示位置待定（会议脉络？库列表？），并让 RAG 更好找。
+- 本批同时做：Web 优雅退出超时（已完成，见上）。
 
 ## 最近一批已推送（详见 CHANGELOG 未发布段）
 
