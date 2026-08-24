@@ -908,12 +908,15 @@ def _minutes_sections(minutes: str) -> list[dict]:
     return sections
 
 
-def rag_records(evidence: dict, minutes: str, facts: dict | None = None) -> list[dict]:
-    """生成可直接写 JSONL 的检索记录；结论和原始证据用 ID 显式相连。"""
+def rag_records(evidence: dict, minutes: str, facts: dict | None = None,
+                keywords: list[str] | None = None) -> list[dict]:
+    """生成可直接写 JSONL 的检索记录；结论和原始证据用 ID 显式相连。
+    keywords 是会议级检索标签（meeting.keywords.json 的纯文本清单），
+    作为每条记录的可过滤/可加权元数据，不参与证据语义。"""
     meeting_id = evidence["meeting_id"]
     artifact_id = evidence["artifact_id"]
     common = {"schema": RAG_SCHEMA, "meeting_id": meeting_id, "artifact_id": artifact_id,
-              "meeting_slug": evidence["slug"]}
+              "meeting_slug": evidence["slug"], "keywords": list(keywords or [])}
     records = []
     for claim in evidence.get("claims", []):
         record = {

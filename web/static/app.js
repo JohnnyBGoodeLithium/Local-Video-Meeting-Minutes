@@ -181,6 +181,15 @@ const UI_COPY = {
 function ui(key) { return UI_COPY[state.uiLanguage]?.[key] || UI_COPY["zh-CN"][key] || key; }
 function isEnglishUi() { return state.uiLanguage === "en"; }
 
+const KEYWORD_KIND_LABELS = {
+  "zh-CN": { product: "产品", project: "项目", topic: "议题", organization: "组织", other: "其他" },
+  en: { product: "Product", project: "Project", topic: "Topic", organization: "Org", other: "Other" },
+};
+function keywordKindLabel(kind) {
+  return KEYWORD_KIND_LABELS[state.uiLanguage]?.[kind]
+    || KEYWORD_KIND_LABELS[state.uiLanguage]?.other || "";
+}
+
 function fmt(sec) {
   sec = Math.max(0, Math.floor(sec || 0));
   const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
@@ -358,13 +367,36 @@ async function loadProductVersion() {
 function renderMeetingHeaderMeta() {
   const b = state.bundle;
   if (!b) return;
-  $("#meeting-meta").textContent = [
+  const box = $("#meeting-meta");
+  box.textContent = [
     b.date,
     b.duration ? (isEnglishUi() ? `${fmt(b.duration)} duration` : `${fmt(b.duration)} 时长`) : null,
     b.speaker_count ? (isEnglishUi() ? `${b.speaker_count} speakers` : `${b.speaker_count} 位发言人`) : null,
     b.transcript?.length ? (isEnglishUi()
       ? `${b.transcript.length} transcript segments` : `${b.transcript.length} 段逐字稿`) : null,
   ].filter(Boolean).join(" · ") || (isEnglishUi() ? "Meeting record" : "会议记录");
+  // 关键字只是元信息行尾部的纯文本词；悬停才提示可点，避免界面新增视觉块。
+  const keywords = b.keywords?.state === "ready" ? (b.keywords.keywords || []) : [];
+  for (const item of keywords.slice(0, 5)) {
+    const text = String(item?.text || "").trim();
+    if (!text) continue;
+    box.appendChild(document.createTextNode(" · "));
+    const token = document.createElement("span");
+    token.className = "keyword-token";
+    token.textContent = text;
+    token.title = isEnglishUi()
+      ? `${keywordKindLabel(item.kind)} keyword — click to search the transcript`
+      : `${keywordKindLabel(item.kind)}关键字 — 点击在逐字稿中搜索`;
+    token.onclick = () => searchTranscriptKeyword(text);
+    box.appendChild(token);
+  }
+}
+
+function searchTranscriptKeyword(text) {
+  const input = $("#transcript-search");
+  if (!input || input.disabled) return;
+  input.value = text;
+  applyTranscriptSearch();
 }
 
 function meetingAnchor() {
@@ -453,7 +485,8 @@ function renderMeetingList() {
   const order = state.workspace.meetingSort;
   ul.innerHTML = "";
   for (const m of orderedMeetings()) {
-    if (q && !`${m.title || ""} ${m.date || ""} ${m.slug}`.toLowerCase().includes(q)) continue;
+    if (q && !`${m.title || ""} ${m.date || ""} ${m.slug} ${(m.keywords || []).join(" ")}`
+        .toLowerCase().includes(q)) continue;
     const li = document.createElement("li");
     li.className = "meeting-item" + (m.slug === state.slug ? " active" : "");
     const meta = [
@@ -469,10 +502,13 @@ function renderMeetingList() {
           : (isEnglishUi() ? "Generating final minutes" : "终稿生成中"))
         : m.has_minutes ? (isEnglishUi() ? "Ready to review" : "可回顾")
           : (isEnglishUi() ? "Minutes pending" : "待生成纪要"),
-    ].filter(Boolean).join(" · ");
+    ].filter(Boolean);
+    // 关键字作为列表卡元信息的普通灰字词，帮助区分同系列会议；不单独占行。
+    for (const text of (m.keywords || []).slice(0, 3)) meta.push(String(text));
+    const metaText = meta.join(" · ");
     li.innerHTML =
       `<div class="m-title">${esc(m.title || m.slug)}</div>` +
-      `<div class="m-meta">${esc(meta)}</div>`;
+      `<div class="m-meta">${esc(metaText)}</div>`;
     const del = document.createElement("button");
     del.type = "button";
     del.className = "m-del";

@@ -130,7 +130,9 @@ VL 终稿和 Topic Map 发布后，普通录屏与 Teams 管线会用一次本�
 
 屏幕阅读层使用 `visuals.translation.{target}.json`。`translation_service.py` 从 `page_desc.json` 投影稳定的 `{number,title,summary}`，每 12 页一批翻译并校验页号集合；完整 VL 正文不进入译文 sidecar。该 sidecar 绑定 `page_desc.json` revision，在线屏幕列表、Focus 舞台与 MeetingPack Viewer 复用同一阅读副本。
 
-会议终稿 ready 后，`job_store` 在 upload/regen/topic_map 成功点懒调用 `auto_translate_after_ready()`；旧会议在首次 bundle 请求时补触发。自动范围只有纪要、ready Topic Map 和屏幕标题/短摘要，逐字稿仍需用户手动开始。翻译作业保持队列最低优先级，触发失败不会回滚已完成的主处理作业。
+会议终稿 ready 后，`job_store` 在 upload/regen/topic_map 成功点懒调用 `auto_translate_after_ready()` 与 `auto_keywords_after_ready()`；旧会议在首次 bundle 请求时补触发。自动范围只有纪要、ready Topic Map、屏幕标题/短摘要和会议关键字，逐字稿仍需用户手动开始。翻译与关键字作业保持队列最低优先级，触发失败不会回滚已完成的主处理作业。
+
+会议关键字由 `keyword_service.py` 生成 `meeting.keywords.json`（`meeting-keywords/v1`）：从事实层（缺失时退回当前 evidence claims）和一级议题标题中提取产品/项目/议题/组织名词，单次 JSON 调用；文本清洗、kind 白名单、12 条上限和 claim_ids 存在性都由代码校验，模型不接触的字段一律不落盘。sidecar 绑定纪要与事实层 revision，纪要从新生成后旧关键字按 stale 重建。关键字是导航与检索辅助，不参与 evidence marker 协议；在线会议列表/bundle、RAG 记录和 MeetingPack（`assets/keywords.json`）共用同一 sidecar。
 
 sidecar 保存 T ID、源语言、译文、数字核对警告、逐字稿 revision 和会议语境 revision，不修改原始转写。翻译通过串行 Web 作业运行并逐批原子落盘；前端轮询部分 sidecar，只在完整轮次落盘后更新。取消、失败和服务重启保留已完成轮次并以显式 partial 状态续跑，不会产生一份伪装成完整结果的译文。当前为整场缓存与整场语境失效，后续如引入逐字稿局部修订，再细化为按 T ID 选择性重译。
 

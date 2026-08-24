@@ -170,7 +170,7 @@ check("时间码跳转只滚动内容面板，不带动整页丢失播放器",
 check("在线屏幕舞台支持放大、缩放和相邻屏幕键盘导航",
       b'id="screen-preview-mask"' in page and b'openScreenPreview' in app_js
       and b'navigateScreenPreview' in app_js and b'SCREEN_PREVIEW_ZOOMS' in app_js
-      and b'20260821p83' in page)
+      and b'20260824p84' in page)
 check("可恢复失败不会在一小时后失去续跑入口",
       b'j.recovery?.state === "available"' in app_js
       and b'Date.now() / 1000 - Number(j.finished || j.created || 0) < 60 * 60' in app_js)
@@ -522,6 +522,24 @@ check("屏幕标题与短摘要独立翻译，不复制完整 VL 详情",
       and set(translated_visuals[0]) == {"number", "title", "summary"}
       and (SMOKE / "visuals.translation.en.json").is_file())
 
+# 2e2. 会议关键字：revision 绑定派生 sidecar，进入列表/bundle/RAG/导出包。
+s, _, kw_before = req("GET", "/api/meetings/_smoke/keywords")
+s2, _, kw_job = req("POST", "/api/meetings/_smoke/keywords")
+kw_done = poll_job(kw_job.get("id")) if kw_job.get("id") else kw_job
+s3, _, kw_after = req("GET", "/api/meetings/_smoke/keywords")
+check("会议关键字按需生成并与纪要 revision 绑定",
+      s == 200 and kw_before.get("state") == "missing"
+      and s2 == 200 and kw_done.get("status") == "done" and s3 == 200
+      and kw_after.get("state") == "ready" and kw_after.get("keywords")
+      and (SMOKE / "meeting.keywords.json").is_file())
+s, _, meetings_kw = req("GET", "/api/meetings")
+smoke_kw_item = next((m for m in meetings_kw.get("meetings", [])
+                      if m["slug"] == "_smoke"), {})
+s, _, bundle_kw = req("GET", "/api/meetings/_smoke/bundle")
+check("会议列表与 bundle 携带关键字",
+      s == 200 and smoke_kw_item.get("keywords")
+      and bundle_kw.get("keywords", {}).get("state") == "ready")
+
 # 2f. MeetingPack 默认不带媒体，解压后 viewer.html 可直接 file:// 打开
 evidence_before_export = (SMOKE / "minutes.evidence.json").read_bytes()
 s, _, preflight = req("GET", "/api/meetings/_smoke/export/preflight")
@@ -592,6 +610,14 @@ check("MeetingPack v5 manifest/evidence/RAG/Topic Map 共享稳定 linkage",
 check("MeetingPack 分享纪要采用常规阅读版，逐页事实仍在 evidence/RAG",
       "分页详情" not in (pack.read("assets/minutes.md").decode("utf-8") if pack else "")
       and any(record.get("record_type") == "slide" for record in rag))
+if pack:
+    exported_keywords = json.loads(pack.read("assets/keywords.json"))
+    check("MeetingPack 携带会议关键字，RAG 记录带会议级标签",
+          exported_keywords.get("schema") == "meeting-keywords/v1"
+          and exported_keywords.get("keywords")
+          and manifest.get("counts", {}).get("keywords", 0) > 0
+          and all("keywords" in record for record in rag)
+          and '"keywords":[' in viewer)
 check("viewer 为无外链、自包含且可浏览逐字稿/媒体/脉络/屏幕的静态页面",
       'id="meeting-data"' in viewer and "fetch(" not in viewer
       and "http://" not in viewer.replace('xmlns="http://www.w3.org/2000/svg"', '')

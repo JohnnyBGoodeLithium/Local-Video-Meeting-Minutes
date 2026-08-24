@@ -18,6 +18,7 @@ KIND_PRIORITIES = {
     "topic_map": 20,
     "orgchart_extract": 20,
     "translation": 30,
+    "keywords": 30,
 }
 USER_PRIORITY = 0
 

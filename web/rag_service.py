@@ -22,6 +22,8 @@ if str(BIN_DIR) not in sys.path:
     sys.path.insert(0, str(BIN_DIR))
 from meeting_artifact import fact_document_state, project_action_semantics
 
+import keyword_service
+
 
 RAG_VERSION = "meeting-rag/evidence-hybrid-v1"
 MAX_RESULTS = 18
@@ -213,6 +215,11 @@ def meeting_records(mdir: Path) -> tuple[list[dict], dict]:
         })
 
     records.extend(_minutes_sections(minutes))
+    # 会议关键字是检索过滤/加权标签，只随当前有效 sidecar 带出，不参与证据语义。
+    keywords = keyword_service.keyword_texts(mdir)
+    if keywords:
+        for record in records:
+            record["keywords"] = keywords
     evidence_state = ("ready" if evidence.get("claims") else
                       "partial" if evidence else "fallback")
     return [record for record in records if record.get("text")], {

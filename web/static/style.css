@@ -429,6 +429,9 @@ body.page-index { overflow: hidden; }
 .m-del:hover { color: #c25050; border-color: #c25050; }
 .m-title { padding-right: var(--sp-20); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .m-meta { color: var(--dim); font-size: var(--fs-12); }
+/* 关键字与元信息同行同样式，仅悬停提示可点（点击=逐字稿搜索该词） */
+.keyword-token { color: inherit; cursor: pointer; }
+.keyword-token:hover { text-decoration: underline; text-underline-offset: 2px; }
 
 /* 阅读区：逐字稿 + 可调分栏 + 右侧智能栏 */
 .content-shell { position: relative; min-width: 0; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr); overflow: hidden; }

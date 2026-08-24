@@ -46,6 +46,7 @@ check:
 	$(PY) web/tests/voice_fragment_merge_test.py
 	$(PY) web/tests/speaker_navigation_test.py
 	$(PY) web/tests/translation_service_test.py
+	$(PY) web/tests/keyword_service_test.py
 	$(PY) web/tests/viewer_boot_test.py
 	@if command -v node >/dev/null 2>&1; then node --check web/static/app.js && node --check web/static/admin.js && node web/tests/assistant_intent_test.mjs; else echo "Node unavailable: skipped JS syntax check"; fi
 	git diff --check

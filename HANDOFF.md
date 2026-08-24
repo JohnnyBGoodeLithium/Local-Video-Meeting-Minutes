@@ -3,7 +3,7 @@
 > 给接手 agent：先读本文件和 `AGENTS.md`，再看 `CHANGELOG.md` 未发布段了解最近改动。
 > 本文件在每次交接或大方向变化时更新；过期的进行中事项完成后删除对应段落。
 
-更新时间：2026-08-24（产品版本 v0.10.0；在线工作台构建号 20260821p83；提交号以 `git log -1` 为准）
+更新时间：2026-08-24（产品版本 v0.10.0；在线工作台构建号 20260824p84；提交号以 `git log -1` 为准）
 
 ## 当前基线
 
@@ -11,6 +11,15 @@
 - 验证基线：发布提交前以本轮 `make check`、隔离 Web smoke 和 MeetingPack 启动测试结果为准；所有新增测试只使用虚构数据。
 - 服务：端口 8899，`systemctl --user restart meeting-minutes-web` 重启。优雅退出已有界：`MEETING_WEB_GRACEFUL_SHUTDOWN` 默认 8 秒强制关闭残留连接，restart 不再挂起 45s。
 - 隐私红线（详见 AGENTS.md）：不读真实会议正文，只看元数据/结构；上次已获用户授权诊断 Gate B 会议标题形态，新任务需重新授权。
+
+## 当前批次：会议关键字
+
+- 新 sidecar `meeting-keywords/v1`（`meeting.keywords.json`）：纪要（及事实层）就绪后自动提炼至多 12 个关键字，事实层 claims 按 decision/action 优先取前 40，无 facts 退回 evidence claims + Topic Map 一级标题；单次 `assistant._chat` json_mode 输出，`_validate_keywords` 做 kind 白名单、≤20 字符、去重、claim_ids 存在性过滤。状态机 missing/stale/ready/failed，绑定 minutes + facts revision。
+- 路由 `web/routers/keywords.py`：GET/POST `/api/meetings/{slug}/keywords`；`auto_keywords_after_ready` 挂在管线成功分支（auto_translate 之后），ready 且无活动作业才排队（job priority 30）；bundle 懒触发兜底。
+- 前端零新增视觉元素：列表 meta 最多 3 个、工作台标题 meta 最多 5 个 `.keyword-token` 纯文本词，悬停下划线，点击 = 填逐字稿搜索框并过滤；不翻译、不提供人工编辑。
+- 导出与 RAG：`bin/export_meeting.py` 产出 `assets/keywords.json`（校验 source_revision=sha256(minutes)[:16]），进 manifest counts、README 与 Viewer meta；`meeting_artifact.py` 的 records 与 `web/rag_service.py` 每条 record 带 `keywords`。
+- 构建号 p84；`web/tests/keyword_service_test.py` + smoke 关键字与 pack 断言，`make check` 与 smoke 166/166 通过。
+- 部署注意：真实服务有活动作业时不得重启；旧会议首次打开时懒生成关键字。
 
 ## 当前批次：Web 优雅退出有界超时
 

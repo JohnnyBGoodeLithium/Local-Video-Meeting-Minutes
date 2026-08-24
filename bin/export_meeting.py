@@ -289,6 +289,26 @@ def _visuals_languages(mdir: Path, pages: list[dict]) -> tuple[dict[str, list[di
     return languages, assets
 
 
+def _keywords_document(mdir: Path, minutes_path: Path | None) -> tuple[list[str], dict[str, bytes]]:
+    """收集已完成的会议关键字 sidecar；导出过程绝不调用模型。"""
+    sidecar = _read_json(mdir / "meeting.keywords.json", {})
+    source_revision = (hashlib.sha256(minutes_path.read_bytes()).hexdigest()[:16]
+                       if minutes_path else None)
+    entries = sidecar.get("keywords")
+    if (sidecar.get("schema") != "meeting-keywords/v1"
+            or sidecar.get("status") != "complete"
+            or sidecar.get("source_revision") != source_revision
+            or not isinstance(entries, list)):
+        return [], {}
+    texts = [str(item.get("text") or "") for item in entries
+             if isinstance(item, dict) and str(item.get("text") or "").strip()]
+    if not texts:
+        return [], {}
+    return texts, {"assets/keywords.json": json.dumps(
+        {"schema": "meeting-keywords/v1", "keywords": entries},
+        ensure_ascii=False, indent=2).encode("utf-8")}
+
+
 def _readme(media_mode: str, document_state: str = "ready") -> str:
     media_note = {
         "none": "本包未包含源音视频；时间戳仍可用于回到原系统定位。",
@@ -315,7 +335,8 @@ def _readme(media_mode: str, document_state: str = "ready") -> str:
 - assets/：其余全部依赖文件；可整体交给后续程序处理
   - minutes.md、transcript.*：常规纪要与完整逐字稿
   - evidence.json、topic-map.json：证据与整场语义脉络
-  - rag/records.jsonl：可直接送入后续向量/全文索引的记录
+  - keywords.json：会议关键字（产品/项目/议题/组织名词），可用于跨包归组同系列会议与知识库过滤
+  - rag/records.jsonl：可直接送入后续向量/全文索引的记录（每条记录的 keywords 字段是会议级标签）
   - slides/：VL 分析页面 JPEG；media/：可选音视频
   - manifest.json：格式版本、内容清单、哈希和媒体策略
 
@@ -380,6 +401,8 @@ T/P 依据，产出中的引用附时间码；没有依据支撑的内容不要�
 对 `text` 建索引，其余字段作 metadata；命中 claim 后按 `evidence_ids` 精确回读对应 T/P 来源，
 不要再用向量猜来源。`meeting_id` 归组同一会议的不同版本；记录 ID 以 `artifact_id` 为前缀，
 逐字稿或纪要变化会产生新版本，旧记录保持不可变。`person_ids` / `speakers` 可用于按人过滤。
+每条记录的 `keywords` 字段是会议级关键字标签（来自 `assets/keywords.json`），适合按产品/项目名
+过滤或加权；跨包对比时也可先用关键字交集判断是否同一议题线。
 
 ### 事实核对
 claim → `turn_ids` / `page_ids` → transcript.json / slides/ 逐级回溯。`display_only` 页面只是"展示过"，
@@ -443,12 +466,14 @@ def _viewer_html(title: str, date: str, minutes_html: str, evidence: dict, integ
                  topic_map_languages: dict[str, dict] | None = None,
                  visuals_languages: dict[str, list[dict]] | None = None,
                  speaker_navigation_rows: list[dict] | None = None,
-                 document_state: str = "ready") -> bytes:
+                 document_state: str = "ready",
+                 keywords: list[str] | None = None) -> bytes:
     duration = max((float(t.get("end", 0)) for t in evidence["sources"]["transcript"]), default=0)
     payload = {
         "title": title,
         "date": date,
         "duration": duration,
+        "keywords": list(keywords or []),
         "minutes_html": minutes_html,
         "source_language": source_language,
         "minutes_languages": minutes_languages or {},
@@ -556,7 +581,8 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
     topic_map_languages, topic_map_language_assets = _topic_map_languages(mdir, topic_map)
     visuals_languages, visuals_language_assets = _visuals_languages(
         mdir, evidence.get("sources", {}).get("pages", []))
-    records = rag_records(evidence, reading_minutes, facts)
+    keywords, keywords_assets = _keywords_document(mdir, minutes_path)
+    records = rag_records(evidence, reading_minutes, facts, keywords=keywords)
     rag_bytes = ("\n".join(json.dumps(r, ensure_ascii=False, separators=(",", ":"))
                            for r in records) + "\n").encode("utf-8")
 
@@ -582,13 +608,14 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
             "viewer.html": _viewer_html(title, date, minutes_html, evidence, integrity, topic_map,
                                         media_arc, media_kind, source_language, minutes_languages,
                                         topic_map_languages, visuals_languages,
-                                        speaker_navigation_rows, document_state),
+                                        speaker_navigation_rows, document_state, keywords),
             "README.txt": _readme(media_mode, document_state).encode("utf-8"),
             "AGENTS.md": _AGENTS_MD.encode("utf-8"),
             "assets/minutes.md": reading_minutes.encode("utf-8"),
             **minutes_language_assets,
             **topic_map_language_assets,
             **visuals_language_assets,
+            **keywords_assets,
             "assets/transcript.json": json.dumps(turns, ensure_ascii=False, indent=2).encode("utf-8"),
             "assets/transcript.md": _transcript_markdown(turns).encode("utf-8"),
             "assets/evidence.json": evidence_bytes,
@@ -631,6 +658,7 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
             "counts": {"turns": len(turns), "pages": len(pages),
                        "claims": len(evidence["claims"]),
                        "facts": len(facts.get("claims", [])),
+                       "keywords": len(keywords),
                        "topics": len(topic_map.get("topics", [])), "rag_records": len(records)},
             "files": sorted(manifest_files, key=lambda x: x["path"]),
         }

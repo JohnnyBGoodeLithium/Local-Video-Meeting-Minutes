@@ -12,6 +12,7 @@ from fastapi import APIRouter, Body, HTTPException, Query
 import meeting_generation
 import meeting_structure
 import meeting_topic_map
+import keyword_service
 import minutes_view_service
 import transcript_service
 import voice_bank as vb
@@ -88,6 +89,11 @@ def list_meetings():
             item["has_video"] = _video_path(d) is not None
             item["generation_phase"] = meeting_generation.load(d).get("phase") or (
                 "ready" if item["has_minutes"] else "processing")
+            if item["has_minutes"]:
+                kw_payload = keyword_service.keywords_payload(d)
+                if kw_payload.get("state") == "ready":
+                    item["keywords"] = [str(k.get("text") or "") for k in
+                                        kw_payload.get("keywords", []) if k.get("text")]
             out.append(item)
     out.sort(key=lambda item: (item.get("imported_at") or 0, item["slug"]), reverse=True)
     return {"meetings": out}
@@ -188,10 +194,15 @@ def get_bundle(slug: str):
     if document_state == "ready" and not DRY_RUN and not any(
             job.get("meeting") == slug and job.get("status") in {"queued", "running"}
             for job in JOBS.values()):
-        # 旧会议在首次阅读时惰性补翻；异常不能影响 bundle 阅读。
+        # 旧会议在首次阅读时惰性补翻与补关键字；异常不能影响 bundle 阅读。
         try:
             from routers.translations import auto_translate_after_ready
             auto_translate_after_ready(slug, mdir)
+        except Exception:
+            pass
+        try:
+            from routers.keywords import auto_keywords_after_ready
+            auto_keywords_after_ready(slug, mdir)
         except Exception:
             pass
     actions = artifact.action_items_from_claims(evidence.get("claims", []))
@@ -251,6 +262,7 @@ def get_bundle(slug: str):
             transcript, profiles, transcript_format),
         "transcript_revision": assistant.revision(mdir / "transcript.spk.json"),
         "transcript_review": transcript_service.project_review(mdir, bool(evidence)),
+        "keywords": keyword_service.keywords_payload(mdir),
         "minutes_revision": minutes_revision,
         "minutes_views": minutes_views,
         "minutes_history_available": minutes_history_available,

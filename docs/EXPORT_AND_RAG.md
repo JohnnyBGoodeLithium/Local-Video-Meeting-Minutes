@@ -154,6 +154,7 @@ Web 只在 sidecar 的逐字稿和纪要 revision 与当前文件一致时展示
     ├── minutes.{language}.md
     ├── topic-map.{language}.json
     ├── visuals.{language}.json # 屏幕页号、标题和短摘要；不复制完整 VL
+    ├── keywords.json         # 会议关键字（存在时）；跨包归组与知识库过滤标签
     ├── rag/
     │   └── records.jsonl   # meeting-minutes-rag/v1
     ├── slides/
@@ -202,6 +203,10 @@ Web“更多”菜单提供三种导出；命令行等价用法：
 - `transcript`：单轮原文，带时间、说话人、person 和页面；
 - `slide`：完整页面理解，带 `display_status` 与讨论轮次；
 - `minutes_section`：适合宽泛主题检索的可读章节。
+
+每条记录另带 `keywords` 字段（会议级关键字纯文本清单，来自 `meeting-keywords/v1` sidecar；
+sidecar 缺失或过期时为空数组）。它是检索过滤/加权标签——例如按产品名 `keywords contains "IC Mini"`
+收窄范围——不参与证据语义；跨包归组同系列会议也可先比对关键字交集。
 
 推荐索引与检索流程：
 

@@ -219,3 +219,17 @@ def _run_pipeline(job: dict):
                 with BANK_LOCK:
                     job["log"].append(f"[error] 自动翻译触发失败 ({type(exc).__name__})")
                     _save_job(job)
+            # 关键字同样是低优先级派生作业；触发失败不影响主作业状态。
+            try:
+                from routers.keywords import auto_keywords_after_ready
+                mdir = MEETINGS / str(job.get("meeting") or "")
+                queued_kw = auto_keywords_after_ready(str(job.get("meeting") or ""), mdir) \
+                    if mdir.is_dir() else []
+                if queued_kw:
+                    with BANK_LOCK:
+                        job["log"].append("[meta] 已排队自动关键字提取")
+                        _save_job(job)
+            except Exception as exc:
+                with BANK_LOCK:
+                    job["log"].append(f"[error] 自动关键字触发失败 ({type(exc).__name__})")
+                    _save_job(job)
