@@ -23,8 +23,14 @@ media 模式（--media / --mode media，面向动态上手/评测视频）：
     动态视频不存在"稳定页面"，改用镜头(shot)原语：全帧差分的局部显著峰
     为切点（自适应阈值 max(8.0, p50×6)），最短镜头 1.5s 并回邻居；每镜头
     取中点帧为代表帧，逐像素中位数签名把重复出现的镜头合并为一页；
-    去重后超过 80 页按时长择优截断并在 pages.json 标注 truncated。
-    输出结构与 slides 模式完全兼容（kind 沿用 "slide"，附加 shot 标记）。
+    对判定为口播候选的镜头（中心肤色占比 + 低边缘密度的轻量代理），再开
+    一条 16×16 dHash 汉明距通道做二次合并——同一主讲人换姿势/手势时全帧
+    均差会超阈值，dHash 对构图近重复稳健；口播合并页标 talking_head=true
+    且 ranges 累记每次出现区间。内容帧（图表/规格表）维持严格全帧差分不
+    走 dHash 通道，不同数据的同版式图表绝不误并。合并不设数量配额，唯一
+    判据是信息冗余。去重后超过 80 页按时长择优截断并在 pages.json 标注
+    truncated。输出结构与 slides 模式完全兼容（kind 沿用 "slide"，附加
+    shot 标记）。
 
 用法：
     bin/slide_pages.py meeting.mp4 --out meetings/<目录>/slides
@@ -87,11 +93,14 @@ def _suppress_sparse_annotations(rgb: np.ndarray, max_fraction: float = 0.04) ->
     return result
 
 
-def _decode_small(video: Path, fps: float, sw: int, suppress: bool = True):
+def _decode_small(video: Path, fps: float, sw: int, suppress: bool = True,
+                  talk_stats: bool = False):
     """低帧率 RGB 流式解码后转为判页灰度帧，避免整段 RGB 常驻内存。
 
     suppress=False（media 镜头检测）时只做灰度转换，不做幻灯片向的
-    稀疏标注抑制。"""
+    稀疏标注抑制。talk_stats=True（media 口播代理）时边解码边逐帧统计
+    中心肤色占比与全帧边缘密度，随灰度帧一起返回 (frames, stats)，
+    不需要为颜色判定保留整段 RGB。"""
     w, h = _probe_size(video)
     sh = max(2, round(h * sw / w / 2) * 2)
     cmd = ["ffmpeg", "-v", "error", "-i", str(video),
@@ -99,6 +108,7 @@ def _decode_small(video: Path, fps: float, sw: int, suppress: bool = True):
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     frame_bytes = sw * sh * 3
     gray_raw = bytearray()
+    skins, edges = [], []
     while True:
         block = bytearray()
         while len(block) < frame_bytes:
@@ -110,17 +120,79 @@ def _decode_small(video: Path, fps: float, sw: int, suppress: bool = True):
             break
         rgb = np.frombuffer(block, dtype=np.uint8).reshape(sh, sw, 3)
         if suppress:
-            gray_raw.extend(_suppress_sparse_annotations(rgb).tobytes())
+            gray = _suppress_sparse_annotations(rgb)
         else:
             v = rgb.astype(np.uint16)
-            gray = ((77 * v[..., 0] + 150 * v[..., 1] + 29 * v[..., 2] + 128) >> 8)
-            gray_raw.extend(gray.astype(np.uint8).tobytes())
+            gray = ((77 * v[..., 0] + 150 * v[..., 1] + 29 * v[..., 2] + 128) >> 8).astype(np.uint8)
+        gray_raw.extend(gray.tobytes())
+        if talk_stats:
+            skins.append(_skin_fraction(rgb))
+            edges.append(_edge_density(gray))
     stderr = proc.stderr.read() if proc.stderr else b""
     rc = proc.wait()
     if rc:
         raise subprocess.CalledProcessError(rc, cmd, stderr=stderr)
     n = len(gray_raw) // (sw * sh)
-    return np.frombuffer(gray_raw, dtype=np.uint8).reshape(n, sh, sw)
+    frames = np.frombuffer(gray_raw, dtype=np.uint8).reshape(n, sh, sw)
+    if talk_stats:
+        return frames, {"skin": np.array(skins), "edge": np.array(edges)}
+    return frames
+
+
+def _skin_fraction(rgb: np.ndarray) -> float:
+    """中心裁切区（中央 50% 宽 × 60% 高）内的肤色像素占比。
+
+    经典 RGB 经验规则，无人脸检测器，只是"口播候选"代理：暗光/侧脸/
+    非典型肤色会漏判，肤色相近的产品、背景板会误判。因此它只作为
+    dHash 二次合并通道的闸门，不单独决定任何合并。"""
+    h, w = rgb.shape[:2]
+    crop = rgb[int(h * 0.2):int(h * 0.8), int(w * 0.25):int(w * 0.75)].astype(np.int16)
+    r, g, b = crop[..., 0], crop[..., 1], crop[..., 2]
+    mx = np.maximum(np.maximum(r, g), b)
+    mn = np.minimum(np.minimum(r, g), b)
+    skin = (r > 95) & (g > 40) & (b > 20) & ((mx - mn) > 15) & (r > g) & (r > b)
+    return float(skin.mean())
+
+
+def _edge_density(gray: np.ndarray, threshold: int = 24) -> float:
+    """全帧边缘密度：强梯度像素占比。文字/图表帧远高于口播特写。"""
+    g = gray.astype(np.int16)
+    gx = np.abs(np.diff(g, axis=1)) > threshold
+    gy = np.abs(np.diff(g, axis=0)) > threshold
+    return float((gx.mean() + gy.mean()) / 2)
+
+
+def _dhash16(gray: np.ndarray, size: int = 16, eps: float = 3.0):
+    """16×16 感知哈希（dHash）：面积平均降采样到 size×(size+1)，相邻格亮度
+    比较得 size×size 布尔位，返回 (bits, mask)。
+
+    平坡区域相邻格亮度差接近 0，编码噪声会让这些"平局位"随机翻转（实测同
+    一构图经不同码率上下文编码后裸汉明距可达 16/256）；因此 |差| ≤ eps
+    的位记入 mask=不显著，_hamming 只统计双方都显著的位。对均匀明暗变化
+    与轻微位移稳健。"""
+    a = np.asarray(gray, dtype=np.float32)
+    h, w = a.shape
+    rows = np.linspace(0, h, size + 1).astype(int)
+    cols = np.linspace(0, w, size + 2).astype(int)
+    small = np.empty((size, size + 1), dtype=np.float32)
+    for i in range(size):
+        for j in range(size + 1):
+            small[i, j] = a[rows[i]:rows[i + 1], cols[j]:cols[j + 1]].mean()
+    d = small[:, 1:] - small[:, :-1]
+    return d > 0, np.abs(d) > eps
+
+
+def _hamming(a: tuple, b: tuple) -> int:
+    """掩码汉明距：只统计两帧都显著(非平局)且结论相反的位。"""
+    (bits_a, mask_a), (bits_b, mask_b) = a, b
+    return int(np.count_nonzero(mask_a & mask_b & (bits_a != bits_b)))
+
+
+# 口播代理合并参数（media 模式）：候选闸门 + dHash 汉明距上限。
+# 只作用于"两帧都是口播候选"的合并；内容帧永远走严格全帧差分。
+_TALK_SKIN_MIN = 0.10   # 中心裁切肤色占比下限
+_TALK_EDGE_MAX = 0.12   # 全帧边缘密度上限(文字/图表帧远高于此)
+_TALK_DHASH_HAM = 8     # 16×16 dHash(256bit) 掩码汉明距上限, 可用 --talk-ham 调整
 
 
 def _motion_mask(frames: np.ndarray, keep_pct: float = 80.0,
@@ -234,9 +306,15 @@ def _shot_cuts(dist: np.ndarray, threshold: float) -> list[int]:
 
 def _extract_shots(video, out_dir, pages_json=None, *, fps=1.0, width=1280,
                    threshold=None, same_threshold=None, min_shot_sec=1.5,
-                   max_pages=80, verbose=True):
+                   max_pages=80, talk_ham=_TALK_DHASH_HAM, verbose=True):
     """动态视频 → 镜头(shot)抽取：全帧差分局部峰切点 + 中位数签名去重。
 
+    合并双通道：内容帧维持严格全帧差分（阈值 th_same，防误并同版式不同
+    数据的图表）；两帧都是口播候选（中心肤色占比 ≥_TALK_SKIN_MIN 且全帧
+    边缘密度 ≤_TALK_EDGE_MAX）时，再允许 16×16 dHash 汉明距 ≤talk_ham
+    合并——主讲人换姿势/手势的全帧均差会超 th_same，但构图仍近重复。
+    口播合并页标 talking_head=true 供 UI 折叠展示，ranges 累记每次出现
+    区间。合并只消信息冗余，不设数量配额。
     不做 slide 向的 ROI/稀疏标注抑制；输出结构与 extract_pages 的 slides
     模式完全兼容（kind 沿用 "slide"，附加 shot=True 标记），下游 VL/纪要/
     导出无需改动。
@@ -246,7 +324,7 @@ def _extract_shots(video, out_dir, pages_json=None, *, fps=1.0, width=1280,
     for old in out_dir.glob("page_*.jpg"):
         old.unlink()
 
-    frames = _decode_small(video, fps, 320, suppress=False)
+    frames, talk = _decode_small(video, fps, 320, suppress=False, talk_stats=True)
     n = len(frames)
     if n < 2:
         return []
@@ -265,15 +343,23 @@ def _extract_shots(video, out_dir, pages_json=None, *, fps=1.0, width=1280,
     min_len = max(1, int(round(min_shot_sec * fps)))
     segs = _segments(peaks, th, min_len)
 
-    shots = []  # {page, first, image, sig, captured, ranges}
+    shots = []  # {page, first, image, sig, captured, ranges, talk, dhash}
     for s, e in segs:
         t0, t1 = s / fps, e / fps
         sig = np.median(f32[s:e], axis=0)
+        cand = (float(np.median(talk["skin"][s:e])) >= _TALK_SKIN_MIN
+                and float(np.median(talk["edge"][s:e])) <= _TALK_EDGE_MAX)
+        dh = _dhash16(sig) if cand else None
         hit = None
-        for p in shots:
+        for p in shots:                                  # 通道一：严格全帧差分
             if float(np.abs(sig - p["sig"]).mean()) < th_same:
                 hit = p
                 break
+        if hit is None and cand:                         # 通道二：口播 dHash
+            for p in shots:
+                if p["talk"] and _hamming(dh, p["dhash"]) <= talk_ham:
+                    hit = p
+                    break
         if hit is None:
             num = len(shots) + 1
             img = out_dir / f"page_{num:02d}_t{int(round(t0)):04d}s.jpg"
@@ -285,7 +371,8 @@ def _extract_shots(video, out_dir, pages_json=None, *, fps=1.0, width=1280,
                 _grab_frame(video, max(0.0, t_cap - 2.0), width, img)
             shots.append({"page": num, "first": round(t0, 1), "image": img,
                           "sig": sig, "captured": round(t_cap, 1),
-                          "ranges": [[round(t0, 1), round(t1, 1)]]})
+                          "ranges": [[round(t0, 1), round(t1, 1)]],
+                          "talk": cand, "dhash": dh})
         else:
             hit["ranges"].append([round(t0, 1), round(t1, 1)])
 
@@ -304,16 +391,23 @@ def _extract_shots(video, out_dir, pages_json=None, *, fps=1.0, width=1280,
                 p["image"] = new_img
                 p["page"] = num
 
+    n_talk = sum(1 for p in shots if p["talk"])
     if verbose:
         print(f"[meta] 镜头抽取: {n} 采样帧 | 切点阈值 {th:.2f}(基线 {float(np.median(dist)):.2f})"
-              f" | 镜头 {len(segs)} | 去重后 {len(shots)} 页"
+              f" | 镜头 {len(segs)} | 去重后 {len(shots)} 页(口播 {n_talk})"
               + (f" | 超上限截断(≤{max_pages})" if truncated else ""), flush=True)
     out_pages = [{"page": p["page"], "first": p["first"], "image": p["image"],
-                  "captured": p["captured"], "ranges": p["ranges"]} for p in shots]
+                  "captured": p["captured"], "ranges": p["ranges"],
+                  "talking_head": p["talk"]} for p in shots]
     pj = Path(pages_json) if pages_json else out_dir.parent / "slides.json"
-    timeline = [{"kind": "slide", "page": p["page"], "first": p["first"],
+    timeline = []
+    for p in out_pages:
+        entry = {"kind": "slide", "page": p["page"], "first": p["first"],
                  "image": p["image"].name, "captured": p["captured"],
-                 "ranges": p["ranges"], "shot": True} for p in out_pages]
+                 "ranges": p["ranges"], "shot": True}
+        if p["talking_head"]:
+            entry["talking_head"] = True
+        timeline.append(entry)
     if truncated:
         for entry in timeline:
             entry["truncated"] = True
@@ -326,7 +420,7 @@ def extract_pages(video, out_dir, pages_json=None, fps=1.0, width=1280,
                   min_seg_sec=2.0, threshold=None, same_threshold=None,
                   keep_pct=80.0, video_motion=0.5, verbose=True,
                   ignore_right_pct=15.0, mode="slides", min_shot_sec=1.5,
-                  max_pages=80):
+                  max_pages=80, talk_ham=_TALK_DHASH_HAM):
     """返回 [{page, first, image(Path), ranges:[[s,e],...]}]，按首次出现排序。
 
     mode="slides"（默认，会议录屏）：段内帧间差中位数 > video_motion 的段判为
@@ -338,7 +432,7 @@ def extract_pages(video, out_dir, pages_json=None, fps=1.0, width=1280,
         return _extract_shots(video, out_dir, pages_json, fps=fps, width=width,
                               threshold=threshold, same_threshold=same_threshold,
                               min_shot_sec=min_shot_sec, max_pages=max_pages,
-                              verbose=verbose)
+                              talk_ham=talk_ham, verbose=verbose)
     if mode != "slides":
         raise ValueError(f"未知抽取模式: {mode}")
     video, out_dir = Path(video), Path(out_dir)
@@ -484,6 +578,8 @@ def main() -> int:
     ap.add_argument("--min-seg", type=float, default=2.0)
     ap.add_argument("--min-shot", type=float, default=1.5, help="media 最短镜头秒数, 过短并回邻居")
     ap.add_argument("--max-pages", type=int, default=80, help="media 去重后页数上限, 超出按时长截断")
+    ap.add_argument("--talk-ham", type=int, default=_TALK_DHASH_HAM,
+                    help="media 口播候选 dHash 合并的汉明距上限(16×16=256bit)")
     ap.add_argument("--threshold", type=float, default=None,
                     help="翻页/切点阈值(slides 默认 max(2.0, p90×5), media 默认 max(8.0, p50×6))")
     ap.add_argument("--same-threshold", type=float, default=None, help="同页/同镜头阈值(默认自适应)")
@@ -501,7 +597,8 @@ def main() -> int:
     pages = extract_pages(args.video, args.out, args.pages_json, args.fps, args.width,
                           args.min_seg, args.threshold, args.same_threshold, args.keep_pct,
                           args.video_motion, ignore_right_pct=args.ignore_right_pct,
-                          mode=mode, min_shot_sec=args.min_shot, max_pages=args.max_pages)
+                          mode=mode, min_shot_sec=args.min_shot, max_pages=args.max_pages,
+                          talk_ham=args.talk_ham)
     if args.update_minutes and pages:
         update_minutes(args.update_minutes, pages, Path(args.update_minutes).parent)
         print(f"[meta] 已重贴纪要截图: {args.update_minutes}", flush=True)
