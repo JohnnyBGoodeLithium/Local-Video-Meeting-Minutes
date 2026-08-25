@@ -216,6 +216,40 @@ Web“更多”菜单提供三种导出；命令行等价用法：
 
 全局索引本身（`GET /api/keywords/index`，schema `keyword-index/v1`）是服务端内部件：只读盘聚合各会议 ready 状态的 `meeting-keywords/v1` sidecar，单场坏数据跳过；它服务两个出口——导出弹窗的相关内容建议（共享关键字加权：product/project=3、organization/topic=2、other=1，理由即共享词清单）和 pack 级贯穿线索。它不是知识库管理界面，关键字共现也不等于内容间的因果或先后关系。
 
+### 4.3 知识库导出包 KB Pack（WeKnora 优化）
+
+MeetingPack/ContentPack 的"viewer + 中英纪要 + transcript json/md + records"表达对按文档分块的知识库（如本机 Docker 部署的腾讯 WeKnora）是冗余的，直接进 RAG 会拉低检索质量。知识库导出 profile 因此把**每个内容收敛成一份自包含 Markdown**，KB 管理与问答归知识库，本应用只做分析与导出：
+
+```text
+<名称>_<日期>_v<product-version>_<导出时间>.kbpack.zip
+├── <slug>.kb.md        # 每场内容一份自包含 Markdown（多场时逐个并列）
+├── index.md            # 仅多场：文字版内容清单 + 贯穿关键字（≥2 个内容共享）→ 涉及内容
+└── manifest.json       # kb-pack/v1：base_url、生成时间、条目清单、关键字 tags 汇总
+```
+
+`.kb.md` 结构：YAML front matter（`title` / `date` / `content_type` / `duration`（秒）/ `keywords`（每条带 `kind`）/ `source_url`（meta.json 有才带）），正文按分块友好顺序排列：**总体摘要 → 关键结论 → 待办（含负责人/期限，结构化投影） → 议题脉络（每议题一节） → 屏幕内容（每页一节） → 逐字稿（每轮一条）**；缺失板块整节跳过，语言跟随纪要主语言，不双语重复。
+
+**外链约定**（KB 与本应用同机是前提）：
+
+- 所有时间码渲染成 `[mm:ss](<base>/?meeting=<slug>&t=<秒>)` 深链，点击打开在线工作台并把播放器定位到 t（支持小数秒；非法或超出时长的 t 被忽略，只打开会议）；
+- 文档头部放 `[▶ 完整视频](<base>/api/meetings/<slug>/media/video)`（无视频时放音频），复用现有 Range 媒体端点；
+- 屏幕图走 `<base>/api/meetings/<slug>/file?path=slides/<图名>` 外链；
+- 依据标记保留 `#mm-C00001` 纯文本供检索，不转链接（`#mm-` 锚是 Viewer 内部机制，KB 里无意义）。
+
+base URL 由环境变量 `MEETING_WEB_PUBLIC_BASE` 决定，默认 `http://127.0.0.1:8899`；导出时冻结进文档与 manifest，之后改 base 需重新导出。包内不含媒体与截图文件，体积为纯文本量级。导出全程只读会议目录、不调用模型，evidence/待办投影与 MeetingPack 走同一条重建链。
+
+CLI 与 HTTP 入口（`full` 仍是默认值，行为不变）：
+
+```bash
+.venv/bin/python bin/export_meeting.py meetings/<会议>/ --profile kb [--base-url http://...]
+.venv/bin/python bin/export_pack.py meetings/<A>/ meetings/<B>/ --profile kb
+GET /api/meetings/{slug}/export?profile=kb
+GET /api/export/pack?slugs=a,b,c&profile=kb
+```
+
+在 WeKnora 侧按文件夹上传 `.kbpack.zip` 解压后的目录即可保留内容树；`manifest.json` 的 `tags` 汇总可作为知识库过滤标签来源。
+
+
 ## 5. RAG 使用方式
 
 `assets/rag/records.jsonl` 每行是独立 JSON，`record_type` 包括：

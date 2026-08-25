@@ -685,7 +685,28 @@ def main() -> int:
     parser.add_argument("--bank-dir", type=Path, default=Path(__file__).resolve().parent.parent / "speaker_bank")
     parser.add_argument("--media", choices=("none", "audio", "video"), default="none",
                         help="默认 none；分享阅读/RAG 不需要源视频")
+    parser.add_argument("--profile", choices=("full", "kb"), default="full",
+                        help="kb：知识库版 .kbpack.zip（纯文本 + 媒体/时间码外链，不含媒体文件）")
+    parser.add_argument("--base-url", default=None,
+                        help="仅 kb profile：深链/外链 base；默认取 env MEETING_WEB_PUBLIC_BASE")
     args = parser.parse_args()
+    if args.profile == "kb":
+        import kb_document  # 延迟导入：full profile 不加载 KB 生成器
+        mdir = args.meeting_dir.resolve()
+        try:
+            stats = kb_document.build_kb_pack(
+                [(mdir.name, mdir, None, None)], args.out or Path.cwd() / "probe.kbpack.zip",
+                base_url=args.base_url, bank_dir=args.bank_dir)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            print(f"导出失败: {exc}", file=sys.stderr)
+            return 1
+        final = Path(stats["path"])
+        if args.out is None:
+            target = Path.cwd() / stats["filename"]
+            final.replace(target)
+            final = target
+        print(f"[meta] KB Pack: {final} | {stats['bytes']} bytes | base={stats['base_url']}")
+        return 0
     stamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
     out = args.out or Path.cwd() / (
         f"{args.meeting_dir.name}_{PRODUCT_VERSION_LABEL}_{stamp}.meetingpack.zip")

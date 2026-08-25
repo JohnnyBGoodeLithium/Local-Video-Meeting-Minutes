@@ -3,7 +3,7 @@
 > 给接手 agent：先读本文件和 `AGENTS.md`，再看 `CHANGELOG.md` 未发布段了解最近改动。
 > 本文件在每次交接或大方向变化时更新；过期的进行中事项完成后删除对应段落。
 
-更新时间：2026-08-25（产品版本 v0.10.0；在线工作台构建号 20260825p87；提交号以 `git log -1` 为准）
+更新时间：2026-08-25（产品版本 v0.10.0；在线工作台构建号 20260825p88；提交号以 `git log -1` 为准）
 
 ## 当前基线
 
@@ -11,6 +11,19 @@
 - 验证基线：发布提交前以本轮 `make check`、隔离 Web smoke 和 MeetingPack 启动测试结果为准；所有新增测试只使用虚构数据。
 - 服务：端口 8899，`systemctl --user restart meeting-minutes-web` 重启。优雅退出已有界：`MEETING_WEB_GRACEFUL_SHUTDOWN` 默认 8 秒强制关闭残留连接，restart 不再挂起 45s。
 - 隐私红线（详见 AGENTS.md）：不读真实会议正文，只看元数据/结构；上次已获用户授权诊断 Gate B 会议标题形态，新任务需重新授权。
+
+## 当前批次：知识库导出 profile（WeKnora 优化）+ 时间码深链
+
+- 定位：用户将把腾讯 WeKnora 部署在本机 Docker 做知识库；本应用只做分析+导出，KB 管理归 WeKnora。WeKnora 按文档分块、支持自定义 metadata、文件夹上传保留目录树，所以 KB 导出是新 profile（每个内容收敛成一份自包含 Markdown），不改 MeetingPack/ContentPack。
+- 已完成（任务 1–5 全部落地，待验证+提交）：
+  1. 前端深链：`web/static/app.js` 的 `loadMeetings()` 支持 `?meeting=<slug>&t=<秒>`（小数秒；非法/超界 t 忽略），打开会议后走现有 `seek()` 定位播放器。
+  2. 新 `bin/kb_document.py`：`kb_document(mdir, *, base_url, ...)` 生成自包含 kb.md（front matter：title/date/content_type/duration/keywords 带 kind/source_url（meta.json 有才带）；正文 总体摘要 → 关键结论 → 待办 → 议题脉络 → 屏幕内容 → 逐字稿；时间码全部 `[mm:ss](<base>/?meeting=<slug>&t=N)` 深链；头部 `[▶ 完整视频/音频](…/media/video|audio)` 外链；屏幕图 `…/file?path=slides/…` 外链；依据标记保留 `#mm-C00001` 纯文本；VL 描述的 `# 标题` 抹平；缺板块整节跳过；语言跟随纪要主语言）。同文件 `build_kb_pack()` 打 `.kbpack.zip`（每场 `<slug>.kb.md` + `kb-pack/v1` manifest：base_url/条目/tags 汇总；多场追加文字版 `index.md` 内容清单+贯穿关键字→涉及内容）。base 取 env `MEETING_WEB_PUBLIC_BASE`，默认 `http://127.0.0.1:8899`。evidence/待办投影与 MeetingPack 同一条 `build_evidence_document` 重建链，只读目录、不调模型。
+  3. 走线：`export_meeting.py --profile kb` / `export_pack.py --profile kb`（含 CLI 打印分支）；`web/routers/export.py` 单会议与 pack 端点加 `profile` Query（full 默认 | kb）；前端导出弹窗媒体选项上方加"完整包 / 知识库版（纯文本+媒体链接）"形态选择（kb 时媒体选项灰显），预检估算 >30MB 时警告区追加"可改用知识库版"（中英文案）。
+  4. 测试：`web/tests/kb_document_test.py`（全合成：front matter/深链格式含小数秒/外链/降级/英文跟随/单+多场 kbpack）已进 `make check`；`smoke_test.py` 新增深链静态断言、形态选择+30MB 提示静态断言、kb 单导出与 pack kb 结构断言。构建号 p87→p88（index.html 4 处 + smoke 1 处）。
+  5. 文档：CHANGELOG 未发布段顶部、EXPORT_AND_RAG.md 新增 4.3 KB Pack 段、PRODUCT_UX.md 导出弹窗段、PRODUCT_FUNCTIONS.md 新叶 8.1.2.4（Git 号"（本批，提交后补）"）。
+- 验证：`make check` 全绿（含 kb_document_test）、隔离 `make smoke` 187/187（182 + 5 条新断言）、`git diff --check` 干净。尚未 commit（用户红线）。
+- 剩余：提交后回写 PRODUCT_FUNCTIONS 8.1.2.4 的 Git 号；真实服务有活动作业时不得重启 8899；用户硬刷新后构建号 p88 生效。
+- 下一步：WeKnora 本机 Docker 部署后做 API 直推（scoped key 存服务端配置不进 git）；claims→FAQ 映射为可选二期。
 
 ## 当前批次：media 画面抽取镜头检测模式
 

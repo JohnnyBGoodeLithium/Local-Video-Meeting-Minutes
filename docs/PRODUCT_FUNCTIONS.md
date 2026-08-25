@@ -75,6 +75,7 @@
 | 8.1.2.1 | 分享媒体压缩 | 可选择不带媒体或携带压缩 AAC/视频，保留时间跳转。 | v0.8.0 | `6dd94b1` | P1 |
 | 8.1.2.2 | 版本化导出命名 | 包名包含会议日期、产品版本和导出时间，重复导出不覆盖。 | v0.8.1 | `a994ba3` | P2 |
 | 8.1.2.3 | 多内容打包导出 | 把 2–12 场会议合成一个 `.contentpack.zip`：顶层 README/AGENTS/manifest（content-pack/v1）+ 跨内容关键字贯穿线索索引（content-pack-index/v1），`meetings/<slug>/` 各为完整 MeetingPack；命名沿用版本化约定，默认取最高频共享关键字。 | 未发布 | `7017381` | P1 |
+| 8.1.2.4 | 知识库导出形态 | 导出弹窗可选"知识库版（纯文本+媒体链接）"（CLI/HTTP `profile=kb`）：每个内容收敛成一份自包含 `<slug>.kb.md`（分块友好章节 + YAML front matter），时间码渲染成 `?meeting=<slug>&t=<秒>` 深链、媒体与屏幕图走在线外链，产 `.kbpack.zip` + `kb-pack/v1` manifest（多场追加文字版 index.md）；预检超 30MB 时提示改用该形态。 | 未发布 | （本批，提交后补） | P1 |
 | 9.1.1.1 | 默认纯本地隐私 | ASR、VL、文本模型、RAG 和 Web 默认只在本机/loopback；远端和跨 provider 回退必须显式配置。 | v0.8.0 | `9d25c13` | P0 |
 | 9.1.1.2 | AMD/NVIDIA/CPU 兼容 | 模型路径、设备、dtype 与 ASR provider 可配置，业务流程不写死 AMD、OS 或单一模型供应商。 | v0.8.0 | `9d25c13` | P1 |
 | 9.1.2.1 | 产品版本追踪 | VERSION 单一真源同步工作台、Viewer、健康端点和导出命名。 | v0.8.1 | `a994ba3` | P1 |

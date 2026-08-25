@@ -165,16 +165,26 @@ _AGENTS_MD = """# ContentPack — Agent 使用指引
 
 def export_pack(meetings: list[tuple[str, Path, str, str]], out: Path, *,
                 bank_dir: Path | None = None, media_mode: str = "none",
-                name: str | None = None) -> dict:
-    """meetings 为 (slug, 会议目录, 标题, 日期) 列表；产物打成 .contentpack.zip。"""
+                name: str | None = None, profile: str = "full",
+                base_url: str | None = None) -> dict:
+    """meetings 为 (slug, 会议目录, 标题, 日期) 列表；产物打成 .contentpack.zip。
+
+    profile="kb" 时改走知识库版 .kbpack.zip：每场一份自包含 <slug>.kb.md，
+    媒体与截图全部走外链，不含 MeetingPack 文件树。"""
     out = Path(out).resolve()
     if media_mode not in {"none", "audio", "video"}:
         raise ValueError("media_mode 必须是 none/audio/video")
+    if profile not in {"full", "kb"}:
+        raise ValueError("profile 必须是 full/kb")
     if not MIN_MEETINGS <= len(meetings) <= MAX_MEETINGS:
         raise ValueError(f"内容包需要 {MIN_MEETINGS}–{MAX_MEETINGS} 场会议")
     slugs = [slug for slug, _mdir, _t, _d in meetings]
     if len(set(slugs)) != len(slugs):
         raise ValueError("内容包中会议重复")
+    if profile == "kb":
+        import kb_document
+        return kb_document.build_kb_pack(meetings, out, base_url=base_url,
+                                         bank_dir=bank_dir)
 
     with tempfile.TemporaryDirectory(prefix="contentpack-export-") as temp_name:
         temp_dir = Path(temp_name)
@@ -249,6 +259,10 @@ def main() -> int:
     parser.add_argument("--bank-dir", type=Path,
                         default=Path(__file__).resolve().parent.parent / "speaker_bank")
     parser.add_argument("--media", choices=("none", "audio", "video"), default="none")
+    parser.add_argument("--profile", choices=("full", "kb"), default="full",
+                        help="kb：知识库版 .kbpack.zip（纯文本 + 媒体/时间码外链）")
+    parser.add_argument("--base-url", default=None,
+                        help="仅 kb profile：深链/外链 base；默认取 env MEETING_WEB_PUBLIC_BASE")
     args = parser.parse_args()
     meetings = []
     for mdir in args.meeting_dirs:
@@ -260,7 +274,8 @@ def main() -> int:
         # --out 缺省时先导出到同目录临时文件，再用返回的规范文件名原子落位。
         stats = export_pack(meetings, args.out or probe,
                             bank_dir=args.bank_dir, media_mode=args.media,
-                            name=args.name)
+                            name=args.name, profile=args.profile,
+                            base_url=args.base_url)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         probe.unlink(missing_ok=True)
         print(f"导出失败: {exc}", file=sys.stderr)
@@ -270,8 +285,13 @@ def main() -> int:
         target = Path.cwd() / stats["filename"]
         final.replace(target)
         final = target
-    print(f"[meta] ContentPack: {final} | {stats['bytes']} bytes | "
-          f"meetings={stats['meetings']} shared={stats['shared_keywords']} media={args.media}")
+    if args.profile == "kb":
+        print(f"[meta] KB Pack: {final} | {stats['bytes']} bytes | "
+              f"documents={stats['documents']} shared={stats['shared_keywords']} "
+              f"base={stats['base_url']}")
+    else:
+        print(f"[meta] ContentPack: {final} | {stats['bytes']} bytes | "
+              f"meetings={stats['meetings']} shared={stats['shared_keywords']} media={args.media}")
     return 0
 
 

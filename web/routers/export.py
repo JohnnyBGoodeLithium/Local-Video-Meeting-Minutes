@@ -14,6 +14,7 @@ from starlette.background import BackgroundTask
 
 import export_meeting as meeting_export
 import export_pack as pack_export
+import kb_document
 import meeting_generation
 from product_version import PRODUCT_VERSION, PRODUCT_VERSION_LABEL
 from deps import (BANK_DIR, _current_evidence, _evidence_state,
@@ -23,30 +24,40 @@ from deps import (BANK_DIR, _current_evidence, _evidence_state,
 router = APIRouter()
 
 
-def _download_filename(ident: dict, now: datetime | None = None) -> str:
+def _download_filename(ident: dict, now: datetime | None = None,
+                       kb: bool = False) -> str:
     """可读且不重名的导出名：会议日期 + 产品版本 + 本地导出时间。"""
     base = _safe(ident.get("title") or "") or "meeting"
     meeting_date = f"_{ident['date']}" if ident.get("date") else ""
     stamp = (now or datetime.now().astimezone()).strftime("%Y%m%d-%H%M%S")
+    if kb:
+        return f"{base}{meeting_date}_{PRODUCT_VERSION_LABEL}_{stamp}.kbpack.zip"
     return f"{base}{meeting_date}_{PRODUCT_VERSION_LABEL}_{stamp}.meetingpack.zip"
 
 
 @router.get("/api/meetings/{slug}/export")
-def export_meeting_pack(slug: str, media: str = Query("none", pattern="^(none|audio|video)$")):
-    """生成静态 MeetingPack；逐字稿形成后即可导出核听快照。"""
+def export_meeting_pack(slug: str, media: str = Query("none", pattern="^(none|audio|video)$"),
+                        profile: str = Query("full", pattern="^(full|kb)$")):
+    """生成静态 MeetingPack；逐字稿形成后即可导出核听快照。
+    profile=kb 改产知识库版 .kbpack.zip（纯文本 + 媒体/时间码外链）。"""
     mdir = _mdir(slug)
     fd, temp_name = tempfile.mkstemp(prefix="meetingpack-", suffix=".zip")
     os.close(fd)
     archive = Path(temp_name)
     ident = _meeting_identity(slug)
     try:
-        meeting_export.export_meeting(
-            mdir, archive, bank_dir=BANK_DIR, media_mode=media,
-            title=ident["title"], date=ident["date"])
+        if profile == "kb":
+            kb_document.build_kb_pack(
+                [(slug, mdir, ident["title"], ident["date"])], archive,
+                bank_dir=BANK_DIR)
+        else:
+            meeting_export.export_meeting(
+                mdir, archive, bank_dir=BANK_DIR, media_mode=media,
+                title=ident["title"], date=ident["date"])
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         archive.unlink(missing_ok=True)
         raise HTTPException(400, str(exc)) from exc
-    filename = _download_filename(ident)
+    filename = _download_filename(ident, kb=profile == "kb")
     return FileResponse(
         archive, media_type="application/zip", filename=filename,
         background=BackgroundTask(archive.unlink, missing_ok=True))
@@ -54,8 +65,10 @@ def export_meeting_pack(slug: str, media: str = Query("none", pattern="^(none|au
 
 @router.get("/api/export/pack")
 def export_content_pack(slugs: str = Query(...),
-                        media: str = Query("none", pattern="^(none|audio|video)$")):
-    """多内容打包导出：2–12 场会议合成一个 .contentpack.zip，同步返回。"""
+                        media: str = Query("none", pattern="^(none|audio|video)$"),
+                        profile: str = Query("full", pattern="^(full|kb)$")):
+    """多内容打包导出：2–12 场会议合成一个 .contentpack.zip，同步返回。
+    profile=kb 时产多文档 .kbpack.zip（每场一份 kb.md + 文字版 index.md）。"""
     slug_list = []
     for slug in slugs.split(","):
         slug = slug.strip()
@@ -73,7 +86,7 @@ def export_content_pack(slugs: str = Query(...),
     archive = Path(temp_name)
     try:
         stats = pack_export.export_pack(entries, archive, bank_dir=BANK_DIR,
-                                        media_mode=media)
+                                        media_mode=media, profile=profile)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         archive.unlink(missing_ok=True)
         raise HTTPException(400, str(exc)) from exc

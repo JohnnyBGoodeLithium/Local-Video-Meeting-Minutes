@@ -1261,6 +1261,12 @@ body.resizing-panes { cursor: col-resize; user-select: none; }
 .export-facts span { display: grid; padding: var(--sp-8); border: 1px solid var(--border); border-radius: var(--r-8); color: var(--dim); font-size: var(--fs-11); }
 .export-facts b { color: var(--text); font-size: var(--fs-14); }
 .export-options { display: grid; gap: var(--sp-7); margin-top: var(--sp-12); }
+.export-options.inactive { opacity: .45; pointer-events: none; }
+.export-profile { display: flex; gap: var(--sp-11); margin-top: var(--sp-10); }
+.export-profile-option { display: flex; align-items: center; gap: var(--sp-7); color: var(--dim); font-size: var(--fs-12); cursor: pointer; }
+.export-profile-option:has(input:checked) { color: var(--text); }
+.export-profile-option span { display: flex; gap: var(--sp-6); align-items: baseline; }
+.export-profile-option small { color: var(--dim); }
 .export-option { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--sp-9); padding: var(--sp-9) var(--sp-11); border: 1px solid var(--border); border-radius: var(--r-9); cursor: pointer; }
 .export-option:has(input:checked) { border-color: var(--accent); background: rgba(79, 124, 255, .09); }
 .export-option.disabled { opacity: .45; cursor: not-allowed; }

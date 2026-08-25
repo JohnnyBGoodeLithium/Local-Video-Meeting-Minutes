@@ -172,7 +172,18 @@ check("时间码跳转只滚动内容面板，不带动整页丢失播放器",
 check("在线屏幕舞台支持放大、缩放和相邻屏幕键盘导航",
       b'id="screen-preview-mask"' in page and b'openScreenPreview' in app_js
       and b'navigateScreenPreview' in app_js and b'SCREEN_PREVIEW_ZOOMS' in app_js
-      and b'20260825p87' in page)
+      and b'20260825p88' in page)
+check("会议深链 ?meeting=<slug>&t=<秒> 定位播放且忽略非法/超界 t",
+      b'params.get("t")' in app_js and b'deepLinkSeek' in app_js
+      and b'Number.parseFloat' in app_js
+      and b'Number.isFinite(deepLinkSeek) && deepLinkSeek >= 0' in app_js
+      and b'seek(deepLinkSeek)' in app_js)
+check("导出弹窗提供知识库形态选择并在超 30MB 时提示改用",
+      b'name="export-profile"' in app_js
+      and "知识库版".encode() in app_js
+      and "超过常见邮件附件 30MB 限制".encode() in app_js
+      and b"knowledge-base profile" in app_js
+      and b'profile=' in app_js)
 check("可恢复失败不会在一小时后失去续跑入口",
       b'j.recovery?.state === "available"' in app_js
       and b'Date.now() / 1000 - Number(j.finished || j.created || 0) < 60 * 60' in app_js)
@@ -639,6 +650,51 @@ try:
                   for e in cindex.get("entries", []))
           and re.search(r"_v0\.10\.0_\d{8}-\d{6}\.contentpack\.zip",
                         pack_disposition))
+    # 知识库导出 profile：单会议 .kbpack.zip（kb.md + kb-pack/v1 manifest，纯文本外链）
+    s, _, _ = req("GET", "/api/meetings/_smoke/export?profile=bogus", raw=True)
+    check("非法导出 profile 被拒绝", s in (400, 422))
+    s, h, kb_bytes = req("GET", "/api/meetings/_smoke/export?profile=kb", raw=True)
+    kb_disposition = next((v for k, v in h.items()
+                           if k.lower() == "content-disposition"), "")
+    kbpack = zipfile.ZipFile(io.BytesIO(kb_bytes)) if s == 200 else None
+    kb_names = set(kbpack.namelist()) if kbpack else set()
+    kb_manifest = json.loads(kbpack.read("manifest.json")) if kbpack else {}
+    kb_doc = (kbpack.read("_smoke.kb.md").decode("utf-8")
+              if kbpack and "_smoke.kb.md" in kb_names else "")
+    check("知识库版导出 kb-pack/v1：单文档 + 极简 manifest + 深链/外链",
+          s == 200 and kb_names == {"_smoke.kb.md", "manifest.json"}
+          and re.search(r"_v0\.10\.0_\d{8}-\d{6}\.kbpack\.zip", kb_disposition)
+          and kb_manifest.get("schema") == "kb-pack/v1"
+          and kb_manifest.get("base_url") == "http://127.0.0.1:8899"
+          and kb_manifest.get("documents", [{}])[0].get("file") == "_smoke.kb.md"
+          and "?meeting=_smoke&t=" in kb_doc
+          and "/api/meetings/_smoke/media/audio" in kb_doc
+          and "file?path=slides/page1.png" in kb_doc
+          and "#mm-C" in kb_doc and "mm:evidence" not in kb_doc
+          and any(t.get("text") == shared_keyword["text"]
+                  for t in kb_manifest.get("tags", [])))
+    # pack kb profile：每场一份 kb.md + 文字版 index.md（贯穿关键字 → 涉及内容）
+    s, h, kbpack_bytes = req(
+        "GET", "/api/export/pack?slugs=_smoke,_smoke2&profile=kb", raw=True)
+    kbpack_disposition = next((v for k, v in h.items()
+                               if k.lower() == "content-disposition"), "")
+    kb_pack = zipfile.ZipFile(io.BytesIO(kbpack_bytes)) if s == 200 else None
+    kp_names = set(kb_pack.namelist()) if kb_pack else set()
+    kp_manifest = json.loads(kb_pack.read("manifest.json")) if kb_pack else {}
+    kp_index = (kb_pack.read("index.md").decode("utf-8")
+                if kb_pack and "index.md" in kp_names else "")
+    check("多内容知识库版：每场一份 kb.md + 文字版 index.md",
+          s == 200 and kb_pack is not None
+          and kp_names == {"_smoke.kb.md", "_smoke2.kb.md", "index.md",
+                           "manifest.json"}
+          and re.search(r"_v0\.10\.0_\d{8}-\d{6}\.kbpack\.zip", kbpack_disposition)
+          and kp_manifest.get("schema") == "kb-pack/v1"
+          and kp_manifest.get("counts", {}).get("documents") == 2
+          and kp_manifest.get("counts", {}).get("shared_keywords") == 1
+          and "内容清单" in kp_index and "贯穿关键字" in kp_index
+          and shared_keyword["text"] in kp_index
+          and "_smoke" in kp_index and "_smoke2" in kp_index
+          and len(kbpack_bytes) < 200_000)
 finally:
     shutil.rmtree(SMOKE2, ignore_errors=True)
 

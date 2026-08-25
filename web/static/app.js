@@ -509,12 +509,20 @@ async function loadMeetings() {
   state.meetings = d.meetings;
   renderMeetingList();
   if (!state.slug && state.meetings.length) {
-    const linked = new URLSearchParams(location.search).get("meeting");
+    const params = new URLSearchParams(location.search);
+    const linked = params.get("meeting");
+    // 外链深链（如知识库文档的时间码链接）：?meeting=<slug>&t=<秒>，支持小数秒；
+    // t 非数、负数或超出会议时长时忽略，只打开会议不定位。
+    const deepLinkSeek = Number.parseFloat(params.get("t") || "");
     const remembered = state.meetings.find(m => m.slug ===
       (linked || state.workspace.lastSlug));
     const firstOfType = orderedMeetings()
       .find(m => contentTypeOf(m) === state.workspace.contentType);
     await loadMeeting((remembered || firstOfType || orderedMeetings()[0]).slug);
+    if (linked && Number.isFinite(deepLinkSeek) && deepLinkSeek >= 0
+        && deepLinkSeek <= (Number(state.bundle?.duration) || Infinity)) {
+      seek(deepLinkSeek);
+    }
   }
 }
 
@@ -3915,22 +3923,46 @@ function renderExportRelated() {
   });
 }
 
-function exportPack(slugs, media = "none") {
+function exportPack(slugs, media = "none", profile = "full") {
   if (!slugs.length) return;
   closeExportDialog();
   const a = document.createElement("a");
-  a.href = `/api/export/pack?slugs=${encodeURIComponent(slugs.join(","))}&media=${encodeURIComponent(media)}`;
+  a.href = `/api/export/pack?slugs=${encodeURIComponent(slugs.join(","))}&media=${encodeURIComponent(media)}&profile=${encodeURIComponent(profile)}`;
   a.download = "";
   document.body.appendChild(a);
   a.click();
   a.remove();
-  toast(isEnglishUi()
+  toast(profile === "kb"
+    ? (isEnglishUi()
+      ? `Generating knowledge-base pack (${slugs.length} items)…`
+      : `正在生成知识库版内容包（${slugs.length} 个内容）…`)
+    : isEnglishUi()
     ? `Generating content pack (${slugs.length} items)…`
     : `正在生成内容包（${slugs.length} 个内容）…`);
 }
 
 function closeExportDialog() {
   $("#export-mask").classList.add("hidden");
+}
+
+function selectedExportProfile() {
+  return $('input[name="export-profile"]:checked', $("#export-preflight"))?.value || "full";
+}
+
+function updateExportSizeHint() {
+  const data = state.exportPreflight;
+  const hint = $("#export-size-hint");
+  if (!data || !hint) return;
+  const kb = selectedExportProfile() === "kb";
+  $(".export-options", $("#export-preflight"))?.classList.toggle("inactive", kb);
+  const media = $('input[name="export-media"]:checked', $("#export-preflight"))?.value || "none";
+  const oversized = !kb && Number(data.estimated_bytes?.[media] || 0) > 30 * 1024 * 1024;
+  hint.classList.toggle("hidden", !oversized);
+  if (oversized) {
+    hint.textContent = isEnglishUi()
+      ? "Estimated size exceeds the common 30MB email attachment limit; consider the knowledge-base profile (text + media links) instead."
+      : "预计大小超过常见邮件附件 30MB 限制，可改用知识库版（纯文本+媒体链接）。";
+  }
 }
 
 function renderExportPreflight() {
@@ -3942,36 +3974,57 @@ function renderExportPreflight() {
     ["audio", "分享版音频", `${data.media.audio.format || "AAC"}，可按证据跳转`, data.media.audio.available],
     ["video", "分享版视频", `${data.media.video.format || "720p"}，保留屏幕可读性`, data.media.video.available],
   ];
+  const profiles = [
+    ["full", isEnglishUi() ? "Full pack" : "完整包",
+     isEnglishUi() ? "Offline viewer + evidence assets" : "离线查看器 + 证据资产"],
+    ["kb", isEnglishUi() ? "Knowledge-base" : "知识库版",
+     isEnglishUi() ? "Plain text + media links" : "纯文本+媒体链接"],
+  ];
   const html = `<div class="export-facts">` +
     `<span><b>${esc(evidenceNames[data.evidence.state] || "部分证据")}</b>${data.evidence.linked_claims}/${data.evidence.claims} 条结论有链接</span>` +
     `<span><b>${data.content.transcript_turns}</b>段逐字稿</span>` +
     `<span><b>${data.content.pages}</b>页共享画面</span></div>` +
+    `<div class="export-profile">${profiles.map(([id, title, detail], index) =>
+      `<label class="export-profile-option">` +
+      `<input type="radio" name="export-profile" value="${id}" ${index === 0 ? "checked" : ""}>` +
+      `<span><b>${title}</b><small>${detail}</small></span></label>`).join("")}</div>` +
     `<div class="export-options">${options.map(([id, title, detail, available], index) =>
       `<label class="export-option ${available ? "" : "disabled"}">` +
       `<input type="radio" name="export-media" value="${id}" ${index === 0 ? "checked" : ""} ${available ? "" : "disabled"}>` +
       `<span><b>${title}</b><small>${detail}</small></span>` +
       `<strong>约 ${formatBytes(data.estimated_bytes[id])}</strong></label>`).join("")}</div>` +
+    `<div id="export-size-hint" class="export-warning hidden"></div>` +
     (data.export_mode === "review_snapshot"
       ? '<div class="export-warning"><b>处理中核听快照</b><br>说话人、逐字稿、跳播和所选媒体可用；纪要、脉络、证据与屏幕资料仅代表现在，终稿完成后请重新导出正式分享版。</div>'
       : "") +
     (data.evidence.state === "ready" ? "" :
       '<div class="export-warning">当前包仍可阅读，但部分结论不能回到原文核对。建议重新生成纪要后再正式分享。</div>') +
     `<p class="export-note">由 Meeting Minutes v${esc(data.product_version || "-")} 生成；文件名格式 <code>${esc(data.filename_pattern || "")}</code>。<br>` +
-    '包顶层只有 <code>viewer.html</code>、<code>README.txt</code> 和 <code>assets/</code>。音视频是分享压缩版，项目中的原始母版不会被修改。</p>';
+    '包顶层只有 <code>viewer.html</code>、<code>README.txt</code> 和 <code>assets/</code>。音视频是分享压缩版，项目中的原始母版不会被修改。' +
+    `${isEnglishUi() ? "The knowledge-base profile contains only one Markdown per item plus a manifest; media and screenshots stay online via links." : "知识库版每个内容只有一份 Markdown 和 manifest，媒体与截图走在线链接。"}</p>`;
   $("#export-preflight").innerHTML = html;
+  $$('input[name="export-profile"]', $("#export-preflight")).forEach(radio => {
+    radio.onchange = updateExportSizeHint;
+  });
+  $$('input[name="export-media"]', $("#export-preflight")).forEach(radio => {
+    radio.onchange = updateExportSizeHint;
+  });
+  updateExportSizeHint();
   $("#export-confirm").disabled = false;
 }
 
-function exportMeeting(media = "none") {
+function exportMeeting(media = "none", profile = "full") {
   if (!state.slug) return;
   closeExportDialog();
   const a = document.createElement("a");
-  a.href = `/api/meetings/${encodeURIComponent(state.slug)}/export?media=${encodeURIComponent(media)}`;
+  a.href = `/api/meetings/${encodeURIComponent(state.slug)}/export?media=${encodeURIComponent(media)}&profile=${encodeURIComponent(profile)}`;
   a.download = "";
   document.body.appendChild(a);
   a.click();
   a.remove();
-  toast(media === "none" ? "正在生成离线查看包（默认不含音视频）…" : `正在生成含${media === "video" ? "视频" : "音频"}的查看包…`);
+  toast(profile === "kb"
+    ? (isEnglishUi() ? "Generating knowledge-base pack…" : "正在生成知识库版导出包…")
+    : media === "none" ? "正在生成离线查看包（默认不含音视频）…" : `正在生成含${media === "video" ? "视频" : "音频"}的查看包…`);
 }
 
 async function openStorageDialog() {
@@ -5284,9 +5337,10 @@ function init() {
   $("#export-cancel").onclick = closeExportDialog;
   $("#export-confirm").onclick = () => {
     const media = $('input[name="export-media"]:checked', $("#export-preflight"))?.value || "none";
+    const profile = selectedExportProfile();
     const related = selectedRelatedSlugs();
-    if (related.length) exportPack([state.slug, ...related], media);
-    else exportMeeting(media);
+    if (related.length) exportPack([state.slug, ...related], media, profile);
+    else exportMeeting(media, profile);
   };
   $("#export-mask").addEventListener("click", event => {
     if (event.target.id === "export-mask") closeExportDialog();
