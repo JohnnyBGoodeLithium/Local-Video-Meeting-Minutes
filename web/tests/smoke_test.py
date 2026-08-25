@@ -166,13 +166,15 @@ check("纪要依据显示时间并直接跳转，后台脉络完成后自动刷�
       and b'showMinutesEvidence(claimId, true)' in app_js
       and b'refreshedArtifactJobs' in app_js
       and b'bundleRefreshInFlight' in app_js)
+check("屏幕内容点选卡片保留左侧列表滚动位置，不跳回顶部",
+      b'renderVisuals(true)' in app_js and b'prevListScroll' in app_js)
 check("时间码跳转只滚动内容面板，不带动整页丢失播放器",
       b'function scrollInside' in app_js and b'function scrollTranscriptTurn' in app_js
       and b'scrollIntoView' not in app_js)
 check("在线屏幕舞台支持放大、缩放和相邻屏幕键盘导航",
       b'id="screen-preview-mask"' in page and b'openScreenPreview' in app_js
       and b'navigateScreenPreview' in app_js and b'SCREEN_PREVIEW_ZOOMS' in app_js
-      and b'20260825p89' in page)
+      and b'20260825p90' in page)
 check("会议深链 ?meeting=<slug>&t=<秒> 定位播放且忽略非法/超界 t",
       b'params.get("t")' in app_js and b'deepLinkSeek' in app_js
       and b'Number.parseFloat' in app_js

@@ -3525,8 +3525,12 @@ function openVisual(visualId, time = null) {
   if (Number.isFinite(time)) seek(time);
 }
 
-function renderVisuals() {
+function renderVisuals(preserveListScroll = false) {
   const box = $("#visuals");
+  // 点选卡片会整棵重建 DOM，先记住左侧列表滚动位置，渲染后恢复，
+  // 否则点第 N 页时列表会跳回顶部。
+  const prevListScroll = preserveListScroll
+    ? (box.querySelector(".visual-list")?.scrollTop || 0) : 0;
   const allVisuals = state.bundle?.structure?.visuals || [];
   if (!allVisuals.length) {
     box.innerHTML = '<div class="structure-empty-state"><h3>没有屏幕内容</h3><p>这场会议仍可通过会议纪要和逐字稿回顾。</p></div>';
@@ -3581,7 +3585,7 @@ function renderVisuals() {
     `</article></div>`;
   $$('[data-visual-select]', box).forEach(button => button.onclick = () => {
     state.selectedVisualId = button.dataset.visualSelect;
-    renderVisuals();
+    renderVisuals(true);
   });
   $$('[data-visual-filter]', box).forEach(button => button.onclick = () => {
     state.visualFilter = button.dataset.visualFilter;
@@ -3592,6 +3596,10 @@ function renderVisuals() {
   $$('[data-preview-visual]', box).forEach(image =>
     image.onclick = () => openScreenPreview(image.dataset.previewVisual));
   wireStructureClaims(box);
+  if (prevListScroll) {
+    const list = box.querySelector(".visual-list");
+    if (list) list.scrollTop = prevListScroll;
+  }
 }
 
 function setReviewMode(mode) {
