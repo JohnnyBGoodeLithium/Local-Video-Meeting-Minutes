@@ -3,7 +3,7 @@
 > 给接手 agent：先读本文件和 `AGENTS.md`，再看 `CHANGELOG.md` 未发布段了解最近改动。
 > 本文件在每次交接或大方向变化时更新；过期的进行中事项完成后删除对应段落。
 
-更新时间：2026-08-24（产品版本 v0.10.0；在线工作台构建号 20260824p84；提交号以 `git log -1` 为准）
+更新时间：2026-08-25（产品版本 v0.10.0；在线工作台构建号 20260825p85；提交号以 `git log -1` 为准）
 
 ## 当前基线
 
@@ -11,6 +11,15 @@
 - 验证基线：发布提交前以本轮 `make check`、隔离 Web smoke 和 MeetingPack 启动测试结果为准；所有新增测试只使用虚构数据。
 - 服务：端口 8899，`systemctl --user restart meeting-minutes-web` 重启。优雅退出已有界：`MEETING_WEB_GRACEFUL_SHUTDOWN` 默认 8 秒强制关闭残留连接，restart 不再挂起 45s。
 - 隐私红线（详见 AGENTS.md）：不读真实会议正文，只看元数据/结构；上次已获用户授权诊断 Gate B 会议标题形态，新任务需重新授权。
+
+## 当前批次：关键字索引与内容包导出
+
+- `keyword_service.py` 追加纯读盘全局索引：`normalize_keyword`（NFKC + casefold + 去空白，"玄戒 O3"="玄戒O3"）、`global_index`（`keyword-index/v1`，按涉及会议数降序，title 取 meta.json 的 title、缺省回退 slug，坏 sidecar 跳过不 500）、`related`（共享关键字加权 product/project=3、organization/topic=2、other=1，shared 即推荐理由）。路由：`GET /api/keywords/index`、`GET /api/meetings/{slug}/keywords/related`，请求时重建不做缓存。
+- 新 `bin/export_pack.py`：复用 `export_meeting` 逐场导出到暂存再解压进 `meetings/<slug>/`，顶层叠加 README、AGENTS.md、`content-pack/v1` manifest、`content-pack-index/v1`（≥2 个内容共享的关键字 → slug 列表，来源为实际打进包的 keywords.json）。命名沿用导出约定，默认名取最高频共享关键字；服务端 `GET /api/export/pack?slugs=a,b,c&media=none`（2–12 场，校验存在）同步返回 zip。
+- 导出弹窗预检下方按需出现"相关内容"（最多 5 条，checkbox + 标题 + 灰色共享理由）；默认不勾选、无相关整块不出现，勾选后确认按钮变为"导出内容包（N 个内容）"。中英文案走现有 isEnglishUi() 机制，样式约 5 条新规则。
+- 边界：全局索引是服务端内部件，只服务导出建议与 pack 索引两个出口，不做知识库管理 UI；导出全程不调用模型、不写回会议目录。
+- 构建号 p85；`web/tests/keyword_index_test.py` 进 `make check`，smoke 新增 6 条断言（索引聚合、related 双向、pack 校验/404、contentpack 结构），`make check` 与 smoke 172/172 通过。
+- 部署注意：与上批相同——真实服务有活动作业时不得重启；旧会议关键字懒生成后才参与索引。
 
 ## 当前批次：会议关键字
 

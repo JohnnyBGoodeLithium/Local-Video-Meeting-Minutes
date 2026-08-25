@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 import keyword_service as keywords
 import meeting_generation
-from deps import (BANK_LOCK, DRY_RUN, assistant, _current_evidence,
+from deps import (BANK_LOCK, DRY_RUN, MEETINGS, assistant, _current_evidence,
                   _meeting_identity, _minutes_file, _mdir, _now)
 from job_store import EXEC, JOBS, _new_job, _save_job, _set_status
 
@@ -55,6 +55,19 @@ def _active_keywords_job(slug: str):
 @router.get("/api/meetings/{slug}/keywords")
 def get_keywords(slug: str):
     return _keywords_payload(slug, _mdir(slug))
+
+
+@router.get("/api/keywords/index")
+def get_keywords_index():
+    """全局关键字索引：请求时重建，N 个小 JSON 不引入缓存复杂度。"""
+    return keywords.global_index(MEETINGS)
+
+
+@router.get("/api/meetings/{slug}/keywords/related")
+def get_related_keywords(slug: str, limit: int = Query(8, ge=1, le=50)):
+    """与目标会议共享关键字的其他会议；shared 即导出弹窗展示的推荐理由。"""
+    _mdir(slug)
+    return {"slug": slug, "related": keywords.related(MEETINGS, slug, limit=limit)}
 
 
 @router.post("/api/meetings/{slug}/keywords")

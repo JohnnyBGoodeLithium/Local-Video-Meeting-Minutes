@@ -194,6 +194,28 @@ Web“更多”菜单提供三种导出；命令行等价用法：
 .venv/bin/python bin/export_meeting.py meetings/<会议>/ --media video
 ```
 
+### 4.2 多内容包 ContentPack
+
+多场会议（2–12 场）可以合成一个 `.contentpack.zip`，用于把同一议题线的系列会议一次交付。每个内容就是一份完整的 MeetingPack v5 文件树，pack 顶层只叠加导读与跨内容索引，不引入第二套事实关系：
+
+```text
+<名称>_<首个会议日期>_v<product-version>_<export-time>.contentpack.zip
+├── README.md        # 人类导读：内容清单（标题/日期/时长）、贯穿线索、使用建议
+├── AGENTS.md        # 给外部 agent 的引导：结构说明、records 位置、index.json 用法；
+│                    # 单内容的引用/状态规则仍以各 meetings/<slug>/AGENTS.md 为准
+├── manifest.json    # content-pack/v1：生成器版本、导出时间、各内容摘要、汇总 counts
+├── index.json       # content-pack-index/v1：在 ≥2 个内容中出现的关键字 → 涉及内容 slug 列表
+└── meetings/<slug>/ # 每场会议的完整 MeetingPack（viewer.html、README.txt、AGENTS.md、assets/）
+```
+
+名称可用 CLI `--name` 显式给；默认取最高频共享关键字（index.json 首条），没有共享关键字时用"内容包"。`index.json` 的关键字合并规则与全局索引一致（NFKC + casefold + 去空白），来源是实际打进包的各 `assets/keywords.json`——索引只描述包内真实内容，不指向未导出的会议。Web 入口为 `GET /api/export/pack?slugs=a,b,c&media=none`，命令行等价用法：
+
+```bash
+.venv/bin/python bin/export_pack.py meetings/<会议A>/ meetings/<会议B>/ --media none
+```
+
+全局索引本身（`GET /api/keywords/index`，schema `keyword-index/v1`）是服务端内部件：只读盘聚合各会议 ready 状态的 `meeting-keywords/v1` sidecar，单场坏数据跳过；它服务两个出口——导出弹窗的相关内容建议（共享关键字加权：product/project=3、organization/topic=2、other=1，理由即共享词清单）和 pack 级贯穿线索。它不是知识库管理界面，关键字共现也不等于内容间的因果或先后关系。
+
 ## 5. RAG 使用方式
 
 `assets/rag/records.jsonl` 每行是独立 JSON，`record_type` 包括：

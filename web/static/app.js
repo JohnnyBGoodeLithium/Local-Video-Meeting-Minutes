@@ -105,6 +105,7 @@ const state = {
   refreshedArtifactJobs: new Set(),
   bundleRefreshInFlight: false,
   exportPreflight: null,
+  exportRelated: [],
   storage: null,
   progressiveRefreshes: new Set(),
   transcriptReview: null,
@@ -3769,7 +3770,14 @@ async function openExportDialog() {
   $(".more-menu")?.removeAttribute("open");
   $("#export-mask").classList.remove("hidden");
   $("#export-confirm").disabled = true;
+  state.exportRelated = [];
+  $("#export-related").innerHTML = "";
+  updateExportConfirmLabel();
   $("#export-preflight").innerHTML = '<p class="placeholder">正在检查证据、页面与媒体…</p>';
+  jget(`/api/meetings/${encodeURIComponent(state.slug)}/keywords/related?limit=5`)
+    .then(data => { state.exportRelated = data.related || []; })
+    .catch(() => { state.exportRelated = []; })
+    .finally(() => renderExportRelated());
   try {
     state.exportPreflight = await jget(
       `/api/meetings/${encodeURIComponent(state.slug)}/export/preflight`);
@@ -3777,6 +3785,55 @@ async function openExportDialog() {
   } catch (error) {
     $("#export-preflight").innerHTML = `<div class="export-warning">无法检查导出内容（${esc(error.message)}）</div>`;
   }
+}
+
+function selectedRelatedSlugs() {
+  const box = $("#export-related");
+  return box ? $$("input[data-related-slug]:checked", box).map(input => input.dataset.relatedSlug) : [];
+}
+
+function updateExportConfirmLabel() {
+  const count = selectedRelatedSlugs().length;
+  $("#export-confirm").textContent = count
+    ? (isEnglishUi() ? `Export content pack (${count + 1} items)` : `导出内容包（${count + 1} 个内容）`)
+    : (isEnglishUi() ? "Generate offline pack" : "生成离线查看包");
+}
+
+function renderExportRelated() {
+  const box = $("#export-related");
+  if (!box) return;
+  const items = (state.exportRelated || []).slice(0, 5);
+  if (!items.length) {
+    box.innerHTML = "";
+    return;
+  }
+  const sep = isEnglishUi() ? ", " : "、";
+  box.innerHTML = `<div class="export-related-head">${esc(isEnglishUi()
+    ? "Related content (optional, export together as a pack)" : "相关内容（可选，勾选后一起打包导出）")}</div>` +
+    items.map(item => {
+      const reason = (item.shared || []).slice(0, 4).map(k => k.text).filter(Boolean).join(sep);
+      return `<label class="export-related-item">` +
+        `<input type="checkbox" data-related-slug="${esc(item.slug)}">` +
+        `<span><b>${esc(item.title || item.slug)}</b>` +
+        `<small>${esc(isEnglishUi() ? "Shared: " : "共享：")}${esc(reason)}</small></span></label>`;
+    }).join("");
+  $$("input[data-related-slug]", box).forEach(input => {
+    input.onchange = updateExportConfirmLabel;
+  });
+}
+
+function exportPack(slugs, media = "none") {
+  if (!slugs.length) return;
+  closeExportDialog();
+  const a = document.createElement("a");
+  a.href = `/api/export/pack?slugs=${encodeURIComponent(slugs.join(","))}&media=${encodeURIComponent(media)}`;
+  a.download = "";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  toast(isEnglishUi()
+    ? `Generating content pack (${slugs.length} items)…`
+    : `正在生成内容包（${slugs.length} 个内容）…`);
 }
 
 function closeExportDialog() {
@@ -5125,7 +5182,9 @@ function init() {
   $("#export-cancel").onclick = closeExportDialog;
   $("#export-confirm").onclick = () => {
     const media = $('input[name="export-media"]:checked', $("#export-preflight"))?.value || "none";
-    exportMeeting(media);
+    const related = selectedRelatedSlugs();
+    if (related.length) exportPack([state.slug, ...related], media);
+    else exportMeeting(media);
   };
   $("#export-mask").addEventListener("click", event => {
     if (event.target.id === "export-mask") closeExportDialog();

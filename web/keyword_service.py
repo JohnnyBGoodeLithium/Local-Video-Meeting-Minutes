@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import re
 import time
+import unicodedata
 from pathlib import Path
 
 import assistant_service as assistant
@@ -17,7 +18,9 @@ import meeting_topic_map
 import translation_service as translation
 
 SCHEMA = "meeting-keywords/v1"
+INDEX_SCHEMA = "keyword-index/v1"
 KINDS = {"product", "project", "topic", "organization", "other"}
+KIND_WEIGHTS = {"product": 3, "project": 3, "organization": 2, "topic": 2, "other": 1}
 MAX_KEYWORDS = 12
 MAX_TEXT_CHARS = 20
 MATERIAL_CLAIM_LIMIT = 40
@@ -217,3 +220,111 @@ def generate_keywords(mdir: Path, title: str, evidence: dict, *, dry_run: bool =
                 "updated_at": now, "keywords": keywords}
     _write(keywords_path(mdir), document)
     return document
+
+
+# ---------------------------------------------------------------- 全局索引
+#
+# 全局索引是服务端内部件，纯读盘、不调用模型：只聚合 state=="ready" 的
+# sidecar，服务导出时的相关内容建议与 pack 级跨内容索引两个出口。
+# 单场会议数据损坏（JSON 解析失败等）只跳过该会议，不让整个索引失败。
+
+def normalize_keyword(text: str) -> str:
+    """跨会议合并键：NFKC + casefold + 去掉所有空白（"玄戒 O3" = "玄戒O3"）。"""
+    return re.sub(r"\s+", "", unicodedata.normalize("NFKC", str(text)).casefold())
+
+
+def _index_meeting_meta(mdir: Path) -> dict:
+    meta = _read(Path(mdir) / "meta.json")
+    if not isinstance(meta, dict):
+        meta = {}
+    title = str(meta.get("title") or meta.get("name") or "").strip()
+    return {"slug": Path(mdir).name, "title": title or Path(mdir).name,
+            "updated_at": meta.get("updated_at")}
+
+
+def _ready_keyword_items(mdir: Path) -> list[dict] | None:
+    """返回 ready sidecar 的规范化条目；未 ready 返回 None，坏数据抛给调用方跳过。"""
+    payload = keywords_payload(mdir)
+    if payload.get("state") != "ready":
+        return None
+    items = []
+    for item in payload.get("keywords", []):
+        if not isinstance(item, dict):
+            continue
+        text = str(item.get("text") or "").strip()
+        normalized = normalize_keyword(text)
+        if not normalized:
+            continue
+        kind = str(item.get("kind") or "other")
+        items.append({"text": text, "normalized": normalized,
+                      "kind": kind if kind in KINDS else "other"})
+    return items
+
+
+def global_index(meetings_dir) -> dict:
+    """跨会议关键字索引，按涉及会议数降序；请求时重建，不做缓存。"""
+    meetings_dir = Path(meetings_dir)
+    merged: dict[str, dict] = {}
+    if meetings_dir.is_dir():
+        for mdir in sorted(p for p in meetings_dir.iterdir() if p.is_dir()):
+            try:
+                items = _ready_keyword_items(mdir)
+                if items is None:
+                    continue
+                meeting = _index_meeting_meta(mdir)
+            except Exception:
+                continue  # 单场坏数据不拖垮整个索引
+            for item in items:
+                entry = merged.setdefault(item["normalized"], {
+                    "text_counts": {}, "kinds": [], "meetings": {}})
+                texts = entry["text_counts"]
+                texts[item["text"]] = texts.get(item["text"], 0) + 1
+                if item["kind"] not in entry["kinds"]:
+                    entry["kinds"].append(item["kind"])
+                entry["meetings"][mdir.name] = meeting
+    entries = []
+    for normalized, entry in merged.items():
+        text = max(entry["text_counts"].items(), key=lambda kv: kv[1])[0]
+        entries.append({"text": text, "normalized": normalized,
+                        "kinds": entry["kinds"],
+                        "meetings": sorted(entry["meetings"].values(),
+                                           key=lambda m: m["slug"])})
+    entries.sort(key=lambda e: (-len(e["meetings"]), e["normalized"]))
+    return {"schema": INDEX_SCHEMA, "built_at": round(time.time(), 3),
+            "entries": entries}
+
+
+def related(meetings_dir, slug: str, limit: int = 8) -> list[dict]:
+    """目标会议与其他会议的共享关键字加权计分；shared 即给用户的推荐理由。"""
+    meetings_dir = Path(meetings_dir)
+    try:
+        target_items = _ready_keyword_items(meetings_dir / slug)
+    except Exception:
+        target_items = None
+    if not target_items:
+        return []
+    target = {item["normalized"]: item for item in target_items}
+    scored = []
+    if meetings_dir.is_dir():
+        for mdir in sorted(p for p in meetings_dir.iterdir() if p.is_dir()):
+            if mdir.name == slug:
+                continue
+            try:
+                items = _ready_keyword_items(mdir)
+                if items is None:
+                    continue
+                meeting = _index_meeting_meta(mdir)
+            except Exception:
+                continue
+            shared = {item["normalized"]: {"text": target[item["normalized"]]["text"],
+                                           "kind": target[item["normalized"]]["kind"]}
+                      for item in items if item["normalized"] in target}
+            if not shared:
+                continue
+            shared_list = sorted(shared.values(),
+                                 key=lambda s: (-KIND_WEIGHTS.get(s["kind"], 1), s["text"]))
+            scored.append({"slug": mdir.name, "title": meeting["title"],
+                           "score": sum(KIND_WEIGHTS.get(s["kind"], 1) for s in shared_list),
+                           "shared": shared_list})
+    scored.sort(key=lambda item: (-item["score"], item["slug"]))
+    return scored[: max(1, int(limit))]

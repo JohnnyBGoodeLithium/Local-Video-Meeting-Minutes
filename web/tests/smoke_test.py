@@ -3,10 +3,12 @@
 
 通常由 run_smoke.py 在独立临时目录中启动；也可手工提供 MM_TEST_* 环境变量。
 """
+import hashlib
 import io
 import json
 import os
 import re
+import shutil
 import time
 import urllib.request
 import urllib.error
@@ -170,7 +172,7 @@ check("时间码跳转只滚动内容面板，不带动整页丢失播放器",
 check("在线屏幕舞台支持放大、缩放和相邻屏幕键盘导航",
       b'id="screen-preview-mask"' in page and b'openScreenPreview' in app_js
       and b'navigateScreenPreview' in app_js and b'SCREEN_PREVIEW_ZOOMS' in app_js
-      and b'20260824p84' in page)
+      and b'20260825p85' in page)
 check("可恢复失败不会在一小时后失去续跑入口",
       b'j.recovery?.state === "available"' in app_js
       and b'Date.now() / 1000 - Number(j.finished || j.created || 0) < 60 * 60' in app_js)
@@ -539,6 +541,79 @@ s, _, bundle_kw = req("GET", "/api/meetings/_smoke/bundle")
 check("会议列表与 bundle 携带关键字",
       s == 200 and smoke_kw_item.get("keywords")
       and bundle_kw.get("keywords", {}).get("state") == "ready")
+
+# 2e3. 全局关键字索引 / 相关内容建议 / 多内容打包导出：第二场合成会议共享一个关键字。
+SMOKE2 = TEST_ROOT / "meetings" / "_smoke2"
+shutil.rmtree(SMOKE2, ignore_errors=True)
+SMOKE2.mkdir(parents=True)
+(SMOKE2 / "transcript.spk.json").write_text(json.dumps([
+    {"speaker": "Carol", "voice": "v_9003", "start": 0.0, "end": 4.0,
+     "text": "第二场合成会议发言，仅用于验证索引与内容包导出。"},
+    {"speaker": "Carol", "voice": "v_9003", "start": 4.5, "end": 8.0,
+     "text": "Synthetic second meeting turn."},
+], ensure_ascii=False), encoding="utf-8")
+minutes2 = "# 会议纪要\n\n第二场合成纪要，无真实内容。\n"
+(SMOKE2 / "minutes.md").write_text(minutes2, encoding="utf-8")
+shared_keyword = kw_after["keywords"][0]
+revision2 = hashlib.sha256(minutes2.encode("utf-8")).hexdigest()[:16]
+(SMOKE2 / "meeting.keywords.json").write_text(json.dumps({
+    "schema": "meeting-keywords/v1", "status": "complete",
+    "source_revision": revision2, "facts_revision": None,
+    "language": "zh-CN", "model": "synthetic", "updated_at": time.time(),
+    "keywords": [{"text": shared_keyword["text"],
+                  "kind": shared_keyword.get("kind", "topic")},
+                 {"text": "二场独有词", "kind": "topic"}],
+}, ensure_ascii=False), encoding="utf-8")
+(SMOKE2 / "meta.json").write_text(
+    json.dumps({"title": "第二场合成会议"}, ensure_ascii=False), encoding="utf-8")
+try:
+    s, _, kw_index = req("GET", "/api/keywords/index")
+    index_entry = next((e for e in kw_index.get("entries", [])
+                        if e.get("text") == shared_keyword["text"]), {})
+    check("全局关键字索引聚合各会议 ready sidecar",
+          s == 200 and kw_index.get("schema") == "keyword-index/v1"
+          and {m.get("slug") for m in index_entry.get("meetings", [])}
+          == {"_smoke", "_smoke2"})
+    s, _, related = req("GET", "/api/meetings/_smoke/keywords/related")
+    hit = next((r for r in related.get("related", []) if r.get("slug") == "_smoke2"), {})
+    check("相关内容端点按共享关键字加权返回对方并给出理由",
+          s == 200 and hit.get("score", 0) > 0
+          and hit.get("title") == "第二场合成会议"
+          and any(k.get("text") == shared_keyword["text"]
+                  for k in hit.get("shared", [])))
+    s, _, related_back = req("GET", "/api/meetings/_smoke2/keywords/related")
+    check("相关内容反向对称返回",
+          s == 200 and any(r.get("slug") == "_smoke" and r.get("score", 0) > 0
+                           for r in related_back.get("related", [])))
+    s, _, _ = req("GET", "/api/export/pack?slugs=_smoke", raw=True)
+    check("内容包少于 2 场会议被拒绝", s == 400)
+    s, _, _ = req("GET", "/api/export/pack?slugs=_smoke,_nope", raw=True)
+    check("内容包引用不存在会议返回 404", s == 404)
+    s, h, contentpack_bytes = req(
+        "GET", "/api/export/pack?slugs=_smoke,_smoke2&media=none", raw=True)
+    pack_disposition = next((v for k, v in h.items()
+                             if k.lower() == "content-disposition"), "")
+    contentpack = zipfile.ZipFile(io.BytesIO(contentpack_bytes)) if s == 200 else None
+    cnames = set(contentpack.namelist()) if contentpack else set()
+    cmanifest = (json.loads(contentpack.read("manifest.json")) if contentpack else {})
+    cindex = (json.loads(contentpack.read("index.json")) if contentpack else {})
+    check("多内容打包导出 content-pack/v1 结构齐全且含贯穿线索索引",
+          s == 200 and contentpack is not None
+          and {"README.md", "AGENTS.md", "manifest.json", "index.json"} <= cnames
+          and "meetings/_smoke/viewer.html" in cnames
+          and "meetings/_smoke/assets/manifest.json" in cnames
+          and "meetings/_smoke2/viewer.html" in cnames
+          and cmanifest.get("schema") == "content-pack/v1"
+          and cmanifest.get("counts", {}).get("meetings") == 2
+          and cmanifest.get("generator", {}).get("version") == "0.10.0"
+          and cindex.get("schema") == "content-pack-index/v1"
+          and any(e.get("text") == shared_keyword["text"]
+                  and set(e.get("meetings", [])) == {"_smoke", "_smoke2"}
+                  for e in cindex.get("entries", []))
+          and re.search(r"_v0\.10\.0_\d{8}-\d{6}\.contentpack\.zip",
+                        pack_disposition))
+finally:
+    shutil.rmtree(SMOKE2, ignore_errors=True)
 
 # 2f. MeetingPack 默认不带媒体，解压后 viewer.html 可直接 file:// 打开
 evidence_before_export = (SMOKE / "minutes.evidence.json").read_bytes()

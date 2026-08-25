@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
 import export_meeting as meeting_export
+import export_pack as pack_export
 import meeting_generation
 from product_version import PRODUCT_VERSION, PRODUCT_VERSION_LABEL
 from deps import (BANK_DIR, _current_evidence, _evidence_state,
@@ -48,6 +49,36 @@ def export_meeting_pack(slug: str, media: str = Query("none", pattern="^(none|au
     filename = _download_filename(ident)
     return FileResponse(
         archive, media_type="application/zip", filename=filename,
+        background=BackgroundTask(archive.unlink, missing_ok=True))
+
+
+@router.get("/api/export/pack")
+def export_content_pack(slugs: str = Query(...),
+                        media: str = Query("none", pattern="^(none|audio|video)$")):
+    """多内容打包导出：2–12 场会议合成一个 .contentpack.zip，同步返回。"""
+    slug_list = []
+    for slug in slugs.split(","):
+        slug = slug.strip()
+        if slug and slug not in slug_list:
+            slug_list.append(slug)
+    if not pack_export.MIN_MEETINGS <= len(slug_list) <= pack_export.MAX_MEETINGS:
+        raise HTTPException(400, f"内容包需要 {pack_export.MIN_MEETINGS}–{pack_export.MAX_MEETINGS} 场会议")
+    entries = []
+    for slug in slug_list:
+        mdir = _mdir(slug)  # 不存在 → 404
+        ident = _meeting_identity(slug)
+        entries.append((slug, mdir, ident["title"], ident["date"]))
+    fd, temp_name = tempfile.mkstemp(prefix="contentpack-", suffix=".zip")
+    os.close(fd)
+    archive = Path(temp_name)
+    try:
+        stats = pack_export.export_pack(entries, archive, bank_dir=BANK_DIR,
+                                        media_mode=media)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        archive.unlink(missing_ok=True)
+        raise HTTPException(400, str(exc)) from exc
+    return FileResponse(
+        archive, media_type="application/zip", filename=stats["filename"],
         background=BackgroundTask(archive.unlink, missing_ok=True))
 
 
