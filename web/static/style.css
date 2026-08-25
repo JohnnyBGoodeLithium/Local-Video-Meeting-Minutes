@@ -980,6 +980,24 @@ body.resizing-panes { cursor: col-resize; user-select: none; }
 .visual-filter { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; margin-top: var(--sp-7); }
 .visual-filter button { padding: 2px var(--sp-4); font-size: var(--fs-9); }
 .visual-filter button.active { border-color: var(--accent); color: var(--accent); background: rgba(79,124,255,.12); }
+.visual-filter.media-role-filter { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.visual-role { justify-self: start; padding: 1px var(--sp-5); border-radius: var(--r-7); background: var(--panel); color: var(--dim); font-size: var(--fs-8); font-style: normal; }
+.visual-role.evidence { color: #86a8ff; background: rgba(79,124,255,.13); }
+.visual-role.demo { color: #76d5aa; background: rgba(34,160,107,.13); }
+.visual-role.context { color: #c4a7ff; background: rgba(126,87,194,.14); }
+.visual-role.transition { color: #c3a46d; background: rgba(226,161,60,.11); }
+.media-visual-section { margin: 0 0 var(--sp-8); border: 1px solid var(--border); border-radius: var(--r-9); background: rgba(255,255,255,.012); }
+.media-visual-section > summary { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: var(--sp-7); padding: var(--sp-8) var(--sp-9); cursor: pointer; list-style: none; }
+.media-visual-section > summary::-webkit-details-marker { display: none; }
+.media-visual-section > summary > span { color: var(--accent); font: 9px ui-monospace, monospace; }
+.media-visual-section > summary > b { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: var(--fs-10); }
+.media-visual-section > summary > em { min-width: 20px; padding: 1px var(--sp-5); border-radius: var(--r-8); background: var(--panel2); color: var(--dim); font-size: var(--fs-8); font-style: normal; text-align: center; }
+.media-visual-section-body { padding: 0 var(--sp-5) var(--sp-5); }
+.media-talking-group { margin: var(--sp-5); padding: var(--sp-6) var(--sp-8); border-radius: var(--r-7); background: var(--panel2); }
+.media-talking-group > summary { display: flex; justify-content: space-between; gap: var(--sp-7); color: var(--dim); cursor: pointer; font-size: var(--fs-9); }
+.media-talking-group > summary b { color: var(--text); }
+.media-talking-group > div { display: flex; flex-wrap: wrap; gap: 3px; padding-top: var(--sp-6); }
+.media-talking-group button { padding: 2px var(--sp-5); color: var(--accent); font: 8px ui-monospace, monospace; }
 .visual-nav-card { display: grid; grid-template-columns: minmax(70px, 42%) minmax(0, 1fr); width: 100%; gap: var(--sp-8); margin-bottom: var(--sp-7); overflow: hidden; padding: var(--sp-6); border-color: transparent; border-radius: var(--r-9); background: transparent; text-align: left; }
 .visual-nav-card:hover { border-color: var(--border); background: var(--panel2); }
 .visual-nav-card.active { border-color: rgba(79,124,255,.6); background: rgba(79,124,255,.12); }

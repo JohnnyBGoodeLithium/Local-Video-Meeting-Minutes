@@ -18,6 +18,7 @@ sys.path.insert(0, str(PROJECT / "bin"))
 
 import meeting_structure  # noqa: E402
 import minutes_by_page as mb  # noqa: E402
+import export_meeting  # noqa: E402
 from meeting_artifact import minutes_reading_markdown  # noqa: E402
 from meeting_core.llm import Completion  # noqa: E402
 from meeting_core.minutes_overview import (  # noqa: E402
@@ -42,6 +43,29 @@ assert "镜头类型" in shot_compact and shot_label == "镜头类型"
 meet_detail, meet_compact, meet_label = mb.vl_prompts({})
 assert "会议中共享屏幕" in meet_detail and "页面角色" in meet_detail
 assert meet_label == "页面类型"
+
+# ---- 2b. 27B 疑难页路由：只升级复杂证据/不确定页，口播页不浪费算力 ----
+review_pages = [
+    {"page": 1, "shot": True, "talking_head": False},
+    {"page": 2, "shot": True, "talking_head": True},
+    {"page": 3, "shot": True, "talking_head": False},
+    {"page": 4, "shot": True, "talking_head": False},
+    {"page": 5},
+]
+review_descs = {
+    1: "## 论证角色\nevidence\n## 页面内容\n复杂性能对比表格与跑分数据",
+    2: "## 论证角色\nevidence\n## 页面内容\n复杂规格表格",
+    3: "## 论证角色\ndemo\n## 页面内容\n关键数字看不清，无法确认",
+    4: "## 论证角色\ndemo\n## 页面内容\n普通真机演示",
+    5: "## 论证角色\nevidence\n## 页面内容\n复杂图表",
+}
+assert [page["page"] for page in mb.media_review_candidates(
+    review_pages, review_descs)] == [3, 1]
+assert [page["page"] for page in mb.media_review_candidates(
+    review_pages, review_descs, limit=1)] == [3]
+assert mb.endpoint_has_model("Qwen3.8-27B-Q6_K.gguf", Path("/models/Qwen3.8-27B-Q6_K.gguf"))
+assert not mb.endpoint_has_model("Qwen3-Embedding-0.6B-Q8_0.gguf",
+                                 Path("/models/Qwen3.8-27B-Q6_K.gguf"))
 
 
 # ---- 3. describe_pages 对 shot 页发媒体 prompt ------------------------------
@@ -164,6 +188,8 @@ def make_fixture(root: Path, *, media: bool) -> Path:
     if not media:
         for page in pages:
             page.pop("shot")
+    else:
+        pages[1]["talking_head"] = True
     (mdir / "transcript.spk.json").write_text(
         json.dumps(turns, ensure_ascii=False), encoding="utf-8")
     (mdir / "slides.json").write_text(
@@ -237,10 +263,26 @@ with tempfile.TemporaryDirectory(prefix="media-minutes-") as temp:
     assert visuals[1]["information_value"] == "high"
     assert visuals[1]["value_source"] == "vl"
     assert visuals[2]["content_role"] == "context"
+    assert visuals[2]["talking_head"] is True
     assert visuals[2]["information_value"] == "low"          # 铺垫帧启发式降级
     assert visuals[2]["value_source"] == "heuristic"
     assert "铺垫" in visuals[2]["value_reason"]
     assert "论证角色" not in visuals[1]["display_description"]  # badge 元数据不进正文
+
+    # Viewer 数据契约：媒体类型和画面角色必须随导出包落盘，离线端不能
+    # 退回会议 Tab 或重新猜测口播/证据帧。
+    viewer_evidence = json.loads(json.dumps(evidence))
+    for page in viewer_evidence["sources"]["pages"]:
+        visual = visuals[int(page["number"])]
+        page.update({key: visual[key] for key in
+                     ("shot", "talking_head", "content_role", "information_value")})
+    viewer = export_meeting._viewer_html(
+        "合成媒体", "2026-01-01", "<h1>合成分析</h1>", viewer_evidence,
+        {"state": "ready"}, {"state": "missing", "topics": []}, None, None,
+        content_type="media").decode("utf-8")
+    assert '"content_type":"media"' in viewer
+    assert "论证脉络" in viewer and "画面解析" in viewer
+    assert "mediaScreenGroups" in viewer and "media-talking-group" in viewer
 
     # ---- 回归：同一 fixtures 去掉 meta.json → 会议口径一字不变 ---------------
 with tempfile.TemporaryDirectory(prefix="meeting-control-") as temp:

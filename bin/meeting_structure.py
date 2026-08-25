@@ -445,6 +445,8 @@ def build_structure(minutes: str, turns: list[dict], timeline: list[dict],
         has_cached_description = page in descriptions
         visuals.append({
             "id": pid, "kind": "slide", "page": page,
+            "shot": bool(item.get("shot")),
+            "talking_head": bool(item.get("talking_head")),
             "title": title,
             "description": description,
             "display_description": _display_description(description),

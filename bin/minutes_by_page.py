@@ -27,6 +27,7 @@ import concurrent.futures
 import json
 import os
 import re
+import socket
 import shutil
 import subprocess
 import sys
@@ -72,6 +73,18 @@ VL_MMPROJ = configured_path(
     Path.home() / "视频/joyai-test/models/mmproj-MiMo-VL-Miloco-7B_BF16.gguf")
 VL_GPU_LAYERS = os.environ.get("MEETING_VL_GPU_LAYERS", "999")
 VL_MAXTOK = 2048
+VL_REVIEW_MODEL = (configured_path("MEETING_VL_REVIEW_MODEL", "")
+                   if os.environ.get("MEETING_VL_REVIEW_MODEL", "").strip() else None)
+VL_REVIEW_MMPROJ = (configured_path("MEETING_VL_REVIEW_MMPROJ", "")
+                    if os.environ.get("MEETING_VL_REVIEW_MMPROJ", "").strip() else None)
+VL_REVIEW_PORT = int(os.environ.get("MEETING_VL_REVIEW_PORT", "11437"))
+VL_REVIEW_MAX_PAGES = max(0, int(os.environ.get("MEETING_VL_REVIEW_MAX_PAGES", "12")))
+
+MEDIA_REVIEW_PROMPT = MEDIA_DETAIL_PROMPT + (
+    "\n这是疑难证据帧的第二次复核。请优先核对密集表格、复杂图表、坐标轴、图例、单位、"
+    "规格名和关键数字；区分画面明确可见、作者引用和无法辨认的内容。不要根据常识补全"
+    "被遮挡或模糊的文字；不确定时明确写‘无法确认’，并保持既定 Markdown 协议。"
+)
 
 EVIDENCE_RULES = """
 证据与结论规则（必须遵守）：
@@ -233,6 +246,13 @@ def mmss(sec: float) -> str:
     return f"{s//60:02d}:{s%60:02d}"
 
 
+def endpoint_has_model(model_id: str, model_path: Path) -> bool:
+    """宽松匹配 llama.cpp 的模型 ID，但拒绝把别的模型端点当成目标服务。"""
+    expected = Path(model_path).name.rsplit(".", 1)[0].lower()
+    actual = str(model_id).rsplit("/", 1)[-1].rsplit(".", 1)[0].lower()
+    return bool(expected and actual and (expected in actual or actual in expected))
+
+
 def ensure_vl_server(port: int = VL_PORT):
     """VL 服务可用则直接用，否则用本地 Miloco 模型拉起一个。返回 (api_base, proc|None)。"""
     api = f"http://127.0.0.1:{port}/v1"
@@ -265,6 +285,151 @@ def ensure_vl_server(port: int = VL_PORT):
     proc.terminate()
     print("[meta] VL 服务启动超时, 跳过 VL 层", flush=True)
     return None, None
+
+
+def ensure_vl_review_server(port: int = VL_REVIEW_PORT):
+    """按需拉起疑难页视觉复核模型；未配置时明确跳过，不绑定具体供应商。"""
+    if not VL_REVIEW_MODEL or not VL_REVIEW_MMPROJ:
+        return None, None
+    if not VL_REVIEW_MODEL.is_file() or not VL_REVIEW_MMPROJ.is_file():
+        print("[meta] 疑难页视觉复核模型未就绪，保留主力 VL 结果", flush=True)
+        return None, None
+    requested_port = port
+    api = f"http://127.0.0.1:{port}/v1"
+    try:
+        with urllib.request.urlopen(f"{api}/models", timeout=5) as resp:
+            mid = json.loads(resp.read())["data"][0]["id"]
+        if endpoint_has_model(mid, VL_REVIEW_MODEL):
+            print(f"[meta] 疑难页视觉复核服务已在 :{port} ({mid})", flush=True)
+            return api, None
+        # 端口活着不代表目标模型就绪。embedding/reranker 等常驻端点不能被
+        # 当成 VL 复核器，也不能由本任务停止；为本轮模型另选空闲端口。
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            probe.bind(("127.0.0.1", 0))
+            port = int(probe.getsockname()[1])
+        api = f"http://127.0.0.1:{port}/v1"
+        print(f"[meta] :{requested_port} 已由其他模型占用 ({mid})，"
+              f"疑难页复核改用临时端口 :{port}", flush=True)
+    except Exception:
+        pass
+    print("[meta] 拉起疑难页视觉复核模型 ...", flush=True)
+    proc = subprocess.Popen(
+        ["llama-server", "--model", str(VL_REVIEW_MODEL), "--mmproj", str(VL_REVIEW_MMPROJ),
+         "--host", "127.0.0.1", "--port", str(port), "--gpu-layers", VL_GPU_LAYERS,
+         "--ctx-size", "16384", "--parallel", "1", "--flash-attn", "auto",
+         "--jinja", "--no-webui"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    atexit.register(proc.terminate)
+    for _ in range(150):
+        try:
+            with urllib.request.urlopen(f"{api}/models", timeout=5) as resp:
+                mid = json.loads(resp.read())["data"][0]["id"]
+            print(f"[meta] 疑难页视觉复核服务就绪 ({mid})", flush=True)
+            return api, proc
+        except Exception:
+            time.sleep(2)
+    proc.terminate()
+    print("[meta] 疑难页视觉复核启动超时，保留主力 VL 结果", flush=True)
+    return None, None
+
+
+def stop_local_model(proc):
+    """只停止本函数启动的模型进程；外部常驻端点不受影响。"""
+    if not proc or proc.poll() is not None:
+        return
+    proc.terminate()
+    try:
+        proc.wait(timeout=20)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait(timeout=10)
+
+
+_MEDIA_COMPLEX_RE = re.compile(
+    r"(?:表格|图表|柱状图|折线图|散点图|雷达图|坐标轴|图例|跑分|基准测试|规格|参数|"
+    r"性能对比|价格|功耗|频率|带宽|table|chart|graph|plot|axis|legend|benchmark|"
+    r"spec(?:ification)?|score|latency|throughput|power)", re.I)
+_MEDIA_UNCERTAIN_RE = re.compile(
+    r"(?:看不清|无法辨认|无法确认|文字模糊|数字模糊|分辨率不足|遮挡|"
+    r"unreadable|illegible|cannot (?:read|confirm)|too (?:small|blurred))", re.I)
+
+
+def media_review_candidates(pages: list[dict], descs: dict[int, str],
+                            limit: int = VL_REVIEW_MAX_PAGES) -> list[dict]:
+    """从主力 VL 结果中挑疑难证据帧；口播/空镜不进入大模型复核。"""
+    ranked = []
+    for page in pages:
+        number = int(page.get("page") or 0)
+        text = clean_model_text(descs.get(number, ""))
+        if not page.get("shot") or page.get("talking_head") or not text:
+            continue
+        role_match = re.search(
+            r"(?:论证角色|argument role)\s*[:：]?\s*`?"
+            r"(evidence|demo|context|transition|blank)", text, re.I)
+        role = role_match.group(1).lower() if role_match else ""
+        uncertain = bool(_MEDIA_UNCERTAIN_RE.search(text))
+        complex_frame = bool(_MEDIA_COMPLEX_RE.search(text))
+        if not uncertain and not (role == "evidence" and complex_frame):
+            continue
+        score = (6 if uncertain else 0) + (3 if role == "evidence" else 0) \
+            + (2 if complex_frame else 0)
+        ranked.append((score, number, page))
+    ranked.sort(key=lambda item: (-item[0], item[1]))
+    return [item[2] for item in ranked[:max(0, int(limit))]]
+
+
+def review_media_pages(mdir: Path, pages: list[dict], descs: dict[int, str],
+                       api: str, video: Path = None) -> tuple[dict[int, str], dict]:
+    """用较强 VL 覆盖少量疑难页；单页失败时保留主力结果并继续。"""
+    cache_p = mdir / "page_desc.json"
+    cache = json.loads(cache_p.read_text(encoding="utf-8")) if cache_p.is_file() else {}
+    reviewed = {int(value) for value in cache.get("reviewed_pages", [])
+                if str(value).isdigit()}
+    candidates = [page for page in media_review_candidates(pages, descs)
+                  if int(page["page"]) not in reviewed]
+    if not candidates:
+        return descs, {"candidates": 0, "reviewed": len(reviewed), "failed": 0,
+                       "model": cache.get("models", {}).get("review")}
+    with urllib.request.urlopen(f"{api}/models", timeout=10) as resp:
+        mid = json.loads(resp.read())["data"][0]["id"]
+    failed = 0
+    for index, page in enumerate(candidates, 1):
+        number = int(page["page"])
+        image = mdir / "slides" / page["image"]
+        full_image = mdir / "slides" / f"full_{number:02d}.jpg"
+        if full_image.is_file():
+            image = full_image
+        elif video and Path(video).is_file():
+            # 原媒体可能已按存储策略被清理；full 帧是可复用的分析资产。
+            # 重抓失败也只影响这一页，不能让已缓存的整场 VL 结果失效。
+            try:
+                grab_fullres(video, page.get("captured", page["first"]), full_image)
+                image = full_image
+            except Exception as exc:
+                print(f"[meta] 第{number}页原生帧重抓失败: {type(exc).__name__}，"
+                      "改用已导出的分析截图", flush=True)
+        try:
+            raw, _usage = chat_with_image(api, mid, image, 3072, MEDIA_REVIEW_PROMPT)
+            cleaned = clean_model_text(raw)
+            if not cleaned:
+                raise ValueError("empty_vl_review")
+            descs[number] = cleaned
+            reviewed.add(number)
+            print(f"[meta] 疑难页视觉复核 {index}/{len(candidates)} | 第{number}页", flush=True)
+        except Exception as exc:
+            failed += 1
+            print(f"[meta] 疑难页视觉复核第{number}页失败: {type(exc).__name__}，保留主力结果",
+                  flush=True)
+        current = json.loads(cache_p.read_text(encoding="utf-8")) if cache_p.is_file() else {}
+        primary = current.get("models", {}).get("primary") or current.get("model")
+        payload = {"model": primary or mid,
+                   "models": {"primary": primary or mid, "review": mid},
+                   "reviewed_pages": sorted(reviewed), "desc": descs}
+        temp = cache_p.with_suffix(".tmp")
+        temp.write_text(json.dumps(payload, ensure_ascii=False, indent=1), encoding="utf-8")
+        temp.replace(cache_p)
+    return descs, {"candidates": len(candidates), "reviewed": len(reviewed),
+                   "failed": failed, "model": mid}
 
 
 def vl_prompts(page: dict):
@@ -602,6 +767,7 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
         raise RuntimeError("slides.json 里没有幻灯片页")
 
     descs = {}
+    vl_review = {"candidates": 0, "reviewed": 0, "failed": 0, "model": None}
     if vl and reuse_vl_cache_only:
         cache = json.loads((mdir / "page_desc.json").read_text(encoding="utf-8")) \
             if (mdir / "page_desc.json").is_file() else {}
@@ -609,11 +775,37 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
             cleaned = clean_model_text(value)
             if str(key).isdigit() and cleaned:
                 descs[int(key)] = cleaned
+        reviewed_pages = [value for value in cache.get("reviewed_pages", [])
+                          if str(value).isdigit()]
+        vl_review = {"candidates": 0, "reviewed": len(reviewed_pages), "failed": 0,
+                     "model": cache.get("models", {}).get("review")}
         print(f"[meta] 复用 VL 页面解读缓存 {len(descs)} 页，不重跑视觉模型", flush=True)
     elif vl:
         api, _proc = ensure_vl_server()
         if api:
             descs = describe_pages(mdir, pages, api, video)
+            if profile.kind == "media" and VL_REVIEW_MODEL and VL_REVIEW_MMPROJ:
+                review_cache = json.loads((mdir / "page_desc.json").read_text(encoding="utf-8")) \
+                    if (mdir / "page_desc.json").is_file() else {}
+                reviewed = {int(value) for value in review_cache.get("reviewed_pages", [])
+                            if str(value).isdigit()}
+                pending_review = [page for page in media_review_candidates(pages, descs)
+                                  if int(page["page"]) not in reviewed]
+                if not pending_review:
+                    vl_review = {"candidates": 0, "reviewed": len(reviewed), "failed": 0,
+                                 "model": review_cache.get("models", {}).get("review")}
+                    print(f"[meta] 疑难页视觉复核全部命中缓存({len(reviewed)} 页)", flush=True)
+                else:
+                    # 视觉复核模型与主力模型顺序驻留；先释放本函数拉起的 MiMo，给
+                    # dense 27B 留出统一内存。外部常驻 VL 服务不由本进程停止。
+                    stop_local_model(_proc)
+                    review_api, review_proc = ensure_vl_review_server()
+                    if review_api:
+                        descs, vl_review = review_media_pages(
+                            mdir, pages, descs, review_api, video)
+                        stop_local_model(review_proc)
+                        print(f"[meta] 疑难页视觉复核完成 {vl_review['reviewed']} 页"
+                              f" | 本轮失败 {vl_review['failed']}", flush=True)
 
     # VL can take tens of minutes. Speaker corrections are intentionally allowed
     # while it runs, so the transcript loaded before VL is only a page-extraction
@@ -748,6 +940,9 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
             "text_model": MODEL,
             "vl_enabled": bool(vl),
             "vl_pages": len(descs),
+            "vl_review_model": vl_review.get("model"),
+            "vl_reviewed_pages": int(vl_review.get("reviewed") or 0),
+            "vl_review_failures": int(vl_review.get("failed") or 0),
             "generation_stage": "final",
             "overview_mode": overview_mode,
             "overview_chunks": overview_chunks,

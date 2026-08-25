@@ -194,15 +194,19 @@ function isEnglishUi() { return state.uiLanguage === "en"; }
 const CONTENT_TYPE_LABELS = {
   meeting: {
     "zh-CN": { recordNoun: "会议记录", speakerCount: n => `${n} 位发言人`,
-               renameTitle: "修改会议名称", markAction: "标记为媒体视频" },
+               renameTitle: "修改会议名称", markAction: "标记为媒体视频",
+               outline: "会议脉络", minutes: "会议纪要", screens: "屏幕内容", audit: "结论审计" },
     en: { recordNoun: "Meeting record", speakerCount: n => `${n} speakers`,
-          renameTitle: "Rename meeting", markAction: "Mark as media" },
+          renameTitle: "Rename meeting", markAction: "Mark as media",
+          outline: "Meeting map", minutes: "Minutes", screens: "Screen content", audit: "Conclusion audit" },
   },
   media: {
     "zh-CN": { recordNoun: "媒体记录", speakerCount: n => `${n} 位出镜`,
-               renameTitle: "修改标题", markAction: "标记为会议" },
+               renameTitle: "修改标题", markAction: "标记为会议",
+               outline: "论证脉络", minutes: "分析纪要", screens: "画面解析", audit: "依据审计" },
     en: { recordNoun: "Media record", speakerCount: n => `${n} on camera`,
-          renameTitle: "Rename title", markAction: "Mark as meeting" },
+          renameTitle: "Rename title", markAction: "Mark as meeting",
+          outline: "Argument map", minutes: "Analysis", screens: "Visual analysis", audit: "Source audit" },
   },
 };
 function contentTypeOf(item) { return item?.content_type === "media" ? "media" : "meeting"; }
@@ -210,6 +214,16 @@ function contentLabel(type, key, ...args) {
   const lang = CONTENT_TYPE_LABELS[type]?.[state.uiLanguage] ? state.uiLanguage : "zh-CN";
   const value = CONTENT_TYPE_LABELS[type]?.[lang]?.[key] ?? CONTENT_TYPE_LABELS.meeting[lang]?.[key];
   return typeof value === "function" ? value(...args) : (value ?? key);
+}
+
+function applyContentTypeCopy() {
+  const type = contentTypeOf(state.bundle);
+  const text = (selector, value) => { const element = $(selector); if (element) element.textContent = value; };
+  text("#chapters-tab", contentLabel(type, "outline"));
+  text("#minutes-tab", contentLabel(type, "minutes"));
+  text("#visuals-tab", contentLabel(type, "screens"));
+  const qualityTab = $("#quality-tab");
+  if (qualityTab) qualityTab.childNodes[0].textContent = `${contentLabel(type, "audit")} `;
 }
 
 const KEYWORD_KIND_LABELS = {
@@ -333,16 +347,12 @@ function applyUiLanguage() {
   text('[data-transcript-mode="comparison"]', ui("comparison"));
   text("#translation-target-caption", ui("translateTo"));
   text("#follow-label", ui("follow"));
-  text("#chapters-tab", ui("outline"));
-  text("#minutes-tab", ui("minutes"));
-  text("#visuals-tab", ui("screens"));
+  applyContentTypeCopy();
   text("#restructure-minutes", ui("restructure"));
   text("#restore-minutes", isEnglishUi() ? "Restore previous" : "恢复上一版");
   const minutesView = $("#minutes-view");
   if (minutesView?.options?.length) minutesView.options[0].textContent = isEnglishUi()
     ? "Standard minutes" : "标准纪要";
-  const qualityTab = $("#quality-tab");
-  if (qualityTab) qualityTab.childNodes[0].textContent = `${ui("audit")} `;
   text('[data-utility-tab="assistant"]', ui("assistant"));
   text('[data-utility-tab="evidence"]', ui("evidence"));
   text("#assistant-send", ui("send"));
@@ -1182,6 +1192,7 @@ async function loadMeeting(slug) {
   renderMeetingList();
   const b = await jget(`/api/meetings/${encodeURIComponent(slug)}/bundle`);
   state.bundle = b;
+  applyContentTypeCopy();
   state.transcriptReview = b.transcript_review || null;
   state.bundleLoadedAt = Date.now() / 1000;
   const savedTarget = state.workspace.translationTargets[slug];
@@ -1209,7 +1220,7 @@ async function loadMeeting(slug) {
   state.playbackScope = "meeting";
   state.legendShowAll = false;
   state.speakerColorCache = null;
-  state.visualFilter = "useful";
+  state.visualFilter = contentTypeOf(b) === "media" ? "all" : "useful";
   state.expandedOriginals.clear();
   state.evidenceBilingual.clear();
   $("#meeting-title").textContent = b.title || slug;
@@ -1247,7 +1258,8 @@ async function loadMeeting(slug) {
   if (isDraft && state.viewMode === "quality") state.viewMode = "minutes";
   const topicMapReady = b.topic_map?.state === "ready"
     && (b.topic_map?.topics?.length || 0) >= 3 && b.topic_map.topics.length <= 8;
-  if (changed && !requestedViewExplicit) state.viewMode = topicMapReady ? "chapters" : "minutes";
+  if (changed && !requestedViewExplicit) state.viewMode = contentTypeOf(b) === "media"
+    ? "chapters" : (topicMapReady ? "chapters" : "minutes");
   $("#quality-tab").disabled = isDraft;
   $("#chapters-tab").disabled = !(b.transcript?.length);
   $("#visuals-tab").disabled = !(b.structure?.visuals?.length);
@@ -3525,6 +3537,87 @@ function openVisual(visualId, time = null) {
   if (Number.isFinite(time)) seek(time);
 }
 
+const MEDIA_VISUAL_ROLE_LABELS = {
+  "zh-CN": { all: "全部", evidence: "证据帧", demo: "演示帧", context: "铺垫口播",
+    transition: "过渡", blank: "空白", unknown: "待判断" },
+  en: { all: "All", evidence: "Evidence", demo: "Demo", context: "Context / talk",
+    transition: "Transition", blank: "Blank", unknown: "Pending" },
+};
+
+function mediaVisualRole(visual) {
+  if (visual?.talking_head) return "context";
+  const role = String(visual?.content_role || "unknown");
+  return ["evidence", "demo", "context", "transition", "blank"].includes(role)
+    ? role : "unknown";
+}
+
+function mediaRoleLabel(role) {
+  return MEDIA_VISUAL_ROLE_LABELS[state.uiLanguage]?.[role]
+    || MEDIA_VISUAL_ROLE_LABELS["zh-CN"][role] || role;
+}
+
+function visualNavCard(visual, selected) {
+  const visualImage = visualImageUrl(visual);
+  const copy = visualReadingCopy(visual);
+  const visualStatus = visual.display_status === "discussed" ? (isEnglishUi() ? "Discussed" : "有讨论") :
+    visual.display_status === "display_only" ? (isEnglishUi() ? "Display only" : "仅展示") :
+      (isEnglishUi() ? "Motion" : "动态画面");
+  const role = contentTypeOf(state.bundle) === "media" ? mediaVisualRole(visual) : null;
+  return `<button type="button" class="visual-nav-card ${visual.id === selected.id ? "active" : ""} ` +
+    `${visual.information_value === "low" ? "low-information" : ""}" ` +
+    `data-visual-select="${esc(visual.id)}"><span class="visual-nav-thumb">` +
+    (visualImage ? `<img src="${visualImage}" alt="">` : `<i>${isEnglishUi() ? "No frame" : "无截图"}</i>`) +
+    `</span><span class="visual-nav-copy"><small>${fmt(visual.first)} · ` +
+    `${visual.kind === "slide" ? (isEnglishUi() ? `Frame ${visual.page}` : `第${visual.page}帧`) : (isEnglishUi() ? "Camera" : "摄像头")}</small>` +
+    `<b>${esc(copy.title)}</b><span>` +
+    (role ? `<i class="visual-role ${esc(role)}">${esc(mediaRoleLabel(role))}</i>` :
+      `<i class="visual-value ${esc(visual.information_value || "unknown")}">${esc(visualValueLabel(visual))}</i>`) +
+    `<em>${esc(visualStatus)}</em></span></span></button>`;
+}
+
+function visualRangeDuration(visual) {
+  return (visual.ranges || []).reduce((total, range) =>
+    total + Math.max(0, Number(range[1]) - Number(range[0])), 0);
+}
+
+function mediaVisualGroups(visuals) {
+  const topics = topicMapReady() ? (readingTopicMap().topics || []) : [];
+  const pageToTopic = new Map();
+  topics.forEach(topic => (topic.page_ids || []).forEach(id => {
+    if (!pageToTopic.has(id)) pageToTopic.set(id, topic.id);
+  }));
+  const groups = topics.map((topic, index) => ({
+    id: topic.id, title: topic.title, index,
+    visuals: visuals.filter(visual => pageToTopic.get(visual.id) === topic.id),
+  })).filter(group => group.visuals.length);
+  const unmatched = visuals.filter(visual => !pageToTopic.has(visual.id));
+  if (unmatched.length) groups.push({
+    id: "unmapped", index: groups.length,
+    title: isEnglishUi() ? "Other visual material" : "其他画面资料", visuals: unmatched,
+  });
+  return groups.length ? groups : [{
+    id: "all", index: 0, title: isEnglishUi() ? "Whole content" : "整条内容", visuals,
+  }];
+}
+
+function mediaVisualList(visuals, selected) {
+  return mediaVisualGroups(visuals).map((group, groupIndex) => {
+    const talking = group.visuals.filter(visual => visual.talking_head);
+    const frames = group.visuals.filter(visual => !visual.talking_head);
+    const appearances = talking.reduce((total, visual) => total + (visual.ranges || []).length, 0);
+    const duration = talking.reduce((total, visual) => total + visualRangeDuration(visual), 0);
+    const talkMarkup = talking.length ? `<details class="media-talking-group" ${groupIndex === 0 ? "open" : ""}>` +
+      `<summary><b>${isEnglishUi() ? "Talking head" : "口播"}</b><span>${isEnglishUi()
+        ? `${appearances} appearances · ${fmt(duration)}` : `${appearances} 次 · 共 ${fmt(duration)}`}</span></summary>` +
+      `<div>${talking.flatMap(visual => (visual.ranges || []).map(([start, end]) =>
+        `<button type="button" data-talking-visual="${esc(visual.id)}" data-talking-time="${Number(start)}">` +
+        `${fmt(start)}–${fmt(end)}</button>`)).join("")}</div></details>` : "";
+    return `<details class="media-visual-section" open><summary><span>${String(groupIndex + 1).padStart(2, "0")}</span>` +
+      `<b>${esc(group.title)}</b><em>${group.visuals.length}</em></summary><div class="media-visual-section-body">` +
+      frames.map(visual => visualNavCard(visual, selected)).join("") + talkMarkup + `</div></details>`;
+  }).join("");
+}
+
 function renderVisuals(preserveListScroll = false) {
   const box = $("#visuals");
   // 点选卡片会整棵重建 DOM，先记住左侧列表滚动位置，渲染后恢复，
@@ -3536,35 +3629,36 @@ function renderVisuals(preserveListScroll = false) {
     box.innerHTML = '<div class="structure-empty-state"><h3>没有屏幕内容</h3><p>这场会议仍可通过会议纪要和逐字稿回顾。</p></div>';
     return;
   }
+  const media = contentTypeOf(state.bundle) === "media";
   const useful = allVisuals.filter(item => item.information_value !== "low");
-  if (!useful.length) state.visualFilter = "all";
-  const visuals = state.visualFilter === "useful" && useful.length ? useful : allVisuals;
-  const selected = visuals.find(item => item.id === state.selectedVisualId) || visuals[0];
+  if (!media && !useful.length) state.visualFilter = "all";
+  const visuals = media
+    ? (state.visualFilter === "all" ? allVisuals : allVisuals.filter(
+      visual => mediaVisualRole(visual) === state.visualFilter))
+    : (state.visualFilter === "useful" && useful.length ? useful : allVisuals);
+  if (!visuals.length) state.visualFilter = "all";
+  const visibleVisuals = visuals.length ? visuals : allVisuals;
+  const selected = visibleVisuals.find(item => item.id === state.selectedVisualId) || visibleVisuals[0];
   state.selectedVisualId = selected.id;
   const selectedCopy = visualReadingCopy(selected);
   const status = selected.display_status === "discussed" ? "有对应讨论"
     : selected.display_status === "display_only" ? "仅展示" : "动态画面";
   const image = visualImageUrl(selected);
-  box.innerHTML = `<div class="structure-layout visual-layout"><nav class="structure-list visual-list" aria-label="屏幕内容">` +
-    `<div class="structure-list-head visual-list-head"><div><b>屏幕内容</b><span>${allVisuals.length} 项</span></div>` +
-    `<div class="visual-filter"><button type="button" data-visual-filter="useful" ` +
-    `class="${state.visualFilter === "useful" ? "active" : ""}">重点 ${useful.length}</button>` +
+  const filters = media ? ["all", "evidence", "demo", "context", "transition"].map(role => {
+    const count = role === "all" ? allVisuals.length : allVisuals.filter(
+      visual => mediaVisualRole(visual) === role).length;
+    return `<button type="button" data-visual-filter="${role}" class="${state.visualFilter === role ? "active" : ""}">` +
+      `${esc(mediaRoleLabel(role))} ${count}</button>`;
+  }).join("") : `<button type="button" data-visual-filter="useful" ` +
+    `class="${state.visualFilter === "useful" ? "active" : ""}">${isEnglishUi() ? "Key" : "重点"} ${useful.length}</button>` +
     `<button type="button" data-visual-filter="all" class="${state.visualFilter === "all" ? "active" : ""}">` +
-    `全部 ${allVisuals.length}</button></div></div>` +
-    visuals.map(visual => {
-      const visualImage = visualImageUrl(visual);
-      const copy = visualReadingCopy(visual);
-      const visualStatus = visual.display_status === "discussed" ? "有讨论" :
-        visual.display_status === "display_only" ? "仅展示" : "动态画面";
-      return `<button type="button" class="visual-nav-card ${visual.id === selected.id ? "active" : ""} ` +
-      `${visual.information_value === "low" ? "low-information" : ""}" ` +
-      `data-visual-select="${esc(visual.id)}"><span class="visual-nav-thumb">` +
-      (visualImage ? `<img src="${visualImage}" alt="">` : `<i>无截图</i>`) +
-      `</span><span class="visual-nav-copy"><small>${fmt(visual.first)} · ` +
-      `${visual.kind === "slide" ? `第${visual.page}页` : "摄像头"}</small>` +
-      `<b>${esc(copy.title)}</b><span><i class="visual-value ${esc(visual.information_value || "unknown")}">` +
-      `${esc(visualValueLabel(visual))}</i><em>${esc(visualStatus)}</em></span></span></button>`;
-    }).join("") +
+    `${isEnglishUi() ? "All" : "全部"} ${allVisuals.length}</button>`;
+  box.innerHTML = `<div class="structure-layout visual-layout"><nav class="structure-list visual-list" aria-label="${esc(contentLabel(contentTypeOf(state.bundle), "screens"))}">` +
+    `<div class="structure-list-head visual-list-head"><div><b>${esc(contentLabel(contentTypeOf(state.bundle), "screens"))}</b>` +
+    `<span>${allVisuals.length} ${isEnglishUi() ? "items" : "项"}</span></div><div class="visual-filter ${media ? "media-role-filter" : ""}">` +
+    filters + `</div></div>` +
+    (media ? mediaVisualList(visibleVisuals, selected) : visibleVisuals.map(
+      visual => visualNavCard(visual, selected)).join("")) +
     `</nav><article class="structure-detail visual-detail">` +
     `<header class="structure-detail-head"><div><span>屏幕 · ${esc(status)} · ${esc(visualValueLabel(selected))}</span>` +
     `<h2>${esc(selectedCopy.title)}</h2>` +
@@ -3590,6 +3684,11 @@ function renderVisuals(preserveListScroll = false) {
   $$('[data-visual-filter]', box).forEach(button => button.onclick = () => {
     state.visualFilter = button.dataset.visualFilter;
     renderVisuals();
+  });
+  $$('[data-talking-visual]', box).forEach(button => button.onclick = () => {
+    state.selectedVisualId = button.dataset.talkingVisual;
+    renderVisuals(true);
+    seek(Number(button.dataset.talkingTime));
   });
   $$('[data-visual-seek]', box).forEach(button =>
     button.onclick = () => seek(Number(button.dataset.visualSeek)));

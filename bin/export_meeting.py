@@ -36,7 +36,7 @@ from meeting_artifact import (
     strip_visible_evidence_ids,
 )
 from meeting_views import evidence_integrity
-from meeting_structure import clean_model_text, visual_title
+from meeting_structure import build_structure, clean_model_text, visual_title
 import meeting_topic_map
 import meeting_generation
 from product_version import PRODUCT_VERSION, PRODUCT_VERSION_LABEL
@@ -467,13 +467,15 @@ def _viewer_html(title: str, date: str, minutes_html: str, evidence: dict, integ
                  visuals_languages: dict[str, list[dict]] | None = None,
                  speaker_navigation_rows: list[dict] | None = None,
                  document_state: str = "ready",
-                 keywords: list[str] | None = None) -> bytes:
+                 keywords: list[str] | None = None,
+                 content_type: str = "meeting") -> bytes:
     duration = max((float(t.get("end", 0)) for t in evidence["sources"]["transcript"]), default=0)
     payload = {
         "title": title,
         "date": date,
         "duration": duration,
         "keywords": list(keywords or []),
+        "content_type": content_type if content_type in {"meeting", "media"} else "meeting",
         "minutes_html": minutes_html,
         "source_language": source_language,
         "minutes_languages": minutes_languages or {},
@@ -546,6 +548,17 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
     speaker_navigation_rows = speaker_navigation(turns, profiles, transcript_format)
     evidence = build_evidence_document(mdir, minutes, turns, pages, descs, profiles,
                                        generation={"export_rebuilt": True})
+    # Viewer 与在线工作台共用同一份画面语义。媒体导出需要 shot/talking_head
+    # 和论证角色，才能按议题折叠口播、筛选证据帧，而不是重新猜测截图类型。
+    duration = max((float(turn.get("end", 0)) for turn in turns), default=0)
+    structure = build_structure(minutes, turns, timeline, descs, evidence, duration=duration)
+    visual_by_id = {visual.get("id"): visual for visual in structure.get("visuals", [])}
+    for page in evidence.get("sources", {}).get("pages", []):
+        visual = visual_by_id.get(page.get("id"), {})
+        for key in ("shot", "talking_head", "content_role", "information_value",
+                    "value_reason", "analysis_state", "needs_reprocess"):
+            if key in visual:
+                page[key] = visual[key]
     stored_facts = _read_json(mdir / "meeting.facts.json", {})
     facts = (stored_facts if fact_document_state(mdir, stored_facts) == "ready"
              else build_fact_document(evidence))
@@ -582,6 +595,9 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
     visuals_languages, visuals_language_assets = _visuals_languages(
         mdir, evidence.get("sources", {}).get("pages", []))
     keywords, keywords_assets = _keywords_document(mdir, minutes_path)
+    meta = _read_json(mdir / "meta.json", {})
+    content_type = (meta.get("content_type")
+                    if meta.get("content_type") in {"meeting", "media"} else "meeting")
     records = rag_records(evidence, reading_minutes, facts, keywords=keywords)
     rag_bytes = ("\n".join(json.dumps(r, ensure_ascii=False, separators=(",", ":"))
                            for r in records) + "\n").encode("utf-8")
@@ -608,7 +624,8 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
             "viewer.html": _viewer_html(title, date, minutes_html, evidence, integrity, topic_map,
                                         media_arc, media_kind, source_language, minutes_languages,
                                         topic_map_languages, visuals_languages,
-                                        speaker_navigation_rows, document_state, keywords),
+                                        speaker_navigation_rows, document_state, keywords,
+                                        content_type),
             "README.txt": _readme(media_mode, document_state).encode("utf-8"),
             "AGENTS.md": _AGENTS_MD.encode("utf-8"),
             "assets/minutes.md": reading_minutes.encode("utf-8"),
