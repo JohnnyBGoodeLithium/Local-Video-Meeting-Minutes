@@ -117,6 +117,10 @@ async def upload(files: list[UploadFile] = File(...), no_vl: str = Form(""),
         shutil.rmtree(dest_dir, ignore_errors=True)
         raise
 
+    if route == "video" and content_type == "media":
+        # 媒体视频走镜头检测抽帧；audio/teams 路由不受影响。
+        args.append("--media")
+
     cmd = [str(PY), str(ROOT / "bin" / script), *args]
     job = _new_job("upload", route=route, cmd=cmd,
                    files=[p.name for p in saved],

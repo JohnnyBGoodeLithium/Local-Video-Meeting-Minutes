@@ -172,7 +172,7 @@ check("时间码跳转只滚动内容面板，不带动整页丢失播放器",
 check("在线屏幕舞台支持放大、缩放和相邻屏幕键盘导航",
       b'id="screen-preview-mask"' in page and b'openScreenPreview' in app_js
       and b'navigateScreenPreview' in app_js and b'SCREEN_PREVIEW_ZOOMS' in app_js
-      and b'20260825p86' in page)
+      and b'20260825p87' in page)
 check("可恢复失败不会在一小时后失去续跑入口",
       b'j.recovery?.state === "available"' in app_js
       and b'Date.now() / 1000 - Number(j.finished || j.created || 0) < 60 * 60' in app_js)
@@ -1023,7 +1023,9 @@ s, _, media_job = multipart_files("/api/upload", [
 check("POST /api/upload 接受 content_type=media 并记入作业",
       s == 200 and media_job.get("status") == "queued"
       and media_job.get("content_type") == "media", f"status={s}")
-poll_job(media_job.get("id"))
+media_audio_done = poll_job(media_job.get("id"))
+check("音频路由的 media 作业不带 --media 镜头参数",
+      "--media" not in media_audio_done.get("cmd", []))
 s, _, plain_job = multipart("/api/upload", "files", "smoke_plain.wav", wav_bytes, "audio/wav")
 check("上传缺省内容类型为 meeting",
       s == 200 and plain_job.get("content_type") == "meeting")
@@ -1065,6 +1067,18 @@ check("导入时可保留 DOCX 但明确改用本地 ASR",
       and ignored_cmd[1].endswith("bin/video_minutes.py")
       and "--ignored-transcript" in ignored_cmd
       and "--slug" in ignored_cmd)
+
+# 11a2. content_type=media 的视频上传走 video 路由并追加 --media 镜头检测
+s, _, media_video_job = multipart_files("/api/upload", [
+    ("files", "fictional-media.mp4", b"fictional video", "video/mp4"),
+], fields=[("content_type", "media")])
+media_video_done = poll_job(media_video_job.get("id"))
+media_video_cmd = media_video_done.get("cmd", [])
+check("media 视频上传作业调用 video_minutes.py 并带 --media",
+      s == 200 and media_video_done.get("route") == "video"
+      and len(media_video_cmd) >= 4
+      and media_video_cmd[1].endswith("bin/video_minutes.py")
+      and "--media" in media_video_cmd)
 
 s, _, _ = multipart_files("/api/upload", [
     ("files", "fictional-review.mp4", b"fictional video", "video/mp4"),

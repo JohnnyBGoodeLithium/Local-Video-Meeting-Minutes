@@ -82,6 +82,8 @@ def main() -> int:
                     help="复用已有 slides/page_desc，不重新抽帧和读图")
     ap.add_argument("--reuse-asr", action="store_true",
                     help="故障恢复：复用完整 stamps.json，只重跑说话人及后续阶段")
+    ap.add_argument("--media", action="store_true",
+                    help="媒体视频：画面抽取改用镜头检测(slide_pages --media)")
     args = ap.parse_args()
     if not args.mp4.is_file():
         print("输入文件不存在", file=sys.stderr)
@@ -199,9 +201,10 @@ def main() -> int:
             pages = []
         print(f"[5/6] 复用已有屏幕逻辑页 {len(pages)} 页", flush=True)
     else:
-        print("[5/6] 抽屏幕共享逻辑页 ...", flush=True)
+        print("[5/6] 抽媒体镜头页 ..." if args.media else "[5/6] 抽屏幕共享逻辑页 ...", flush=True)
         t0 = time.time()
-        pages = extract_pages(source_mp4, mdir / "slides", mdir / "slides.json")
+        pages = extract_pages(source_mp4, mdir / "slides", mdir / "slides.json",
+                              mode="media" if args.media else "slides")
         print(f"[meta] 逻辑页 {len(pages)} 页 | 抽页耗时 {time.time()-t0:.1f}s", flush=True)
 
     print("[6/6] 用 VL 屏幕资料升级多模态纪要 ...", flush=True)

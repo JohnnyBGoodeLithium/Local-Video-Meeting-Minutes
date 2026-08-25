@@ -3,7 +3,7 @@
 > 给接手 agent：先读本文件和 `AGENTS.md`，再看 `CHANGELOG.md` 未发布段了解最近改动。
 > 本文件在每次交接或大方向变化时更新；过期的进行中事项完成后删除对应段落。
 
-更新时间：2026-08-25（产品版本 v0.10.0；在线工作台构建号 20260825p86；提交号以 `git log -1` 为准）
+更新时间：2026-08-25（产品版本 v0.10.0；在线工作台构建号 20260825p87；提交号以 `git log -1` 为准）
 
 ## 当前基线
 
@@ -12,12 +12,20 @@
 - 服务：端口 8899，`systemctl --user restart meeting-minutes-web` 重启。优雅退出已有界：`MEETING_WEB_GRACEFUL_SHUTDOWN` 默认 8 秒强制关闭残留连接，restart 不再挂起 45s。
 - 隐私红线（详见 AGENTS.md）：不读真实会议正文，只看元数据/结构；上次已获用户授权诊断 Gate B 会议标题形态，新任务需重新授权。
 
+## 当前批次：media 画面抽取镜头检测模式
+
+- 背景实证：一个 16 分钟动态上手视频（镜头每 2–5 秒切换）用 slides 稳定页原语 977 秒只切出 1 页，VL 无米下锅。`slide_pages.extract_pages` 新增 `mode="media"`：复用 1fps 小帧解码但用全帧差分（不做 ROI/稀疏标注抑制），局部显著峰为切点（阈值 max(8.0, p50×6)），最短镜头 1.5s 并回邻居；每镜头取中点帧代表帧，逐像素中位数签名合并重复镜头（ranges 记全部出现区间）；去重后超 80 页按总时长截断并在 slides.json 逐条标 `truncated`。
+- 兼容决策：下游 `minutes_by_page`/`vl_report`/`export`/`meetings.py`/前端均按 `kind=="slide"` 过滤，故 media 页 kind 沿用 `"slide"`，只附加 `shot: true` 标记，下游零改动；会议录屏 slides 路径一字未动。
+- 触发链路：`POST /api/upload` 的 `content_type=media` 且视频路由 → cmd 追加 `--media` → `video_minutes.py --media` → `extract_pages(mode="media")`；audio/teams 不受影响。CLI：`slide_pages.py --media` / `--mode media`。
+- 构建号 p87；`web/tests/media_shots_test.py`（全合成视频：镜头数、重复镜头合并、1s 短镜头并入、截断重排、slides 回归）进 `make check`；smoke 新增 media 视频带 `--media`、media 音频不带两条断言。
+- 后续批次：媒体版纪要 prompt（论证脉络/要点）仍未做。
+
 ## 当前批次：内容类型 content_type 与会议/媒体列表分离
 
 - `meta.json` 新增 `content_type`（`meeting` 默认 / `media`）：逻辑隔离、物理同库，会议与媒体共用管线、关键字索引、导出，只按类型分流语义。读取口径集中在 `deps._content_type`（缺字段/未知值一律 meeting，存量零迁移）与 `deps._meeting_identity`（列表 item、bundle、rename 响应都带 `content_type`）。
 - 新端点 `POST /api/meetings/{slug}/content-type`（白名单校验，复用 MEETING_META_LOCK + 原子替换）；上传 `POST /api/upload` 接受可选 Form `content_type`，存进 upload 作业记录，由 `job_store._record_meeting_activity` 在管线成功后落 meta（侵入最小的落点；dry-run smoke 只能验证到作业记录层）。
 - 前端：会议库顶部"会议 | 媒体"分段切换（`#content-type-tabs`，选择存 localStorage `contentType`），列表按类型过滤，空类型显示一行 placeholder 提示；"更多"菜单 `#content-type-btn` 重新分类，乐观更新失败回滚。中英标签集中在 app.js 的 `CONTENT_TYPE_LABELS`（ui()/isEnglishUi() 旁）；media 时列表/标题 meta 的"发言人"→"出镜"、改名提示→"修改标题"，纪要/待办等区块语义不动。
-- 本批不做媒体版纪要 prompt 和 media 画面截取模式（后续批次）。构建号 p86；`web/tests/content_type_test.py` 进 `make check`，smoke 新增断言（缺省 meeting、切换后列表/bundle 同步、非法值 400、上传表单字段）。
+- 本批不做媒体版纪要 prompt（后续批次）；media 画面截取模式已在 p87 批次完成。构建号 p86；`web/tests/content_type_test.py` 进 `make check`，smoke 新增断言（缺省 meeting、切换后列表/bundle 同步、非法值 400、上传表单字段）。
 
 ## 当前批次：关键字索引与内容包导出
 
