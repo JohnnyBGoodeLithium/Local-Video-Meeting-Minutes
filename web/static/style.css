@@ -361,6 +361,10 @@ body.page-index { overflow: hidden; }
 }
 .meeting-list-tools #search { min-width: 0; }
 .meeting-list-tools #meeting-sort { width: 94px; padding-inline: var(--sp-6); }
+/* 会议/媒体分段切换：复用 ui-language 同款轻量分段样式，不新增视觉元素 */
+.content-type-tabs { display: flex; padding: 2px; margin-bottom: var(--sp-8); border: 1px solid var(--border); border-radius: var(--r-7); background: var(--panel2); }
+.content-type-tabs button { flex: 1; padding: 2px var(--sp-7); border-color: transparent; background: transparent; color: var(--dim); font-size: var(--fs-11); }
+.content-type-tabs button.active { color: var(--text); border-color: var(--border); background: var(--panel); }
 
 /* 作业队列面板 */
 #jobs-panel { margin-bottom: var(--sp-10); }

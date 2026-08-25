@@ -104,7 +104,7 @@ VL 终稿和 Topic Map 发布后，普通录屏与 Teams 管线会用一次本�
 
 ### 媒体固化与存储生命周期
 
-`meta.json` 只保存可读标题与目录索引时间。`imported_at` 在首次上传成功后固定，`updated_at` 随改名、纪要/Topic Map/重转写成功更新。旧会议优先回放历史 upload job 的创建时间；无历史时才用最早派生资产 mtime 估算。源媒体 mtime 保留来源设备时间，绝不用作导入时间。
+`meta.json` 只保存可读标题、内容类型与目录索引时间。`content_type` 取 `meeting`（默认）或 `media`：会议与媒体共用同一条管线、关键字索引和导出，只按该字段在列表与措辞上分流；缺字段或未知值一律按 `meeting` 读取，存量零迁移。`imported_at` 在首次上传成功后固定，`updated_at` 随改名、纪要/Topic Map/重转写成功更新。旧会议优先回放历史 upload job 的创建时间；无历史时才用最早派生资产 mtime 估算。源媒体 mtime 保留来源设备时间，绝不用作导入时间。
 
 `meeting_dir.materialize_source()` 优先使用 Btrfs/兼容文件系统的 CoW reflink：会议母版拥有独立 inode，初始共享数据块，因此删除或原地修改下载源都不会影响项目文件，也不会立刻复制一份完整大文件；reflink 不可用时退回 `copy2`。浏览器上传先写项目 inbox，管线成功并确认母版已经固化后自动删除 inbox；失败或取消则保留，以便诊断和重试。音频导入同时保存 `source_audio.<ext>` 母版和可再生的 16k PCM 工作音轨。
 

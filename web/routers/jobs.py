@@ -13,7 +13,7 @@ import aiofiles
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 
 import meeting_dir as md_util
-from deps import (AUDIO_EXT, BANK_LOCK, DATA_ROOT, DOCX_EXT, INBOX, PY, ROOT,
+from deps import (AUDIO_EXT, BANK_LOCK, CONTENT_TYPES, DATA_ROOT, DOCX_EXT, INBOX, PY, ROOT,
                   VIDEO_EXT, VTT_EXT, _now, _safe, _slugify)
 from job_store import EXEC, JOBS, PROCS, _new_job, _run_pipeline, _save_job, _set_status
 from job_recovery import (build_minutes_command, build_retranscribe_command,
@@ -61,11 +61,14 @@ def _predict_meeting(route: str, primary: Path, transcript: Path | None,
 
 @router.post("/api/upload")
 async def upload(files: list[UploadFile] = File(...), no_vl: str = Form(""),
-                 ignore_transcript: str = Form("")):
+                 ignore_transcript: str = Form(""), content_type: str = Form("")):
     if not files:
         raise HTTPException(400, "没有文件")
     skip_vl = bool(no_vl.strip())
     ignore_external = bool(ignore_transcript.strip())
+    content_type = content_type.strip() or "meeting"
+    if content_type not in CONTENT_TYPES:
+        raise HTTPException(400, "content_type 只支持 meeting 或 media")
     jid = uuid.uuid4().hex[:12]
     dest_dir = INBOX / jid
     dest_dir.mkdir(parents=True, exist_ok=True)
@@ -121,6 +124,7 @@ async def upload(files: list[UploadFile] = File(...), no_vl: str = Form(""),
                    meeting=_predict_meeting(
                        route, primary, transcript,
                        prefer_transcript_title=ignore_external and transcript is not None),
+                   content_type=content_type,
                    transcript_policy=("ignored" if transcript is not None and ignore_external
                                       else "external" if transcript is not None else "local_asr"))
     resp = dict(job)  # 快照：避免 worker 线程抢在响应序列化前改状态

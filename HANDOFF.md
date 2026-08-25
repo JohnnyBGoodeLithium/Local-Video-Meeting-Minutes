@@ -3,7 +3,7 @@
 > 给接手 agent：先读本文件和 `AGENTS.md`，再看 `CHANGELOG.md` 未发布段了解最近改动。
 > 本文件在每次交接或大方向变化时更新；过期的进行中事项完成后删除对应段落。
 
-更新时间：2026-08-25（产品版本 v0.10.0；在线工作台构建号 20260825p85；提交号以 `git log -1` 为准）
+更新时间：2026-08-25（产品版本 v0.10.0；在线工作台构建号 20260825p86；提交号以 `git log -1` 为准）
 
 ## 当前基线
 
@@ -11,6 +11,13 @@
 - 验证基线：发布提交前以本轮 `make check`、隔离 Web smoke 和 MeetingPack 启动测试结果为准；所有新增测试只使用虚构数据。
 - 服务：端口 8899，`systemctl --user restart meeting-minutes-web` 重启。优雅退出已有界：`MEETING_WEB_GRACEFUL_SHUTDOWN` 默认 8 秒强制关闭残留连接，restart 不再挂起 45s。
 - 隐私红线（详见 AGENTS.md）：不读真实会议正文，只看元数据/结构；上次已获用户授权诊断 Gate B 会议标题形态，新任务需重新授权。
+
+## 当前批次：内容类型 content_type 与会议/媒体列表分离
+
+- `meta.json` 新增 `content_type`（`meeting` 默认 / `media`）：逻辑隔离、物理同库，会议与媒体共用管线、关键字索引、导出，只按类型分流语义。读取口径集中在 `deps._content_type`（缺字段/未知值一律 meeting，存量零迁移）与 `deps._meeting_identity`（列表 item、bundle、rename 响应都带 `content_type`）。
+- 新端点 `POST /api/meetings/{slug}/content-type`（白名单校验，复用 MEETING_META_LOCK + 原子替换）；上传 `POST /api/upload` 接受可选 Form `content_type`，存进 upload 作业记录，由 `job_store._record_meeting_activity` 在管线成功后落 meta（侵入最小的落点；dry-run smoke 只能验证到作业记录层）。
+- 前端：会议库顶部"会议 | 媒体"分段切换（`#content-type-tabs`，选择存 localStorage `contentType`），列表按类型过滤，空类型显示一行 placeholder 提示；"更多"菜单 `#content-type-btn` 重新分类，乐观更新失败回滚。中英标签集中在 app.js 的 `CONTENT_TYPE_LABELS`（ui()/isEnglishUi() 旁）；media 时列表/标题 meta 的"发言人"→"出镜"、改名提示→"修改标题"，纪要/待办等区块语义不动。
+- 本批不做媒体版纪要 prompt 和 media 画面截取模式（后续批次）。构建号 p86；`web/tests/content_type_test.py` 进 `make check`，smoke 新增断言（缺省 meeting、切换后列表/bundle 同步、非法值 400、上传表单字段）。
 
 ## 当前批次：关键字索引与内容包导出
 

@@ -16,7 +16,7 @@ import keyword_service
 import minutes_view_service
 import transcript_service
 import voice_bank as vb
-from deps import (BANK_DIR, BANK_LOCK, DRY_RUN, EVALUATIONS_DIR, MEETINGS, MD,
+from deps import (BANK_DIR, BANK_LOCK, CONTENT_TYPES, DRY_RUN, EVALUATIONS_DIR, MEETINGS, MD,
                   MEETING_META_LOCK, STORAGE_LOCK, artifact, assistant, _audio_path,
                   _clean_meeting_cache, _current_evidence, _evidence_state,
                   _meeting_identity, _meeting_storage, _mdir, _minutes_file, _now,
@@ -113,6 +113,27 @@ def rename_meeting(slug: str, title: str = Body(..., embed=True)):
         if not isinstance(meta, dict):
             meta = {}
         meta["title"] = title
+        meta["updated_at"] = _now()
+        tmp = meta_path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
+        os.replace(tmp, meta_path)
+    return {"ok": True, **_meeting_identity(slug)}
+
+
+@router.post("/api/meetings/{slug}/content-type")
+def set_content_type(slug: str, content_type: str = Body(..., embed=True)):
+    """重新分类：会议 ↔ 媒体视频。只改 meta.json 的 content_type，
+    逐字稿、纪要、索引和导出资产都不动。"""
+    mdir = _mdir(slug)
+    content_type = content_type.strip()
+    if content_type not in CONTENT_TYPES:
+        raise HTTPException(400, "content_type 只支持 meeting 或 media")
+    meta_path = mdir / "meta.json"
+    with MEETING_META_LOCK:
+        meta = _read_json(meta_path, {})
+        if not isinstance(meta, dict):
+            meta = {}
+        meta["content_type"] = content_type
         meta["updated_at"] = _now()
         tmp = meta_path.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")

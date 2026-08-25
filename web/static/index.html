@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>会议纪要</title>
-<link rel="stylesheet" href="/static/fluent-foundation.css?v=20260825p85">
-<link rel="stylesheet" href="/static/style.css?v=20260825p85">
-<link rel="stylesheet" href="/static/theme.css?v=20260825p85">
+<link rel="stylesheet" href="/static/fluent-foundation.css?v=20260825p86">
+<link rel="stylesheet" href="/static/style.css?v=20260825p86">
+<link rel="stylesheet" href="/static/theme.css?v=20260825p86">
 </head>
 <body class="page-index">
 <header class="topbar">
@@ -39,6 +39,10 @@
       <div class="jobs-head">正在处理</div>
       <ul id="jobs-list"></ul>
     </div>
+    <div class="content-type-tabs" id="content-type-tabs" aria-label="内容类型">
+      <button type="button" data-content-type="meeting" class="active" aria-pressed="true">会议</button>
+      <button type="button" data-content-type="media" aria-pressed="false">媒体</button>
+    </div>
     <div class="meeting-list-tools">
       <input id="search" class="fluent-field" type="search" placeholder="搜索会议…">
       <select id="meeting-sort" aria-label="会议排序">
@@ -65,6 +69,7 @@
           <div class="more-menu-pop">
             <button id="regen-btn" type="button" disabled>重新生成纪要</button>
             <button id="retranscribe-btn" type="button" disabled title="保留母版与旧版本，使用当前 ASR 配置重建">使用最新上下文重新转写</button>
+            <button id="content-type-btn" type="button" disabled title="只改变库内分类，不重新处理内容">标记为媒体视频</button>
             <button id="undo-speaker-btn" type="button" disabled>撤销上次说话人修改</button>
             <button id="refine-btn" type="button" disabled title="使用更强的本地模型优化全文">优化全文</button>
             <button id="export-btn" type="button" disabled title="导出前检查证据、媒体和预计大小">分享 / 导出…</button>
@@ -295,6 +300,6 @@
 
 <div id="tl-tip" class="tl-tip hidden"></div>
 
-<script src="/static/app.js?v=20260825p85"></script>
+<script src="/static/app.js?v=20260825p86"></script>
 </body>
 </html>

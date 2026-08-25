@@ -172,7 +172,7 @@ check("时间码跳转只滚动内容面板，不带动整页丢失播放器",
 check("在线屏幕舞台支持放大、缩放和相邻屏幕键盘导航",
       b'id="screen-preview-mask"' in page and b'openScreenPreview' in app_js
       and b'navigateScreenPreview' in app_js and b'SCREEN_PREVIEW_ZOOMS' in app_js
-      and b'20260825p85' in page)
+      and b'20260825p86' in page)
 check("可恢复失败不会在一小时后失去续跑入口",
       b'j.recovery?.state === "available"' in app_js
       and b'Date.now() / 1000 - Number(j.finished || j.created || 0) < 60 * 60' in app_js)
@@ -249,6 +249,33 @@ check("会议列表含可读标题与人数元数据",
       smoke_item.get("title") == "smoke" and smoke_item.get("speaker_count") == 2
       and isinstance(smoke_item.get("imported_at"), (int, float))
       and isinstance(smoke_item.get("updated_at"), (int, float)))
+
+# 1b. 内容类型：缺省 meeting（meta.json 无字段），可在会议/媒体间重新分类
+check("列表与 bundle 的缺省内容类型为 meeting",
+      smoke_item.get("content_type") == "meeting"
+      and req("GET", "/api/meetings/_smoke/bundle")[2].get("content_type") == "meeting")
+s, _, _ = req("POST", "/api/meetings/_smoke/content-type", {"content_type": "podcast"})
+check("content-type 端点拒绝白名单外的值", s == 400)
+s, _, ctype_resp = req("POST", "/api/meetings/_smoke/content-type", {"content_type": "media"})
+item_media = next((m for m in req("GET", "/api/meetings")[2].get("meetings", [])
+                   if m["slug"] == "_smoke"), {})
+bundle_media = req("GET", "/api/meetings/_smoke/bundle")[2]
+check("标记为媒体后列表与 bundle 同步反映 media",
+      s == 200 and ctype_resp.get("ok") is True
+      and ctype_resp.get("content_type") == "media"
+      and item_media.get("content_type") == "media"
+      and bundle_media.get("content_type") == "media")
+s, _, _ = req("POST", "/api/meetings/_smoke/content-type", {"content_type": "meeting"})
+item_back = next((m for m in req("GET", "/api/meetings")[2].get("meetings", [])
+                  if m["slug"] == "_smoke"), {})
+check("重新分类回会议后恢复 meeting",
+      s == 200 and item_back.get("content_type") == "meeting")
+check("前端提供会议/媒体分段切换与更多菜单重新分类入口",
+      b'id="content-type-tabs"' in page and b'id="content-type-btn"' in page
+      and "标记为媒体视频".encode() in page
+      and b'contentTypeOf' in app_js and b'toggleContentType' in app_js
+      and b'content-type' in app_js
+      and "位出镜".encode() in app_js and "标记为会议".encode() in app_js)
 
 # 2. bundle
 s, _, j = req("GET", "/api/meetings/_smoke/bundle")
@@ -988,6 +1015,23 @@ inbox = TEST_ROOT / jj.get("inbox", "")
 check("上传文件已存 recordings/inbox/<jobid>/",
       inbox.is_dir() and len(list(inbox.iterdir())) == 1)
 check("作业预测了会议目录名", bool(jj.get("meeting")))
+
+# 11a0. 上传可选 content_type 表单字段：白名单校验并记入作业（管线成功后落 meta.json）
+s, _, media_job = multipart_files("/api/upload", [
+    ("files", "smoke_media.wav", wav_bytes, "audio/wav"),
+], fields=[("content_type", "media")])
+check("POST /api/upload 接受 content_type=media 并记入作业",
+      s == 200 and media_job.get("status") == "queued"
+      and media_job.get("content_type") == "media", f"status={s}")
+poll_job(media_job.get("id"))
+s, _, plain_job = multipart("/api/upload", "files", "smoke_plain.wav", wav_bytes, "audio/wav")
+check("上传缺省内容类型为 meeting",
+      s == 200 and plain_job.get("content_type") == "meeting")
+poll_job(plain_job.get("id"))
+s, _, _ = multipart_files("/api/upload", [
+    ("files", "smoke_bad_type.wav", wav_bytes, "audio/wav"),
+], fields=[("content_type", "vlog")])
+check("上传拒绝白名单外的 content_type", s == 400)
 
 # 11a. Teams 录屏 + DOCX 逐字稿 → 具名多模态管线
 s, _, teams_job = multipart_files("/api/upload", [

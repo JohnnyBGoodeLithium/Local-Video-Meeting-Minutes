@@ -12,7 +12,7 @@ import time
 import uuid
 from pathlib import Path
 
-from deps import (BANK_LOCK, DATA_ROOT, DRY_RUN, DRY_RUN_DELAY, INBOX, JOBS_DIR,
+from deps import (BANK_LOCK, CONTENT_TYPES, DATA_ROOT, DRY_RUN, DRY_RUN_DELAY, INBOX, JOBS_DIR,
                   MEETINGS, MEETING_META_LOCK, ROOT, _now)
 from job_scheduler import SerialPriorityExecutor, default_priority
 
@@ -71,6 +71,10 @@ def _record_meeting_activity(job: dict) -> None:
         timestamp = float(job.get("finished") or _now())
         if job.get("kind") == "upload":
             meta.setdefault("imported_at", float(job.get("created") or timestamp))
+            # 上传时选择的内容类型随首次成功导入固化；缺省/未知值保持缺省 meeting。
+            ctype = str(job.get("content_type") or "")
+            if ctype in CONTENT_TYPES:
+                meta["content_type"] = ctype
         meta["updated_at"] = timestamp
         tmp = meta_path.with_name(f".{meta_path.name}.tmp-{os.getpid()}")
         tmp.write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")

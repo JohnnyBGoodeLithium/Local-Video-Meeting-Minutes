@@ -89,6 +89,7 @@ const state = {
     videoExpanded: !!workspaceState.videoExpanded,
     meetingSort: ["imported", "meeting", "updated"].includes(workspaceState.meetingSort)
       ? workspaceState.meetingSort : "imported",
+    contentType: workspaceState.contentType === "media" ? "media" : "meeting",
     translationTargets: workspaceState.translationTargets
       && typeof workspaceState.translationTargets === "object"
       ? workspaceState.translationTargets : {},
@@ -146,6 +147,9 @@ const UI_COPY = {
     speakerUnavailable: "当前声音过短，未形成可用声音簇，不能按人播放",
     undoSpeaker: "撤销上次说话人修改",
     lowValueHint: "过渡或低讨论密度时段", continued: "同一发言",
+    contentTypeMeeting: "会议", contentTypeMedia: "媒体",
+    emptyMeetingList: "暂无会议，从上方导入后在这里阅读",
+    emptyMediaList: "暂无媒体条目；可在条目的“更多”菜单标记为媒体视频",
   },
   en: {
     title: "Meeting Minutes", brand: "🎙 Meeting Minutes", meetings: "Meetings", product: "Product", settings: "Settings",
@@ -176,11 +180,37 @@ const UI_COPY = {
     speakerUnavailable: "This sample is too short to form a usable voice cluster",
     undoSpeaker: "Undo last speaker change",
     lowValueHint: "Transitional or low-density segment", continued: "Same utterance",
+    contentTypeMeeting: "Meetings", contentTypeMedia: "Media",
+    emptyMeetingList: "No meetings yet; import one above to start reading",
+    emptyMediaList: "No media items yet; use “Mark as media” in an item's More menu",
   },
 };
 
 function ui(key) { return UI_COPY[state.uiLanguage]?.[key] || UI_COPY["zh-CN"][key] || key; }
 function isEnglishUi() { return state.uiLanguage === "en"; }
+
+/* 内容类型标签字典：media 与 meeting 共用管线/索引/导出，只在面向用户的措辞上分流。
+   后续批次扩展媒体语义（媒体版纪要、画面截取）时优先在这里加键。 */
+const CONTENT_TYPE_LABELS = {
+  meeting: {
+    "zh-CN": { recordNoun: "会议记录", speakerCount: n => `${n} 位发言人`,
+               renameTitle: "修改会议名称", markAction: "标记为媒体视频" },
+    en: { recordNoun: "Meeting record", speakerCount: n => `${n} speakers`,
+          renameTitle: "Rename meeting", markAction: "Mark as media" },
+  },
+  media: {
+    "zh-CN": { recordNoun: "媒体记录", speakerCount: n => `${n} 位出镜`,
+               renameTitle: "修改标题", markAction: "标记为会议" },
+    en: { recordNoun: "Media record", speakerCount: n => `${n} on camera`,
+          renameTitle: "Rename title", markAction: "Mark as meeting" },
+  },
+};
+function contentTypeOf(item) { return item?.content_type === "media" ? "media" : "meeting"; }
+function contentLabel(type, key, ...args) {
+  const lang = CONTENT_TYPE_LABELS[type]?.[state.uiLanguage] ? state.uiLanguage : "zh-CN";
+  const value = CONTENT_TYPE_LABELS[type]?.[lang]?.[key] ?? CONTENT_TYPE_LABELS.meeting[lang]?.[key];
+  return typeof value === "function" ? value(...args) : (value ?? key);
+}
 
 const KEYWORD_KIND_LABELS = {
   "zh-CN": { product: "产品", project: "项目", topic: "议题", organization: "组织", other: "其他" },
@@ -273,6 +303,7 @@ function saveWorkspaceState() {
         utilityTab: state.workspace.utilityTab,
         videoExpanded: state.workspace.videoExpanded,
         meetingSort: state.workspace.meetingSort,
+        contentType: state.workspace.contentType,
         translationTargets: state.workspace.translationTargets,
         minutesViews: state.workspace.minutesViews,
         anchors: state.workspace.anchors,
@@ -340,6 +371,21 @@ function applyUiLanguage() {
     sort.options[2].textContent = ui("sortUpdated");
     sort.setAttribute("aria-label", isEnglishUi() ? "Meeting order" : "会议排序");
   }
+  $$("#content-type-tabs [data-content-type]").forEach(button => {
+    const active = button.dataset.contentType === state.workspace.contentType;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+    button.textContent = ui(button.dataset.contentType === "media"
+      ? "contentTypeMedia" : "contentTypeMeeting");
+  });
+  $("#content-type-tabs")?.setAttribute("aria-label", isEnglishUi() ? "Content type" : "内容类型");
+  const contentTypeBtn = $("#content-type-btn");
+  if (contentTypeBtn) {
+    contentTypeBtn.textContent = contentLabel(contentTypeOf(state.bundle), "markAction");
+    contentTypeBtn.title = isEnglishUi()
+      ? "Only changes the library classification; content is not reprocessed"
+      : "只改变库内分类，不重新处理内容";
+  }
   $$('[data-ui-language]').forEach(button => {
     const active = button.dataset.uiLanguage === state.uiLanguage;
     button.classList.toggle("active", active);
@@ -368,14 +414,18 @@ async function loadProductVersion() {
 function renderMeetingHeaderMeta() {
   const b = state.bundle;
   if (!b) return;
+  const type = contentTypeOf(b);
+  $("#rename-btn").title = contentLabel(type, "renameTitle");
+  const contentTypeBtn = $("#content-type-btn");
+  if (contentTypeBtn) contentTypeBtn.textContent = contentLabel(type, "markAction");
   const box = $("#meeting-meta");
   box.textContent = [
     b.date,
     b.duration ? (isEnglishUi() ? `${fmt(b.duration)} duration` : `${fmt(b.duration)} 时长`) : null,
-    b.speaker_count ? (isEnglishUi() ? `${b.speaker_count} speakers` : `${b.speaker_count} 位发言人`) : null,
+    b.speaker_count ? contentLabel(type, "speakerCount", b.speaker_count) : null,
     b.transcript?.length ? (isEnglishUi()
       ? `${b.transcript.length} transcript segments` : `${b.transcript.length} 段逐字稿`) : null,
-  ].filter(Boolean).join(" · ") || (isEnglishUi() ? "Meeting record" : "会议记录");
+  ].filter(Boolean).join(" · ") || contentLabel(type, "recordNoun");
   // 关键字只是元信息行尾部的纯文本词；悬停才提示可点，避免界面新增视觉块。
   const keywords = b.keywords?.state === "ready" ? (b.keywords.keywords || []) : [];
   for (const item of keywords.slice(0, 5)) {
@@ -462,7 +512,9 @@ async function loadMeetings() {
     const linked = new URLSearchParams(location.search).get("meeting");
     const remembered = state.meetings.find(m => m.slug ===
       (linked || state.workspace.lastSlug));
-    await loadMeeting((remembered || orderedMeetings()[0]).slug);
+    const firstOfType = orderedMeetings()
+      .find(m => contentTypeOf(m) === state.workspace.contentType);
+    await loadMeeting((remembered || firstOfType || orderedMeetings()[0]).slug);
   }
 }
 
@@ -484,10 +536,14 @@ function renderMeetingList() {
   const q = $("#search").value.trim().toLowerCase();
   const ul = $("#meeting-list");
   const order = state.workspace.meetingSort;
+  const contentType = state.workspace.contentType;
   ul.innerHTML = "";
+  let shown = 0;
   for (const m of orderedMeetings()) {
+    if (contentTypeOf(m) !== contentType) continue;
     if (q && !`${m.title || ""} ${m.date || ""} ${m.slug} ${(m.keywords || []).join(" ")}`
         .toLowerCase().includes(q)) continue;
+    shown += 1;
     const li = document.createElement("li");
     li.className = "meeting-item" + (m.slug === state.slug ? " active" : "");
     const meta = [
@@ -497,7 +553,9 @@ function renderMeetingList() {
         ? `${isEnglishUi() ? "Updated" : "更新"} ${fmtListTimestamp(m.updated_at)}` : null,
       m.date,
       m.duration ? fmt(m.duration) : null,
-      m.speaker_count ? (isEnglishUi() ? `${m.speaker_count} people` : `${m.speaker_count} 人`) : null,
+      m.speaker_count ? (contentTypeOf(m) === "media"
+        ? contentLabel("media", "speakerCount", m.speaker_count)
+        : (isEnglishUi() ? `${m.speaker_count} people` : `${m.speaker_count} 人`)) : null,
       m.generation_phase && ["voice_draft_generating", "voice_draft", "visual_enrichment"].includes(m.generation_phase)
         ? (m.has_minutes ? (isEnglishUi() ? "Voice draft ready" : "语音草稿可读")
           : (isEnglishUi() ? "Generating final minutes" : "终稿生成中"))
@@ -523,6 +581,40 @@ function renderMeetingList() {
     };
     ul.appendChild(li);
   }
+  if (!shown && !q) {
+    // 当前类型下没有内容：沿用 placeholder 风格给一句可操作的提示。
+    const empty = document.createElement("li");
+    empty.className = "placeholder";
+    empty.textContent = ui(contentType === "media" ? "emptyMediaList" : "emptyMeetingList");
+    ul.appendChild(empty);
+  }
+}
+
+/* ---------- 重新分类：会议 ↔ 媒体 ---------- */
+
+async function toggleContentType() {
+  if (!state.slug || !state.bundle) return;
+  const current = contentTypeOf(state.bundle);
+  const target = current === "media" ? "meeting" : "media";
+  $(".more-menu")?.removeAttribute("open");
+  state.bundle.content_type = target;  // 乐观更新，失败回滚
+  renderMeetingHeaderMeta();
+  const r = await api(`/api/meetings/${encodeURIComponent(state.slug)}/content-type`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content_type: target }),
+  });
+  if (!r.ok) {
+    state.bundle.content_type = current;
+    renderMeetingHeaderMeta();
+    const err = await r.json().catch(() => null);
+    toast(`${isEnglishUi() ? "Reclassification failed" : "重新分类失败"}: ${err?.detail || r.status}`);
+    return;
+  }
+  toast(target === "media"
+    ? (isEnglishUi() ? "Marked as media" : "已标记为媒体视频")
+    : (isEnglishUi() ? "Marked as meeting" : "已标记为会议"));
+  loadMeetings();
 }
 
 /* ---------- 删除会议 ---------- */
@@ -1141,6 +1233,7 @@ async function loadMeeting(slug) {
   $("#refine-btn").disabled = isDraft;
   $("#export-btn").disabled = !(b.transcript?.length);
   $("#storage-btn").disabled = false;
+  $("#content-type-btn").disabled = false;
   $("#assistant-launcher").disabled = false;
   if (state.workspace.utilityOpen) openUtility(state.workspace.utilityTab);
   if (isDraft && state.viewMode === "quality") state.viewMode = "minutes";
@@ -5076,6 +5169,14 @@ function init() {
   $$('[data-ui-language]').forEach(button =>
     button.onclick = () => setUiLanguage(button.dataset.uiLanguage));
   $("#search").addEventListener("input", renderMeetingList);
+  $$("#content-type-tabs [data-content-type]").forEach(button =>
+    button.onclick = () => {
+      if (state.workspace.contentType === button.dataset.contentType) return;
+      state.workspace.contentType = button.dataset.contentType;
+      saveWorkspaceState();
+      applyUiLanguage();
+      renderMeetingList();
+    });
   $("#meeting-sort").value = state.workspace.meetingSort;
   $("#meeting-sort").addEventListener("change", event => {
     state.workspace.meetingSort = event.target.value;
@@ -5093,6 +5194,7 @@ function init() {
   $("#retranscribe-btn").onclick = retranscribeLocal;
   $("#undo-speaker-btn").onclick = undoSpeakerOperation;
   $("#rename-btn").onclick = startRename;
+  $("#content-type-btn").onclick = toggleContentType;
   $("#transcript-search").addEventListener("input", applyTranscriptSearch);
   $("#transcript-search").addEventListener("keydown", e => {
     if (e.key !== "Enter") return;

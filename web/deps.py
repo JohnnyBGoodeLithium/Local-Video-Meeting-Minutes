@@ -56,6 +56,8 @@ VIDEO_EXT = {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v", ".mpg", ".mpeg"}
 AUDIO_EXT = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".aac", ".wma", ".aiff"}
 VTT_EXT = {".vtt"}
 DOCX_EXT = {".docx"}
+# meta.json 的 content_type 白名单：会议与媒体共用管线/索引/导出，只按类型分流语义。
+CONTENT_TYPES = ("meeting", "media")
 ORG_FILE_EXT = {".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"}
 
 
@@ -292,6 +294,11 @@ def _slugify(name: str) -> str:
     return re.sub(r"-{2,}", "-", name) or "meeting"
 
 
+def _content_type(value) -> str:
+    """meta.json content_type 的读取口径：缺失或未知值一律按 meeting，零迁移。"""
+    return value if value in CONTENT_TYPES else "meeting"
+
+
 def _meeting_identity(slug: str) -> dict:
     """把目录 slug 转为面向用户的标题与日期；不读取会议正文。
     `meta.json` 中的 title 覆盖 slug 派生名（用户在网页端改名）。"""
@@ -302,10 +309,12 @@ def _meeting_identity(slug: str) -> dict:
     else:
         title = re.sub(r"[_-]+", " ", raw).strip()
         title = re.sub(r"\s+", " ", title)
-    ident = {"title": title or "未命名会议", "date": date}
+    ident = {"title": title or "未命名会议", "date": date, "content_type": "meeting"}
     custom = _read_json(MEETINGS / slug / "meta.json", {})
-    if isinstance(custom, dict) and str(custom.get("title", "")).strip():
-        ident["title"] = str(custom["title"]).strip()
+    if isinstance(custom, dict):
+        if str(custom.get("title", "")).strip():
+            ident["title"] = str(custom["title"]).strip()
+        ident["content_type"] = _content_type(custom.get("content_type"))
     return ident
 
 
