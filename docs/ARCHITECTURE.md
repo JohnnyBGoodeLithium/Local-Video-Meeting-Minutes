@@ -96,7 +96,7 @@ VL 终稿和 Topic Map 发布后，普通录屏与 Teams 管线会用一次本�
 
 阅读 API 与 Viewer 还消费一个不落盘的 `speaker_navigation` 投影：`verified_voice_binding` 表示声纹已绑定稳定人员；`imported_transcript_label` 表示 VTT/DOCX 明确姓名只在本场可靠；`session_voice_cluster` 表示未命名但已有 `voice_id`，可按本场声音簇跳播；`insufficient_voice_sample` 表示片段过短、没有可用声音簇，才禁止选择。该投影不反向修改声纹库，也不把本场标签/声音簇伪造成 `person_id`；旧导出包没有该字段时仅用匿名占位名启发式兼容。
 
-多模态终稿的总体部分同样受 `ContextBudget` 约束。短会议直接生成；超限会议由 `meeting_core.minutes_overview` 按连续 T ID 切片，每段只携带关联 P 页面，再用人员语境和全页目录归并为总体摘要、行动、风险及 3–8 个议题板块。map/reduce 输出带退化防护：检测到自我修正循环或同一长句反复重述时，以 `repeat_penalty=1.2` 完整重试一次，仍退化则确定性清理（重复长行留首现、自我修正链整行删）后继续，不把循环垃圾写进 `minutes.md`；reduce 缺“总体摘要/待办事项”章节同样触发重试。待办章节另有合规校验：有表格行就必须逐行带 `kind=action`+`turns=` 证据标记，不合规先随防护重试，仍不合规按片段事实笔记定点重写该章节（`REPAIR_TODO_PROMPT`）并拼接回终稿。逐页讨论块继续按页面分组生成并独立控制输入规模。Web 重生成复用现有逐字稿、逻辑页和有效 VL 缓存，有源视频时只重抓缺页；成功后通过 `--publish` 更新 ready 状态并刷新 Topic Map。
+多模态终稿的总体部分同样受 `ContextBudget` 约束。短会议直接生成；超限会议由 `meeting_core.minutes_overview` 按连续 T ID 切片，每段只携带关联 P 页面，再用人员语境和全页目录归并为总体摘要、行动、风险及 3–8 个议题板块。map/reduce 输出带退化防护：检测到自我修正循环或同一长句反复重述时，以 `repeat_penalty=1.2` 完整重试一次，仍退化则确定性清理（重复长行留首现、自我修正链整行删）后继续，不把循环垃圾写进 `minutes.md`；reduce 缺“总体摘要/待办事项”章节同样触发重试。待办章节另有合规校验：有表格行就必须逐行带 `kind=action`+`turns=` 证据标记，不合规先随防护重试，仍不合规按片段事实笔记定点重写该章节（`REPAIR_TODO_PROMPT`）并拼接回终稿。逐页讨论块继续按页面分组生成并独立控制输入规模。Web 重生成复用现有逐字稿、逻辑页和有效 VL 缓存，有源视频时只重抓缺页；成功后通过 `--publish` 更新 ready 状态并刷新 Topic Map。纪要 prompt 按 `meta.json` 的 `content_type` 分流（选择集中在 `minutes_profile()`）：media 内容换用论证结构 prompt 组（核心观点/规格与参数/论证脉络/质疑保留，不生成待办，map/reduce 与直出护栏同步切换必需章节并跳过待办修复），shot 镜头页的 VL 详解改用论证角色口径；会议口径不变。
 
 若服务在 `visual_enrichment` 阶段中断，旧作业在重启时先标记失败；只要不存在同会议活动 writer，且 transcript/slides 仍完整，`regen_minutes` 可作为阶段级续跑入口，复用已完成的 VL cache，仅补缺页并发布终稿。其他草稿阶段仍拒绝重生成，避免 revision 竞态。
 

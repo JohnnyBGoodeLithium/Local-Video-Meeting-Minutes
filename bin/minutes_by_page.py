@@ -16,6 +16,10 @@
 
 用法: bin/minutes_by_page.py meetings/<会议目录> [--out PATH]
 stdout 只打印元数据(字数/页数/tokens/耗时)，不打印任何会议内容。
+
+content_type=media（meta.json）的内容走 MinutesProfile["media"]：公开视频论证结构
+(核心观点/规格与参数/论证脉络/质疑保留)，不生成待办；shot 镜头页用媒体向 VL prompt。
+会议行为不变，选择逻辑集中在 minutes_profile()。
 """
 import argparse
 import atexit
@@ -29,10 +33,13 @@ import sys
 import threading
 import time
 import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
 
 from slide_pages import page_at
 from vl_page_test import (DETAIL_PROMPT, PROMPT as COMPACT_PAGE_PROMPT,
+                          MEDIA_DETAIL_PROMPT,
+                          MEDIA_PROMPT as MEDIA_COMPACT_PAGE_PROMPT,
                           grab_fullres, chat_with_image, parse_json_loose)
 from meeting_artifact import (
     CONCLUSION_POLICY,
@@ -45,6 +52,7 @@ from meeting_artifact import (
 )
 from meeting_structure import clean_model_text
 from meeting_core.context_budget import ContextBudget
+from meeting_core.minutes_overview import MEDIA_REQUIRED as MEDIA_OVERVIEW_REQUIRED
 from meeting_core.minutes_overview import generate as generate_overview
 from meeting_core.minutes_overview import generate_direct as generate_direct_overview
 from meeting_core.minutes_overview import normalize_action_marker_scope
@@ -86,6 +94,23 @@ EVIDENCE_RULES = """
    discussion/informational/proposal 等真实语义标注，不能写成 action。
 """
 
+MEDIA_EVIDENCE_RULES = """
+证据与论证规则（必须遵守）：
+1. `turns` 是公开视频的逐字稿，是视频作者观点与陈述的唯一主证据；每轮有稳定 T 编号。
+2. 严格区分两类内容：
+   - 作者观点/预测/评价：主观判断，只代表视频作者立场，标注时如实反映其确定性；
+   - 客观规格事实：规格、跑分、价格等可核验数值，即使来自作者口述也按事实引用。
+3. `pages.visual_*` 来自 VL，只证明画面展示了什么（规格表、对比图、跑分屏、真机演示）。
+   画面用 P 编号引用，不能单独证明“作者说过”。
+4. 这是公开视频分析，不是会议：绝不生成待办事项或行动项，绝不使用 kind=action；
+   作者的购买建议、预测和评价按 discussion/informational 等真实语义标注。
+5. 每个事实性条目末尾必须原样附一个机器标记（Markdown 阅读时会隐藏）：
+   `<!-- mm:evidence kind=discussion status=informational confidence=high turns=T000001 -->`
+   turns/pages 只能写输入中真实存在的 ID；没有逐字稿依据的画面事实只能用
+   kind=slide_fact status=informational。
+   T/P/C 编号只能存在于上述 HTML 注释标记中；可读正文不得再写 `(T000001, ...)` 一类机器尾注。
+"""
+
 SUM_PROMPT = """你是一名严谨的会议纪要编辑。你收到的是 `meeting-minutes-prompt/v1` JSON，
 其中逐字稿可能有少量转写或说话人归属错误。请输出 Markdown，且只输出以下结构：
 
@@ -125,6 +150,41 @@ SUM_PROMPT = """你是一名严谨的会议纪要编辑。你收到的是 `meeti
 {context}
 ```"""
 
+MEDIA_SUM_PROMPT = """你是一名严谨的视频内容分析编辑。你收到的是 `meeting-minutes-prompt/v1` JSON，
+内容是一条公开视频（评测/发布会/上手）的逐字稿与画面资料，逐字稿可能有少量转写错误。
+请输出 Markdown，且只输出以下结构：
+
+## 总体摘要
+- **主旨**：一段话说明视频主题与作者的总体结论倾向，并附证据标记
+- **核心观点**：按重要性列出作者的观点、预测或评价；区分 明确主张 / 倾向判断 / 推测；
+  没有就写“作者未给出明确观点”
+## 规格与参数
+
+分条列出视频中提到的规格、跑分、价格等带数值的事实；每条注明来源形态
+（作者实测 / 引用官方或第三方 / 作者估计），并附证据标记；没有就写“未提及具体规格参数”
+
+## 论证脉络
+把连续镜头严格归并为 3–8 个论证环节（铺垫→论点→证据→结论）；优先使用画面读出的
+章节/标题信息，但概括必须有逐字稿依据。不要把每个镜头或时间片直接当成一个环节。
+每块必须是独立列表项：
+- 环节名（第X–Y页，mm:ss 起）：一句话概括，并附带含真实 turns 的证据标记。
+
+### 值得注意的质疑/保留意见
+
+分条列出作者自己提出的不确定性、限制条件或保留意见；没有就写“作者未提出明显保留”
+
+输入中的 `voice_draft_checklist` 是在 VL 开始前从同一逐字稿提取的低信任覆盖清单，不是新证据，
+也不能照抄。必须回到清单列出的原始 T 轮次重新核验：仍被逐字稿支持的观点、事实和质疑
+必须在终稿中保留或与同义内容合并；若画面资料或后文证明其错误、撤回或重复，可以纠正或省略，
+但不得仅因为加入画面资料就静默丢失。所有保留内容仍须遵守下方证据规则。
+
+{evidence_rules}
+
+输入 JSON：
+```json
+{context}
+```"""
+
 GROUP_PROMPT = """你是一名严谨的会议纪要编辑。输入是 `meeting-minutes-prompt/v1` JSON，
 只包含若干页面、这些页面显示时的逐字稿和说话人权限语境。
 
@@ -137,6 +197,28 @@ GROUP_PROMPT = """你是一名严谨的会议纪要编辑。输入是 `meeting-m
 
 规则：只输出页块；每页不超过 6 行。VL 完整页面解释会由程序放进附录，正文只写会上实际讨论的内容。
 页面数字若在发言中被明确引用，可同时标 turn 和 page；否则页面内容只能作 informational 页面事实。
+
+{evidence_rules}
+
+输入 JSON：
+```json
+{context}
+```"""
+
+MEDIA_GROUP_PROMPT = """你是一名严谨的视频内容分析编辑。输入是 `meeting-minutes-prompt/v1` JSON，
+只包含若干镜头页面、这些镜头画面出现时的公开视频逐字稿和出镜人语境。
+
+请为每页输出一个纪要块，严格按页码顺序：
+
+### 第N页 [mm:ss] 一句话主题
+- 内容要点（2-4 条，每条一句话：该镜头期间作者讲了什么、画面展示了什么，
+  带 [mm:ss] 和证据标记）
+- **论证角色**：该镜头在整条视频论证中的角色（铺垫/背景、提出论点、给出证据、演示、
+  总结结论），一句话说明，并附证据标记；纯过渡镜头写“过渡/铺垫”（这一句不需要伪造标记）
+
+规则：只输出页块；每页不超过 6 行。VL 完整画面解读会由程序放进附录，正文只写作者实际
+讲述与画面直接展示的内容。画面数字若在讲述中被明确引用，可同时标 turn 和 page；否则画面
+内容只能作 informational 画面事实。绝不生成待办事项，绝不使用 kind=action。
 
 {evidence_rules}
 
@@ -185,6 +267,14 @@ def ensure_vl_server(port: int = VL_PORT):
     return None, None
 
 
+def vl_prompts(page: dict):
+    """shot 页（media 镜头检测产出，slides.json 里 shot:true）用媒体向 VL 口径；
+    会议 slide 页保持原 prompt 不变。"""
+    if page.get("shot"):
+        return MEDIA_DETAIL_PROMPT, MEDIA_COMPACT_PAGE_PROMPT, "镜头类型"
+    return DETAIL_PROMPT, COMPACT_PAGE_PROMPT, "页面类型"
+
+
 def describe_pages(mdir: Path, pages, api: str, video: Path = None):
     """逐页 VL 详细解读(带 page_desc.json 缓存, 重跑只补缺的页)。返回 {页码: 文本}。
     缺页用有界并发请求(MEETING_VL_WORKERS, 默认 2)，实际上限由 VL 服务的
@@ -213,16 +303,17 @@ def describe_pages(mdir: Path, pages, api: str, video: Path = None):
         temp.replace(cache_p)
 
     def work(p):
+        detail_prompt, compact_prompt, type_label = vl_prompts(p)
         img = mdir / "slides" / p["image"]
         if video:
             img = mdir / "slides" / f"full_{p['page']:02d}.jpg"
             grab_fullres(video, p.get("captured", p["first"]), img)
-        raw, usage = chat_with_image(api, mid, img, VL_MAXTOK, DETAIL_PROMPT)
+        raw, usage = chat_with_image(api, mid, img, VL_MAXTOK, detail_prompt)
         cleaned = clean_model_text(raw)
         if not cleaned:
             print(f"[meta] VL 第{p['page']}页详细正文为空，降级为紧凑读取", flush=True)
             raw, retry_usage = chat_with_image(
-                api, mid, img, 512, COMPACT_PAGE_PROMPT)
+                api, mid, img, 512, compact_prompt)
             compact = parse_json_loose(clean_model_text(raw))
             if compact:
                 title = str(compact.get("title") or "").strip()
@@ -231,7 +322,7 @@ def describe_pages(mdir: Path, pages, api: str, video: Path = None):
                 if title or summary:
                     fallback_title = title or f"第{p['page']}页屏幕内容"
                     cleaned = (f"## 标题\n{fallback_title}\n"
-                               f"## 页面内容\n- 页面类型：{page_type}\n"
+                               f"## 页面内容\n- {type_label}：{page_type}\n"
                                f"- {summary or '紧凑视觉读取未提供摘要。'}")
             usage = {
                 "completion_tokens": int(usage.get("completion_tokens") or 0)
@@ -265,10 +356,18 @@ def describe_pages(mdir: Path, pages, api: str, video: Path = None):
     return descs
 
 
-def overview_direct(summary_prompt: str, context_json: str):
+def overview_direct(summary_prompt: str, context_json: str,
+                    profile: "MinutesProfile" = None):
     """模块级接缝：直出总体纪要（与 map/reduce 共用护栏），测试可替换。"""
+    profile = profile or MINUTES_PROFILES["meeting"]
+    if profile.kind == "media":
+        # 媒体口径没有待办章节：必需章节换成媒体结构，不触发待办定点修复。
+        return generate_direct_overview(
+            summary_prompt, profile.evidence_rules, notes=context_json,
+            client=LocalLLMClient(model=MODEL), max_tokens=6144,
+            required=profile.overview_required, validator=None)
     return generate_direct_overview(
-        summary_prompt, EVIDENCE_RULES, notes=context_json,
+        summary_prompt, profile.evidence_rules, notes=context_json,
         client=LocalLLMClient(model=MODEL), max_tokens=6144)
 
 
@@ -341,6 +440,72 @@ RETRY_PROMPT = """你是一名严谨的会议纪要编辑。下面是 `meeting-m
 {context}
 ```"""
 
+MEDIA_RETRY_PROMPT = """你是一名严谨的视频内容分析编辑。下面是 `meeting-minutes-prompt/v1` JSON，
+内容来自一条公开视频。请只为这些镜头页输出纪要块，严格按页码顺序，格式：
+
+### 第N页 [mm:ss] 一句话主题
+- 内容要点（1-3 条，各带 [mm:ss] 和证据标记）
+- **论证角色**：铺垫/论点/证据/演示/结论（纯过渡写“过渡/铺垫”）
+
+标注了"(本页无对应讨论)"的页只输出一行 `### 第N页 [mm:ss] （快速带过）`。
+只根据 turns 总结，不要编造；VL 只作画面展示资料。绝不生成待办事项或 kind=action。
+
+{evidence_rules}
+
+输入 JSON：
+
+```json
+{context}
+```"""
+
+
+@dataclass(frozen=True)
+class MinutesProfile:
+    """一套纪要生成口径：prompt 组、文档骨架标题与总体纪要护栏按内容类型并列。"""
+    kind: str
+    evidence_rules: str
+    summary_prompt: str
+    group_prompt: str
+    retry_prompt: str
+    doc_title: str
+    detail_heading: str
+    overview_required: tuple
+
+
+MINUTES_PROFILES = {
+    "meeting": MinutesProfile(
+        kind="meeting",
+        evidence_rules=EVIDENCE_RULES,
+        summary_prompt=SUM_PROMPT,
+        group_prompt=GROUP_PROMPT,
+        retry_prompt=RETRY_PROMPT,
+        doc_title="# 会议纪要",
+        detail_heading="## 分页详情",
+        overview_required=("## 总体摘要", "### 待办事项"),
+    ),
+    "media": MinutesProfile(
+        kind="media",
+        evidence_rules=MEDIA_EVIDENCE_RULES,
+        summary_prompt=MEDIA_SUM_PROMPT,
+        group_prompt=MEDIA_GROUP_PROMPT,
+        retry_prompt=MEDIA_RETRY_PROMPT,
+        doc_title="# 视频分析纪要",
+        detail_heading="## 分镜头详情",
+        overview_required=MEDIA_OVERVIEW_REQUIRED,
+    ),
+}
+
+
+def minutes_profile(mdir: Path) -> MinutesProfile:
+    """meta.json 的 content_type 是会议/媒体纪要差异的总开关（缺字段/未知值按会议，
+    与 web/deps 口径一致）；调用方签名不变，选择逻辑集中在这一处。"""
+    try:
+        meta = json.loads((Path(mdir) / "meta.json").read_text(encoding="utf-8"))
+        kind = meta.get("content_type")
+    except Exception:
+        kind = None
+    return MINUTES_PROFILES.get(kind, MINUTES_PROFILES["meeting"])
+
 REFINE_PROMPT = """你是一名资深会议纪要编辑。下面是一份按页成稿的会议纪要（总体摘要 + 议题板块 + 逐页详情），
 由较小的模型生成，可能有重复、板块划分不当、措辞不统一的问题。请在不改变任何事实的前提下整体重写。
 
@@ -394,18 +559,25 @@ def insert_images(md: str, pages, descs=None) -> str:
     return "\n".join(out)
 
 
-def appendix_md(pages, descs, per_page=None) -> str:
+def appendix_md(pages, descs, per_page=None, kind: str = "meeting") -> str:
     """VL 逐页详解全部沉到附录，并明确区分“有讨论”和“仅展示”。"""
     if not descs:
         return ""
+    media = kind == "media"
     first = {p["page"]: p["first"] for p in pages}
     per_page = per_page or {}
-    out = ["\n## 附录: 页面详解(视觉模型逐页解读)\n",
+    out = ["\n## 附录: 镜头详解(视觉模型逐镜头解读)\n" if media
+           else "\n## 附录: 页面详解(视觉模型逐页解读)\n",
+           "> 本附录完整保留画面展示信息。标记为“仅画面”的镜头没有对应逐字稿讲解；"
+           "画面内容本身不代表视频作者的观点。\n" if media else
            "> 本附录完整保留页面展示信息。标记为“仅展示”的页面没有对应逐字稿讨论；"
            "页面内容本身不代表会议结论。\n"]
     for n in sorted(descs):
         d = re.sub(r"^#{1,4}\s*", "##### ", descs[n], flags=re.M)  # 标题降级, 不抢结构
-        status = "有讨论" if per_page.get(n) else "仅展示"
+        if media:
+            status = "有讲解" if per_page.get(n) else "仅画面"
+        else:
+            status = "有讨论" if per_page.get(n) else "仅展示"
         out.append(f"### 页面 P{n:04d} · 第{n}页 · {status} [{mmss(first.get(n, 0))}]\n\n{d}\n")
     return "\n".join(out)
 
@@ -424,6 +596,7 @@ def _extract_blocks(text: str):
 def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
              refine_model: str = None, reuse_vl_cache_only: bool = False,
              _identity_retry: int = 1):
+    profile = minutes_profile(mdir)
     turns, pages = load_inputs(mdir)
     if not pages:
         raise RuntimeError("slides.json 里没有幻灯片页")
@@ -461,23 +634,24 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
           f" | 开场 {len(opening)} 轮 | VL解读 {len(descs)} 页", flush=True)
 
     t0 = time.time()
-    summary_prompt = SUM_PROMPT.format(
-        evidence_rules=EVIDENCE_RULES,
+    summary_prompt = profile.summary_prompt.format(
+        evidence_rules=profile.evidence_rules,
         policy=json.dumps(CONCLUSION_POLICY, ensure_ascii=False, indent=2),
         context=context_json,
     )
     if ContextBudget(output_tokens=8192).fits(summary_prompt):
         # 直出与 map/reduce 共用同一套退化/章节/待办合规护栏（notes 传完整上下文供修复轮引用）。
-        completion = overview_direct(summary_prompt, context_json)
+        completion = overview_direct(summary_prompt, context_json, profile)
         part1 = clean_model_text(completion.content)
         u1 = completion.usage
         overview_mode, overview_chunks = "direct", 1
     else:
         overview = generate_overview(
-            summary_context, CONCLUSION_POLICY, EVIDENCE_RULES,
+            summary_context, CONCLUSION_POLICY, profile.evidence_rules,
             client=LocalLLMClient(model=MODEL),
             progress=lambda current, total: print(
                 f"[meta] 总体纪要长文本分段 {current}/{total}", flush=True),
+            kind=profile.kind,
         )
         part1 = clean_model_text(overview.content)
         u1 = {"prompt_tokens": overview.prompt_tokens,
@@ -500,8 +674,9 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
     t0 = time.time()
     for gi in range(0, len(content_pages), 8):
         grp = content_pages[gi:gi + 8]
-        g_out, u_g = chat(GROUP_PROMPT.format(
-            evidence_rules=EVIDENCE_RULES, context=pages_context(grp)), max_tokens=4096)
+        g_out, u_g = chat(profile.group_prompt.format(
+            evidence_rules=profile.evidence_rules,
+            context=pages_context(grp)), max_tokens=4096)
         got = _extract_blocks(g_out)
         blocks.update(got)
         print(f"[meta] 页块 第{grp[0]['page']}-{grp[-1]['page']}页: 得 {len(got)}/{len(grp)}"
@@ -510,8 +685,8 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
     by_page = {p["page"]: p for p in pages}
     missing = [n for n in by_page if n not in blocks and per_page.get(n)]
     if missing:  # 分组仍漏的页 → 只带缺页切片补问一次
-        r_out, u3 = chat(RETRY_PROMPT.format(
-            evidence_rules=EVIDENCE_RULES,
+        r_out, u3 = chat(profile.retry_prompt.format(
+            evidence_rules=profile.evidence_rules,
             context=pages_context([by_page[n] for n in missing])), max_tokens=4096)
         got = _extract_blocks(r_out)
         for n in missing:
@@ -527,10 +702,14 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
     print(f"[meta] 分页详情: 模型出 {n_model} 页 + 占位 {len(pages) - n_model} 页"
           f" | {time.time()-t0:.0f}s", flush=True)
 
-    part1 = re.sub(r"^# 会议纪要\s*", "", part1)
-    body = "# 会议纪要\n\n" + part1.strip() + "\n\n## 分页详情\n\n" + part2 + "\n"
+    part1 = re.sub(r"^# (?:会议纪要|视频分析纪要)\s*", "", part1)
+    body = (f"{profile.doc_title}\n\n" + part1.strip()
+            + f"\n\n{profile.detail_heading}\n\n" + part2 + "\n")
     refined = False
-    if refine_model:
+    if refine_model and profile.kind == "media":
+        # 精修 prompt 是会议口径（待办表格纪律），媒体纪要暂不做精修重写。
+        print("[meta] 媒体内容不走会议精修 prompt，已跳过精修", flush=True)
+    elif refine_model:
         t0 = time.time()
         r_out, u4 = chat(REFINE_PROMPT.replace("{minutes}", body), model=refine_model)
         markers_before = [m.group(0) for m in MARKER_RE.finditer(body)]
@@ -547,7 +726,7 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
             print(f"[meta] 精修稿{reason}, 保留原稿", flush=True)
     md = normalize_minutes_markdown(normalize_action_marker_scope(
         insert_images(body, pages, descs)))
-    md += appendix_md(pages, descs, per_page)
+    md += appendix_md(pages, descs, per_page, kind=profile.kind)
     current_transcript_revision = file_revision(mdir / "transcript.spk.json")
     if current_transcript_revision != transcript_revision:
         if _identity_retry > 0:
@@ -564,6 +743,7 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
         mdir, md, turns, pages, descs, profiles,
         generation={
             "prompt_schema": "meeting-minutes-prompt/v1",
+            "content_type": profile.kind,
             "conclusion_policy": CONCLUSION_POLICY["version"],
             "text_model": MODEL,
             "vl_enabled": bool(vl),

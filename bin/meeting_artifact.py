@@ -349,8 +349,8 @@ def normalize_minutes_markdown(minutes: str) -> str:
 
 
 READING_DETAIL_SECTION_RE = re.compile(
-    r"^##\s+(?:分页详情|逐页详情|按页详情|页面详情|"
-    r"附录\s*[:：-]?\s*(?:页面|屏幕)(?:详解|详情|分析).*)\s*$",
+    r"^##\s+(?:分页详情|逐页详情|按页详情|页面详情|分镜头详情|"
+    r"附录\s*[:：-]?\s*(?:页面|屏幕|镜头)(?:详解|详情|分析).*)\s*$",
     re.M,
 )
 

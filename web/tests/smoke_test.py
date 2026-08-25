@@ -172,7 +172,7 @@ check("时间码跳转只滚动内容面板，不带动整页丢失播放器",
 check("在线屏幕舞台支持放大、缩放和相邻屏幕键盘导航",
       b'id="screen-preview-mask"' in page and b'openScreenPreview' in app_js
       and b'navigateScreenPreview' in app_js and b'SCREEN_PREVIEW_ZOOMS' in app_js
-      and b'20260825p88' in page)
+      and b'20260825p89' in page)
 check("会议深链 ?meeting=<slug>&t=<秒> 定位播放且忽略非法/超界 t",
       b'params.get("t")' in app_js and b'deepLinkSeek' in app_js
       and b'Number.parseFloat' in app_js
@@ -1135,6 +1135,17 @@ check("media 视频上传作业调用 video_minutes.py 并带 --media",
       and len(media_video_cmd) >= 4
       and media_video_cmd[1].endswith("bin/video_minutes.py")
       and "--media" in media_video_cmd)
+
+# 11a3. 媒体版纪要 prompt：content_type=media 分流、论证结构章节、不生成待办（静态）
+# TEST_ROOT 在隔离冒烟中是数据根；仓库文件按本测试文件位置定位。
+minutes_by_page_py = (Path(__file__).resolve().parents[2]
+                      / "bin/minutes_by_page.py").read_bytes()
+check("媒体版纪要 prompt 按 content_type 分流且不生成待办",
+      b"MEDIA_SUM_PROMPT" in minutes_by_page_py
+      and "论证脉络".encode() in minutes_by_page_py
+      and "规格与参数".encode() in minutes_by_page_py
+      and "绝不生成待办事项".encode() in minutes_by_page_py
+      and b"minutes_profile" in minutes_by_page_py)
 
 s, _, _ = multipart_files("/api/upload", [
     ("files", "fictional-review.mp4", b"fictional video", "video/mp4"),

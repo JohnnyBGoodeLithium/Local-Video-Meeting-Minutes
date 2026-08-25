@@ -20,7 +20,7 @@ import meeting_artifact as artifact
 SCHEMA = "meeting-generation/v1"
 VOICE_PHASES = {"voice_draft_generating", "voice_draft", "visual_enrichment"}
 MATERIAL_STATUSES = {"confirmed", "working_alignment", "proposal", "open"}
-DETAIL_SECTIONS = ("分页详情", "逐页详情", "页面详情", "附录")
+DETAIL_SECTIONS = ("分页详情", "逐页详情", "页面详情", "分镜头详情", "附录")
 
 
 def _read_json(path: Path, default):

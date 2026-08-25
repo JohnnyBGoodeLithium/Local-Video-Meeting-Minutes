@@ -31,6 +31,7 @@ check:
 	$(PY) web/tests/teams_transcript_test.py
 	$(PY) web/tests/slide_pages_test.py
 	$(PY) web/tests/media_shots_test.py
+	$(PY) web/tests/media_minutes_test.py
 	$(PY) web/tests/vl_cache_test.py
 	$(PY) web/tests/vl_describe_pages_test.py
 	$(PY) web/tests/meeting_generation_test.py

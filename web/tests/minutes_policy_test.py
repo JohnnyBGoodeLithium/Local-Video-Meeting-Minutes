@@ -63,10 +63,11 @@ with tempfile.TemporaryDirectory(prefix="minutes-policy-") as tmp:
 
     overview_calls = 0
 
-    def fake_overview_direct(prompt, notes):
+    def fake_overview_direct(prompt, notes, profile=None):
         global overview_calls
         seen_prompts.append(prompt)
         overview_calls += 1
+        assert profile is not None and profile.kind == "meeting"
         if overview_calls == 1:
             # 再模拟文本生成期间发生一次身份修正；第一次结果必须被丢弃，
             # 第二次只复用已有 VL 结果，不重复视觉推理。

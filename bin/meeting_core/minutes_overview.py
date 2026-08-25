@@ -90,6 +90,63 @@ REDUCE_PROMPT = """根据按时间顺序排列的片段事实笔记，生成整�
 {notes}
 """
 
+# media 内容（content_type=media 的公开评测/上手视频）不追求决议与待办，
+# 而是论证结构；章节、必需章节和合规校验都与会议口径并列，会议行为不变。
+MEDIA_REQUIRED = ("## 总体摘要", "## 论证脉络")
+
+MEDIA_CHUNK_PROMPT = """这是整条公开视频第 {number}/{total} 个连续时间片段。请提炼紧凑的笔记，
+按“论证环节、作者观点/评价、规格或数值事实、作者的质疑/保留、涉及画面”组织。
+严格区分“视频作者的观点/预测/评价”与“客观规格事实”（规格、跑分、价格等可核验数值）。
+每条笔记保留原始 T 编号，画面内容只能引用输入中存在的 P 编号。不要生成整条视频的摘要。
+最多保留 12 条真正影响整体理解的内容；同义重复必须合并。
+片段 JSON 若含 `voice_draft_checklist`，它只是同一片段的低信任提醒：必须回到 `turns` 中对应
+T 编号核验，获支持的观点、事实、质疑应进入笔记；不得把清单本身当作证据。
+
+{evidence_rules}
+
+片段 JSON：
+```json
+{context}
+```"""
+
+MEDIA_REDUCE_PROMPT = """根据按时间顺序排列的片段笔记，生成这条公开视频分析纪要的总体部分。
+去重并保留前后修正与未解决冲突。画面目录只用于确定环节名称、页码范围和时间定位；
+画面本身不能证明“作者说过”。只输出以下结构：
+
+## 总体摘要
+- **主旨**：一段话说明视频主题与作者的总体结论倾向，并附证据标记
+- **核心观点**：最多 12 条，按重要性列出作者的观点、预测或评价；区分 明确主张 / 倾向判断 / 推测
+## 规格与参数
+最多 15 条。分条列出视频中提到的规格、跑分、价格等带数值的事实；每条注明来源形态
+（作者实测 / 引用官方或第三方 / 作者估计），每条末尾附含真实 turns/pages 的证据标记。
+没有就写“未提及具体规格参数”。这是公开视频分析，绝不生成待办事项或行动项。
+## 论证脉络
+把连续镜头按 3–8 个论证环节归并（铺垫→论点→证据→结论）。每块必须是独立的 Markdown 列表项：
+- 环节名（第X–Y页，mm:ss 起）：一句话概括，并附带含真实 turns 的证据标记。
+严禁输出第 9 个环节，严禁把每个镜头或时间片直接当成环节。
+### 值得注意的质疑/保留意见
+最多 12 条，分条列出作者自己提出的不确定性、限制条件或保留；没有就写“作者未提出明显保留”。
+
+{evidence_rules}
+
+画面目录：
+```json
+{pages}
+```
+
+语音草稿覆盖清单（低信任，不是新证据）：
+```json
+{draft_checklist}
+```
+
+清单中的观点、事实、质疑必须回到片段笔记中的原始 T 编号重新核验；仍获支持的内容
+必须保留或合并进终稿。若后文或画面资料证明其错误、撤回或重复，可以纠正或省略；
+不得照抄清单，也不得因为加入画面资料就静默丢失有逐字稿支持的重要内容。
+
+片段笔记：
+{notes}
+"""
+
 
 @dataclass(frozen=True)
 class OverviewResult:
@@ -326,18 +383,21 @@ def _repair_todo(client: LocalLLMClient, final: Completion, evidence_rules: str,
 
 def generate_direct(prompt: str, evidence_rules: str, *, notes: str,
                     client: LocalLLMClient | None = None,
-                    max_tokens: int = 6144) -> Completion:
+                    max_tokens: int = 6144,
+                    required: tuple = ("## 总体摘要", "### 待办事项"),
+                    validator: Callable[[str], bool] | None = _todo_compliant) -> Completion:
     """输入未超限时的单次直出总体纪要；与 map/reduce 共用同一套护栏。
 
     直出同样可能退化、缺章节或写出无证据标记的待办表格（真实事故：77 分钟会议
     直出稿的总体章节零 marker，正式待办整表为空）。notes 传入完整结构化上下文，
-    供待办定点修复轮引用真实 T 编号。
+    供待办定点修复轮引用真实 T 编号。media 口径传入自己的必需章节与 None 校验，
+    不触发待办定点修复。
     """
     client = client or LocalLLMClient()
     final = _complete_with_guard(
         client, prompt, max_tokens=max_tokens,
-        required=("## 总体摘要", "### 待办事项"), validator=_todo_compliant)
-    if not _todo_compliant(final.content):
+        required=required, validator=validator)
+    if validator is _todo_compliant and not _todo_compliant(final.content):
         final = _repair_todo(client, final, evidence_rules, notes)
     return _normalized_completion(final)
 
@@ -349,9 +409,16 @@ def _pages_for_rows(pages: list[dict], rows: list[dict]) -> list[dict]:
 
 def generate(context: dict, policy: dict, evidence_rules: str, *,
              client: LocalLLMClient | None = None, max_tokens: int = 6144,
-             progress: Callable[[int, int], None] | None = None) -> OverviewResult:
-    """对已确认超限的总体输入执行 map/reduce；不写会议文件。"""
+             progress: Callable[[int, int], None] | None = None,
+             kind: str = "meeting") -> OverviewResult:
+    """对已确认超限的总体输入执行 map/reduce；不写会议文件。
+
+    kind="media" 时换用媒体向分片/合并 prompt 与媒体必需章节，不做待办合规校验。"""
     client = client or LocalLLMClient()
+    chunk_prompt_t = CHUNK_PROMPT if kind == "meeting" else MEDIA_CHUNK_PROMPT
+    reduce_prompt_t = REDUCE_PROMPT if kind == "meeting" else MEDIA_REDUCE_PROMPT
+    required = ("## 总体摘要", "### 待办事项") if kind == "meeting" else MEDIA_REQUIRED
+    validator = _todo_compliant if kind == "meeting" else None
     started = time.time()
     # 35B 本地模型的 64k context 足以安全容纳约 38k 输入；相较旧值可把两小时
     # 会议常见的 9 个串行 map 请求压到约 5 个，同时仍给提示词和输出留足余量。
@@ -383,7 +450,7 @@ def generate(context: dict, policy: dict, evidence_rules: str, *,
                 "schema": "meeting-voice-draft-checklist/v1",
                 "items": relevant_draft_items,
             }
-        prompt = CHUNK_PROMPT.format(
+        prompt = chunk_prompt_t.format(
             number=index, total=len(chunks), evidence_rules=evidence_rules,
             policy=json.dumps(policy, ensure_ascii=False, separators=(",", ":")),
             context=_compact(chunk_context),
@@ -400,23 +467,23 @@ def generate(context: dict, policy: dict, evidence_rules: str, *,
         "pages": _compact(pages),
         "draft_checklist": _compact(draft_checklist),
     }
-    reduce_prompt = REDUCE_PROMPT.format(**common, notes="\n".join(notes))
+    reduce_prompt = reduce_prompt_t.format(**common, notes="\n".join(notes))
     budget = ContextBudget(output_tokens=max_tokens)
     if not budget.fits(reduce_prompt):
-        empty = REDUCE_PROMPT.format(**common, notes="")
+        empty = reduce_prompt_t.format(**common, notes="")
         available = max(1024, budget.input_tokens - estimate_text_tokens(empty) - 512)
         per_note = max(512, available // max(1, len(notes)))
         while True:
-            reduce_prompt = REDUCE_PROMPT.format(
+            reduce_prompt = reduce_prompt_t.format(
                 **common, notes="\n".join(note[:per_note] for note in notes))
             if budget.fits(reduce_prompt) or per_note <= 256:
                 break
             per_note //= 2
     final = _complete_with_guard(
         client, reduce_prompt, max_tokens=max_tokens,
-        required=("## 总体摘要", "### 待办事项"), validator=_todo_compliant)
+        required=required, validator=validator)
     completions.append(final)
-    if not _todo_compliant(final.content):
+    if validator is _todo_compliant and not _todo_compliant(final.content):
         # 模型把待办写成了无证据标记的行：前端只展示有依据的待办，整表会被弃用。
         # 定点修复一轮：只重写待办章节并拼接回终稿。
         final = _repair_todo(client, final, evidence_rules, "\n".join(notes))

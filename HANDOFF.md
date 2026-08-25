@@ -3,7 +3,7 @@
 > 给接手 agent：先读本文件和 `AGENTS.md`，再看 `CHANGELOG.md` 未发布段了解最近改动。
 > 本文件在每次交接或大方向变化时更新；过期的进行中事项完成后删除对应段落。
 
-更新时间：2026-08-25（产品版本 v0.10.0；在线工作台构建号 20260825p88；提交号以 `git log -1` 为准）
+更新时间：2026-08-25（产品版本 v0.10.0；在线工作台构建号 20260825p89；提交号以 `git log -1` 为准）
 
 ## 当前基线
 
@@ -11,6 +11,24 @@
 - 验证基线：发布提交前以本轮 `make check`、隔离 Web smoke 和 MeetingPack 启动测试结果为准；所有新增测试只使用虚构数据。
 - 服务：端口 8899，`systemctl --user restart meeting-minutes-web` 重启。优雅退出已有界：`MEETING_WEB_GRACEFUL_SHUTDOWN` 默认 8 秒强制关闭残留连接，restart 不再挂起 45s。
 - 隐私红线（详见 AGENTS.md）：不读真实会议正文，只看元数据/结构；上次已获用户授权诊断 Gate B 会议标题形态，新任务需重新授权。
+
+## 当前批次：媒体版纪要 prompt（论证结构分析产物）
+
+- 定位：content_type=media 的视频（评测/发布会/上手）分析目标是论证结构（铺垫→论点→证据→结论），不是决议/待办。以 `meta.json` 的 `content_type=="media"` 为总开关，生成代码自读 meta，调用方签名不变；会议行为一字不变。
+- 实现：`bin/minutes_by_page.py` 新增 `MinutesProfile` + `MINUTES_PROFILES`（会议/媒体两套并列），选择集中在 `minutes_profile(mdir)`。媒体版：`MEDIA_SUM_PROMPT`/`MEDIA_GROUP_PROMPT`/`MEDIA_RETRY_PROMPT`/`MEDIA_EVIDENCE_RULES`，产出 `# 视频分析纪要`：总体摘要（主旨/核心观点，允许观点/预测/评价）→ 规格与参数（带数值事实，注明作者实测/引用官方/作者估计）→ 论证脉络（3–8 环节）→ 值得注意的质疑/保留意见；**不生成待办事项**、禁用 kind=action；prompt 明确输入是公开视频逐字稿、区分作者观点与客观规格事实。证据纪律不变（mm:evidence + 真实 T/P）。文档骨架标题换成 `## 分镜头详情` / `## 附录: 镜头详解`（`READING_DETAIL_SECTION_RE` 与 `meeting_generation.DETAIL_SECTIONS` 已同步，阅读投影与覆盖审计口径不变）。
+- 护栏：`meeting_core/minutes_overview.py` 的 `generate_direct`/`generate` 增加 `required`/`validator`/`kind` 参数（默认会议口径不变）；媒体用 `MEDIA_REQUIRED=("## 总体摘要","## 论证脉络")`、validator=None（不触发待办定点修复），map/reduce 用 `MEDIA_CHUNK_PROMPT`/`MEDIA_REDUCE_PROMPT`。媒体不走会议精修 prompt（--refine-model 对 media 跳过并打日志）。
+- VL：`vl_page_test.py` 新增 `MEDIA_DETAIL_PROMPT`/`MEDIA_PROMPT`；`describe_pages` 经 `vl_prompts(page)` 按 slides.json 的 `shot:true` 选媒体口径——帧按论证角色分级（evidence=规格表/对比图/跑分屏，demo=真机/操作，context=人脸特写/空镜铺垫，transition/blank），信息价值沿用 high/medium/low 但"承载论证信息=高"。`meeting_structure.py` 同步识别"论证角色"协议（`_visual_role` 媒体枚举、`_visual_value` 媒体启发式 evidence→high/demo→medium/context→low、`clean_model_text`/`visual_title`/`_display_description` 协议词表）。会议 slide 页 prompt 与启发式不变。
+- 测试：`web/tests/media_minutes_test.py`（全合成：profile 分流、shot VL prompt 捕获、媒体章节结构落盘无待办、阅读投影截断、build_structure 媒体分级、会议回归、直出/map-reduce 护栏）进 `make check`；smoke 新增媒体 prompt 静态断言。构建号 p88→p89（index.html 4 处 + smoke 1 处）。`minutes_policy_test.py` 的 overview_direct 假接缝随签名加 profile 参数。
+- 玄戒 O3 上手视频重跑（meta.json 已是 media；旧 slides 是 slides 模式 1 页产物，页码语义全变，page_desc.json 按页码索引必须作废）：
+  ```bash
+  cd /home/johnny-tcx_ultra/meeting-minutes
+  M="meetings/2026-08-24_小米玄戒O3芯片前瞻上手_外星科技__"
+  .venv/bin/python bin/slide_pages.py "$M/source_video.mp4" --out "$M/slides" --media
+  rm -f "$M/page_desc.json" "$M"/slides/full_*.jpg
+  .venv/bin/python bin/minutes_by_page.py "$M" --video "$M/source_video.mp4" --publish
+  ```
+  说明：重抽会自动覆盖 slides.json 并清旧 page_*.jpg；minutes.md 自动备份为 minutes.prev.md；topic map 随 --publish 重生成，关键字/翻译按 revision 自动 stale 后懒重建。不重启 8899。
+- 剩余：提交后回写 PRODUCT_FUNCTIONS 5.1.1.5 的 Git 号。
 
 ## 当前批次：知识库导出 profile（WeKnora 优化）+ 时间码深链
 
@@ -31,7 +49,7 @@
 - 兼容决策：下游 `minutes_by_page`/`vl_report`/`export`/`meetings.py`/前端均按 `kind=="slide"` 过滤，故 media 页 kind 沿用 `"slide"`，只附加 `shot: true` 标记，下游零改动；会议录屏 slides 路径一字未动。
 - 触发链路：`POST /api/upload` 的 `content_type=media` 且视频路由 → cmd 追加 `--media` → `video_minutes.py --media` → `extract_pages(mode="media")`；audio/teams 不受影响。CLI：`slide_pages.py --media` / `--mode media`。
 - 构建号 p87；`web/tests/media_shots_test.py`（全合成视频：镜头数、重复镜头合并、1s 短镜头并入、截断重排、slides 回归）进 `make check`；smoke 新增 media 视频带 `--media`、media 音频不带两条断言。
-- 后续批次：媒体版纪要 prompt（论证脉络/要点）仍未做。
+- 后续批次：媒体版纪要 prompt 已在 p89 批次完成（见顶部"媒体版纪要 prompt"段）。
 
 ## 当前批次：内容类型 content_type 与会议/媒体列表分离
 

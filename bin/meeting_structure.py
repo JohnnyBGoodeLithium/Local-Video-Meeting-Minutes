@@ -69,8 +69,8 @@ def clean_model_text(value: str) -> str:
     text = re.sub(r"\\boxed\s*\{", "", text)
     text = re.sub(r"\\([#*_|~`>\[\](){}])", r"\1", text)
     protocol_heading = (
-        r"(?:标题|页面角色|信息价值|页面内容|这页想说明什么|"
-        r"title|page role|information value|page content|what this page shows)"
+        r"(?:标题|页面角色|论证角色|信息价值|页面内容|这页想说明什么|这帧想说明什么|"
+        r"title|page role|argument role|information value|page content|what this page shows)"
     )
     text = re.sub(rf"[ \t]+(?=#{{1,5}}\s*{protocol_heading}\b)", "\n", text,
                   flags=re.I)
@@ -111,8 +111,9 @@ def visual_title(description: str, page: int) -> str:
                         return candidate[:100]
     for line in lines:
         cleaned = re.sub(r"^#{1,5}\s*", "", line).lstrip("-* ").strip().strip("\"',")
-        if (cleaned and cleaned not in {"标题", "页面角色", "信息价值", "页面内容", "这页想说明什么"}
-                and not re.match(r"^(?:content|agenda|cover|section|transition|blank|meeting_ui|demo)$",
+        if (cleaned and cleaned not in {"标题", "页面角色", "论证角色", "信息价值",
+                                        "页面内容", "这页想说明什么", "这帧想说明什么"}
+                and not re.match(r"^(?:content|agenda|cover|section|transition|blank|meeting_ui|demo|evidence|context)$",
                                  cleaned, re.I)
                 and not re.match(r"^(?:high|medium|low|高|中|低)\s*[：:]", cleaned, re.I)):
             return cleaned[:100]
@@ -131,6 +132,13 @@ def _visual_role(description: str, title: str) -> str:
         text, re.I | re.S)
     if explicit:
         return explicit.group(1).lower()
+    # media 镜头帧（shot）的 VL 协议使用论证角色：证据帧/演示帧/铺垫/过渡。
+    media_explicit = re.search(
+        r"(?:论证角色|argument role)[\"']?\s*[:：]?\s*[\"'`]?"
+        r"(evidence|demo|context|transition|blank)",
+        text, re.I | re.S)
+    if media_explicit:
+        return media_explicit.group(1).lower()
     if re.search(r"(?:空白|黑屏|blank)", text, re.I):
         return "blank"
     if re.search(r"(?:加载中|等待共享|会议界面|meeting[ _-]?ui)", text, re.I):
@@ -164,7 +172,14 @@ def _visual_value(description: str, title: str, kind: str = "slide") -> dict:
     plain = _plain(cleaned)
     value_source = "vl" if level else "heuristic"
     if not level:
-        if role in {"blank", "meeting_ui", "transition"} or LOW_VALUE_RE.search(plain):
+        # media 镜头帧的论证角色决定保守启发式：承载论证信息=高，铺垫/空镜=低。
+        if role == "evidence":
+            level = "high"
+        elif role == "demo":
+            level = "medium"
+        elif role == "context":
+            level = "low"
+        elif role in {"blank", "meeting_ui", "transition"} or LOW_VALUE_RE.search(plain):
             level = "low"
         elif role in {"agenda", "cover"} or SUPPORTING_RE.search(plain):
             level = "medium"
@@ -182,11 +197,14 @@ def _visual_value(description: str, title: str, kind: str = "slide") -> dict:
     if reason_match:
         reason = _plain(reason_match.group(1))
     elif level == "low":
-        reason = "封面、过渡、空白或会议界面，缺少可复用的业务信息。"
+        reason = ("铺垫、过渡或空镜，不承载论证信息。" if role == "context"
+                  else "封面、过渡、空白或会议界面，缺少可复用的业务信息。")
     elif level == "high":
-        reason = "包含数据、结构、方案或其他可复用的核心信息。"
+        reason = ("画面承载论证所需的规格、数据或对比信息。" if role == "evidence"
+                  else "包含数据、结构、方案或其他可复用的核心信息。")
     else:
-        reason = "提供议程、标题或辅助背景，可作为讨论定位参考。"
+        reason = ("真机或操作演示过程，可作为理解论证的参考。" if role == "demo"
+                  else "提供议程、标题或辅助背景，可作为讨论定位参考。")
     return {"content_role": role, "information_value": level,
             "value_label": {"high": "核心", "medium": "参考", "low": "低信息"}[level],
             "value_source": value_source,
@@ -195,9 +213,9 @@ def _visual_value(description: str, title: str, kind: str = "slide") -> dict:
 
 
 def _display_description(description: str) -> str:
-    """页面角色/信息价值已单独显示为 badge，正文里不再重复这两个元数据节。"""
+    """页面角色/论证角色/信息价值已单独显示为 badge，正文里不再重复这两个元数据节。"""
     text = clean_model_text(description)
-    for heading in ("页面角色", "信息价值"):
+    for heading in ("页面角色", "论证角色", "信息价值"):
         text = re.sub(
             rf"^#{{1,5}}\s*{heading}\s*$.*?(?=^#{{1,5}}\s|\Z)", "", text,
             flags=re.M | re.S)
