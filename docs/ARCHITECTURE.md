@@ -2,7 +2,7 @@
 
 ## 目标与边界
 
-本项目把本地录音、普通录屏和 Teams 录制转换为可检索逐字稿、说话人信息、幻灯片页和会议纪要。默认情况下，会议正文、录音、声纹和组织架构不离开本机。管理员也可显式配置局域网或获批云端模型端点；产品不会自行跨端点或把本地失败静默降级为云端调用。
+本项目把本地录音、普通录屏、Teams 录制和用户明确提交的公开媒体链接转换为可检索逐字稿、说话人信息、逻辑画面与证据化阅读文档。默认情况下，会议正文、录音、声纹和组织架构不离开本机。管理员也可显式配置局域网或获批云端模型端点；产品不会自行跨端点或把本地失败静默降级为云端调用。
 
 不在当前范围内：多人账号、远程部署、公网访问、云端模型自动回退、跨会议全局语义搜索。
 
@@ -12,12 +12,14 @@
 flowchart LR
     UI[会议回顾工作台] --> API[FastAPI web/server.py + routers/]
     API --> JOBS[串行作业执行器]
+    JOBS --> URL[受限公开媒体获取器]
     JOBS --> AUDIO[录音管线 run_all.py]
     JOBS --> VIDEO[普通视频 video_minutes.py]
     JOBS --> TEAMS[Teams teams_minutes.py]
     AUDIO --> DATA[(私有会议目录)]
     VIDEO --> DATA
     TEAMS --> DATA
+    URL --> VIDEO
     API --> BANK[(私有声纹与组织架构)]
     API --> ASSIST[assistant_service.py]
     ASSIST --> MRAG[rag_service.py\n证据型会议检索]
@@ -37,6 +39,12 @@ flowchart LR
     EXPORT --> RAG[证据 JSON + RAG JSONL]
 ```
 
+## 模块化单体边界
+
+Meeting 与 Media 不是两套项目。二者共用 **Media Analysis Core**：媒体固化、音轨、ASR、说话人、镜头/逻辑页、VL、evidence、来源契约和导出；其上使用两个 domain profile：Meeting 强调决定/待办/风险与人员身份，Media 强调论证/规格/作者观点与叙事作用。Web、MeetingPack Viewer 和 KB HTML/Markdown 是同一 canonical 资产的不同 projection。
+
+`web/static/app.js` 已同时承担导入、库列表、作业、播放器、逐字稿、纪要、媒体来源与导出，约五千余行，继续新增跨域状态的回归成本已高于单文件收益。下一阶段保持无构建原生 JavaScript，先按 `import`、`library`、`jobs`、`player`、`transcript`、`minutes`、`media-source`、`export` 抽为 ES modules，并让 `app.js` 只负责启动和路由。拆分完成的判据是模块拥有明确输入/输出、无头 Viewer 与 smoke 行为不变，而不是追求文件数；当前不引入 React、微前端或复制 Meeting/Media 页面。
+
 ## 目录职责
 
 仓库根目录 `VERSION` 是产品 SemVer 的单一真源，由 `bin/product_version.py` 验证并投影到 Web 健康端点与 MeetingPack 导出器。产品版本不与前端缓存构建号、Git commit 或 `meetingpack/v5` 等数据 schema 绑定；各自按用户交付、工程历史和兼容性边界独立变化。
@@ -55,6 +63,12 @@ flowchart LR
 代码根固定为仓库目录；数据根默认与代码根相同，也可通过 `MEETING_DATA_ROOT` 指到独立磁盘或一次性测试目录。管线脚本始终来自代码根，会议、上传和声纹数据来自数据根。
 
 ## 数据流
+
+### 公开媒体链接
+
+`POST /api/import-url` 只把原始 URL 写入数据根下的私有 inbox 请求文件，作业记录仅保存来源 host。`media_url.py` 校验 scheme、凭据和初始 DNS/IP，拒绝本机/局域网地址，再通过受限 `yt-dlp` 下载单条非直播视频（默认最长 6 小时、最大 8 GiB、最高 1080p）。下载器日志完全丢弃，解析结果经 `meeting_core.source_info` 缩减为 `media-source/v1`；Cookie、请求头、临时下载 URL、本机路径和原始 metadata 字典都不得落入内容目录、API 或导出包。generic 直链含 query 时认为可能带签名，只保留标题等公开元数据，不导出 URL。
+
+来源标题和 `content_type=media` 在语音草稿前写入，因此整个处理链从第一步就使用媒体 prompt。下载成功后的本地母版进入普通 `video_minutes.py`，下游不感知获取方式。`source_info` 是来源的 canonical 白名单，Web、Viewer 与 KB 分别投影；Viewer 静态打开不联网，只有用户点击“原视频”才离开本地页面。
 
 ### 录音
 

@@ -90,6 +90,29 @@ def _scheduler_error(job: dict, exc: Exception) -> None:
 EXEC.set_error_handler(_scheduler_error)
 
 
+def _apply_job_result(job: dict) -> None:
+    """读取受控子进程结果，只允许回填 meeting slug 等无正文元数据。"""
+    rel = str(job.get("result_file") or "")
+    if not rel:
+        return
+    path = (DATA_ROOT / rel).resolve()
+    if not path.is_file() or not path.is_relative_to(INBOX.resolve()):
+        return
+    try:
+        result = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return
+    meeting = str(result.get("meeting") or "").strip() if isinstance(result, dict) else ""
+    if not meeting or Path(meeting).name != meeting:
+        return
+    mdir = (MEETINGS / meeting).resolve()
+    if mdir.parent != MEETINGS.resolve() or not mdir.is_dir():
+        return
+    with BANK_LOCK:
+        job["meeting"] = meeting
+        _save_job(job)
+
+
 def _new_job(kind: str, **kw) -> dict:
     jid = uuid.uuid4().hex[:12]
     job = {"id": jid, "kind": kind, "status": "queued", "created": _now(),
@@ -174,6 +197,7 @@ def _run_pipeline(job: dict):
         return
     finally:
         PROCS.pop(job["id"], None)
+    _apply_job_result(job)
     if proc.returncode != 0 and not job.get("cancel_requested"):
         # 作业 JSON 是可由 API 读取的元数据，不落模型输入/输出或任意 stderr 正文。
         job["log"].append(f"[error] 子进程失败 (rc={proc.returncode})")

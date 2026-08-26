@@ -40,6 +40,7 @@ DRY_RUN_DELAY = float(os.environ.get("MEETING_WEB_DRYRUN_DELAY", "0") or 0)
 sys.path.insert(0, str(ROOT / "bin"))
 import assistant_service as assistant  # noqa: E402
 import meeting_artifact as artifact  # noqa: E402
+from meeting_core.source_info import load_source_info  # noqa: E402
 
 from markdown_it import MarkdownIt  # noqa: E402
 
@@ -309,11 +310,15 @@ def _meeting_identity(slug: str) -> dict:
     else:
         title = re.sub(r"[_-]+", " ", raw).strip()
         title = re.sub(r"\s+", " ", title)
-    ident = {"title": title or "未命名会议", "date": date, "content_type": "meeting"}
-    custom = _read_json(MEETINGS / slug / "meta.json", {})
+    mdir = MEETINGS / slug
+    source_info = load_source_info(mdir)
+    ident = {"title": source_info.get("title") or title or "未命名会议", "date": date,
+             "content_type": "meeting", "source_info": source_info}
+    custom = _read_json(mdir / "meta.json", {})
     if isinstance(custom, dict):
         if str(custom.get("title", "")).strip():
             ident["title"] = str(custom["title"]).strip()
+        ident["title_origin"] = str(custom.get("title_origin") or "legacy")
         ident["content_type"] = _content_type(custom.get("content_type"))
     return ident
 

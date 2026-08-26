@@ -17,6 +17,7 @@
 - 用户为获得情绪支持而表达的个人经历、关系判断、身份处境或情绪内容只用于当次沟通，不转写到
   项目文档、Git 提交说明、HANDOFF、issue/PR 或共享记忆；相关产品决定只能抽象成角色、需求和验收标准。
 - 远程 LLM 或云服务需要当前任务的显式授权；默认端点必须保持 loopback。
+- 公开媒体 URL 可能含临时签名或访问 token：原始 URL 只允许存在于私有 inbox 请求中，不进入作业 JSON、日志、Git 或下载器原始 sidecar。浏览器、Viewer 与 KB 只能消费 `media-source/v1` 白名单；generic 直链含 query 时不得导出链接。Viewer 只能在用户明确点击“原视频”后访问外网。
 
 ## Canonical 数据与模型边界
 
@@ -30,6 +31,7 @@
 ## 工程边界
 
 - 优先把可复用逻辑放在 `bin/meeting_core/` 或独立 service，不继续把所有功能堆入 `web/server.py` 和 `web/static/app.js`。
+- Meeting 与 Media 是共享 Media Analysis Core 上的业务 profile，不得复制 ASR、说话人、VL、证据或导出管线。Web、Viewer 与 KB 是同一 canonical 数据的 projection。前端继续增加跨域状态前，应按 import/library/jobs/player/transcript/minutes/media-source/export 边界抽出原生 ES module；除非已有模块测试和迁移收益证据，不以框架重写代替边界重构。
 - 在线 Web 与 `bin/meetingpack_viewer.html` 的阅读语义要同步；离线 Viewer 必须保持单 HTML、无 CDN、无服务端、无 LLM。
 - 保持 CUDA、ROCm 和 CPU 可移植性。PyTorch GPU 选择走 `meeting_core.hardware`；模型路径和端点用环境变量，不新增机器专属绝对路径。
 - 模型能力通过 provider/adapter 边界接入，业务流程不直接依赖 OS、硬件、模型品牌或单一服务协议。Context、时间戳等特殊能力必须显式声明并设计降级；跨 provider 回退只能由管理员配置，默认失败不得静默把私有内容发往远端。

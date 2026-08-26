@@ -27,6 +27,7 @@ check:
 	$(PY) web/tests/job_recovery_test.py
 	$(PY) web/tests/job_preemption_test.py
 	$(PY) web/tests/media_materialize_test.py
+	$(PY) web/tests/media_url_test.py
 	$(PY) web/tests/retranscribe_local_test.py
 	$(PY) web/tests/teams_transcript_test.py
 	$(PY) web/tests/slide_pages_test.py

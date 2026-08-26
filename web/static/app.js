@@ -99,9 +99,11 @@ const state = {
       ? workspaceState.anchors : {},
   },
   activeJobs: [],
+  jobs: [],
   jobPriorityAvailable: false,
   jobPreemptionAvailable: false,
   jobRecoveryAvailable: false,
+  jobHideAvailable: false,
   bundleLoadedAt: 0,
   refreshedArtifactJobs: new Set(),
   bundleRefreshInFlight: false,
@@ -123,7 +125,11 @@ function esc(s) {
 const UI_COPY = {
   "zh-CN": {
     title: "会议纪要", brand: "🎙 会议纪要", meetings: "会议", product: "产品介绍", settings: "设置",
-    import: "＋ 导入会议", drop: "或拖入视频 + VTT/DOCX，或单个音视频", importSettings: "导入设置",
+    import: "＋ 导入会议", importMedia: "＋ 导入媒体视频", drop: "或拖入视频 + VTT/DOCX，或单个音视频",
+    dropMedia: "或拖入一个本地视频", importSettings: "导入设置",
+    mediaUrlDivider: "或粘贴公开视频链接", mediaUrlPlaceholder: "YouTube、Bilibili 或公开网页视频链接",
+    mediaUrlSubmit: "解析链接", mediaUrlHint: "将获取平台标题、发布者和发布时间；不导入播放列表或直播",
+    sourceLink: "↗ 查看原视频",
     skipVl: "快速处理，不分析共享画面", ignoreTranscript: "忽略附带逐字稿，改用本地语音识别",
     search: "搜索会议…", sortImported: "最近导入", sortMeeting: "会议时间", sortUpdated: "最近更新", transcript: "逐字稿",
     original: "原文", translated: "译文", comparison: "对照", translateTo: "译为", follow: "跟随",
@@ -153,7 +159,11 @@ const UI_COPY = {
   },
   en: {
     title: "Meeting Minutes", brand: "🎙 Meeting Minutes", meetings: "Meetings", product: "Product", settings: "Settings",
-    import: "+ Import meeting", drop: "Drop video + VTT/DOCX, or one media file", importSettings: "Import settings",
+    import: "+ Import meeting", importMedia: "+ Import media video", drop: "Drop video + VTT/DOCX, or one media file",
+    dropMedia: "Or drop one local video", importSettings: "Import settings",
+    mediaUrlDivider: "or paste a public video URL", mediaUrlPlaceholder: "YouTube, Bilibili, or a public web video URL",
+    mediaUrlSubmit: "Parse URL", mediaUrlHint: "Retrieves platform title, publisher, and publish date; playlists and live streams are not supported",
+    sourceLink: "↗ Open original video",
     skipVl: "Fast processing; skip shared-screen analysis", ignoreTranscript: "Ignore attached transcript and use local speech recognition",
     search: "Search meetings…", sortImported: "Recently imported", sortMeeting: "Meeting time", sortUpdated: "Recently updated", transcript: "Transcript",
     original: "Original", translated: "Translation", comparison: "Side by side", translateTo: "Translate to", follow: "Follow",
@@ -224,6 +234,29 @@ function applyContentTypeCopy() {
   text("#visuals-tab", contentLabel(type, "screens"));
   const qualityTab = $("#quality-tab");
   if (qualityTab) qualityTab.childNodes[0].textContent = `${contentLabel(type, "audit")} `;
+}
+
+function applyImportMode() {
+  const media = state.workspace.contentType === "media";
+  const pick = $("#pick-btn span");
+  if (pick) pick.textContent = ui(media ? "importMedia" : "import");
+  const hint = $("#drop-hint");
+  if (hint) hint.textContent = ui(media ? "dropMedia" : "drop");
+  $("#media-url-import")?.classList.toggle("hidden", !media);
+  const fileInput = $("#file-input");
+  if (fileInput) {
+    fileInput.accept = media ? "video/*" : "video/*,audio/*,.vtt,.docx";
+    fileInput.multiple = !media;
+  }
+  const ignore = $("#ignore-transcript")?.closest("label");
+  if (ignore) ignore.classList.toggle("hidden", media);
+  const sort = $("#meeting-sort");
+  if (sort?.options?.length > 1) sort.options[1].textContent = media
+    ? (isEnglishUi() ? "Publish date" : "发布时间") : ui("sortMeeting");
+  const search = $("#search");
+  if (search) search.placeholder = media
+    ? (isEnglishUi() ? "Search media, platform, or publisher…" : "搜索媒体、平台或发布者…")
+    : ui("search");
 }
 
 const KEYWORD_KIND_LABELS = {
@@ -341,6 +374,11 @@ function applyUiLanguage() {
   text("#import-settings-label", ui("importSettings"));
   text("#skip-vl-label", ui("skipVl"));
   text("#ignore-transcript-label", ui("ignoreTranscript"));
+  text(".import-divider span", ui("mediaUrlDivider"));
+  text("#media-url-submit", ui("mediaUrlSubmit"));
+  text("#media-url-hint", ui("mediaUrlHint"));
+  $("#media-url-input")?.setAttribute("placeholder", ui("mediaUrlPlaceholder"));
+  text("#source-link", ui("sourceLink"));
   text("#transcript-heading", ui("transcript"));
   text('[data-transcript-mode="original"]', ui("original"));
   text('[data-transcript-mode="translated"]', ui("translated"));
@@ -389,6 +427,7 @@ function applyUiLanguage() {
       ? "contentTypeMedia" : "contentTypeMeeting");
   });
   $("#content-type-tabs")?.setAttribute("aria-label", isEnglishUi() ? "Content type" : "内容类型");
+  applyImportMode();
   const contentTypeBtn = $("#content-type-btn");
   if (contentTypeBtn) {
     contentTypeBtn.textContent = contentLabel(contentTypeOf(state.bundle), "markAction");
@@ -429,10 +468,13 @@ function renderMeetingHeaderMeta() {
   const contentTypeBtn = $("#content-type-btn");
   if (contentTypeBtn) contentTypeBtn.textContent = contentLabel(type, "markAction");
   const box = $("#meeting-meta");
+  const source = b.source_info || {};
   box.textContent = [
-    b.date,
+    type === "media" ? source.platform : null,
+    type === "media" ? source.publisher : null,
+    type === "media" ? source.published_at : b.date,
     b.duration ? (isEnglishUi() ? `${fmt(b.duration)} duration` : `${fmt(b.duration)} 时长`) : null,
-    b.speaker_count ? contentLabel(type, "speakerCount", b.speaker_count) : null,
+    type === "meeting" && b.speaker_count ? contentLabel(type, "speakerCount", b.speaker_count) : null,
     b.transcript?.length ? (isEnglishUi()
       ? `${b.transcript.length} transcript segments` : `${b.transcript.length} 段逐字稿`) : null,
   ].filter(Boolean).join(" · ") || contentLabel(type, "recordNoun");
@@ -450,6 +492,14 @@ function renderMeetingHeaderMeta() {
       : `${keywordKindLabel(item.kind)}关键字 — 点击在逐字稿中搜索`;
     token.onclick = () => searchTranscriptKeyword(text);
     box.appendChild(token);
+  }
+  const sourceLink = $("#source-link");
+  const sourceUrl = String(b.source_info?.canonical_url || "");
+  if (sourceLink) {
+    sourceLink.classList.toggle("hidden", !sourceUrl);
+    if (sourceUrl) sourceLink.href = sourceUrl;
+    else sourceLink.removeAttribute("href");
+    sourceLink.textContent = ui("sourceLink");
   }
 }
 
@@ -540,8 +590,8 @@ function orderedMeetings() {
   const order = state.workspace.meetingSort;
   return [...state.meetings].sort((left, right) => {
     if (order === "meeting") {
-      const dateCompare = String(right.date || right.slug).localeCompare(
-        String(left.date || left.slug));
+      const dateCompare = String(right.source_info?.published_at || right.date || right.slug).localeCompare(
+        String(left.source_info?.published_at || left.date || left.slug));
       return dateCompare || String(right.slug).localeCompare(String(left.slug));
     }
     const key = order === "updated" ? "updated_at" : "imported_at";
@@ -559,12 +609,29 @@ function renderMeetingList() {
   let shown = 0;
   for (const m of orderedMeetings()) {
     if (contentTypeOf(m) !== contentType) continue;
-    if (q && !`${m.title || ""} ${m.date || ""} ${m.slug} ${(m.keywords || []).join(" ")}`
-        .toLowerCase().includes(q)) continue;
+    const source = m.source_info || {};
+    const haystack = `${m.title || ""} ${m.date || ""} ${m.slug} ${(m.keywords || []).join(" ")} ` +
+      `${source.platform || ""} ${source.publisher || ""} ${source.published_at || ""}`;
+    if (q && !haystack.toLowerCase().includes(q)) continue;
     shown += 1;
     const li = document.createElement("li");
     li.className = "meeting-item" + (m.slug === state.slug ? " active" : "");
-    const meta = [
+    const statusText = m.generation_phase && ["voice_draft_generating", "voice_draft", "visual_enrichment"].includes(m.generation_phase)
+      ? (m.has_minutes ? (isEnglishUi() ? "Voice draft ready" : "语音草稿可读")
+        : (isEnglishUi() ? "Generating final minutes" : "终稿生成中"))
+      : m.has_minutes ? (isEnglishUi() ? "Ready to review" : "可回顾")
+        : (isEnglishUi() ? "Minutes pending" : "待生成纪要");
+    const meta = contentType === "media" ? [
+      order === "imported" && m.imported_at
+        ? `${isEnglishUi() ? "Imported" : "导入"} ${fmtListTimestamp(m.imported_at)}` : null,
+      order === "updated" && m.updated_at
+        ? `${isEnglishUi() ? "Updated" : "更新"} ${fmtListTimestamp(m.updated_at)}` : null,
+      source.platform,
+      source.publisher,
+      source.published_at || m.date,
+      m.duration ? fmt(m.duration) : source.duration ? fmt(source.duration) : null,
+      statusText,
+    ].filter(Boolean) : [
       order === "imported" && m.imported_at
         ? `${isEnglishUi() ? "Imported" : "导入"} ${fmtListTimestamp(m.imported_at)}` : null,
       order === "updated" && m.updated_at
@@ -574,11 +641,7 @@ function renderMeetingList() {
       m.speaker_count ? (contentTypeOf(m) === "media"
         ? contentLabel("media", "speakerCount", m.speaker_count)
         : (isEnglishUi() ? `${m.speaker_count} people` : `${m.speaker_count} 人`)) : null,
-      m.generation_phase && ["voice_draft_generating", "voice_draft", "visual_enrichment"].includes(m.generation_phase)
-        ? (m.has_minutes ? (isEnglishUi() ? "Voice draft ready" : "语音草稿可读")
-          : (isEnglishUi() ? "Generating final minutes" : "终稿生成中"))
-        : m.has_minutes ? (isEnglishUi() ? "Ready to review" : "可回顾")
-          : (isEnglishUi() ? "Minutes pending" : "待生成纪要"),
+      statusText,
     ].filter(Boolean);
     // 关键字作为列表卡元信息的普通灰字词，帮助区分同系列会议；不单独占行。
     for (const text of (m.keywords || []).slice(0, 3)) meta.push(String(text));
@@ -661,6 +724,7 @@ async function deleteMeeting(ev, slug) {
     state.splitMarks.clear();
     updateSplitBar();
     $("#meeting-meta").textContent = "阅读纪要、追问内容并修正记录";
+    $("#source-link")?.classList.add("hidden");
     $("#transcript").innerHTML = '<p class="placeholder">← 选择一场会议</p>';
     $("#minutes").innerHTML = '<p class="placeholder">纪要内容</p>';
     $("#chapters").innerHTML = '<p class="placeholder">选择会议后可查看会议脉络</p>';
@@ -5036,15 +5100,25 @@ async function doBind(voice, create) {
 
 async function uploadFiles(files) {
   if (!files.length) return;
+  const contentType = state.workspace.contentType;
+  const localMediaIsVideo = files.length === 1 && (
+    String(files[0].type || "").startsWith("video/")
+    || /\.(?:mp4|mkv|mov|webm|avi|m4v)$/i.test(String(files[0].name || ""))
+  );
+  if (contentType === "media" && !localMediaIsVideo) {
+    toast(isEnglishUi() ? "Media mode accepts one local video at a time" : "媒体模式一次只支持一个本地视频");
+    return;
+  }
   const fd = new FormData();
   for (const f of files) fd.append("files", f);
+  fd.append("content_type", contentType);
   if ($("#skip-vl") && $("#skip-vl").checked) fd.append("no_vl", "1");
   if ($("#ignore-transcript") && $("#ignore-transcript").checked)
     fd.append("ignore_transcript", "1");
   const r = await api("/api/upload", { method: "POST", body: fd });
   const j = await r.json();
   if (!r.ok) { toast(`上传被拒: ${j.detail || r.status}`); return; }
-  toast(`作业 ${j.id} (${j.route}) 已创建，目标会议 ${j.meeting}`);
+  toast(contentType === "media" ? "媒体处理已排队" : `作业 ${j.id} (${j.route}) 已创建，目标会议 ${j.meeting}`);
   let draftOpened = false;
   pollJob(j.id, async jj => {
     const logs = (jj.log || []).map(String);
@@ -5054,7 +5128,8 @@ async function uploadFiles(files) {
       toast("语音草稿已可阅读，正在补充屏幕资料…");
       await loadMeetings();
       if (state.bundle) rememberReadingPosition();
-      await loadMeeting(j.meeting);
+      const target = jj.meeting || j.meeting;
+      if (target) await loadMeeting(target);
       return;
     }
     if (jj.status === "done") {
@@ -5064,13 +5139,42 @@ async function uploadFiles(files) {
       toast(`作业 ${j.id} 完成，已升级为多模态终稿`);
       if (state.bundle) rememberReadingPosition();
       await loadMeetings();
-      if (state.slug === j.meeting || draftOpened) await loadMeeting(j.meeting);
+      const target = jj.meeting || j.meeting;
+      if (target && (state.slug === target || draftOpened)) await loadMeeting(target);
     } else if (jj.status === "failed") {
       toast(`作业 ${j.id} 失败 (rc=${jj.rc})`);
     } else {
       toast(`作业 ${j.id} (${j.route}): ${jj.status}`);
     }
   });
+}
+
+async function importMediaUrl() {
+  const input = $("#media-url-input");
+  const button = $("#media-url-submit");
+  const url = String(input?.value || "").trim();
+  if (!url) {
+    input?.focus();
+    return;
+  }
+  button.disabled = true;
+  try {
+    const response = await api("/api/import-url", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url, no_vl: !!$("#skip-vl")?.checked }),
+    });
+    const job = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      toast(`${isEnglishUi() ? "URL import rejected" : "链接导入失败"}：${job.detail || response.status}`);
+      return;
+    }
+    input.value = "";
+    toast(isEnglishUi() ? "Public video queued for local processing" : "公开视频已排队，将在本机下载并分析");
+    pollJobs();
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function pollJob(id, onUpdate) {
@@ -5092,9 +5196,11 @@ function pollJob(id, onUpdate) {
 async function pollJobs() {
   try {
     const d = await jget("/api/jobs");
+    state.jobs = d.jobs;
     state.jobPriorityAvailable = d.capabilities?.job_priority === true;
     state.jobPreemptionAvailable = d.capabilities?.checkpointed_preemption === true;
     state.jobRecoveryAvailable = d.capabilities?.job_recovery === true;
+    state.jobHideAvailable = d.capabilities?.job_hide === true;
     renderJobs(d.jobs);
     const completed = d.jobs.filter(job => job.meeting === state.slug
       && ["upload", "topic_map", "regen", "retranscribe"].includes(job.kind)
@@ -5114,20 +5220,22 @@ async function pollJobs() {
 function renderJobs(jobs) {
   const ul = $("#jobs-list");
   if (!ul) return;
-  const activeJobs = jobs.filter(j => j.status === "queued" || j.status === "running")
+  const allActiveJobs = jobs.filter(j => j.status === "queued" || j.status === "running")
     .sort((a, b) => a.status === b.status
       ? Number(a.queue_position || 9999) - Number(b.queue_position || 9999)
       : a.status === "running" ? -1 : 1);
-  const runningJob = activeJobs.find(j => j.status === "running");
+  const jobsOfType = jobs.filter(j => contentTypeOf(j) === state.workspace.contentType);
+  const activeJobs = allActiveJobs.filter(j => contentTypeOf(j) === state.workspace.contentType);
+  const runningJob = allActiveJobs.find(j => j.status === "running");
   const activeMeetings = new Set(activeJobs.map(job => job.meeting).filter(Boolean));
-  const recoverableStops = jobs.filter(j => ["failed", "paused"].includes(j.status)
+  const recoverableStops = jobsOfType.filter(j => ["failed", "paused"].includes(j.status)
     && j.recovery?.state !== "recovered"
     && !activeMeetings.has(j.meeting)
     && (j.recovery?.state === "available"
       || Date.now() / 1000 - Number(j.finished || j.created || 0) < 60 * 60)).slice(0, 2);
   const visibleJobs = [...activeJobs, ...recoverableStops]
     .filter((job, index, all) => all.findIndex(item => item.id === job.id) === index);
-  state.activeJobs = activeJobs;
+  state.activeJobs = allActiveJobs;
   $("#jobs-panel").classList.toggle("hidden", visibleJobs.length === 0);
   $(".jobs-head").textContent = activeJobs.length
     ? (isEnglishUi() ? "Processing" : "正在处理") : (isEnglishUi() ? "Needs attention" : "需要处理");
@@ -5136,7 +5244,8 @@ function renderJobs(jobs) {
     const li = document.createElement("li");
     const active = j.status === "queued" || j.status === "running";
     const meeting = state.meetings.find(item => item.slug === j.meeting);
-    const name = meeting?.title || j.meeting || "会议处理";
+    const name = meeting?.title || j.display_name || j.meeting
+      || (contentTypeOf(j) === "media" ? "媒体处理" : "会议处理");
     const kindLabel = j.kind === "translation"
       ? `${translationTargetLabel(j.target_language)} ${j.translation_artifact === "minutes"
         ? (j.translation_source_state === "draft"
@@ -5144,7 +5253,7 @@ function renderJobs(jobs) {
           : (isEnglishUi() ? "minutes" : "纪要"))
         : (isEnglishUi() ? "transcript" : "逐字稿")} ${isEnglishUi() ? "translation" : "翻译"}`
       : j.kind === "regen" ? "生成纪要" : j.kind === "topic_map" ? "生成会议脉络"
-      : j.kind === "upload" ? "会议处理" : "";
+      : j.kind === "upload" ? (contentTypeOf(j) === "media" ? "媒体处理" : "会议处理") : "";
     const progress = j.progress?.total
       ? ` ${j.progress.done || 0}/${j.progress.total}` : "";
     const lastLog = String(j.log?.at(-1) || "");
@@ -5330,6 +5439,25 @@ function renderJobs(jobs) {
         open.onclick = () => loadMeeting(j.meeting);
         recoveryActions.appendChild(open);
       }
+      if (state.jobHideAvailable) {
+        const hide = document.createElement("button");
+        hide.type = "button";
+        hide.className = "j-hide";
+        hide.textContent = isEnglishUi() ? "Hide" : "隐藏";
+        hide.title = isEnglishUi()
+          ? "Hide this task card without deleting retained files"
+          : "只隐藏这张任务卡，不删除已保留文件";
+        hide.onclick = async () => {
+          hide.disabled = true;
+          const response = await api(`/api/jobs/${j.id}/hide`, { method: "POST" });
+          if (!response.ok) {
+            const body = await response.json().catch(() => ({}));
+            toast(`${isEnglishUi() ? "Could not hide" : "隐藏失败"}：${body.detail || response.status}`);
+          }
+          pollJobs();
+        };
+        recoveryActions.appendChild(hide);
+      }
       if (recoveryActions.childElementCount) detail.appendChild(recoveryActions);
       li.appendChild(detail);
     }
@@ -5435,6 +5563,7 @@ function init() {
       saveWorkspaceState();
       applyUiLanguage();
       renderMeetingList();
+      renderJobs(state.jobs);
     });
   $("#meeting-sort").value = state.workspace.meetingSort;
   $("#meeting-sort").addEventListener("change", event => {
@@ -5585,6 +5714,12 @@ function init() {
   });
   $("#pick-btn").onclick = () => $("#file-input").click();
   $("#file-input").addEventListener("change", e => uploadFiles(e.target.files));
+  $("#media-url-submit").onclick = importMediaUrl;
+  $("#media-url-input").addEventListener("keydown", event => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    importMediaUrl();
+  });
 
   pollJobs();
   setInterval(pollJobs, 4000);

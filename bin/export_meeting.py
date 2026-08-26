@@ -37,6 +37,7 @@ from meeting_artifact import (
 )
 from meeting_views import evidence_integrity
 from meeting_structure import build_structure, clean_model_text, visual_title
+from meeting_core.source_info import load_source_info
 import meeting_topic_map
 import meeting_generation
 from product_version import PRODUCT_VERSION, PRODUCT_VERSION_LABEL
@@ -468,7 +469,8 @@ def _viewer_html(title: str, date: str, minutes_html: str, evidence: dict, integ
                  speaker_navigation_rows: list[dict] | None = None,
                  document_state: str = "ready",
                  keywords: list[str] | None = None,
-                 content_type: str = "meeting") -> bytes:
+                 content_type: str = "meeting",
+                 source_info: dict | None = None) -> bytes:
     duration = max((float(t.get("end", 0)) for t in evidence["sources"]["transcript"]), default=0)
     payload = {
         "title": title,
@@ -476,6 +478,7 @@ def _viewer_html(title: str, date: str, minutes_html: str, evidence: dict, integ
         "duration": duration,
         "keywords": list(keywords or []),
         "content_type": content_type if content_type in {"meeting", "media"} else "meeting",
+        "source_info": source_info or {},
         "minutes_html": minutes_html,
         "source_language": source_language,
         "minutes_languages": minutes_languages or {},
@@ -598,6 +601,7 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
     meta = _read_json(mdir / "meta.json", {})
     content_type = (meta.get("content_type")
                     if meta.get("content_type") in {"meeting", "media"} else "meeting")
+    source_info = load_source_info(mdir)
     records = rag_records(evidence, reading_minutes, facts, keywords=keywords)
     rag_bytes = ("\n".join(json.dumps(r, ensure_ascii=False, separators=(",", ":"))
                            for r in records) + "\n").encode("utf-8")
@@ -625,7 +629,7 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
                                         media_arc, media_kind, source_language, minutes_languages,
                                         topic_map_languages, visuals_languages,
                                         speaker_navigation_rows, document_state, keywords,
-                                        content_type),
+                                        content_type, source_info),
             "README.txt": _readme(media_mode, document_state).encode("utf-8"),
             "AGENTS.md": _AGENTS_MD.encode("utf-8"),
             "assets/minutes.md": reading_minutes.encode("utf-8"),
@@ -657,6 +661,7 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
             "artifact_id": evidence["artifact_id"],
             "title": title,
             "date": date,
+            "source_info": source_info,
             "source_slug": mdir.name,
             "media": {"mode": media_mode, "included": bool(media_file), "path": media_arc,
                       "optimized_for_sharing": bool(media_file),

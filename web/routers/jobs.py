@@ -1,6 +1,7 @@
 """上传与作业队列：/api/upload 与 /api/jobs*。
 服务 schema：作业 JSON 元数据（无版本字段；不含正文）。"""
 
+import json
 import os
 import re
 import shutil
@@ -8,24 +9,43 @@ import signal
 import threading
 import uuid
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import aiofiles
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from pydantic import BaseModel
 
 import meeting_dir as md_util
 from deps import (AUDIO_EXT, BANK_LOCK, CONTENT_TYPES, DATA_ROOT, DOCX_EXT, INBOX, PY, ROOT,
-                  VIDEO_EXT, VTT_EXT, _now, _safe, _slugify)
+                  VIDEO_EXT, VTT_EXT, _meeting_identity, _now, _safe, _slugify)
 from job_store import EXEC, JOBS, PROCS, _new_job, _run_pipeline, _save_job, _set_status
 from job_recovery import (build_minutes_command, build_retranscribe_command,
                           build_speaker_resume_command, build_topic_map_command,
                           meeting_dir_for_job, preemption_resume_spec, recovery_plan)
+from media_url import MediaURLRejected, normalize_url_shape
 
 router = APIRouter()
+
+
+class MediaURLImport(BaseModel):
+    url: str
+    no_vl: bool = False
+
+
+def _job_content_type(job: dict) -> str:
+    explicit = str(job.get("content_type") or "")
+    if explicit in CONTENT_TYPES:
+        return explicit
+    slug = str(job.get("meeting") or "")
+    if slug:
+        return str(_meeting_identity(slug).get("content_type") or "meeting")
+    return "meeting"
 
 
 def _job_with_recovery(original: dict) -> dict:
     """给失败卡片附加有限恢复状态，不暴露判断所用日志正文或文件路径。"""
     job = dict(original)
+    job["content_type"] = _job_content_type(job)
     if job.get("status") not in {"failed", "cancelled", "paused"}:
         return job
     plan = recovery_plan(job)
@@ -112,6 +132,8 @@ async def upload(files: list[UploadFile] = File(...), no_vl: str = Form(""),
         else:
             raise HTTPException(
                 400, "一次只支持一个视频（可配一个 VTT/DOCX 逐字稿）或一个音频")
+        if content_type == "media" and route != "video":
+            raise HTTPException(400, "媒体模式只支持单个本地视频；会议录像与逐字稿请切回会议")
     except Exception:
         # 校验中途失败不留下半上传目录。
         shutil.rmtree(dest_dir, ignore_errors=True)
@@ -136,11 +158,48 @@ async def upload(files: list[UploadFile] = File(...), no_vl: str = Form(""),
     return resp
 
 
+@router.post("/api/import-url")
+def import_media_url(payload: MediaURLImport):
+    """把公开视频链接排入 media 管线；原始 URL 不进入可读取的作业 JSON。"""
+    try:
+        url = normalize_url_shape(payload.url)
+    except MediaURLRejected as exc:
+        raise HTTPException(400, "请输入有效的 http/https 公公开视频链接") from exc
+
+    jid = uuid.uuid4().hex[:12]
+    dest_dir = INBOX / jid
+    dest_dir.mkdir(parents=True, exist_ok=False)
+    request_path = dest_dir / "media-url.request.json"
+    result_path = dest_dir / "media-url.result.json"
+    try:
+        request_path.write_text(json.dumps({"url": url}, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        shutil.rmtree(dest_dir, ignore_errors=True)
+        raise
+
+    command = [str(PY), str(ROOT / "bin" / "media_url.py"), str(request_path),
+               "--result", str(result_path)]
+    if payload.no_vl:
+        command.append("--no-vl")
+    host = (urlsplit(url).hostname or "公开视频").removeprefix("www.")
+    job = _new_job(
+        "upload", route="media_url", cmd=command, files=[],
+        inbox=str(dest_dir.relative_to(DATA_ROOT)),
+        result_file=str(result_path.relative_to(DATA_ROOT)),
+        content_type="media", source_kind="url", display_name=f"链接媒体 · {host}",
+        transcript_policy="local_asr")
+    response = dict(job)
+    EXEC.submit(_run_pipeline, job)
+    return response
+
+
 @router.get("/api/jobs")
 def list_jobs():
     queue = {item["id"]: item for item in EXEC.snapshot()}
     jobs = []
     for original in JOBS.values():
+        if original.get("hidden"):
+            continue
         job = _job_with_recovery(original)
         if job.get("status") == "running":
             job["queue_position"] = 0
@@ -158,7 +217,7 @@ def list_jobs():
         "jobs": sorted(jobs, key=lambda j: j["created"], reverse=True),
         "capabilities": {"job_priority": True, "running_preemption": True,
                          "checkpointed_preemption": True,
-                         "job_recovery": True},
+                         "job_recovery": True, "job_hide": True},
         "queue_policy": ["用户优先", "会议处理", "纪要与脉络", "逐字稿翻译"],
     }
 
@@ -350,4 +409,19 @@ def cancel_job(jid: str):
         EXEC.discard(jid)
     _terminate_process_group(jid)
     _set_status(job, "cancelled", finished=_now())
+    return {"ok": True}
+
+
+@router.post("/api/jobs/{jid}/hide")
+def hide_job(jid: str):
+    """隐藏已结束的任务卡；只改作业元数据，不删除会议或失败现场。"""
+    job = JOBS.get(jid)
+    if not job:
+        raise HTTPException(404, "没有这条作业")
+    if job.get("status") in {"queued", "running"}:
+        raise HTTPException(409, "正在处理的任务请先取消")
+    with BANK_LOCK:
+        job["hidden"] = True
+        job["hidden_at"] = _now()
+        _save_job(job)
     return {"ok": True}

@@ -282,6 +282,8 @@ body.page-index { overflow: hidden; }
   line-height: 1.35;
 }
 .meeting-meta { color: var(--dim); font-size: var(--fs-12); margin-top: 2px; }
+.source-link { display: inline-flex; margin-top: var(--sp-4); color: var(--accent); font-size: var(--fs-12); text-decoration: none; }
+.source-link:hover { text-decoration: underline; }
 .meeting-statuses { display: flex; flex-wrap: wrap; gap: var(--sp-5); min-height: 19px; margin-top: var(--sp-5); }
 .meeting-status {
   display: inline-flex;
@@ -348,6 +350,13 @@ body.page-index { overflow: hidden; }
   font-size: var(--fs-11);
 }
 #dropzone.over { border-color: var(--accent); background: rgba(79, 124, 255, .08); }
+.media-url-import { width: 100%; margin-top: var(--sp-8); }
+.import-divider { display: flex; align-items: center; gap: var(--sp-7); margin: var(--sp-6) 0; color: var(--dim); font-size: var(--fs-11); }
+.import-divider::before,.import-divider::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+.media-url-row { display: flex; gap: var(--sp-5); }
+.media-url-row input { min-width: 0; width: 100%; }
+.media-url-row button { flex: none; white-space: nowrap; }
+.media-url-import .drop-hint { margin-top: var(--sp-5); }
 .import-button { width: 100%; padding: var(--sp-7) var(--sp-10); font-size: var(--fs-13); }
 .drop-hint { line-height: 1.35; }
 .import-options { text-align: left; }
@@ -365,6 +374,7 @@ body.page-index { overflow: hidden; }
 .content-type-tabs { display: flex; padding: 2px; margin-bottom: var(--sp-8); border: 1px solid var(--border); border-radius: var(--r-7); background: var(--panel2); }
 .content-type-tabs button { flex: 1; padding: 2px var(--sp-7); border-color: transparent; background: transparent; color: var(--dim); font-size: var(--fs-11); }
 .content-type-tabs button.active { color: var(--text); border-color: var(--border); background: var(--panel); }
+.m-title { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; }
 
 /* 作业队列面板 */
 #jobs-panel { margin-bottom: var(--sp-10); }
@@ -431,7 +441,7 @@ body.page-index { overflow: hidden; }
 }
 .meeting-item:hover .m-del { opacity: 1; }
 .m-del:hover { color: #c25050; border-color: #c25050; }
-.m-title { padding-right: var(--sp-20); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.m-title { display: -webkit-box; padding-right: var(--sp-20); overflow: hidden; white-space: normal; text-overflow: ellipsis; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .m-meta { color: var(--dim); font-size: var(--fs-12); }
 /* 关键字与元信息同行同样式，仅悬停提示可点（点击=逐字稿搜索该词） */
 .keyword-token { color: inherit; cursor: pointer; }

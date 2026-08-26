@@ -177,7 +177,7 @@ check("时间码跳转只滚动内容面板，不带动整页丢失播放器",
 check("在线屏幕舞台支持放大、缩放和相邻屏幕键盘导航",
       b'id="screen-preview-mask"' in page and b'openScreenPreview' in app_js
       and b'navigateScreenPreview' in app_js and b'SCREEN_PREVIEW_ZOOMS' in app_js
-      and b'20260826p94' in page)
+      and b'20260826p95' in page)
 check("会议深链 ?meeting=<slug>&t=<秒> 定位播放且忽略非法/超界 t",
       b'params.get("t")' in app_js and b'deepLinkSeek' in app_js
       and b'Number.parseFloat' in app_js
@@ -293,6 +293,24 @@ check("前端提供会议/媒体分段切换与更多菜单重新分类入口",
       and b'contentTypeOf' in app_js and b'toggleContentType' in app_js
       and b'content-type' in app_js
       and "位出镜".encode() in app_js and "标记为会议".encode() in app_js)
+check("媒体模式共用同一入口并提供本地视频与公开链接两条路径",
+      b'id="media-url-import"' in page and b'id="media-url-input"' in page
+      and b'id="media-url-submit"' in page and b'function applyImportMode' in app_js
+      and b'function importMediaUrl' in app_js and b'fd.append("content_type", contentType)' in app_js)
+check("媒体列表按来源标题/平台/发布者/发布时间组织，阅读页提供原视频跳转",
+      b'source.platform' in app_js and b'source.publisher' in app_js
+      and b'source.published_at' in app_js and b'id="source-link"' in page
+      and b'canonical_url' in app_js)
+s, _, _ = req("POST", "/api/import-url", {"url": "file:///tmp/private-video"})
+check("链接导入拒绝非 http/https 与本机文件协议", s == 400)
+s, _, link_job = req("POST", "/api/import-url", {
+    "url": "https://example.invalid/watch?v=synthetic", "no_vl": True})
+link_done = poll_job(link_job.get("id")) if link_job.get("id") else {}
+check("公开链接进入 media 作业且 URL 不出现在可读取作业元数据",
+      s == 200 and link_job.get("content_type") == "media"
+      and link_job.get("source_kind") == "url" and link_done.get("status") == "done"
+      and "example.invalid/watch" not in json.dumps(link_job)
+      and "example.invalid/watch" not in json.dumps(link_done))
 
 # 2. bundle
 s, _, j = req("GET", "/api/meetings/_smoke/bundle")
@@ -1107,16 +1125,13 @@ check("上传文件已存 recordings/inbox/<jobid>/",
       inbox.is_dir() and len(list(inbox.iterdir())) == 1)
 check("作业预测了会议目录名", bool(jj.get("meeting")))
 
-# 11a0. 上传可选 content_type 表单字段：白名单校验并记入作业（管线成功后落 meta.json）
+# 11a0. media 是视频内容入口；纯音频仍属于会议，避免列表/分析语义混淆。
 s, _, media_job = multipart_files("/api/upload", [
     ("files", "smoke_media.wav", wav_bytes, "audio/wav"),
 ], fields=[("content_type", "media")])
-check("POST /api/upload 接受 content_type=media 并记入作业",
-      s == 200 and media_job.get("status") == "queued"
-      and media_job.get("content_type") == "media", f"status={s}")
-media_audio_done = poll_job(media_job.get("id"))
-check("音频路由的 media 作业不带 --media 镜头参数",
-      "--media" not in media_audio_done.get("cmd", []))
+check("media 模式拒绝纯音频并提示切回会议",
+      s == 400 and "媒体模式只支持单个本地视频" in str(media_job.get("detail") or ""),
+      f"status={s}")
 s, _, plain_job = multipart("/api/upload", "files", "smoke_plain.wav", wav_bytes, "audio/wav")
 check("上传缺省内容类型为 meeting",
       s == 200 and plain_job.get("content_type") == "meeting")
@@ -1246,6 +1261,14 @@ check("失败作业只重跑对应阶段并隐藏已恢复红卡",
       and recovered_source.get("recovery", {}).get("state") == "recovered")
 sdup, _, _ = req("POST", "/api/jobs/smokefail001/retry?quality=standard")
 check("已恢复的失败作业不会重复排队", sdup == 409)
+sh, _, hidden = req("POST", "/api/jobs/smokefail001/hide")
+hidden_ids = {job.get("id") for job in req("GET", "/api/jobs")[2].get("jobs", [])}
+check("已结束任务可隐藏且不删除可恢复现场",
+      sh == 200 and hidden.get("ok") is True and "smokefail001" not in hidden_ids
+      and req("GET", "/api/jobs/smokefail001")[0] == 200)
+check("任务面板按会议/媒体分流，活动任务可取消，失败任务可隐藏",
+      b'jobsOfType' in app_js and b'jobHideAvailable' in app_js
+      and b'/hide' in app_js and b'/cancel' in app_js)
 job_on_disk = TEST_JOBS / f"{jid}.json"
 check("作业 json 已落盘(仅元数据)", job_on_disk.is_file())
 if job_on_disk.is_file():

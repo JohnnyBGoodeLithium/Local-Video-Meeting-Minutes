@@ -44,6 +44,7 @@ from meeting_artifact import (FORMAL_ACTION_SECTIONS, WRAPPED_MARKER_RE,
                               build_evidence_document, load_speaker_profiles,
                               minutes_reading_markdown)
 from meeting_structure import _visual_value, clean_model_text, visual_title
+from meeting_core.source_info import load_source_info
 import meeting_topic_map
 from product_version import PRODUCT_VERSION, PRODUCT_VERSION_LABEL
 
@@ -306,7 +307,7 @@ def kb_document(mdir: Path, *, base_url: str, bank_dir: Path | None = None,
     date = inferred_date if date is None else date
     content_type = (meta.get("content_type")
                     if meta.get("content_type") in ("meeting", "media") else "meeting")
-    source_url = str(meta.get("source_url") or "").strip()
+    source_url = str(load_source_info(mdir).get("canonical_url") or "").strip()
     duration = max((float(t.get("end", 0)) for t in turns), default=0.0)
     keywords = _keyword_entries(mdir, minutes_path)
 

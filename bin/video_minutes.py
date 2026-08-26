@@ -103,9 +103,24 @@ def main() -> int:
             return 1
     else:
         date_m = re.search(r"(\d{8})", args.mp4.name)
-        mdir = for_teams(ROOT, args.slug or slugify(args.mp4.stem),
+        data_root = Path(os.environ.get(
+            "MEETING_DATA_ROOT", os.environ.get("MEETING_MINUTES_ROOT", ROOT))).resolve()
+        mdir = for_teams(data_root, args.slug or slugify(args.mp4.stem),
                          date_m.group(1) if date_m else "")
         mdir.mkdir(parents=True, exist_ok=True)
+    if args.media:
+        # 媒体版 prompt 在语音草稿阶段就需要 content_type；不能等整条管线完成后再分类。
+        meta_path = mdir / "meta.json"
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.is_file() else {}
+        except Exception:
+            meta = {}
+        if not isinstance(meta, dict):
+            meta = {}
+        meta["content_type"] = "media"
+        tmp_meta = meta_path.with_name(f".{meta_path.name}.tmp-{os.getpid()}")
+        tmp_meta.write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
+        os.replace(tmp_meta, meta_path)
     original_mp4 = args.mp4.resolve()
     source_mp4 = materialize_source(original_mp4, mdir / f"source_video{args.mp4.suffix.lower()}")
     slug = mdir.name

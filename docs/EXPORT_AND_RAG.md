@@ -4,6 +4,8 @@
 
 MeetingPack v5 可携带导出时已经生成且仍绑定当前 revision 的中文/英文纪要、会议脉络以及屏幕标题/短摘要。Viewer 右上角离线切换这三层阅读文本；离线端不调用 LLM，未提前生成的语言明确不可选。兼容入口保留为 `assets/minutes.md` 与 `assets/topic-map.json`，语言版本另存为 `assets/minutes.{language}.md`、`assets/topic-map.{language}.json` 和 `assets/visuals.{language}.json`。
 
+公开媒体内容额外投影 `media-source/v1`：manifest 和 Viewer payload 只包含平台、发布者、来源标题、发布日期、时长和经过安全筛选的 canonical URL，不复制 `yt-dlp` 原始 metadata、请求头、Cookie、临时下载地址或 inbox 请求。Viewer 顶栏的“原视频”是普通外链，静态打开不会自动访问来源；只有用户点击才离开离线包。知识库 Markdown/HTML 的 source URL 取同一白名单，因此三种投影不会各自猜链接。generic 直链若带 query，可能包含短期签名，只保留公开描述字段而不导出链接。
+
 Web bundle 和内嵌 Viewer payload 还带 `speaker_navigation[]`，每项只有 `speaker/selectable/identity_basis`。`verified_voice_binding` 才表示跨会议稳定人员；`imported_transcript_label` 表示 VTT/DOCX 在本场明确提供姓名，可按完全同名聚合；`session_voice_cluster` 表示未命名但已有 `voice_id`，可按本场声音簇跳播；只有 `insufficient_voice_sample`（片段过短、没有声音簇）不可选择。该阅读投影不写回 bank、不产生假的 `person_id`，也不改变 RAG 以 canonical evidence 为准的身份规则。
 
 ## 1. 结论策略

@@ -113,6 +113,7 @@ def rename_meeting(slug: str, title: str = Body(..., embed=True)):
         if not isinstance(meta, dict):
             meta = {}
         meta["title"] = title
+        meta["title_origin"] = "manual"
         meta["updated_at"] = _now()
         tmp = meta_path.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")

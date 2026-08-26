@@ -4,6 +4,8 @@
 
 项目业务代码不依赖 AMD。当前机器使用 ROCm，但 PyTorch 的 ROCm 构建同样暴露 `torch.cuda` 设备 API；项目现在会把实际 backend 诊断为 `rocm` 或 `cuda`，并按显卡能力选择 BF16/FP16。迁移到 NVIDIA 的关键不是改业务流程，而是安装 CUDA 版 PyTorch、CUDA 版 `llama.cpp`，并配置模型路径。
 
+本地文件导入不要求外网。只有用户选择“媒体 → 粘贴公开链接”时，服务端才需要外网 DNS/HTTPS，并使用项目依赖中的 `yt-dlp` 获取单条公开视频。该能力不依赖 AMD/NVIDIA，但站点兼容性会随平台变化；部署在受控 LAN 前应为下载 worker 配置独立出口、磁盘/时长配额和审计，不能把应用端口当作开放下载代理。
+
 | 层 | NVIDIA | AMD | CPU |
 |---|---|---|---|
 | ASR / pyannote | PyTorch CUDA | PyTorch ROCm | 可运行，明显更慢 |

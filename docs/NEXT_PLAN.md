@@ -1,6 +1,12 @@
 # 下一阶段计划：从个人工具到可自助使用的本地 POC
 
-更新时间：2026-08-17
+更新时间：2026-08-26
+
+## 0. 先降低当前前端变更成本
+
+在扩展多人服务之前，先把 `web/static/app.js` 从全域脚本收敛为装配入口。保持现有无构建部署，按 import/library/jobs/player/transcript/minutes/media-source/export 逐个抽取原生 ES module，每一步都用现有 API smoke 和无头浏览器回归锁定行为。Meeting 与 Media 继续共享 Media Analysis Core，只在输入策略、prompt 和阅读投影上分流；不创建两份仓库或两套 ASR/VL/证据逻辑。
+
+公开媒体链接目前适合本机主动提交，不等于可安全暴露的通用下载代理。LAN 试点前需将下载器放入限制出口、CPU/磁盘/时长的 worker 沙箱，覆盖重定向、DNS rebinding、站点条款与失败清理，再纳入用户配额和审计。
 
 ## 1. 下一阶段不是再加一种纪要视图
 

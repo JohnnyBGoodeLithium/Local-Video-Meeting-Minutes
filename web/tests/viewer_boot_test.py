@@ -153,7 +153,12 @@ media_topic_map["media_navigation"] = {
 media_page = export_meeting._viewer_html(
     "合成媒体启动测试", "2026-01-01", "<h2>总体摘要</h2><p>媒体正文</p>",
     EVIDENCE, {"schema": "test"}, media_topic_map, None, None,
-    content_type="media")
+    content_type="media", source_info={
+        "schema": "media-source/v1", "kind": "public_url",
+        "canonical_url": "https://example.invalid/watch?v=synthetic",
+        "platform": "Example Video", "publisher": "Synthetic Publisher",
+        "published_at": "2026-01-02",
+    })
 media_probe = b"""<script>
 renderLanes();renderLegend();personLanesOpen=true;renderPersonLanes();
 document.body.dataset.mediaContract=[!!document.querySelector('#lane-narrative'),!document.querySelector('#lane-spk'),document.querySelectorAll('.narrative-key').length===2,document.querySelector('#lanes-bar').hidden].join(',');
@@ -169,6 +174,9 @@ with tempfile.TemporaryDirectory() as td:
 assert media_proc.returncode == 0, media_proc.stderr[-300:]
 assert 'data-media-contract="true,true,true,true"' in media_proc.stdout, \
     "viewer 单人口播未切换为议题+叙事时间线"
+assert 'id="original-source"' in media_proc.stdout \
+    and 'href="https://example.invalid/watch?v=synthetic"' in media_proc.stdout \
+    and "查看原视频" in media_proc.stdout, "viewer 未投影公开来源跳转"
 assert "Uncaught" not in media_proc.stderr, \
     f"viewer media 启动存在未捕获异常: {media_proc.stderr[-500:]}"
 print("viewer boot: headless runtime passed")
