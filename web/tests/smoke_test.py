@@ -157,7 +157,7 @@ s, _, app_js = req("GET", "/static/app.js", raw=True)
 module_statuses = []
 module_sources = []
 for module_name in ("media-source.js", "imports.js", "jobs.js", "library.js",
-                    "player-navigation.js", "transcript.js", "export.js"):
+                    "player-navigation.js", "transcript.js", "export.js", "minutes.js"):
     module_status, _, module_source = req(
         "GET", f"/static/modules/{module_name}", raw=True)
     module_statuses.append(module_status)
@@ -166,12 +166,13 @@ app_js = b"\n".join([app_js, *module_sources])
 check("前端装配入口使用可独立加载的原生 ES modules",
       all(status == 200 for status in module_statuses)
       and b'type="module"' in page
-      and b'./modules/media-source.js?v=20260826p98' in app_js
+      and b'./modules/media-source.js?v=20260826p99' in app_js
       and b'export function selectJobPanel' in app_js
       and b'export function sortLibrary' in app_js
       and b'export function nearestReviewUnit' in app_js
       and b'export function transcriptSearchHits' in app_js
-      and b'export function exportSizeState' in app_js)
+      and b'export function exportSizeState' in app_js
+      and b'export function resolveMinutesView' in app_js)
 chrome = (shutil.which("chromium") or shutil.which("chromium-browser")
           or shutil.which("google-chrome"))
 if chrome:
@@ -180,10 +181,10 @@ if chrome:
         "--window-size=1600,900", "--virtual-time-budget=8000", "--dump-dom", BASE,
     ], capture_output=True, text=True, timeout=90)
     check("在线工作台 ES modules 在 Headless Chromium 完整启动",
-          browser.returncode == 0 and "20260826p98" in browser.stdout
+          browser.returncode == 0 and "20260826p99" in browser.stdout
           and 'class="meeting-item active"' in browser.stdout
           and "Uncaught" not in browser.stderr,
-          f"rc={browser.returncode}, build={'20260826p98' in browser.stdout}, "
+          f"rc={browser.returncode}, build={'20260826p99' in browser.stdout}, "
           f"active={'class=\"meeting-item active\"' in browser.stdout}, "
           f"uncaught={'Uncaught' in browser.stderr}, stderr={browser.stderr[-500:]!r}")
 else:
@@ -212,7 +213,7 @@ check("时间码跳转只滚动内容面板，不带动整页丢失播放器",
 check("在线屏幕舞台支持放大、缩放和相邻屏幕键盘导航",
       b'id="screen-preview-mask"' in page and b'openScreenPreview' in app_js
       and b'navigateScreenPreview' in app_js and b'SCREEN_PREVIEW_ZOOMS' in app_js
-      and b'20260826p98' in page)
+      and b'20260826p99' in page)
 check("会议深链 ?meeting=<slug>&t=<秒> 定位播放且忽略非法/超界 t",
       b'params.get("t")' in app_js and b'deepLinkSeek' in app_js
       and b'deepLinkSeconds' in app_js

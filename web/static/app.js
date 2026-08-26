@@ -1,20 +1,23 @@
 import { contentTypeOf, safeSourceUrl }
-  from "./modules/media-source.js?v=20260826p98";
+  from "./modules/media-source.js?v=20260826p99";
 import { buildUploadFormData, enqueueMediaUrl, isSingleLocalVideo }
-  from "./modules/imports.js?v=20260826p98";
+  from "./modules/imports.js?v=20260826p99";
 import { jobDisplayName, selectJobPanel }
-  from "./modules/jobs.js?v=20260826p98";
+  from "./modules/jobs.js?v=20260826p99";
 import { chooseInitialItem, deepLinkSeconds, filterLibrary, sortLibrary }
-  from "./modules/library.js?v=20260826p98";
+  from "./modules/library.js?v=20260826p99";
 import { adjacentReviewUnit, defaultReviewUnits, nearestReviewUnit,
   reviewIndexesFor, reviewUnitForTurn as findReviewUnitForTurn, turnEnd }
-  from "./modules/player-navigation.js?v=20260826p98";
+  from "./modules/player-navigation.js?v=20260826p99";
 import { nextSearchCursor, pendingReviewByTurn, splitTurnChunks, transcriptSearchHits,
   turnReviewUnits }
-  from "./modules/transcript.js?v=20260826p98";
+  from "./modules/transcript.js?v=20260826p99";
 import { exportSizeState, formatBytes, meetingExportHref, normalizeExportProfile,
   packExportHref }
-  from "./modules/export.js?v=20260826p98";
+  from "./modules/export.js?v=20260826p99";
+import { claimAction, claimIdsForTurn, evidenceSources, minutesState, normalizeReviewMode,
+  resolveMinutesClaim, resolveMinutesView, turnIndexAtTime, turnIndexesForSourceIds }
+  from "./modules/minutes.js?v=20260826p99";
 
 /* 会议列表 + 回顾工作台（装配入口；领域规则逐步迁往 modules/） */
 "use strict";
@@ -1555,23 +1558,15 @@ function wireContentStage() {
 }
 
 function turnIndexesForIds(ids = []) {
-  const wanted = new Set(ids);
-  return (state.bundle?.evidence?.sources?.transcript || [])
-    .filter(item => wanted.has(item.id)).map(item => Number(item.index)).filter(Number.isInteger);
+  return turnIndexesForSourceIds(state.bundle?.evidence?.sources?.transcript, ids);
 }
 
 function currentTurnIndex(time) {
-  let index = -1;
-  for (let i = 0; i < (state.bundle?.transcript || []).length; i++) {
-    if (Number(state.bundle.transcript[i].start) <= time) index = i; else break;
-  }
-  return index;
+  return turnIndexAtTime(state.bundle?.transcript, time);
 }
 
 function claimsForTurn(index) {
-  if (index < 0) return [];
-  return (state.bundle?.evidence?.claims || [])
-    .filter(claim => (claim.turn_indexes || []).includes(index)).map(claim => claim.id);
+  return claimIdsForTurn(state.bundle?.evidence?.claims, index);
 }
 
 function setOverviewFocus() {
@@ -3272,10 +3267,11 @@ async function setUiLanguage(language) {
 function renderMinutes() {
   const box = $("#minutes");
   const availableViews = state.bundle?.minutes_views || [];
-  let selectedViewId = state.workspace.minutesViews[state.slug] || "standard";
-  let selectedView = availableViews.find(item => item.id === selectedViewId) || null;
-  if (selectedViewId !== "standard" && !selectedView) {
-    selectedViewId = "standard";
+  const selection = resolveMinutesView(
+    availableViews, state.workspace.minutesViews[state.slug] || "standard");
+  const selectedViewId = selection.id;
+  const selectedView = selection.view;
+  if (selection.reset) {
     state.workspace.minutesViews[state.slug] = "standard";
     saveWorkspaceState();
   }
@@ -3288,10 +3284,9 @@ function renderMinutes() {
   }
   $("#restore-minutes")?.classList.toggle("hidden", state.viewMode !== "minutes"
     || selectedViewId !== "standard" || !state.bundle?.minutes_history_available);
-  const draft = state.bundle?.document_state === "draft";
-  const phase = state.bundle?.generation?.phase;
-  const draftFailed = !state.bundle?.has_minutes
-    && Number(state.bundle?.generation?.voice_draft_rc || 0) !== 0;
+  const presentation = minutesState(
+    state.bundle, selectedView, state.minutesTranslation, state.uiLanguage, state.assistantBusy);
+  const { draft, phase, draftFailed } = presentation;
   const draftFailure = voiceDraftFailureCopy(state.bundle?.generation?.voice_draft_rc);
   const banner = draft ? (isEnglishUi()
     ? `<section class="minutes-draft-banner"><div><span>Voice draft · Ready to read</span>` +
@@ -3305,8 +3300,7 @@ function renderMinutes() {
     ? '<section class="minutes-draft-banner"><div><span>语音草稿生成失败</span><b>正在继续生成多模态终稿</b>' +
       `<p>${esc(draftFailure.detail)}</p></div><i></i></section>`
     : '<p class="placeholder">暂无纪要</p>';
-  const translated = state.minutesTranslation?.target_language === state.uiLanguage
-    && state.minutesTranslation?.state === "ready" && state.minutesTranslation?.html;
+  const translated = presentation.translatedHtml;
   const languageBanner = state.minutesTranslationJob
     ? `<div class="minutes-language-banner"><b>${esc(ui("translatingMinutes"))}</b><span>…</span></div>`
     : state.minutesTranslation?.state === "failed"
@@ -3318,15 +3312,14 @@ function renderMinutes() {
     : languageBanner + banner + (translated || state.bundle.minutes_html || pending);
   const restructure = $("#restructure-minutes");
   if (restructure) {
-    restructure.disabled = !state.bundle?.has_minutes || draft
-      || state.bundle?.evidence?.state !== "ready" || state.assistantBusy;
+    restructure.disabled = !presentation.canRestructure;
     restructure.title = draft
       ? (isEnglishUi() ? "Wait for the multimodal final minutes" : "等待多模态终稿后再重组")
       : state.bundle?.evidence?.state !== "ready"
         ? (isEnglishUi() ? "Regenerate evidence before restructuring" : "事实依据尚未就绪，请先重新生成纪要")
         : ui("restructurePlaceholder");
   }
-  const candidates = selectedView ? [] : (state.bundle?.evidence?.action_candidates || []);
+  const candidates = presentation.actionCandidates;
   if (candidates.length) {
     const candidateHtml = `<details class="action-candidate-panel"><summary>` +
       `<span>${isEnglishUi() ? "Unverified candidates" : "待核实候选"}</span>` +
@@ -3350,16 +3343,15 @@ function renderMinutes() {
   });
   $$('a[href^="#mm-"]', box).forEach(link => {
     const claimId = link.getAttribute("href").slice(4);
-    const claim = (state.bundle?.evidence?.claims || []).find(item => item.id === claimId)
-      || selectedView?.sources?.find(item => item.claim_id === claimId);
+    const resolved = resolveMinutesClaim(state.bundle?.evidence, selectedView, claimId);
+    const claim = resolved.claim;
     if (claim?.start != null) {
       link.textContent = `${isEnglishUi() ? "Evidence" : "依据"} · ${fmt(claim.start)}`;
       link.title = isEnglishUi() ? "Jump to the first supporting excerpt" : "跳到第一条原文依据";
     }
     link.onclick = ev => {
       ev.preventDefault();
-      const canonical = (state.bundle?.evidence?.claims || []).some(item => item.id === claimId);
-      if (canonical) showMinutesEvidence(claimId, true);
+      if (resolved.canonical) showMinutesEvidence(claimId, true);
       else if (claim) showAssistantSource(claim);
     };
   });
@@ -3371,8 +3363,7 @@ function structureClaimCard(id) {
   if (!claim) return "";
   const status = qualityStatusNames[claim.status] || claim.status || "记录";
   const kind = qualityKindNames[claim.kind] || claim.kind || "内容";
-  const action = claim.kind === "action" ? (claim.action ||
-    (state.bundle?.evidence?.actions || []).find(item => item.claim_id === claim.id)) : null;
+  const action = claimAction(state.bundle?.evidence, claim);
   return `<button type="button" class="structure-claim" data-structure-claim="${esc(id)}">` +
     `<span class="structure-claim-meta"><i>${esc(kind)}</i><i>${esc(status)}</i>` +
     `${claim.start != null ? `<i>${fmt(claim.start)}</i>` : ""}</span>` +
@@ -3405,8 +3396,7 @@ function openChapter(chapterId, play = false) {
 function flowClaim(id) {
   const claim = (state.bundle?.evidence?.claims || []).find(item => item.id === id);
   if (!claim) return "";
-  const action = claim.kind === "action" ? (claim.action ||
-    (state.bundle?.evidence?.actions || []).find(item => item.claim_id === claim.id)) : null;
+  const action = claimAction(state.bundle?.evidence, claim);
   return `<button type="button" class="meeting-flow-claim" data-structure-claim="${esc(id)}">` +
     `<b>${esc(action?.text || claim.text)}</b>` +
     `${claim.start != null ? `<small>${fmt(claim.start)} · ${isEnglishUi() ? "Verify evidence" : "核对依据"}</small>` :
@@ -3796,12 +3786,7 @@ function renderVisuals(preserveListScroll = false) {
 }
 
 function setReviewMode(mode) {
-  const allowed = new Set(["minutes", "chapters", "visuals", "quality"]);
-  state.viewMode = allowed.has(mode) ? mode : "minutes";
-  if (state.viewMode === "chapters" && !state.bundle?.transcript?.length)
-    state.viewMode = "minutes";
-  if (state.viewMode === "visuals" && !state.bundle?.structure?.visuals?.length)
-    state.viewMode = "minutes";
+  state.viewMode = normalizeReviewMode(mode, state.bundle);
   for (const id of ["minutes", "chapters", "visuals", "quality"])
     $(`#${id}`).classList.toggle("hidden", state.viewMode !== id);
   for (const id of ["minutes", "chapters", "visuals", "quality"]) {
@@ -3824,9 +3809,9 @@ function showMinutesEvidence(claimId, jumpToFirst = false) {
   const claim = (state.bundle?.evidence?.claims || []).find(c => c.id === claimId);
   if (!claim) return;
   expandEvidenceBilingual(claim.turn_indexes || []);
-  const turns = (claim.turn_indexes || []).map(i => ({ i, t: state.bundle.transcript[i] })).filter(x => x.t);
-  const pageNumbers = (claim.page_ids || []).map(id => Number(id.slice(1))).filter(Number.isFinite);
-  const pages = pageNumbers.map(n => state.bundle.slides.find(p => p.page === n)).filter(Boolean);
+  const sources = evidenceSources(state.bundle, claim);
+  const turns = sources.turns.map(item => ({ i: item.index, t: item.turn }));
+  const pages = sources.pages;
   let html = `<div class="evidence-claim">${esc(claim.text)}</div>` +
     `<div class="evidence-tags"><span>${esc(claim.kind)}</span><span>${esc(claim.status)}</span>` +
     `<span>置信度 ${esc(claim.confidence)}</span></div>`;
@@ -3852,8 +3837,7 @@ function showMinutesEvidence(claimId, jumpToFirst = false) {
   $$(".evidence-page-seek", $("#evidence-body")).forEach(btn =>
     btn.onclick = () => seek(Number(btn.dataset.time || 0)));
   if (jumpToFirst) {
-    if (turns.length) seek(Number(turns[0].t.start || 0));
-    else if (pages.length) seek(Number(pages[0].first || 0));
+    if (sources.firstTime != null) seek(sources.firstTime);
   }
 }
 

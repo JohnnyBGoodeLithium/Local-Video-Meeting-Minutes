@@ -15,6 +15,9 @@ import { nextSearchCursor, pendingReviewByTurn, splitTurnChunks, transcriptSearc
 import { exportSizeState, formatBytes, meetingExportHref, normalizeExportProfile,
   packExportHref }
   from "../static/modules/export.js";
+import { claimAction, claimIdsForTurn, evidenceSources, minutesState, normalizeReviewMode,
+  resolveMinutesClaim, resolveMinutesView, turnIndexAtTime, turnIndexesForSourceIds }
+  from "../static/modules/minutes.js";
 
 const media = {
   slug: "synthetic-media",
@@ -122,4 +125,41 @@ assert.equal(meetingExportHref("synthetic meeting", "audio", "full"),
 assert.match(packExportHref(["one", "two"], "video", "kb-html"),
   /slugs=one%2Ctwo&media=video&profile=kb-html$/);
 
-console.log("frontend modules: source/import/job/library/player/transcript/export policies passed");
+const minutesView = { id: "ai-brief", title: "Brief", sources: [
+  { claim_id: "A1", start: 12 },
+] };
+assert.deepEqual(resolveMinutesView([minutesView], "ai-brief"), {
+  id: "ai-brief", view: minutesView, reset: false,
+});
+assert.deepEqual(resolveMinutesView([minutesView], "missing"), {
+  id: "standard", view: null, reset: true,
+});
+const evidence = {
+  state: "ready",
+  claims: [{ id: "C1", kind: "action", turn_indexes: [1], page_ids: ["P2"] }],
+  actions: [{ claim_id: "C1", text: "Synthetic action" }],
+  action_candidates: [{ text: "Candidate" }],
+  sources: { transcript: [{ id: "T1", index: 1 }] },
+};
+const stateReady = minutesState({ has_minutes: true, evidence }, null,
+  { target_language: "en", state: "ready", html: "<p>English</p>" }, "en", false);
+assert.equal(stateReady.canRestructure, true);
+assert.equal(stateReady.translatedHtml, "<p>English</p>");
+assert.equal(stateReady.actionCandidates.length, 1);
+assert.equal(minutesState({ document_state: "draft", has_minutes: true, evidence },
+  null, null, "en").canRestructure, false);
+assert.deepEqual(turnIndexesForSourceIds(evidence.sources.transcript, ["T1"]), [1]);
+assert.equal(turnIndexAtTime([{ start: 0 }, { start: 10 }, { start: 20 }], 15), 1);
+assert.deepEqual(claimIdsForTurn(evidence.claims, 1), ["C1"]);
+assert.equal(resolveMinutesClaim(evidence, minutesView, "C1").canonical, true);
+assert.equal(resolveMinutesClaim(evidence, minutesView, "A1").claim.start, 12);
+assert.equal(claimAction(evidence, evidence.claims[0]).text, "Synthetic action");
+const evidenceBundle = {
+  transcript: [{ start: 0 }, { start: 10, speaker: "Alice" }],
+  slides: [{ page: 2, first: 14 }],
+};
+assert.equal(evidenceSources(evidenceBundle, evidence.claims[0]).firstTime, 10);
+assert.equal(normalizeReviewMode("chapters", { transcript: [] }), "minutes");
+assert.equal(normalizeReviewMode("quality", {}), "quality");
+
+console.log("frontend modules: source/import/job/library/player/transcript/export/minutes policies passed");

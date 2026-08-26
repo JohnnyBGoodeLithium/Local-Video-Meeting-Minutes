@@ -43,7 +43,7 @@ flowchart LR
 
 Meeting 与 Media 不是两套项目。二者共用 **Media Analysis Core**：媒体固化、音轨、ASR、说话人、镜头/逻辑页、VL、evidence、来源契约和导出；其上使用两个 domain profile：Meeting 强调决定/待办/风险与人员身份，Media 强调论证/规格/作者观点与叙事作用。Web、MeetingPack Viewer 和 KB HTML/Markdown 是同一 canonical 资产的不同 projection。
 
-`web/static/app.js` 曾同时承担导入、库列表、作业、播放器、逐字稿、纪要、媒体来源与导出，约五千余行，继续新增跨域状态的回归成本已高于单文件收益。现在已迁为无构建原生 ES module 入口，并从 `web/static/modules/` 抽出 `media-source`（来源与内容类型投影）、`imports`（上传/链接请求构造）、`jobs`（任务面板选择策略）、`library`（排序、筛选、初始内容与深链时间校验）、`player-navigation`（核听单元及上一/下一段选择）、`transcript`（搜索、长轮次显示分段与复核元数据）和 `export`（profile/媒体选择、体积判断与 URL 构造）。这些模块不持有 DOM 或全局状态，可独立测试；媒体播放、下载、滚动和渲染副作用仍由入口协调。`app.js` 后续重点收敛逐字稿 DOM 渲染与 `minutes` 的证据/编辑状态。拆分完成的判据是模块拥有明确输入/输出、在线工作台与无头 Viewer/smoke 行为不变，而不是追求文件数；当前不引入 React、微前端或复制 Meeting/Media 页面。
+`web/static/app.js` 曾同时承担导入、库列表、作业、播放器、逐字稿、纪要、媒体来源与导出，约五千余行，继续新增跨域状态的回归成本已高于单文件收益。现在已迁为无构建原生 ES module 入口，并从 `web/static/modules/` 抽出 `media-source`、`imports`、`jobs`、`library`、`player-navigation`、`transcript`、`export` 和 `minutes` 八个无 DOM 规则模块。`minutes` 负责标准/AI 视图选择、草稿/终稿/译文/证据可用性、时间点到结论的映射、证据来源解析和 Tab 可用性；纪要 HTML、证据抽屉、API 写入与撤销仍在入口。所有模块不持有 DOM 或全局状态，可独立测试；媒体播放、下载、滚动和渲染副作用仍由入口协调。后续重点是把逐字稿与纪要的大型 DOM 渲染器拆成接收显式输入的 view/controller，而不是继续搬纯函数。拆分完成的判据是模块拥有明确输入/输出、在线工作台与无头 Viewer/smoke 行为不变，而不是追求文件数；当前不引入 React、微前端或复制 Meeting/Media 页面。
 
 ## 目录职责
 
