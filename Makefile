@@ -55,7 +55,7 @@ check:
 	$(PY) web/tests/kb_document_test.py
 	$(PY) web/tests/content_type_test.py
 	$(PY) web/tests/viewer_boot_test.py
-	@if command -v node >/dev/null 2>&1; then node --check web/static/app.js && node --check web/static/admin.js && node web/tests/assistant_intent_test.mjs; else echo "Node unavailable: skipped JS syntax check"; fi
+	@if command -v node >/dev/null 2>&1; then node --check web/static/app.js && node --check web/static/admin.js && node web/tests/frontend_modules_test.mjs && node web/tests/assistant_intent_test.mjs; else echo "Node unavailable: skipped JS syntax check"; fi
 	git diff --check
 
 smoke:

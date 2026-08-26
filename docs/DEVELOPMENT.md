@@ -23,6 +23,10 @@ make run      # 127.0.0.1:8899
 
 `make smoke` 使用 `tempfile.TemporaryDirectory`。服务、上传、会议、声纹、作业 JSON 全在该目录内，结束后自动清理；它不会枚举或修改真实 `meetings/`。
 
+## 在线前端模块
+
+`web/static/app.js` 是无构建原生 ES module 装配入口；可复用、无 DOM 的领域规则放在 `web/static/modules/`。当前边界为媒体来源投影、导入请求和任务面板策略，新增跨域逻辑不要再直接堆回入口。模块须能被 `web/tests/frontend_modules_test.mjs` 独立导入；入口或加载顺序变化还须通过 `make smoke` 的 Headless Chromium 在线启动检查。静态契约测试检索整个模块图，不得假设实现仍位于 `app.js` 单文件。
+
 ## 页面排障入口
 
 - `http://127.0.0.1:8899/?diag=1`：页面内布局链诊断浮层，逐层报告滚动容器的 scrollHeight/clientHeight/overflow/position，用于远程定位"滚动条消失/内容被裁"类问题。

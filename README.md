@@ -111,7 +111,7 @@ meeting-minutes/
 ├── bin/                       # CLI、处理管线、导出器和纯业务模块
 │   └── meeting_core/          # LLM 协议、上下文预算、硬件选择、长会 Map/Reduce
 ├── web/                       # FastAPI 服务、RAG/翻译/审计服务和浏览器前端
-│   ├── static/                # 在线工作台 HTML/CSS/JS
+│   ├── static/                # 在线工作台；app.js 装配入口 + modules/ 领域规则
 │   └── tests/                 # 仅使用虚构/临时数据的回归测试
 ├── prompts/                   # 独立可审查的模型提示词
 ├── docs/                      # 产品、架构、部署、成本和工程文档

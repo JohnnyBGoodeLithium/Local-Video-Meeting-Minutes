@@ -1,4 +1,11 @@
-/* 会议列表 + 回顾工作台 */
+import { contentTypeOf, safeSourceUrl, sourcePublishedDate, sourceSearchText }
+  from "./modules/media-source.js?v=20260826p96";
+import { buildUploadFormData, enqueueMediaUrl, isSingleLocalVideo }
+  from "./modules/imports.js?v=20260826p96";
+import { jobDisplayName, selectJobPanel }
+  from "./modules/jobs.js?v=20260826p96";
+
+/* 会议列表 + 回顾工作台（装配入口；领域规则逐步迁往 modules/） */
 "use strict";
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -219,7 +226,6 @@ const CONTENT_TYPE_LABELS = {
           outline: "Argument map", minutes: "Analysis", screens: "Visual analysis", audit: "Source audit" },
   },
 };
-function contentTypeOf(item) { return item?.content_type === "media" ? "media" : "meeting"; }
 function contentLabel(type, key, ...args) {
   const lang = CONTENT_TYPE_LABELS[type]?.[state.uiLanguage] ? state.uiLanguage : "zh-CN";
   const value = CONTENT_TYPE_LABELS[type]?.[lang]?.[key] ?? CONTENT_TYPE_LABELS.meeting[lang]?.[key];
@@ -494,7 +500,7 @@ function renderMeetingHeaderMeta() {
     box.appendChild(token);
   }
   const sourceLink = $("#source-link");
-  const sourceUrl = String(b.source_info?.canonical_url || "");
+  const sourceUrl = safeSourceUrl(b);
   if (sourceLink) {
     sourceLink.classList.toggle("hidden", !sourceUrl);
     if (sourceUrl) sourceLink.href = sourceUrl;
@@ -590,8 +596,7 @@ function orderedMeetings() {
   const order = state.workspace.meetingSort;
   return [...state.meetings].sort((left, right) => {
     if (order === "meeting") {
-      const dateCompare = String(right.source_info?.published_at || right.date || right.slug).localeCompare(
-        String(left.source_info?.published_at || left.date || left.slug));
+      const dateCompare = sourcePublishedDate(right).localeCompare(sourcePublishedDate(left));
       return dateCompare || String(right.slug).localeCompare(String(left.slug));
     }
     const key = order === "updated" ? "updated_at" : "imported_at";
@@ -610,8 +615,7 @@ function renderMeetingList() {
   for (const m of orderedMeetings()) {
     if (contentTypeOf(m) !== contentType) continue;
     const source = m.source_info || {};
-    const haystack = `${m.title || ""} ${m.date || ""} ${m.slug} ${(m.keywords || []).join(" ")} ` +
-      `${source.platform || ""} ${source.publisher || ""} ${source.published_at || ""}`;
+    const haystack = sourceSearchText(m);
     if (q && !haystack.toLowerCase().includes(q)) continue;
     shown += 1;
     const li = document.createElement("li");
@@ -5101,20 +5105,16 @@ async function doBind(voice, create) {
 async function uploadFiles(files) {
   if (!files.length) return;
   const contentType = state.workspace.contentType;
-  const localMediaIsVideo = files.length === 1 && (
-    String(files[0].type || "").startsWith("video/")
-    || /\.(?:mp4|mkv|mov|webm|avi|m4v)$/i.test(String(files[0].name || ""))
-  );
+  const localMediaIsVideo = isSingleLocalVideo(files);
   if (contentType === "media" && !localMediaIsVideo) {
     toast(isEnglishUi() ? "Media mode accepts one local video at a time" : "媒体模式一次只支持一个本地视频");
     return;
   }
-  const fd = new FormData();
-  for (const f of files) fd.append("files", f);
-  fd.append("content_type", contentType);
-  if ($("#skip-vl") && $("#skip-vl").checked) fd.append("no_vl", "1");
-  if ($("#ignore-transcript") && $("#ignore-transcript").checked)
-    fd.append("ignore_transcript", "1");
+  const fd = buildUploadFormData(files, {
+    contentType,
+    noVl: !!$("#skip-vl")?.checked,
+    ignoreTranscript: !!$("#ignore-transcript")?.checked,
+  });
   const r = await api("/api/upload", { method: "POST", body: fd });
   const j = await r.json();
   if (!r.ok) { toast(`上传被拒: ${j.detail || r.status}`); return; }
@@ -5159,12 +5159,8 @@ async function importMediaUrl() {
   }
   button.disabled = true;
   try {
-    const response = await api("/api/import-url", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url, no_vl: !!$("#skip-vl")?.checked }),
-    });
-    const job = await response.json().catch(() => ({}));
+    const { response, body: job } = await enqueueMediaUrl(
+      api, url, !!$("#skip-vl")?.checked);
     if (!response.ok) {
       toast(`${isEnglishUi() ? "URL import rejected" : "链接导入失败"}：${job.detail || response.status}`);
       return;
@@ -5220,21 +5216,8 @@ async function pollJobs() {
 function renderJobs(jobs) {
   const ul = $("#jobs-list");
   if (!ul) return;
-  const allActiveJobs = jobs.filter(j => j.status === "queued" || j.status === "running")
-    .sort((a, b) => a.status === b.status
-      ? Number(a.queue_position || 9999) - Number(b.queue_position || 9999)
-      : a.status === "running" ? -1 : 1);
-  const jobsOfType = jobs.filter(j => contentTypeOf(j) === state.workspace.contentType);
-  const activeJobs = allActiveJobs.filter(j => contentTypeOf(j) === state.workspace.contentType);
-  const runningJob = allActiveJobs.find(j => j.status === "running");
-  const activeMeetings = new Set(activeJobs.map(job => job.meeting).filter(Boolean));
-  const recoverableStops = jobsOfType.filter(j => ["failed", "paused"].includes(j.status)
-    && j.recovery?.state !== "recovered"
-    && !activeMeetings.has(j.meeting)
-    && (j.recovery?.state === "available"
-      || Date.now() / 1000 - Number(j.finished || j.created || 0) < 60 * 60)).slice(0, 2);
-  const visibleJobs = [...activeJobs, ...recoverableStops]
-    .filter((job, index, all) => all.findIndex(item => item.id === job.id) === index);
+  const { allActiveJobs, activeJobs, runningJob, visibleJobs } = selectJobPanel(
+    jobs, state.workspace.contentType, contentTypeOf);
   state.activeJobs = allActiveJobs;
   $("#jobs-panel").classList.toggle("hidden", visibleJobs.length === 0);
   $(".jobs-head").textContent = activeJobs.length
@@ -5244,8 +5227,7 @@ function renderJobs(jobs) {
     const li = document.createElement("li");
     const active = j.status === "queued" || j.status === "running";
     const meeting = state.meetings.find(item => item.slug === j.meeting);
-    const name = meeting?.title || j.display_name || j.meeting
-      || (contentTypeOf(j) === "media" ? "媒体处理" : "会议处理");
+    const name = jobDisplayName(j, state.meetings, contentTypeOf);
     const kindLabel = j.kind === "translation"
       ? `${translationTargetLabel(j.target_language)} ${j.translation_artifact === "minutes"
         ? (j.translation_source_state === "draft"
@@ -5727,7 +5709,7 @@ function init() {
 }
 
 /* 构建号自检：产品版本从 /api/health 读取，缓存构建号从脚本 v= 参数读取。 */
-const SCRIPT_BUILD = (document.currentScript?.src || "").match(/[?&]v=([\w]+)/)?.[1];
+const SCRIPT_BUILD = new URL(import.meta.url).searchParams.get("v");
 document.addEventListener("DOMContentLoaded", () => {
   if (SCRIPT_BUILD) document.querySelector(".brand")?.setAttribute("title", `构建 ${SCRIPT_BUILD}`);
 });
