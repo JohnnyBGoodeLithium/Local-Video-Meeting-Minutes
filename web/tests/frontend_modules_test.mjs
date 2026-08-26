@@ -4,6 +4,11 @@ import { contentTypeOf, safeSourceUrl, sourcePublishedDate, sourceSearchText }
 import { buildUploadFormData, enqueueMediaUrl, isSingleLocalVideo }
   from "../static/modules/imports.js";
 import { jobDisplayName, selectJobPanel } from "../static/modules/jobs.js";
+import { chooseInitialItem, deepLinkSeconds, filterLibrary, sortLibrary }
+  from "../static/modules/library.js";
+import { adjacentReviewUnit, defaultReviewUnits, nearestReviewUnit,
+  reviewIndexesFor, reviewUnitForTurn, turnEnd }
+  from "../static/modules/player-navigation.js";
 
 const media = {
   slug: "synthetic-media",
@@ -54,4 +59,33 @@ assert.deepEqual(selected.visibleJobs.map(item => item.id), ["queued-media", "fa
 assert.equal(selected.runningJob.id, "running-meeting");
 assert.equal(jobDisplayName({ content_type: "media" }, [], contentType), "媒体处理");
 
-console.log("frontend modules: source/import/job policies passed");
+const library = [
+  { slug: "older", title: "Older meeting", imported_at: 10, date: "2026-08-01" },
+  { ...media, imported_at: 30 },
+  { slug: "newer", title: "Newer meeting", imported_at: 20, date: "2026-08-22" },
+];
+assert.deepEqual(sortLibrary(library).map(item => item.slug),
+  ["synthetic-media", "newer", "older"]);
+assert.deepEqual(filterLibrary(library, { contentType: "media", query: "publisher" })
+  .map(item => item.slug), ["synthetic-media"]);
+assert.equal(chooseInitialItem(library, { remembered: "older", contentType: "media" }).slug,
+  "older");
+assert.equal(chooseInitialItem(library, { linked: "missing", contentType: "media" }).slug,
+  "synthetic-media");
+assert.equal(deepLinkSeconds("12.5", 30), 12.5);
+assert.equal(deepLinkSeconds("31", 30), null);
+
+const transcript = [
+  { start: 0, end: 8, speaker: "Alice" },
+  { start: 8, end: 15, speaker: "Bob" },
+  { start: 15, speaker: "Alice" },
+];
+const units = defaultReviewUnits(transcript, 20);
+assert.equal(turnEnd(transcript, 20, 2), 20);
+assert.deepEqual(reviewIndexesFor(units, "Alice"), [0, 2]);
+assert.equal(reviewUnitForTurn(units, 1, 10), 1);
+assert.equal(nearestReviewUnit(units, [0, 2], 10), 2);
+assert.equal(adjacentReviewUnit([0, 2], 0, 1), 2);
+assert.equal(adjacentReviewUnit([0, 2], 2, 1), null);
+
+console.log("frontend modules: source/import/job/library/player policies passed");

@@ -1,9 +1,14 @@
-import { contentTypeOf, safeSourceUrl, sourcePublishedDate, sourceSearchText }
-  from "./modules/media-source.js?v=20260826p96";
+import { contentTypeOf, safeSourceUrl }
+  from "./modules/media-source.js?v=20260826p97";
 import { buildUploadFormData, enqueueMediaUrl, isSingleLocalVideo }
-  from "./modules/imports.js?v=20260826p96";
+  from "./modules/imports.js?v=20260826p97";
 import { jobDisplayName, selectJobPanel }
-  from "./modules/jobs.js?v=20260826p96";
+  from "./modules/jobs.js?v=20260826p97";
+import { chooseInitialItem, deepLinkSeconds, filterLibrary, sortLibrary }
+  from "./modules/library.js?v=20260826p97";
+import { adjacentReviewUnit, defaultReviewUnits, nearestReviewUnit,
+  reviewIndexesFor, reviewUnitForTurn as findReviewUnitForTurn, turnEnd }
+  from "./modules/player-navigation.js?v=20260826p97";
 
 /* 会议列表 + 回顾工作台（装配入口；领域规则逐步迁往 modules/） */
 "use strict";
@@ -579,30 +584,22 @@ async function loadMeetings() {
     const linked = params.get("meeting");
     // 外链深链（如知识库文档的时间码链接）：?meeting=<slug>&t=<秒>，支持小数秒；
     // t 非数、负数或超出会议时长时忽略，只打开会议不定位。
-    const deepLinkSeek = Number.parseFloat(params.get("t") || "");
-    const remembered = state.meetings.find(m => m.slug ===
-      (linked || state.workspace.lastSlug));
-    const firstOfType = orderedMeetings()
-      .find(m => contentTypeOf(m) === state.workspace.contentType);
-    await loadMeeting((remembered || firstOfType || orderedMeetings()[0]).slug);
-    if (linked && Number.isFinite(deepLinkSeek) && deepLinkSeek >= 0
-        && deepLinkSeek <= (Number(state.bundle?.duration) || Infinity)) {
+    const initial = chooseInitialItem(state.meetings, {
+      linked,
+      remembered: state.workspace.lastSlug,
+      contentType: state.workspace.contentType,
+      order: state.workspace.meetingSort,
+    });
+    await loadMeeting(initial.slug);
+    const deepLinkSeek = deepLinkSeconds(params.get("t"), state.bundle?.duration);
+    if (linked && deepLinkSeek != null) {
       seek(deepLinkSeek);
     }
   }
 }
 
 function orderedMeetings() {
-  const order = state.workspace.meetingSort;
-  return [...state.meetings].sort((left, right) => {
-    if (order === "meeting") {
-      const dateCompare = sourcePublishedDate(right).localeCompare(sourcePublishedDate(left));
-      return dateCompare || String(right.slug).localeCompare(String(left.slug));
-    }
-    const key = order === "updated" ? "updated_at" : "imported_at";
-    return Number(right[key] || 0) - Number(left[key] || 0)
-      || String(right.slug).localeCompare(String(left.slug));
-  });
+  return sortLibrary(state.meetings, state.workspace.meetingSort);
 }
 
 function renderMeetingList() {
@@ -612,11 +609,9 @@ function renderMeetingList() {
   const contentType = state.workspace.contentType;
   ul.innerHTML = "";
   let shown = 0;
-  for (const m of orderedMeetings()) {
-    if (contentTypeOf(m) !== contentType) continue;
+  const visibleMeetings = filterLibrary(orderedMeetings(), { contentType, query: q });
+  for (const m of visibleMeetings) {
     const source = m.source_info || {};
-    const haystack = sourceSearchText(m);
-    if (q && !haystack.toLowerCase().includes(q)) continue;
     shown += 1;
     const li = document.createElement("li");
     li.className = "meeting-item" + (m.slug === state.slug ? " active" : "");
@@ -2286,11 +2281,7 @@ function applySpeakerFocus() {
 }
 
 function reviewTurnEnd(index) {
-  const transcript = state.bundle?.transcript || [];
-  const turn = transcript[index];
-  if (!turn) return 0;
-  return Number(turn.end ?? transcript[index + 1]?.start ?? state.bundle?.duration)
-    || Number(turn.start) || 0;
+  return turnEnd(state.bundle?.transcript, state.bundle?.duration, index);
 }
 
 function reviewSpeaker() {
@@ -2299,26 +2290,15 @@ function reviewSpeaker() {
 
 function reviewUnitList() {
   if (state.reviewUnits?.length) return state.reviewUnits;
-  const transcript = state.bundle?.transcript || [];
-  return transcript.map((turn, turnIndex) => ({
-    index: turnIndex, turnIndex, chunkIndex: 0, chunkCount: 1,
-    start: Number(turn.start) || 0, end: reviewTurnEnd(turnIndex), speaker: turn.speaker,
-  }));
+  return defaultReviewUnits(state.bundle?.transcript, state.bundle?.duration);
 }
 
 function reviewIndexes(speaker = reviewSpeaker()) {
-  return reviewUnitList().filter(unit => !speaker || unit.speaker === speaker)
-    .map(unit => unit.index);
+  return reviewIndexesFor(reviewUnitList(), speaker);
 }
 
 function reviewUnitForTurn(turnIndex, time = null) {
-  const units = reviewUnitList().filter(unit => unit.turnIndex === turnIndex);
-  if (!units.length) return null;
-  if (time != null) {
-    const containing = units.find(unit => unit.start <= time && time < unit.end);
-    if (containing) return containing.index;
-  }
-  return units[0].index;
+  return findReviewUnitForTurn(reviewUnitList(), turnIndex, time);
 }
 
 function playbackPosition() {
@@ -2330,11 +2310,7 @@ function playbackPosition() {
 function nearestReviewTurn(speaker = reviewSpeaker(), time = playbackPosition()) {
   const units = reviewUnitList();
   const indexes = reviewIndexes(speaker);
-  if (!indexes.length) return null;
-  const containing = indexes.find(index => units[index].start <= time && time < units[index].end);
-  if (containing != null) return containing;
-  return indexes.find(index => units[index].start >= time)
-    ?? indexes[indexes.length - 1];
+  return nearestReviewUnit(units, indexes, time);
 }
 
 function ensureReviewTurn() {
@@ -2371,8 +2347,7 @@ function selectReviewTurn(index, play = true) {
 function stepReviewTurn(delta) {
   const indexes = reviewIndexes();
   const current = ensureReviewTurn();
-  const position = indexes.indexOf(current);
-  const target = indexes[position + delta];
+  const target = adjacentReviewUnit(indexes, current, delta);
   if (target != null) selectReviewTurn(target, true);
 }
 

@@ -25,7 +25,7 @@ make run      # 127.0.0.1:8899
 
 ## 在线前端模块
 
-`web/static/app.js` 是无构建原生 ES module 装配入口；可复用、无 DOM 的领域规则放在 `web/static/modules/`。当前边界为媒体来源投影、导入请求和任务面板策略，新增跨域逻辑不要再直接堆回入口。模块须能被 `web/tests/frontend_modules_test.mjs` 独立导入；入口或加载顺序变化还须通过 `make smoke` 的 Headless Chromium 在线启动检查。静态契约测试检索整个模块图，不得假设实现仍位于 `app.js` 单文件。
+`web/static/app.js` 是无构建原生 ES module 装配入口；可复用、无 DOM 的领域规则放在 `web/static/modules/`。当前边界为媒体来源投影、导入请求、任务面板、内容库选择和逐字稿核听导航；DOM、滚动、媒体 `play()` 与跨域状态协调留在入口，新增纯规则不要再直接堆回去。模块须能被 `web/tests/frontend_modules_test.mjs` 独立导入；入口或加载顺序变化还须通过 `make smoke` 的 Headless Chromium 在线启动检查。静态契约测试检索整个模块图，不得假设实现仍位于 `app.js` 单文件。
 
 ## 页面排障入口
 
