@@ -1,23 +1,24 @@
 import { contentTypeOf, safeSourceUrl }
-  from "./modules/media-source.js?v=20260826p99";
+  from "./modules/media-source.js?v=20260826p100";
 import { buildUploadFormData, enqueueMediaUrl, isSingleLocalVideo }
-  from "./modules/imports.js?v=20260826p99";
+  from "./modules/imports.js?v=20260826p100";
 import { jobDisplayName, selectJobPanel }
-  from "./modules/jobs.js?v=20260826p99";
+  from "./modules/jobs.js?v=20260826p100";
 import { chooseInitialItem, deepLinkSeconds, filterLibrary, sortLibrary }
-  from "./modules/library.js?v=20260826p99";
+  from "./modules/library.js?v=20260826p100";
 import { adjacentReviewUnit, defaultReviewUnits, nearestReviewUnit,
   reviewIndexesFor, reviewUnitForTurn as findReviewUnitForTurn, turnEnd }
-  from "./modules/player-navigation.js?v=20260826p99";
-import { nextSearchCursor, pendingReviewByTurn, splitTurnChunks, transcriptSearchHits,
-  turnReviewUnits }
-  from "./modules/transcript.js?v=20260826p99";
+  from "./modules/player-navigation.js?v=20260826p100";
+import { nextSearchCursor, pendingReviewByTurn, transcriptSearchHits }
+  from "./modules/transcript.js?v=20260826p100";
+import { renderTranscriptView }
+  from "./modules/transcript-view.js?v=20260826p100";
 import { exportSizeState, formatBytes, meetingExportHref, normalizeExportProfile,
   packExportHref }
-  from "./modules/export.js?v=20260826p99";
+  from "./modules/export.js?v=20260826p100";
 import { claimAction, claimIdsForTurn, evidenceSources, minutesState, normalizeReviewMode,
   resolveMinutesClaim, resolveMinutesView, turnIndexAtTime, turnIndexesForSourceIds }
-  from "./modules/minutes.js?v=20260826p99";
+  from "./modules/minutes.js?v=20260826p100";
 
 /* 会议列表 + 回顾工作台（装配入口；领域规则逐步迁往 modules/） */
 "use strict";
@@ -2587,12 +2588,6 @@ function updateActiveChapter(time) {
 
 /* ---------- 转写区 ---------- */
 
-function transcriptScrollAnchor(box) {
-  const bounds = box.getBoundingClientRect();
-  const turn = $$(".turn[id]", box).find(item => item.getBoundingClientRect().bottom > bounds.top + 2);
-  return turn ? { id: turn.id, offset: turn.getBoundingClientRect().top - bounds.top } : null;
-}
-
 function transcriptPendingByTurn() {
   return pendingReviewByTurn(state.bundle?.transcript_review);
 }
@@ -2664,144 +2659,44 @@ async function undoTranscriptEdit() {
 }
 
 function renderTranscript(preserveScroll = true) {
-  const box = $("#transcript");
-  const anchor = preserveScroll ? transcriptScrollAnchor(box) : null;
-  box.innerHTML = "";
   const translations = new Map((state.translation?.turns || []).map(item => [item.index, item]));
   const sourceLanguages = new Map((state.translation?.source_languages || [])
     .map(item => [item.index, item.source_language]));
-  const transcript = state.bundle.transcript;
   const pendingByTurn = transcriptPendingByTurn();
-  const bundleDuration = Number(state.bundle?.duration || 0);
-  state.reviewUnits = [];
-  state.bundle.transcript.forEach((t, i) => {
-    const div = document.createElement("div");
-    div.className = "turn";
-    div.id = `turn-${i}`;
-    div.dataset.index = i;
-    if (pendingByTurn.has(i)) div.classList.add("review-pending");
-    const chipCls = t.voice ? "chip" : "chip disabled";
-    const translated = translations.get(i);
-    const sourceLanguage = sourceLanguages.get(i);
-    const forcedComparison = state.evidenceBilingual.has(i);
-    const mode = forcedComparison ? "comparison" : state.transcriptMode;
-    const canTranslate = translated
-      && sourceNeedsTranslation(translated.source_language, state.translationTarget);
-    const showOriginal = mode === "original" || !canTranslate || mode === "comparison"
-      || state.expandedOriginals.has(i);
-    const showTranslation = canTranslate && mode !== "original";
-    // 仅"只显示原文"时分块;译文/对照模式保持整块,避免译文与原文子块错位。
-    const turnDuration = Math.max(0,
-      (Number(t.end ?? transcript[i + 1]?.start ?? bundleDuration) || 0) - (Number(t.start) || 0));
-    const chunks = (showOriginal && !showTranslation) ? splitTurnChunks(t.text, turnDuration) : null;
-    const pieces = chunks || [{ text: t.text, charStart: 0 }];
-    const firstUnitIndex = state.reviewUnits.length;
-    state.reviewUnits.push(...turnReviewUnits(
-      t, i, reviewTurnEnd(i), pieces, firstUnitIndex));
-    div.dataset.reviewUnit = firstUnitIndex;
-    let textHtml = '<span class="turn-text">';
-    if (showOriginal) {
-      textHtml += `<span class="txt source-text">${esc(chunks ? chunks[0].text : t.text)}</span>`;
-    }
-    if (showTranslation) {
-      textHtml += `<span class="txt translated-text ${mode === "translated" ? "primary" : ""}">${esc(translated.translated_text)}</span>`;
-      if (translated.warnings?.includes("number_mismatch"))
-        textHtml += '<span class="translation-warning">数字可能需要核对</span>';
-      if (mode === "translated") {
-        textHtml += `<button type="button" class="toggle-turn-original" data-index="${i}">` +
-          `${state.expandedOriginals.has(i) ? "收起原文" : `${esc(String(translated.source_language).toUpperCase())} 原文`}</button>`;
-      }
-    } else if (mode !== "original" && sourceLanguage
-        && sourceNeedsTranslation(sourceLanguage, state.translationTarget)) {
-      const priority = state.evidenceBilingual.has(i) ? " priority" : "";
-      textHtml += `<span class="turn-translation-pending${priority}">` +
-        `${priority ? "优先翻译中" : (state.translationJob ? "等待翻译" : "等待继续翻译")}</span>`;
-    }
-    textHtml += "</span>";
-    div.innerHTML =
-      `<span class="tc" title="点击跳转">[${fmt(t.start)}]</span>` +
-      `<span class="${chipCls}" style="border-left: 3px solid ${speakerColor(t.speaker)}" ` +
-      `title="${esc(t.speaker)} · ${t.voice ? "点击绑定说话人" : "无对应声纹"}" ` +
-      `aria-label="说话人：${esc(t.speaker)}">${esc(t.speaker)}</span>` +
-      textHtml +
-      `<button type="button" class="edit-turn" title="${isEnglishUi() ? "Listen and correct original transcript" : "核听并修正原语言逐字稿"}">${isEnglishUi() ? "Correct" : "修正"}</button>` +
-      `<button type="button" class="quote-turn" title="引用这一轮到会议助手">引用</button>`;
-    if (state.splitMarks.has(i)) div.classList.add("split-marked");
-    if (state.splitTarget && t.voice === state.splitTarget) div.classList.add("split-candidate");
-    $(".tc", div).onclick = ev => {
-      ev.stopPropagation();
-      selectReviewTurn(firstUnitIndex, true);
-    };
-    $(".chip", div).onclick = ev => {
-      ev.stopPropagation();
-      if (t.voice) openBind(t.voice, t.speaker);
-    };
-    // 整块轮次点击 seek；选中文字时不触发，保留复制能力。
-    // 拆分标记模式下，点击该声纹的轮次改为标记/取消标记。
-    div.addEventListener("click", () => {
-      const selection = window.getSelection();
-      if (selection && !selection.isCollapsed && String(selection)) return;
-      if (state.splitTarget) { tryToggleSplitMark(i, t.voice); return; }
-      selectReviewTurn(firstUnitIndex, true);
-    });
-    $(".quote-turn", div).onclick = ev => {
-      ev.stopPropagation();
-      addReferenceRange(i, i);
-    };
-    $(".edit-turn", div).onclick = ev => {
-      ev.stopPropagation();
-      openTranscriptEdit(i, pendingByTurn.get(i));
-    };
-    const toggleOriginal = $(".toggle-turn-original", div);
-    if (toggleOriginal) toggleOriginal.onclick = ev => {
-      ev.stopPropagation();
-      if (state.expandedOriginals.has(i)) state.expandedOriginals.delete(i);
-      else state.expandedOriginals.add(i);
+  state.reviewUnits = renderTranscriptView({
+    box: $("#transcript"),
+    transcript: state.bundle?.transcript || [],
+    pendingByTurn,
+    translations,
+    sourceLanguages,
+    transcriptMode: state.transcriptMode,
+    translationTarget: state.translationTarget,
+    evidenceBilingual: state.evidenceBilingual,
+    expandedOriginals: state.expandedOriginals,
+    splitMarks: state.splitMarks,
+    splitTarget: state.splitTarget,
+    bundleDuration: Number(state.bundle?.duration || 0),
+    preserveScroll,
+    isEnglish: isEnglishUi(),
+    translationActive: Boolean(state.translationJob),
+    sourceNeedsTranslation,
+    formatTime: fmt,
+    escapeHtml: esc,
+    speakerColor,
+    ui,
+    turnEnd: reviewTurnEnd,
+    onSelectUnit: index => selectReviewTurn(index, true),
+    onOpenBind: (voice, speaker) => openBind(voice, speaker),
+    onToggleSplit: (index, voice) => tryToggleSplitMark(index, voice),
+    onQuote: index => addReferenceRange(index, index),
+    onEdit: (index, candidate) => openTranscriptEdit(index, candidate),
+    onToggleOriginal: index => {
+      if (state.expandedOriginals.has(index)) state.expandedOriginals.delete(index);
+      else state.expandedOriginals.add(index);
       renderTranscript();
-      scrollTranscriptTurn(i, "center", false);
-    };
-    box.appendChild(div);
-    // 后续子块与控制条共享核听段落索引；重复说话人，并明确标出它属于同一条发言。
-    if (chunks) {
-      for (const [offset, chunk] of chunks.slice(1).entries()) {
-        const chunkIndex = offset + 1;
-        const unitIndex = firstUnitIndex + chunkIndex;
-        const at = state.reviewUnits[unitIndex].start;
-        const cont = document.createElement("div");
-        cont.className = "turn turn-cont";
-        cont.dataset.index = i;
-        cont.dataset.reviewUnit = unitIndex;
-        cont.innerHTML =
-          `<span class="tc" title="点击跳转(按字符位置估算)">[${fmt(at)}]</span>` +
-          `<span class="chip cont-speaker" style="border-left: 3px solid ${speakerColor(t.speaker)}" ` +
-          `title="${esc(t.speaker)}" aria-label="说话人：${esc(t.speaker)}">${esc(t.speaker)}</span>` +
-          `<span class="turn-text"><span class="cont-mark">${ui("continued")} · ${chunkIndex + 1}/${chunks.length}</span>` +
-          `<span class="txt source-text">${esc(chunk.text)}</span></span>`;
-        $(".tc", cont).onclick = ev => {
-          ev.stopPropagation();
-          selectReviewTurn(unitIndex, true);
-        };
-        cont.addEventListener("click", () => {
-          const selection = window.getSelection();
-          if (selection && !selection.isCollapsed && String(selection)) return;
-          if (state.splitTarget) { tryToggleSplitMark(i, t.voice); return; }
-          selectReviewTurn(unitIndex, true);
-        });
-        box.appendChild(cont);
-      }
-    }
+      scrollTranscriptTurn(index, "center", false);
+    },
   });
-  if (!state.bundle.transcript.length)
-    box.innerHTML = '<p class="placeholder">无逐字稿</p>';
-  if (anchor) {
-    const restored = document.getElementById(anchor.id);
-    if (restored) {
-      const bounds = box.getBoundingClientRect();
-      box.scrollTop += restored.getBoundingClientRect().top - bounds.top - anchor.offset;
-    }
-  } else if (!preserveScroll) {
-    box.scrollTop = 0;
-  }
   state.reviewTurnIndex = nearestReviewTurn(reviewSpeaker(), playbackPosition());
   updateFocusedTurns(false);
   updateReviewHighlights();

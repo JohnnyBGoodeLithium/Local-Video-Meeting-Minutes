@@ -12,6 +12,8 @@ import { adjacentReviewUnit, defaultReviewUnits, nearestReviewUnit,
 import { nextSearchCursor, pendingReviewByTurn, splitTurnChunks, transcriptSearchHits,
   turnReviewUnits }
   from "../static/modules/transcript.js";
+import { renderTranscriptView, transcriptScrollAnchor }
+  from "../static/modules/transcript-view.js";
 import { exportSizeState, formatBytes, meetingExportHref, normalizeExportProfile,
   packExportHref }
   from "../static/modules/export.js";
@@ -112,6 +114,8 @@ assert.equal(chunkUnits.at(-1).end, 130);
 assert.equal(pendingReviewByTurn({ pending: [
   { turn_index: 2, suggested_text: "synthetic" }, { turn_index: "3" },
 ] }).size, 1);
+assert.equal(typeof renderTranscriptView, "function");
+assert.equal(typeof transcriptScrollAnchor, "function");
 
 assert.equal(normalizeExportProfile("unknown"), "full");
 assert.equal(formatBytes(2 * 1024 * 1024), "2.0 MB");
@@ -162,4 +166,4 @@ assert.equal(evidenceSources(evidenceBundle, evidence.claims[0]).firstTime, 10);
 assert.equal(normalizeReviewMode("chapters", { transcript: [] }), "minutes");
 assert.equal(normalizeReviewMode("quality", {}), "quality");
 
-console.log("frontend modules: source/import/job/library/player/transcript/export/minutes policies passed");
+console.log("frontend modules: source/import/job/library/player/transcript-view/export/minutes policies passed");
