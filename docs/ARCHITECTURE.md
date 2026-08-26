@@ -43,7 +43,7 @@ flowchart LR
 
 Meeting 与 Media 不是两套项目。二者共用 **Media Analysis Core**：媒体固化、音轨、ASR、说话人、镜头/逻辑页、VL、evidence、来源契约和导出；其上使用两个 domain profile：Meeting 强调决定/待办/风险与人员身份，Media 强调论证/规格/作者观点与叙事作用。Web、MeetingPack Viewer 和 KB HTML/Markdown 是同一 canonical 资产的不同 projection。
 
-`web/static/app.js` 曾同时承担导入、库列表、作业、播放器、逐字稿、纪要、媒体来源与导出，约五千余行，继续新增跨域状态的回归成本已高于单文件收益。现在已迁为无构建原生 ES module 入口，并从 `web/static/modules/` 抽出 `media-source`、`imports`、`jobs`、`library`、`player-navigation`、`transcript`、`export` 和 `minutes` 八个无 DOM 规则模块；第九个 `transcript-view` 是首个 DOM projection，只接收逐字稿、译文、复核/拆分状态、格式函数和行为 callback，不反向读取全局 `state`，也不调用 API 或媒体播放。入口负责把当前状态装配成参数，并在 renderer 返回核听单元后协调播放、Focus、搜索与滚动。`minutes` 负责标准/AI 视图选择、草稿/终稿/译文/证据可用性、时间点到结论的映射、证据来源解析和 Tab 可用性；纪要 HTML、证据抽屉、API 写入与撤销仍在入口。后续优先为纪要大型 DOM renderer 建立相同的显式 view/controller 边界。拆分完成的判据是模块拥有明确输入/输出、在线工作台与无头 Viewer/smoke 行为不变，而不是追求文件数；当前不引入 React、微前端或复制 Meeting/Media 页面。
+`web/static/app.js` 曾同时承担导入、库列表、作业、播放器、逐字稿、纪要、媒体来源与导出，约五千余行，继续新增跨域状态的回归成本已高于单文件收益。现在已迁为无构建原生 ES module 入口，并从 `web/static/modules/` 抽出 `media-source`、`imports`、`jobs`、`library`、`player-navigation`、`transcript`、`export` 和 `minutes` 八个无 DOM 规则模块；`transcript-view` 与 `minutes-view` 是两个 DOM projection，分别接收阅读数据、格式函数和行为 callback，不反向读取全局 `state`，也不调用 API 或媒体播放。入口负责把当前状态装配成参数：逐字稿 renderer 返回核听单元后由入口协调播放、Focus、搜索与滚动；纪要 renderer 负责标准/AI 视图、草稿/译文/待办候选的阅读节点和证据链接接线，证据抽屉、AI 修改、保存/撤销/恢复仍由入口 controller 执行。拆分完成的判据是模块拥有明确输入/输出、在线工作台与无头 Viewer/smoke 行为不变，而不是追求文件数；当前不引入 React、微前端或复制 Meeting/Media 页面。
 
 ## 目录职责
 

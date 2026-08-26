@@ -1,24 +1,26 @@
 import { contentTypeOf, safeSourceUrl }
-  from "./modules/media-source.js?v=20260826p100";
+  from "./modules/media-source.js?v=20260826p101";
 import { buildUploadFormData, enqueueMediaUrl, isSingleLocalVideo }
-  from "./modules/imports.js?v=20260826p100";
+  from "./modules/imports.js?v=20260826p101";
 import { jobDisplayName, selectJobPanel }
-  from "./modules/jobs.js?v=20260826p100";
+  from "./modules/jobs.js?v=20260826p101";
 import { chooseInitialItem, deepLinkSeconds, filterLibrary, sortLibrary }
-  from "./modules/library.js?v=20260826p100";
+  from "./modules/library.js?v=20260826p101";
 import { adjacentReviewUnit, defaultReviewUnits, nearestReviewUnit,
   reviewIndexesFor, reviewUnitForTurn as findReviewUnitForTurn, turnEnd }
-  from "./modules/player-navigation.js?v=20260826p100";
+  from "./modules/player-navigation.js?v=20260826p101";
 import { nextSearchCursor, pendingReviewByTurn, transcriptSearchHits }
-  from "./modules/transcript.js?v=20260826p100";
+  from "./modules/transcript.js?v=20260826p101";
 import { renderTranscriptView }
-  from "./modules/transcript-view.js?v=20260826p100";
+  from "./modules/transcript-view.js?v=20260826p101";
 import { exportSizeState, formatBytes, meetingExportHref, normalizeExportProfile,
   packExportHref }
-  from "./modules/export.js?v=20260826p100";
+  from "./modules/export.js?v=20260826p101";
 import { claimAction, claimIdsForTurn, evidenceSources, minutesState, normalizeReviewMode,
-  resolveMinutesClaim, resolveMinutesView, turnIndexAtTime, turnIndexesForSourceIds }
-  from "./modules/minutes.js?v=20260826p100";
+  resolveMinutesView, turnIndexAtTime, turnIndexesForSourceIds }
+  from "./modules/minutes.js?v=20260826p101";
+import { renderMinutesView }
+  from "./modules/minutes-view.js?v=20260826p101";
 
 /* 会议列表 + 回顾工作台（装配入口；领域规则逐步迁往 modules/） */
 "use strict";
@@ -3170,85 +3172,31 @@ function renderMinutes() {
     state.workspace.minutesViews[state.slug] = "standard";
     saveWorkspaceState();
   }
-  const viewSelect = $("#minutes-view");
-  if (viewSelect) {
-    viewSelect.innerHTML = `<option value="standard">${isEnglishUi() ? "Standard minutes" : "标准纪要"}</option>` +
-      availableViews.map(view => `<option value="${esc(view.id)}">AI · ${esc(view.title)}</option>`).join("");
-    viewSelect.value = selectedViewId;
-    viewSelect.classList.toggle("hidden", !availableViews.length || state.viewMode !== "minutes");
-  }
-  $("#restore-minutes")?.classList.toggle("hidden", state.viewMode !== "minutes"
-    || selectedViewId !== "standard" || !state.bundle?.minutes_history_available);
   const presentation = minutesState(
     state.bundle, selectedView, state.minutesTranslation, state.uiLanguage, state.assistantBusy);
-  const { draft, phase, draftFailed } = presentation;
-  const draftFailure = voiceDraftFailureCopy(state.bundle?.generation?.voice_draft_rc);
-  const banner = draft ? (isEnglishUi()
-    ? `<section class="minutes-draft-banner"><div><span>Voice draft · Ready to read</span>` +
-      `<b>${phase === "visual_enrichment" ? "Adding screen context" : "Preparing screen analysis"}</b>` +
-      `<p>This draft uses the transcript and speaker identities. Tables, figures, and visual context will be added to the multimodal final version. Playback, search, and Q&A are available; editing and export remain disabled.</p></div><i></i></section>`
-    : `<section class="minutes-draft-banner"><div><span>语音草稿 · 已可阅读</span>` +
-      `<b>${phase === "visual_enrichment" ? "正在补充屏幕资料" : "正在准备屏幕分析"}</b>` +
-      `<p>当前结论来自逐字稿和说话人；页面数字、表格和画面上下文会在多模态终稿中补充。` +
-      `草稿期间可以播放、搜索和追问，暂不支持修改或导出。</p></div><i></i></section>`) : "";
-  const pending = draftFailed
-    ? '<section class="minutes-draft-banner"><div><span>语音草稿生成失败</span><b>正在继续生成多模态终稿</b>' +
-      `<p>${esc(draftFailure.detail)}</p></div><i></i></section>`
-    : '<p class="placeholder">暂无纪要</p>';
-  const translated = presentation.translatedHtml;
-  const languageBanner = state.minutesTranslationJob
-    ? `<div class="minutes-language-banner"><b>${esc(ui("translatingMinutes"))}</b><span>…</span></div>`
-    : state.minutesTranslation?.state === "failed"
-      ? `<div class="minutes-language-banner"><b>${esc(ui("minutesFailed"))}</b></div>` : "";
-  box.innerHTML = selectedView
-    ? `<section class="minutes-view-banner"><b>${isEnglishUi() ? "AI minutes view" : "AI 纪要视图"}</b>` +
-      `<span>${esc(selectedView.title)}</span><small>${isEnglishUi() ? "The standard minutes are preserved; switch back above at any time." : "标准纪要未被覆盖，可从上方随时切回。"}</small></section>` +
-      (selectedView.html || pending)
-    : languageBanner + banner + (translated || state.bundle.minutes_html || pending);
-  const restructure = $("#restructure-minutes");
-  if (restructure) {
-    restructure.disabled = !presentation.canRestructure;
-    restructure.title = draft
-      ? (isEnglishUi() ? "Wait for the multimodal final minutes" : "等待多模态终稿后再重组")
-      : state.bundle?.evidence?.state !== "ready"
-        ? (isEnglishUi() ? "Regenerate evidence before restructuring" : "事实依据尚未就绪，请先重新生成纪要")
-        : ui("restructurePlaceholder");
-  }
-  const candidates = presentation.actionCandidates;
-  if (candidates.length) {
-    const candidateHtml = `<details class="action-candidate-panel"><summary>` +
-      `<span>${isEnglishUi() ? "Unverified candidates" : "待核实候选"}</span>` +
-      `<b>${isEnglishUi() ? `${candidates.length} generated clues` : `另有 ${candidates.length} 条生成线索`}</b>` +
-      `<small>${isEnglishUi() ? "Not linked to transcript evidence and not confirmed. Expand to inspect the original clues."
-        : "尚未绑定逐字稿依据，不代表已确认；展开后可完整保留查看。"}</small></summary>` +
-      `<div class="action-candidate-list">${candidates.map((item, index) =>
-        `<article><i>${String(index + 1).padStart(2, "0")}</i><div><b>${esc(item.text)}</b>` +
-        `<small>${isEnglishUi() ? "Owner" : "负责人"}：${esc(item.owner || (isEnglishUi() ? "Unconfirmed" : "待确认"))} · ` +
-        `${isEnglishUi() ? "Due" : "期限"}：${esc(item.deadline || (isEnglishUi() ? "Unconfirmed" : "待确认"))} · ` +
-        `${isEnglishUi() ? "Source status" : "原状态"}：${esc(item.original_status || (isEnglishUi() ? "Unconfirmed" : "待确认"))}</small>` +
-        `</div><span>${isEnglishUi() ? "Evidence needed" : "待绑定依据"}</span></article>`
-      ).join("")}</div></details>`;
-    const riskHeading = $$(`h3`, box).find(item => item.textContent.trim() === "风险/待确认");
-    if (riskHeading) riskHeading.insertAdjacentHTML("beforebegin", candidateHtml);
-    else box.insertAdjacentHTML("beforeend", candidateHtml);
-  }
-  $$("h1, h2, h3", box).forEach((heading, index) => {
-    heading.id = `minutes-heading-${index}`;
-    heading.dataset.readingHeading = "1";
-  });
-  $$('a[href^="#mm-"]', box).forEach(link => {
-    const claimId = link.getAttribute("href").slice(4);
-    const resolved = resolveMinutesClaim(state.bundle?.evidence, selectedView, claimId);
-    const claim = resolved.claim;
-    if (claim?.start != null) {
-      link.textContent = `${isEnglishUi() ? "Evidence" : "依据"} · ${fmt(claim.start)}`;
-      link.title = isEnglishUi() ? "Jump to the first supporting excerpt" : "跳到第一条原文依据";
-    }
-    link.onclick = ev => {
-      ev.preventDefault();
-      if (resolved.canonical) showMinutesEvidence(claimId, true);
-      else if (claim) showAssistantSource(claim);
-    };
+  renderMinutesView({
+    box,
+    viewSelect: $("#minutes-view"),
+    restoreButton: $("#restore-minutes"),
+    restructureButton: $("#restructure-minutes"),
+    availableViews,
+    selectedViewId,
+    selectedView,
+    viewMode: state.viewMode,
+    historyAvailable: Boolean(state.bundle?.minutes_history_available),
+    presentation,
+    draftFailure: voiceDraftFailureCopy(state.bundle?.generation?.voice_draft_rc),
+    minutesHtml: state.bundle?.minutes_html || "",
+    evidence: state.bundle?.evidence,
+    evidenceState: state.bundle?.evidence?.state,
+    translationState: state.minutesTranslation?.state,
+    translationActive: Boolean(state.minutesTranslationJob),
+    isEnglish: isEnglishUi(),
+    ui,
+    escapeHtml: esc,
+    formatTime: fmt,
+    onCanonicalClaim: claimId => showMinutesEvidence(claimId, true),
+    onAssistantClaim: claim => showAssistantSource(claim),
   });
   updateFocusedClaims();
 }

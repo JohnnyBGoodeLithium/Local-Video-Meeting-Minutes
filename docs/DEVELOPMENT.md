@@ -25,7 +25,7 @@ make run      # 127.0.0.1:8899
 
 ## 在线前端模块
 
-`web/static/app.js` 是无构建原生 ES module 装配入口；可复用、无 DOM 的领域规则放在 `web/static/modules/`。当前边界覆盖媒体来源、导入、任务面板、内容库、核听导航、逐字稿搜索/分段、导出规则和纪要视图/证据状态；`transcript-view.js` 已接管逐字稿 DOM projection，并通过显式数据与 callback 连接入口 controller。它不得反向读取全局 `state`、调用 API 或直接控制媒体；状态更新、滚动/播放协调和写入副作用继续留在入口。其他新增纯规则不要再直接堆回 `app.js`，后续纪要 renderer 也沿用同一契约。模块须能被 `web/tests/frontend_modules_test.mjs` 独立导入；入口或加载顺序变化还须通过 `make smoke` 的 Headless Chromium 在线启动检查。静态契约测试检索整个模块图，不得假设实现仍位于 `app.js` 单文件。
+`web/static/app.js` 是无构建原生 ES module 装配入口；可复用、无 DOM 的领域规则放在 `web/static/modules/`。当前边界覆盖媒体来源、导入、任务面板、内容库、核听导航、逐字稿搜索/分段、导出规则和纪要视图/证据状态；`transcript-view.js` 与 `minutes-view.js` 接管两块阅读 DOM projection，并通过显式数据与 callback 连接入口 controller。view 模块不得反向读取全局 `state`、调用 API 或直接控制媒体；状态更新、滚动/播放协调、证据抽屉和写入/撤销副作用继续留在入口。其他新增纯规则不要再直接堆回 `app.js`。模块须能被 `web/tests/frontend_modules_test.mjs` 独立导入；入口或加载顺序变化还须通过 `make smoke` 的 Headless Chromium 在线启动检查，并断言核心阅读 DOM 实际生成。静态契约测试检索整个模块图，不得假设实现仍位于 `app.js` 单文件。
 
 ## 页面排障入口
 

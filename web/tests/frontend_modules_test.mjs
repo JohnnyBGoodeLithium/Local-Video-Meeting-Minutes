@@ -20,6 +20,7 @@ import { exportSizeState, formatBytes, meetingExportHref, normalizeExportProfile
 import { claimAction, claimIdsForTurn, evidenceSources, minutesState, normalizeReviewMode,
   resolveMinutesClaim, resolveMinutesView, turnIndexAtTime, turnIndexesForSourceIds }
   from "../static/modules/minutes.js";
+import { renderMinutesView } from "../static/modules/minutes-view.js";
 
 const media = {
   slug: "synthetic-media",
@@ -165,5 +166,6 @@ const evidenceBundle = {
 assert.equal(evidenceSources(evidenceBundle, evidence.claims[0]).firstTime, 10);
 assert.equal(normalizeReviewMode("chapters", { transcript: [] }), "minutes");
 assert.equal(normalizeReviewMode("quality", {}), "quality");
+assert.equal(typeof renderMinutesView, "function");
 
-console.log("frontend modules: source/import/job/library/player/transcript-view/export/minutes policies passed");
+console.log("frontend modules: source/import/job/library/player/transcript-view/export/minutes-view policies passed");
