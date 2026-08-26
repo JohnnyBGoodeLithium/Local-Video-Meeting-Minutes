@@ -9,13 +9,13 @@
 
 **今日交付链**（主干 main）：p85 关键字索引+contentpack（7017381）→ p86 content_type 列表分离（62de2a9）→ p87 media 镜头检测（99c88de）→ p88 KB 导出 profile+时间码深链（275677d）→ p89 媒体版纪要 prompt（374f0ee）→ p90 屏幕列表滚动修复（76eb9f9）→ p91 口播帧二次合并（28ca26a）→ p92 疑难页 27B 复核+媒体浏览（7d58e68）→ p94 长口播时间修复、媒体自适应导航与图文 KB HTML（f228075）→ p95 公开视频链接、来源信息和内容分流任务卡（3795865）。本批发布为 v0.11.0。
 
-**最新交付（v0.11.0 / p95，已验证并提交）**：
+**最新交付（v0.11.0 / p95，已验证、提交、推送并部署）**：
 
 1. “会议 / 媒体”切换现在同时约束导入、内容库和任务卡；会议保持音频/录屏/Teams 文稿入口，媒体可导入一个本地视频或粘贴一个公开视频页面链接。
 2. 新 `media-source/v1` 只保存平台、发布者、来源标题、发布日期、时长和安全 canonical URL。标题优先级为人工改名 > 来源标题 > 文件名，媒体列表不再显示会议式发言人数；在线端和 Viewer 均有显式原视频外链。
 3. 原始 URL 只存在于私有 inbox，作业元数据仅留 host；下载器日志和原始 metadata 不落盘。受限入口拒绝初始私网地址、播放列表、直播、超时长和超大内容；在 LAN 暴露前仍需补下载 worker 的出口隔离以覆盖重定向/DNS rebinding。
 4. 运行任务可取消，终态失败可隐藏且不删除恢复现场；切换内容类型只过滤可见卡片，不改变全局串行调度。
-5. 实现提交 `3795865`；`make check` 全绿，隔离 Web smoke 196/196，Headless Chromium Viewer 启动通过。尚未用真实公网链接做平台级端到端验收。
+5. 实现提交 `3795865`，功能溯源 `20ba032`；两者已推送，annotated tag `v0.11.0` 已发布。`make check` 全绿，隔离 Web smoke 196/196，Headless Chromium Viewer 启动通过；服务已在零活跃任务时部署并确认 v0.11.0/p95 健康。尚未用真实公网链接做平台级端到端验收。
 6. 架构决策：Meeting/Media 继续共享 Media Analysis Core，只在 domain profile 与 projection 分流。`app.js` 已约五千余行，下一批优先按 import/library/jobs/player/transcript/minutes/media-source/export 抽原生 ES modules，不复制应用、不先做框架重写。
 
 **上一交付（v0.10.1 / p94，已验证、提交、推送并部署）**：
