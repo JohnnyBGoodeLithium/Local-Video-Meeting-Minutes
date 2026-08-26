@@ -20,7 +20,10 @@ base URL 取 env `MEETING_WEB_PUBLIC_BASE`，默认 `http://127.0.0.1:8899`。
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
+import html
+import io
 import json
 import os
 import re
@@ -32,19 +35,26 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
 
+from markdown_it import MarkdownIt
+from PIL import Image, ImageOps
+
 from export_meeting import _document_language, _identity, _media_source, _read_json
 from meeting_artifact import (FORMAL_ACTION_SECTIONS, WRAPPED_MARKER_RE,
                               _markdown_cell, action_items_from_claims,
                               build_evidence_document, load_speaker_profiles,
                               minutes_reading_markdown)
-from meeting_structure import clean_model_text, visual_title
+from meeting_structure import _visual_value, clean_model_text, visual_title
 import meeting_topic_map
 from product_version import PRODUCT_VERSION, PRODUCT_VERSION_LABEL
 
 KB_SCHEMA = "kb-pack/v1"
+KB_HTML_SCHEMA = "meeting-kb-html/v1"
 BASE_URL_ENV = "MEETING_WEB_PUBLIC_BASE"
 DEFAULT_BASE_URL = "http://127.0.0.1:8899"
 KEYWORD_KINDS = {"product", "project", "topic", "organization", "other"}
+KB_HTML_IMAGE_EDGE = 1600
+KB_HTML_IMAGE_QUALITY = 86
+KB_MD = MarkdownIt("default", {"html": False, "linkify": True})
 
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.M)
 _SUMMARY_NAMES = ("总体摘要", "overallsummary", "summary")
@@ -141,8 +151,9 @@ def _split_key_conclusions(body: str) -> tuple[str, str]:
     return rest, block
 
 
-def _markers_as_text(markdown: str, evidence: dict) -> str:
-    """把隐藏 marker 转成 `#mm-C00001` 纯文本（连反引号包装一起剥掉）。"""
+def _markers_as_text(markdown: str, evidence: dict, *, base: str = "", slug: str = "",
+                     label: str = "依据") -> str:
+    """把 marker 转成可检索 C 编号；有时间时同时给出回看深链。"""
     by_marker: dict[str, list[dict]] = {}
     for claim in evidence.get("claims", []):
         by_marker.setdefault(str(claim.get("marker") or ""), []).append(claim)
@@ -150,7 +161,14 @@ def _markers_as_text(markdown: str, evidence: dict) -> str:
     def replace(match: re.Match) -> str:
         queue = by_marker.get(match.group(1), [])
         claim = queue.pop(0) if queue else None
-        return f" #mm-{claim['id']}" if claim else ""
+        if not claim:
+            return ""
+        marker = f"#mm-{claim['id']}"
+        start = claim.get("start")
+        if base and slug and start is not None:
+            seconds = max(0.0, float(start))
+            return f" {marker} [{label} · {_stamp(seconds)}]({_time_url(base, slug, seconds)})"
+        return f" {marker}"
 
     return WRAPPED_MARKER_RE.sub(replace, markdown)
 
@@ -228,7 +246,8 @@ def _front_matter(title: str, date: str, content_type: str, duration: float,
     return "\n".join(lines)
 
 
-def _actions_table(actions: list[dict], labels: dict) -> str:
+def _actions_table(actions: list[dict], labels: dict, *, base: str = "",
+                   slug: str = "") -> str:
     """正式待办投影：与阅读纪要同一条 action_items_from_claims 链，依据编号保留纯文本。"""
     rows, seen = [], set()
     for action in actions:
@@ -245,7 +264,13 @@ def _actions_table(actions: list[dict], labels: dict) -> str:
         if key in seen:
             continue
         seen.add(key)
-        rows.append(f"| {text} #mm-{claim_id} | {owner} | {deadline} | {status} |")
+        start = action.get("start")
+        evidence_link = ""
+        if base and slug and start is not None:
+            seconds = max(0.0, float(start))
+            link_label = "Evidence" if labels["summary"] == "Overall Summary" else "依据"
+            evidence_link = f" [{link_label} · {_stamp(seconds)}]({_time_url(base, slug, seconds)})"
+        rows.append(f"| {text} #mm-{claim_id}{evidence_link} | {owner} | {deadline} | {status} |")
     if not rows:
         return ""
     header = labels["action_header"]
@@ -262,7 +287,8 @@ def _strip_headings(text: str) -> str:
 
 
 def kb_document(mdir: Path, *, base_url: str, bank_dir: Path | None = None,
-                title: str | None = None, date: str | None = None) -> str:
+                title: str | None = None, date: str | None = None,
+                image_urls: dict[int, str] | None = None) -> str:
     """生成单场内容的自包含知识库 Markdown；只读会议目录，不调用模型。"""
     mdir = Path(mdir).resolve()
     base = str(base_url or "").strip().rstrip("/") or default_base_url()
@@ -318,12 +344,14 @@ def kb_document(mdir: Path, *, base_url: str, bank_dir: Path | None = None,
         summary, conclusions = _split_key_conclusions(summary)
         if summary:
             parts += [f"## {labels['summary']}", "",
-                      _markers_as_text(summary, evidence), ""]
+                      _markers_as_text(summary, evidence, base=base, slug=slug,
+                                       label="依据" if language == "zh-CN" else "Evidence"), ""]
         if conclusions:
             parts += [f"## {labels['conclusions']}", "",
-                      _markers_as_text(conclusions, evidence), ""]
+                      _markers_as_text(conclusions, evidence, base=base, slug=slug,
+                                       label="依据" if language == "zh-CN" else "Evidence"), ""]
         actions = _actions_table(action_items_from_claims(evidence.get("claims", [])),
-                                 labels)
+                                 labels, base=base, slug=slug)
         if actions:
             parts += [f"## {labels['actions']}", "", actions, ""]
 
@@ -378,7 +406,10 @@ def kb_document(mdir: Path, *, base_url: str, bank_dir: Path | None = None,
             image = str(page.get("image") or "")
             if (image and "/" not in image and not image.startswith(".")
                     and (mdir / "slides" / image).is_file()):
-                parts += [f"![{page_label}]({_file_url(base, slug, 'slides/' + image)})", ""]
+                image_url = (_file_url(base, slug, "slides/" + image)
+                             if image_urls is None else image_urls.get(number))
+                if image_url:
+                    parts += [f"![{page_label}]({image_url})", ""]
             description = _strip_headings(descs.get(number, ""))
             if description:
                 parts += [description, ""]
@@ -393,6 +424,171 @@ def kb_document(mdir: Path, *, base_url: str, bank_dir: Path | None = None,
             parts += [f"{_time_link(base, slug, start)} **{speaker}{colon}** {text}", ""]
 
     return "\n".join(parts).rstrip() + "\n"
+
+
+def _kb_html_image(path: Path) -> tuple[str, int]:
+    """把分析帧收敛成适合 KB 的 JPEG data URI；不写回会议目录。"""
+    with Image.open(path) as source:
+        image = ImageOps.exif_transpose(source)
+        if image.mode in {"RGBA", "LA"} or (image.mode == "P" and "transparency" in image.info):
+            rgba = image.convert("RGBA")
+            canvas = Image.new("RGB", rgba.size, "white")
+            canvas.paste(rgba, mask=rgba.getchannel("A"))
+            image = canvas
+        else:
+            image = image.convert("RGB")
+        if max(image.size) > KB_HTML_IMAGE_EDGE:
+            image.thumbnail((KB_HTML_IMAGE_EDGE, KB_HTML_IMAGE_EDGE), Image.Resampling.LANCZOS)
+        stream = io.BytesIO()
+        image.save(stream, format="JPEG", quality=KB_HTML_IMAGE_QUALITY,
+                   optimize=True, progressive=True)
+    data = stream.getvalue()
+    encoded = base64.b64encode(data).decode("ascii")
+    return f"data:image/jpeg;base64,{encoded}", len(data)
+
+
+def _embedded_page_images(mdir: Path) -> tuple[dict[int, str], dict]:
+    """只内嵌有知识价值的屏幕帧；口播、空白、会议 UI 和低价值页不占包体。"""
+    timeline = _read_json(mdir / "slides.json", [])
+    raw_desc = _read_json(mdir / "page_desc.json", {}).get("desc", {})
+    descriptions = {int(k): clean_model_text(str(v)) for k, v in raw_desc.items()
+                    if str(k).isdigit()}
+    images: dict[int, str] = {}
+    source_bytes = embedded_bytes = skipped = 0
+    for page in timeline:
+        if page.get("kind", "slide") != "slide" or page.get("page") is None:
+            continue
+        number = int(page["page"])
+        description = descriptions.get(number, "")
+        value = _visual_value(description, visual_title(description, number),
+                              "camera" if page.get("kind") == "camera" else "slide")
+        role = str(page.get("content_role") or value.get("content_role") or "")
+        information_value = str(page.get("information_value")
+                                or value.get("information_value") or "unknown")
+        if (page.get("talking_head") or role in {"blank", "camera", "meeting_ui", "transition"}
+                or information_value == "low"):
+            skipped += 1
+            continue
+        image_name = str(page.get("image") or "")
+        slides_dir = (mdir / "slides").resolve()
+        source = mdir / "slides" / f"full_{number:02d}.jpg"
+        if not source.is_file():
+            source = mdir / "slides" / image_name
+        try:
+            source = source.resolve()
+            if (not image_name or not source.is_file()
+                    or not source.is_relative_to(slides_dir)):
+                skipped += 1
+                continue
+            source_bytes += source.stat().st_size
+            uri, size = _kb_html_image(source)
+        except (OSError, ValueError):
+            skipped += 1
+            continue
+        images[number] = uri
+        embedded_bytes += size
+    return images, {
+        "embedded_images": len(images),
+        "skipped_images": skipped,
+        "source_image_bytes": source_bytes,
+        "embedded_image_bytes": embedded_bytes,
+        "image_format": "image/jpeg",
+        "image_edge": KB_HTML_IMAGE_EDGE,
+        "image_quality": KB_HTML_IMAGE_QUALITY,
+    }
+
+
+def _strip_front_matter(markdown: str) -> str:
+    if markdown.startswith("---\n"):
+        end = markdown.find("\n---\n", 4)
+        if end >= 0:
+            return markdown[end + 5:].lstrip()
+    return markdown
+
+
+def kb_html_document(mdir: Path, *, base_url: str, bank_dir: Path | None = None,
+                     title: str | None = None, date: str | None = None) -> tuple[str, dict]:
+    """生成可直接上传 WeKnora 的单文件 HTML，图片使用 base64 data URI。"""
+    mdir = Path(mdir).resolve()
+    meta = _read_json(mdir / "meta.json", {})
+    inferred_title, inferred_date = _identity(mdir.name)
+    resolved_title = title or str(meta.get("title") or "").strip() or inferred_title
+    resolved_date = inferred_date if date is None else date
+    content_type = (meta.get("content_type")
+                    if meta.get("content_type") in {"meeting", "media"} else "meeting")
+    image_urls, image_stats = _embedded_page_images(mdir)
+    markdown = kb_document(
+        mdir, base_url=base_url, bank_dir=bank_dir, title=resolved_title,
+        date=resolved_date, image_urls=image_urls)
+    body = KB_MD.render(_strip_front_matter(markdown))
+    language = _document_language(markdown)
+    labels = ({"meta": "文档元数据", "type": "内容类型", "date": "日期",
+               "images": "内嵌关键画面"} if language == "zh-CN" else
+              {"meta": "Document metadata", "type": "Content type", "date": "Date",
+               "images": "Embedded key frames"})
+    metadata = (
+        f'<section class="document-meta" aria-label="{html.escape(labels["meta"])}">'
+        f'<p><strong>{html.escape(labels["type"])}：</strong>{html.escape(content_type)}'
+        + (f' · <strong>{html.escape(labels["date"])}：</strong>{html.escape(resolved_date)}'
+           if resolved_date else "")
+        + f' · <strong>{html.escape(labels["images"])}：</strong>'
+          f'{image_stats["embedded_images"]}</p></section>')
+    document = f'''<!doctype html>
+<html lang="{html.escape(language)}">
+<head>
+<meta charset="utf-8">
+<meta name="generator" content="Meeting Minutes {html.escape(PRODUCT_VERSION_LABEL)}">
+<meta name="meeting-kb-schema" content="{KB_HTML_SCHEMA}">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{html.escape(resolved_title)}</title>
+<style>
+body{{font:16px/1.65 system-ui,sans-serif;max-width:1080px;margin:40px auto;padding:0 24px;color:#242424}}
+h1,h2,h3{{line-height:1.3}} img{{display:block;max-width:100%;height:auto;margin:18px 0;border:1px solid #ddd}}
+table{{border-collapse:collapse;width:100%}} th,td{{border:1px solid #ddd;padding:8px;text-align:left;vertical-align:top}}
+.document-meta{{color:#616161;border-bottom:1px solid #ddd;margin-bottom:28px}}
+</style>
+</head>
+<body data-schema="{KB_HTML_SCHEMA}">
+{metadata}
+{body}
+</body>
+</html>
+'''
+    return document, {**image_stats, "schema": KB_HTML_SCHEMA,
+                      "document_bytes": len(document.encode("utf-8"))}
+
+
+def kb_html_filename(name: str, first_date: str = "", now: datetime | None = None) -> str:
+    stamp = (now or datetime.now().astimezone()).strftime("%Y%m%d-%H%M%S")
+    base = _safe_name(name) or "知识库图文版"
+    date_part = f"_{first_date}" if first_date else ""
+    return f"{base}{date_part}_{PRODUCT_VERSION_LABEL}_{stamp}.kb.html"
+
+
+def write_kb_html(mdir: Path, out: Path, *, base_url: str | None = None,
+                  bank_dir: Path | None = None, title: str | None = None,
+                  date: str | None = None) -> dict:
+    """原子写出单场 `.kb.html`，返回不含正文的体积/图片统计。"""
+    document, stats = kb_html_document(
+        mdir, base_url=(base_url or default_base_url()), bank_dir=bank_dir,
+        title=title, date=date)
+    out = Path(out).resolve()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(prefix=".kb-html-", suffix=".html", dir=out.parent)
+    os.close(fd)
+    temp = Path(temp_name)
+    try:
+        temp.write_text(document, encoding="utf-8")
+        temp.replace(out)
+    finally:
+        temp.unlink(missing_ok=True)
+    inferred_title, inferred_date = _identity(Path(mdir).name)
+    resolved_title = title or str(_read_json(Path(mdir) / "meta.json", {}).get("title") or "").strip() or inferred_title
+    resolved_date = inferred_date if date is None else date
+    return {"path": str(out), "bytes": out.stat().st_size,
+            "filename": kb_html_filename(resolved_title, resolved_date),
+            "name": resolved_title, "product_version": PRODUCT_VERSION,
+            "base_url": (base_url or default_base_url()).rstrip("/"), **stats}
 
 
 def _normalize_keyword(text: str) -> str:
@@ -413,11 +609,13 @@ def kb_pack_filename(name: str, first_date: str = "", now: datetime | None = Non
 
 
 def build_kb_pack(meetings: list[tuple[str, Path, str | None, str | None]], out: Path, *,
-                  base_url: str | None = None, bank_dir: Path | None = None) -> dict:
-    """把若干场内容打成 .kbpack.zip：每场一份 <slug>.kb.md + kb-pack/v1 manifest；
-    多场时加文字版 index.md（内容清单 + 贯穿关键字 → 涉及内容）。不含媒体/截图文件。"""
+                  base_url: str | None = None, bank_dir: Path | None = None,
+                  document_format: str = "markdown") -> dict:
+    """构建多内容 KB 包；markdown 走外链，html 把关键画面嵌进每场文档。"""
     if not meetings:
         raise ValueError("知识库导出至少需要一场内容")
+    if document_format not in {"markdown", "html"}:
+        raise ValueError("document_format 必须是 markdown/html")
     base = (base_url or default_base_url()).rstrip("/")
     out = Path(out).resolve()
     files: dict[str, bytes] = {}
@@ -425,10 +623,17 @@ def build_kb_pack(meetings: list[tuple[str, Path, str | None, str | None]], out:
     tag_merged: dict[str, dict] = {}
     for slug, mdir, title, date in meetings:
         mdir = Path(mdir).resolve()
-        doc = kb_document(mdir, base_url=base, bank_dir=bank_dir,
-                          title=title or None, date=date or None)
+        image_stats = {}
+        if document_format == "html":
+            doc, image_stats = kb_html_document(
+                mdir, base_url=base, bank_dir=bank_dir,
+                title=title or None, date=date or None)
+            arcname = f"{slug}.kb.html"
+        else:
+            doc = kb_document(mdir, base_url=base, bank_dir=bank_dir,
+                              title=title or None, date=date or None)
+            arcname = f"{slug}.kb.md"
         data = doc.encode("utf-8")
-        arcname = f"{slug}.kb.md"
         files[arcname] = data
         minutes_path = next((mdir / n for n in ("minutes.md", "minutes.spk.md")
                              if (mdir / n).is_file()), None)
@@ -448,6 +653,8 @@ def build_kb_pack(meetings: list[tuple[str, Path, str | None, str | None]], out:
             "bytes": len(data),
             "sha256": hashlib.sha256(data).hexdigest(),
             "keywords": [item["text"] for item in entries],
+            "embedded_images": int(image_stats.get("embedded_images", 0)),
+            "embedded_image_bytes": int(image_stats.get("embedded_image_bytes", 0)),
         })
         for item in entries:
             normalized = _normalize_keyword(item["text"])
@@ -489,11 +696,14 @@ def build_kb_pack(meetings: list[tuple[str, Path, str | None, str | None]], out:
         "created_at": datetime.now(timezone.utc).isoformat(),
         "generator": {"name": "Meeting Minutes", "version": PRODUCT_VERSION},
         "base_url": base,
+        "document_format": document_format,
+        "image_mode": "embedded_base64" if document_format == "html" else "external_url",
         "documents": documents,
         "tags": tags,
         "counts": {"documents": len(documents),
                    "keywords": sum(len(d["keywords"]) for d in documents),
-                   "shared_keywords": len(shared)},
+                   "shared_keywords": len(shared),
+                   "embedded_images": sum(d["embedded_images"] for d in documents)},
     }
     files["manifest.json"] = json.dumps(manifest, ensure_ascii=False,
                                         indent=2).encode("utf-8")
@@ -520,13 +730,16 @@ def main() -> int:
                              f"缺省 {DEFAULT_BASE_URL}")
     parser.add_argument("--bank-dir", type=Path,
                         default=Path(__file__).resolve().parent.parent / "speaker_bank")
+    parser.add_argument("--format", choices=("markdown", "html"), default="markdown",
+                        help="html：关键画面以内嵌 JPEG 写入每场 .kb.html")
     args = parser.parse_args()
     meetings = [(mdir.resolve().name, mdir.resolve(), None, None)
                 for mdir in args.meeting_dirs]
     probe = Path(tempfile.gettempdir()) / f".kbpack-export-{os.getpid()}.zip"
     try:
         stats = build_kb_pack(meetings, args.out or probe,
-                              base_url=args.base_url, bank_dir=args.bank_dir)
+                              base_url=args.base_url, bank_dir=args.bank_dir,
+                              document_format=args.format)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         probe.unlink(missing_ok=True)
         print(f"导出失败: {exc}", file=sys.stderr)

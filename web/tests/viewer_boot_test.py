@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import copy
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "bin"))
@@ -135,4 +136,37 @@ assert 'data-topic-contract="true,true,true,true,true,true,true,true,true,true,t
             if part.startswith('data-topic-contract=')), "missing")))
 assert "Uncaught" not in proc.stderr, \
     f"viewer 启动存在未捕获异常: {proc.stderr[-500:]}"
+
+media_topic_map = copy.deepcopy(TOPIC_MAP)
+media_topic_map["media_navigation"] = {
+    "schema": "media-navigation/v1", "format": "monologue",
+    "show_narrative_lane": True, "show_speaker_lane": False,
+    "segments": [
+        {"id": "N001", "role": "setup", "start": 0, "end": 5,
+         "topic_id": "M01", "node_id": "N0101", "title": "合成铺垫"},
+        {"id": "N002", "role": "evidence", "start": 5, "end": 15,
+         "topic_id": "M02", "node_id": "M02", "title": "合成证据"},
+    ],
+}
+media_page = export_meeting._viewer_html(
+    "合成媒体启动测试", "2026-01-01", "<h2>总体摘要</h2><p>媒体正文</p>",
+    EVIDENCE, {"schema": "test"}, media_topic_map, None, None,
+    content_type="media")
+media_probe = b"""<script>
+renderLanes();renderLegend();personLanesOpen=true;renderPersonLanes();
+document.body.dataset.mediaContract=[!!document.querySelector('#lane-narrative'),!document.querySelector('#lane-spk'),document.querySelectorAll('.narrative-key').length===2,document.querySelector('#lanes-bar').hidden].join(',');
+</script></body>"""
+media_page = media_page.replace(b"</body>", media_probe)
+with tempfile.TemporaryDirectory() as td:
+    f = Path(td) / "media-viewer.html"
+    f.write_bytes(media_page)
+    media_proc = subprocess.run(
+        [CHROME, "--headless=new", "--disable-gpu", "--no-sandbox",
+         "--window-size=1920,1080", "--virtual-time-budget=5000", "--dump-dom", f.as_uri()],
+        capture_output=True, text=True, timeout=90)
+assert media_proc.returncode == 0, media_proc.stderr[-300:]
+assert 'data-media-contract="true,true,true,true"' in media_proc.stdout, \
+    "viewer 单人口播未切换为议题+叙事时间线"
+assert "Uncaught" not in media_proc.stderr, \
+    f"viewer media 启动存在未捕获异常: {media_proc.stderr[-500:]}"
 print("viewer boot: headless runtime passed")

@@ -21,6 +21,7 @@ from typing import Callable
 
 import meeting_artifact as artifact
 import meeting_structure
+from meeting_core.media_navigation import build_media_navigation
 from meeting_core.llm import validated_api_base
 
 
@@ -35,6 +36,7 @@ ALLOWED_CHILD_TYPES = {
     "context", "argument", "counterpoint", "decision", "action",
     "open_question", "risk", "evidence", "discussion",
 }
+MEDIA_CHILD_TYPES = ALLOWED_CHILD_TYPES | {"demo", "conclusion"}
 
 CHUNK_PROMPT = """你负责整理一段会议的局部语义，不要按截图或页面变化分章。
 输入是 meeting-topic-chunk-input/v1 JSON。请识别这一时间窗真正讨论的 1–5 个候选论点，
@@ -682,7 +684,7 @@ def _apply_navigation(topics: list[dict], summaries: list[dict],
 
 
 def _sanitize_map(raw: dict, evidence: dict, revisions: dict, *, model: str,
-                  window_count: int, chunk_seconds: float,
+                  window_count: int, chunk_seconds: float, content_type: str = "meeting",
                   summaries: list[dict] | None = None) -> dict:
     source_turns = evidence.get("sources", {}).get("transcript", [])
     source_pages = evidence.get("sources", {}).get("pages", [])
@@ -729,7 +731,8 @@ def _sanitize_map(raw: dict, evidence: dict, revisions: dict, *, model: str,
             if not (child_turns or child_claims or child_pages):
                 continue
             child_type = str(raw_child.get("type") or "discussion")
-            if child_type not in ALLOWED_CHILD_TYPES:
+            if child_type not in (MEDIA_CHILD_TYPES if content_type == "media"
+                                  else ALLOWED_CHILD_TYPES):
                 child_type = "discussion"
             if child_type == "action" and not any(
                     claim_by_id[item].get("formal_action") for item in child_claims):
@@ -861,6 +864,8 @@ def generate_topic_map(mdir: Path, *, llm: Callable[[str, int], object] | None =
     turns = _read_json(transcript_path, [])
     if not turns:
         raise ValueError("逐字稿为空")
+    meta = _read_json(mdir / "meta.json", {})
+    content_type = "media" if meta.get("content_type") == "media" else "meeting"
     pages = [item for item in _read_json(mdir / "slides.json", [])
              if item.get("kind", "slide") == "slide" and item.get("page") is not None]
     raw_desc = _read_json(mdir / "page_desc.json", {}).get("desc", {})
@@ -912,6 +917,9 @@ def generate_topic_map(mdir: Path, *, llm: Callable[[str, int], object] | None =
         }
         prompt = CHUNK_PROMPT.format(context=json.dumps(payload, ensure_ascii=False,
                                                         separators=(",", ":")))
+        if content_type == "media":
+            prompt = ("这是媒体视频而非工作会议。候选论点按内容论证组织，不生成决定或待办；"
+                      "区分铺垫、观点、证据、演示、质疑与结论。\n\n" + prompt)
         # 真实 20 分钟纯音频会议在约 10 分钟窗口内就可能包含 5 个候选及大量 T 引用；
         # 2k 输出会在 JSON 尾部截断。保留充足余量，仍由 schema/sanitizer 控制节点数量。
         chunk_text = call(prompt, 3500)
@@ -952,6 +960,11 @@ def generate_topic_map(mdir: Path, *, llm: Callable[[str, int], object] | None =
     }
     final_prompt = REDUCE_PROMPT.format(
         context=json.dumps(reduce_payload, ensure_ascii=False, separators=(",", ":")))
+    if content_type == "media":
+        final_prompt = ("这是媒体视频。一级节点仍是3–8个内容论点；children.type 可使用 "
+                        "context/argument/evidence/demo/counterpoint/risk/open_question/"
+                        "conclusion/discussion，分别表达铺垫、观点、证据、演示、质疑和结论。"
+                        "不要生成会议决定或待办。\n\n" + final_prompt)
     reduce_text = call(final_prompt, 8000)
     try:
         raw = _model_json(reduce_text)
@@ -985,7 +998,9 @@ def generate_topic_map(mdir: Path, *, llm: Callable[[str, int], object] | None =
                 raw = _fallback_reduce(summaries)
     result = _sanitize_map(raw, evidence, revisions, model=model,
                            window_count=len(windows), chunk_seconds=chunk_seconds,
-                           summaries=summaries)
+                           summaries=summaries, content_type=content_type)
+    if content_type == "media":
+        result["media_navigation"] = build_media_navigation(source_turns, result)
     path = mdir / "meeting.topic-map.json"
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding="utf-8")

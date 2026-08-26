@@ -174,15 +174,16 @@ check("时间码跳转只滚动内容面板，不带动整页丢失播放器",
 check("在线屏幕舞台支持放大、缩放和相邻屏幕键盘导航",
       b'id="screen-preview-mask"' in page and b'openScreenPreview' in app_js
       and b'navigateScreenPreview' in app_js and b'SCREEN_PREVIEW_ZOOMS' in app_js
-      and b'20260825p92' in page)
+      and b'20260826p94' in page)
 check("会议深链 ?meeting=<slug>&t=<秒> 定位播放且忽略非法/超界 t",
       b'params.get("t")' in app_js and b'deepLinkSeek' in app_js
       and b'Number.parseFloat' in app_js
       and b'Number.isFinite(deepLinkSeek) && deepLinkSeek >= 0' in app_js
       and b'seek(deepLinkSeek)' in app_js)
-check("导出弹窗提供知识库形态选择并在超 30MB 时提示改用",
+check("导出弹窗提供轻量/图文知识库形态并在超 30MB 时提示改用",
       b'name="export-profile"' in app_js
-      and "知识库版".encode() in app_js
+      and "知识库图文版".encode() in app_js
+      and b'kb-html' in app_js and b'embedded key frames' in app_js
       and "超过常见邮件附件 30MB 限制".encode() in app_js
       and b"knowledge-base profile" in app_js
       and b'profile=' in app_js)
@@ -672,9 +673,24 @@ try:
           and "?meeting=_smoke&t=" in kb_doc
           and "/api/meetings/_smoke/media/audio" in kb_doc
           and "file?path=slides/page1.png" in kb_doc
+          and "[依据 · " in kb_doc
           and "#mm-C" in kb_doc and "mm:evidence" not in kb_doc
           and any(t.get("text") == shared_keyword["text"]
                   for t in kb_manifest.get("tags", [])))
+    # 图文知识库版：单个可上传 HTML，关键画面用 base64 JPEG 内嵌。
+    s, h, kb_html_bytes = req(
+        "GET", "/api/meetings/_smoke/export?profile=kb-html", raw=True)
+    kb_html_disposition = next((v for k, v in h.items()
+                                if k.lower() == "content-disposition"), "")
+    kb_html = kb_html_bytes.decode("utf-8", errors="replace")
+    check("图文知识库版：单 HTML + 内嵌关键画面，可由静态 VLM 知识库直接解析",
+          s == 200
+          and "meeting-kb-html/v1" in kb_html
+          and "data:image/jpeg;base64," in kb_html
+          and "file?path=slides/" not in kb_html
+          and "依据 · " in kb_html
+          and "#mm-C" in kb_html
+          and re.search(r"_v0\.10\.0_\d{8}-\d{6}\.kb\.html", kb_html_disposition))
     # pack kb profile：每场一份 kb.md + 文字版 index.md（贯穿关键字 → 涉及内容）
     s, h, kbpack_bytes = req(
         "GET", "/api/export/pack?slugs=_smoke,_smoke2&profile=kb", raw=True)
@@ -697,6 +713,20 @@ try:
           and shared_keyword["text"] in kp_index
           and "_smoke" in kp_index and "_smoke2" in kp_index
           and len(kbpack_bytes) < 200_000)
+    s, h, kb_html_pack_bytes = req(
+        "GET", "/api/export/pack?slugs=_smoke,_smoke2&profile=kb-html", raw=True)
+    kb_html_pack = (zipfile.ZipFile(io.BytesIO(kb_html_pack_bytes))
+                    if s == 200 else None)
+    kh_names = set(kb_html_pack.namelist()) if kb_html_pack else set()
+    kh_manifest = (json.loads(kb_html_pack.read("manifest.json"))
+                   if kb_html_pack else {})
+    check("多内容图文知识库版：每场独立 kb.html + manifest",
+          s == 200 and kb_html_pack is not None
+          and {"_smoke.kb.html", "_smoke2.kb.html", "index.md", "manifest.json"}
+          == kh_names
+          and kh_manifest.get("document_format") == "html"
+          and kh_manifest.get("image_mode") == "embedded_base64"
+          and kh_manifest.get("counts", {}).get("embedded_images", 0) >= 1)
 finally:
     shutil.rmtree(SMOKE2, ignore_errors=True)
 
@@ -1147,7 +1177,8 @@ check("媒体版纪要 prompt 按 content_type 分流且不生成待办",
       and "论证脉络".encode() in minutes_by_page_py
       and "规格与参数".encode() in minutes_by_page_py
       and "绝不生成待办事项".encode() in minutes_by_page_py
-      and b"minutes_profile" in minutes_by_page_py)
+      and b"minutes_profile" in minutes_by_page_py
+      and b'--reuse-vl-cache-only' in minutes_by_page_py)
 
 s, _, _ = multipart_files("/api/upload", [
     ("files", "fictional-review.mp4", b"fictional video", "video/mp4"),

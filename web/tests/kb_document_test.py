@@ -4,7 +4,8 @@
 覆盖：front matter（title/date/content_type/duration/keywords 带 kind/source_url）、
 时间码深链格式（含小数秒）、完整视频/音频与屏幕图外链、依据标记保留 #mm-C 纯文本、
 VL 描述标题抹平、缺板块降级、英文纪要语言跟随、build_kb_pack 单/多场结构与
-kb-pack/v1 manifest、贯穿关键字文字版 index.md。
+kb-pack/v1 manifest、贯穿关键字文字版 index.md，以及 WeKnora 图文 HTML 的
+base64 JPEG、低价值帧过滤和单文件命名。
 """
 
 from __future__ import annotations
@@ -182,13 +183,19 @@ with tempfile.TemporaryDirectory(prefix="kb-document-test-") as tmp:
              ("总体摘要", "关键结论", "待办", "议题脉络", "屏幕内容", "逐字稿")]
     assert order == sorted(order), order
 
-    # 依据标记保留 #mm-C 纯文本，不残留 marker 注释，也不转 viewer 锚链接
+    # 依据保留 #mm-C 供检索，并带可点击时间深链；不残留 viewer 内部 marker/锚。
     assert "mm:evidence" not in doc and "<!--" not in doc
     assert re.search(r"先做试点仍是提议。 #mm-C\d{5}", doc)
     assert "[依据](#mm-" not in doc
+    assert re.search(
+        rf"#mm-C\d{{5}} \[依据 · 00:03\]\({re.escape(BASE)}/\?meeting={slug}&t=3\.5\)",
+        doc)
 
     # 待办表：负责人/期限保留，依据编号在事项单元格内
-    assert re.search(r"\| 完成试点方案 #mm-C\d{5} \| 王虚构 \| 下周 \| 待确认 \|", doc)
+    assert re.search(
+        rf"\| 完成试点方案 #mm-C\d{{5}} \[依据 · 01:05\]"
+        rf"\({re.escape(BASE)}/\?meeting={slug}&t=65\.5\) \| 王虚构 \| 下周 \| 待确认 \|",
+        doc)
 
     # 议题脉络：标题行内嵌时间码深链
     assert re.search(rf"### \[00:00\]\({re.escape(BASE)}/\?meeting={slug}&t=0\.5\) 明确评审范围", doc)
@@ -211,6 +218,38 @@ with tempfile.TemporaryDirectory(prefix="kb-document-test-") as tmp:
     other = kb_document.kb_document(full_dir, base_url="https://kb.internal:9000/")
     assert "https://kb.internal:9000/?meeting=" in other
     assert f"{BASE}/?meeting=" not in other
+
+    # 图文 KB：HTML 自包含关键画面，不依赖截图 URL；静态解析器可回收 data URI。
+    html_doc, html_stats = kb_document.kb_html_document(full_dir, base_url=BASE)
+    assert 'name="meeting-kb-schema" content="meeting-kb-html/v1"' in html_doc
+    assert html_doc.count("data:image/jpeg;base64,") == 2
+    assert "file?path=slides/" not in html_doc
+    assert "总体摘要" in html_doc and "逐字稿" in html_doc and "#mm-C" in html_doc
+    assert html_stats["embedded_images"] == 2
+    assert html_stats["embedded_image_bytes"] > 0
+    assert html_stats["document_bytes"] == len(html_doc.encode("utf-8"))
+    image_payloads = re.findall(r'data:image/jpeg;base64,([^"\s]+)', html_doc)
+    assert len(image_payloads) == 2
+    assert all(__import__("base64").b64decode(value).startswith(b"\xff\xd8")
+               for value in image_payloads)
+
+    # 口播/低价值画面保留文字解读但不内嵌图片，避免 KB 包体被无效帧放大。
+    filtered_slides = [dict(page) for page in SLIDES]
+    filtered_slides[1].update({"talking_head": True, "information_value": "low"})
+    (full_dir / "slides.json").write_text(
+        json.dumps(filtered_slides, ensure_ascii=False), encoding="utf-8")
+    filtered_html, filtered_stats = kb_document.kb_html_document(full_dir, base_url=BASE)
+    assert filtered_stats["embedded_images"] == 1
+    assert filtered_html.count("data:image/jpeg;base64,") == 1
+    assert "合成页面二。绿色测试背景。" in filtered_html
+    (full_dir / "slides.json").write_text(
+        json.dumps(SLIDES, ensure_ascii=False), encoding="utf-8")
+
+    html_out = Path(tmp) / "single.kb.html"
+    html_file_stats = kb_document.write_kb_html(full_dir, html_out, base_url=BASE)
+    assert html_out.read_text(encoding="utf-8").startswith("<!doctype html>")
+    assert html_file_stats["filename"].endswith(".kb.html")
+    assert "2026-08-25" in html_file_stats["filename"]
 
     # 缺板块降级：无媒体/无脉络/无屏幕/无 source_url，整节跳过
     bare = kb_document.kb_document(bare_dir, base_url=BASE)
@@ -285,6 +324,24 @@ with tempfile.TemporaryDirectory(prefix="kb-document-test-") as tmp:
     beta_doc = manifest2["documents"][1]
     assert beta_doc["title"] == "beta"  # 无 meta/显式标题时回退 slug 派生名
     assert beta_doc["date"] == "2026-08-25"
+
+    # 多内容图文 KB 仍使用 kbpack 容器，但每场文档均可单独上传。
+    out3 = Path(tmp) / "multi-html.kbpack.zip"
+    stats3 = kb_document.build_kb_pack(
+        [(slug, full_dir, "Alpha 合成评审", "2026-08-25"),
+         ("2026-08-25_beta", bare_dir, None, None)],
+        out3, base_url=BASE, document_format="html")
+    with zipfile.ZipFile(out3) as archive:
+        names3 = set(archive.namelist())
+        manifest3 = json.loads(archive.read("manifest.json"))
+        full_html = archive.read(f"{slug}.kb.html").decode("utf-8")
+    assert names3 == {f"{slug}.kb.html", "2026-08-25_beta.kb.html",
+                      "index.md", "manifest.json"}
+    assert manifest3["document_format"] == "html"
+    assert manifest3["image_mode"] == "embedded_base64"
+    assert manifest3["counts"]["embedded_images"] == 2
+    assert "data:image/jpeg;base64," in full_html
+    assert stats3["documents"] == 2
 
     # 默认 base：无参数时回退 env/loopback 常量
     default_doc = kb_document.kb_document(full_dir, base_url=kb_document.default_base_url())

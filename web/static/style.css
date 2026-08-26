@@ -623,6 +623,7 @@ body.resizing-panes { cursor: col-resize; user-select: none; }
   cursor: pointer;
   overflow: visible;
 }
+.timeline.media-hybrid { height: 66px; }
 /* 说话人节奏条：像素桶主导人着色，桶数与会议长度无关；底色兜底空桶/像素缝，避免露出杂乱白线 */
 .tl-spk-lane {
   position: absolute;
@@ -641,6 +642,10 @@ body.resizing-panes { cursor: col-resize; user-select: none; }
   opacity: .85;
 }
 .tl-spk-seg:hover { z-index: 2; opacity: 1; outline: 1px solid #fff; }
+.tl-narrative-lane { position: absolute; right: 0; left: 0; top: 29px; height: 15px; overflow: hidden; border-radius: var(--r-2); background: rgba(255,255,255,.07); }
+.tl-narrative-seg { position: absolute; top: 0; bottom: 0; overflow: hidden; border-right: 1px solid rgba(8,10,15,.65); color: #fff; font-size: var(--fs-8); line-height: 15px; white-space: nowrap; text-overflow: ellipsis; opacity: .9; }
+.tl-narrative-seg:hover { z-index: 3; opacity: 1; outline: 1px solid #fff; }
+.tl-narrative-seg span { padding: 0 var(--sp-4); pointer-events: none; }
 .timeline.person-focus .tl-spk-seg.dimmed { opacity: .12; }
 .tl-gap {
   position: absolute;
@@ -694,6 +699,10 @@ body.resizing-panes { cursor: col-resize; user-select: none; }
 }
 .tl-focus-range { position: absolute; z-index: 1; top: 3px; bottom: 0; border: 1px solid #fff; border-radius: var(--r-4); background: rgba(255,255,255,.09); box-shadow: 0 0 0 2px rgba(79,124,255,.32); pointer-events: none; }
 .speaker-legend { display: flex; flex-wrap: wrap; gap: var(--sp-4) var(--sp-7); margin-top: var(--sp-14); align-items: center; }
+.media-narrative-legend { display: flex; flex-wrap: wrap; gap: var(--sp-4) var(--sp-7); margin-top: var(--sp-8); align-items: center; }
+.media-narrative-legend button { display: inline-flex; align-items: center; gap: var(--sp-4); padding: 1px var(--sp-7); border: 1px solid var(--border); border-radius: var(--r-10); background: transparent; color: var(--dim); font-size: var(--fs-10); cursor: pointer; }
+.media-narrative-legend button:hover { border-color: var(--accent); color: var(--text); }
+.media-narrative-legend i { width: 12px; height: 5px; border-radius: var(--r-2); }
 .speaker-chip { display: inline-flex; max-width: 100%; align-items: center; gap: var(--sp-4); padding: 1px var(--sp-7); border: 1px solid var(--border); border-radius: var(--r-10); background: transparent; color: var(--text); font-size: var(--fs-10); cursor: pointer; }
 .speaker-chip i { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; }
 .speaker-chip small { color: var(--dim); }
@@ -1280,10 +1289,10 @@ body.resizing-panes { cursor: col-resize; user-select: none; }
 .export-facts b { color: var(--text); font-size: var(--fs-14); }
 .export-options { display: grid; gap: var(--sp-7); margin-top: var(--sp-12); }
 .export-options.inactive { opacity: .45; pointer-events: none; }
-.export-profile { display: flex; gap: var(--sp-11); margin-top: var(--sp-10); }
-.export-profile-option { display: flex; align-items: center; gap: var(--sp-7); color: var(--dim); font-size: var(--fs-12); cursor: pointer; }
-.export-profile-option:has(input:checked) { color: var(--text); }
-.export-profile-option span { display: flex; gap: var(--sp-6); align-items: baseline; }
+.export-profile { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--sp-7); margin-top: var(--sp-10); }
+.export-profile-option { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: var(--sp-7); min-height: 64px; padding: var(--sp-9); border: 1px solid var(--border); border-radius: var(--r-9); color: var(--dim); font-size: var(--fs-12); cursor: pointer; }
+.export-profile-option:has(input:checked) { color: var(--text); border-color: var(--accent); background: rgba(79, 124, 255, .09); }
+.export-profile-option span { display: grid; gap: 2px; }
 .export-profile-option small { color: var(--dim); }
 .export-option { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--sp-9); padding: var(--sp-9) var(--sp-11); border: 1px solid var(--border); border-radius: var(--r-9); cursor: pointer; }
 .export-option:has(input:checked) { border-color: var(--accent); background: rgba(79, 124, 255, .09); }

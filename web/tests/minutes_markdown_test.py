@@ -65,6 +65,19 @@ with tempfile.TemporaryDirectory(prefix="minutes-markdown-test-") as tmp:
     assert evidence["linkage"]["formal_action_count"] == 1
     assert evidence["linkage"]["nonformal_action_claim_count"] == 1
 
+    page_only = """# 视频分析纪要
+
+## 规格与参数
+
+- 合成画面展示一项参数。 <!-- mm:evidence kind=discussion status=informational confidence=high pages=P0001 -->
+"""
+    pages = [{"page": 1, "first": 42.5, "ranges": [[42.5, 58.0]],
+              "image": "page_01.jpg"}]
+    visual_evidence = build_evidence_document(mdir, page_only, turns, pages, {}, [])
+    visual_claim = visual_evidence["claims"][0]
+    assert visual_claim["turn_ids"] == [] and visual_claim["page_ids"] == ["P0001"]
+    assert visual_claim["start"] == 42.5 and visual_claim["end"] == 58.0
+
 fullwidth = "｜事项｜负责人｜\n｜---｜---｜\n｜合成事项｜待确认｜\n"
 assert sum(token.type == "table_open" for token in MarkdownIt("default").parse(
     normalize_minutes_markdown(fullwidth))) == 1

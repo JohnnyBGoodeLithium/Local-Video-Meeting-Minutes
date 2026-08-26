@@ -3,23 +3,27 @@
 > 给接手 agent：先读本文件和 `AGENTS.md`，再看 `CHANGELOG.md` 未发布段了解最近改动。
 > 本文件在每次交接或大方向变化时更新；过期的进行中事项完成后删除对应段落。
 
-更新时间：2026-08-25（产品版本 v0.10.0；在线工作台构建号 20260825p92；提交号以 `git log -1` 为准）
+更新时间：2026-08-26（产品版本 v0.10.0；在线工作台构建号 20260826p94；提交号以 `git log -1` 为准）
 
-## 当前状态速览（2026-08-25 傍晚）
+## 当前状态速览（2026-08-26）
 
 **今日已推送**（主干 main 直推；远端只剩 main，tag 补齐 v0.8.0–v0.10.0）：p85 关键字索引+contentpack（7017381）→ p86 content_type 列表分离（62de2a9）→ p87 media 镜头检测（99c88de）→ p88 KB 导出 profile+时间码深链（275677d）→ p89 媒体版纪要 prompt（374f0ee）→ p90 屏幕列表滚动修复（76eb9f9）→ p91 口播帧二次合并（28ca26a）→ p92 疑难页 27B 复核+媒体浏览（7d58e68）。细节见下方各批次段与 CHANGELOG 未发布段。
 
-**在途**：
+**当前批次（p94，待最终验证/提交）**：
 
-1. **媒体两级 VL 与媒体 UI 一期已完成**（`7d58e68`）：80 个镜头保留 MiMo 全量解释，只把 6 个复杂证据页交给 Qwen3.8-27B 复核，6/6 成功；工作台与 Viewer 已同步媒体专用文案、论证分组、角色筛选和口播折叠，构建号 p92。无媒体 Viewer 实包已通过 ZIP 完整性检查。
-2. **已发现但不混入本批的后续问题**：单人长视频若 ASR 只有一个超长 turn，Topic Map 缺少可按时间拆分的语义单元，可能只形成一个一级论点；这不是 VL 漏页。应单独设计“媒体长独白语义切片”，不能伪造多个 turn ID。
+1. `coalesce_turns` 给相邻同人合并增加约 45 秒/240 字边界，修复单人口播被重新吞成一个超长 T ID、证据都显示 00:00 的根因；`repair_transcript.py` 可从现有 stamps/diarization 无 ASR 重跑修复存量内容，先建 `.versions/` 快照并按时间重叠继承身份，不触碰其他会议。
+2. 页面-only claim 用页面首次出现时间作为 `start`；在线和 Viewer 在没有 T 依据时也跳到首个 P 依据。
+3. Topic Map 对 media 附加 `media-navigation/v1`：单人口播展示议题+叙事作用，访谈展示议题+人物，混合视频展示三条；Web 与 Viewer 共享同一投影。待完成项只剩完整 `make check` / `make smoke`、实包结构验收、文档 Git 号回写与 push。
+4. KB 导出新增 `profile=kb-html`：单场直接返回可上传 WeKnora 的 `.kb.html`，关键画面以最长边 1600px/quality 86 JPEG data URI 内嵌；低价值/口播帧只保留文字。多场每场一份 HTML，manifest 标注格式与图像统计。轻量 `profile=kb` 保持不变。
+5. 实际格式验证（不入库、不打印正文）：本机 `WeKnora-docreader v0.7.2` 的 `HTMLParser` 从重建后的测试 HTML 提取 68,658 字正文、51 张图片、141 个时间深链（含 6 个分析纪要证据深链），和导出端计数一致。下载目录另有约 10.2MB 图文测试 HTML 与约 29KB 轻量对照包，均不进 Git。
+6. 存量媒体重建暴露了 CLI 缺口：`generate(... reuse_vl_cache_only=True)` 原本只供内部身份 revision 重试使用，命令行却无法选择。现已增加 `--reuse-vl-cache-only`，严格只读 `page_desc.json`，不预启动 MiMo；用于逐字稿时间修复后的纪要/Topic Map 重建。
 
 **产品方向已定决策**（不要重开）：
 
 - 定位=分析+导出工具；知识库管理归外部。**用户已在本机 Docker 部署 WeKnora**（前端 :8088，API :8080），实测导入玄戒 kb.md 成功：解析 12s→40 块父子分块、自动摘要 95s、问题生成 ~10min、Auto-Wiki 32min（瓶颈在 llama.cpp 路由 --parallel 1，可调 2-4 或按知识库关 wiki/问题生成）。
 - 能力分工三桶结论：WeKnora 做 KB 管理/跨库检索/wiki/图谱；我们做音视频管线/证据纪律/说话人修正/深链回看/导出打包/会议协作语义；**砍掉自研 L3 embedding+reranker（相关内容建议保留关键字图即可），场内 AI 对话收缩为"修正助手"**（改人名/补事实/触发重生成），开放问答引导到 KB 侧。
 - WeKnora 直推（REST API + scoped key + tag 映射）已具备条件，待排期；claims→FAQ 为可选二期。
-- 待验证问题：kb.md 深链在 WeKnora chunk 里是否保留 URL（影响"答案→引用→点击回看"链路），需在 WeKnora chunk 编辑界面确认。
+- 待验证问题：kb.md/kb.html 深链在 WeKnora chunk 里是否保留 URL（影响"答案→引用→点击回看"链路），以及图文版上传后知识详情的图片数是否与 manifest/导出统计一致；需在 WeKnora 前端确认。
 - Git 纪律：验证全绿才推 main；发布打 tag；每批提交后回写 PRODUCT_FUNCTIONS Git 号。
 - 待办队列：①媒体长独白语义切片 ②WeKnora API 直推 ③meeting-dl CLI 正式化 ④场内 AI 对话收缩为修正助手。
 - 隐私红线与验证基线见"当前基线"段；真实会议正文不读，测试全用合成数据。

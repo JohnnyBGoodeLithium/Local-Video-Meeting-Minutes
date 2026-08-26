@@ -705,11 +705,21 @@ def build_evidence_document(mdir: Path, minutes: str, turns: list[dict], pages: 
     valid_pages = {p["id"] for p in page_sources}
     claims = parse_claims(minutes, valid_turns, valid_pages)
     turn_by_id = {t["id"]: t for t in turn_sources}
+    page_by_id = {p["id"]: p for p in page_sources}
     for claim in claims:
         linked = [turn_by_id[x] for x in claim["turn_ids"] if x in turn_by_id]
+        linked_pages = [page_by_id[x] for x in claim["page_ids"] if x in page_by_id]
         claim["turn_indexes"] = [t["index"] for t in linked]
+        # 纯画面依据没有 transcript turn，仍应跳到页面真实出现时间，而不是在
+        # UI 中退化成 00:00。口播依据继续以 canonical turn 为准。
         claim["start"] = min((t["start"] for t in linked), default=None)
         claim["end"] = max((t["end"] for t in linked), default=None)
+        if claim["start"] is None and linked_pages:
+            starts = [float(p.get("first", 0)) for p in linked_pages]
+            claim["start"] = min(starts)
+            page_ends = [float(bounds[1]) for p in linked_pages
+                         for bounds in p.get("ranges", []) if len(bounds) >= 2]
+            claim["end"] = max(page_ends, default=claim["start"])
         claim["speakers"] = list(dict.fromkeys(t["speaker"] for t in linked))
         claim["person_ids"] = list(dict.fromkeys(t["person_id"] for t in linked if t.get("person_id")))
     document = {

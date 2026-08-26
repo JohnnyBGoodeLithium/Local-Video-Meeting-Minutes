@@ -109,11 +109,21 @@ def _join_text(a: str, b: str) -> str:
     return a + b
 
 
-def coalesce_turns(turns, max_gap: float = 3.0):
-    """同说话人相邻轮次、间隔 ≤max_gap 的合并(防静音/停顿切碎)。"""
+def coalesce_turns(turns, max_gap: float = 3.0, max_duration: float = 45.0,
+                   max_chars: int = 240):
+    """合并同说话人的短碎片，但保留可引用的语义时间粒度。
+
+    ``to_turns`` 已在句末把长讲话切段；旧实现又把同一人物的所有相邻段无限
+    合回去，单人口播最终只剩一个从 00:00 开始的超长 turn。这里给合并增加
+    时长/字数上限，既抑制几秒碎片，也不破坏证据跳转和叙事分段。
+    """
     out = []
     for t in turns:
-        if out and out[-1]["speaker"] == t["speaker"] and t["start"] - out[-1]["end"] <= max_gap:
+        combined_duration = float(t["end"]) - float(out[-1]["start"]) if out else 0.0
+        combined_chars = len(out[-1]["text"]) + len(t["text"]) if out else 0
+        if (out and out[-1]["speaker"] == t["speaker"]
+                and t["start"] - out[-1]["end"] <= max_gap
+                and combined_duration <= max_duration and combined_chars <= max_chars):
             out[-1]["end"] = t["end"]
             out[-1]["text"] = _join_text(out[-1]["text"], t["text"])
         else:

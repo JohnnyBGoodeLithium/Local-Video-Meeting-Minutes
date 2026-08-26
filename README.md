@@ -17,7 +17,7 @@
 2. 先完成转写和说话人识别，尽快发布可阅读的语音草稿。
    ASR 默认在本机运行，也可显式接入兼容端点；会议标题和确认术语属于可降级增强。命中已知易误听词时只复核对应短音频，不能由后置文本模型改写原语言逐字稿。
 3. 后台继续抽取逻辑页面、理解共享画面、生成多模态终稿和整场会议脉络。
-4. 用户从会议脉络进入某个议题；时间操作改变播放位置，右侧节点选择只改变阅读 Focus。
+4. 用户从会议脉络进入某个议题；时间操作改变播放位置，右侧节点选择只改变阅读 Focus。媒体内容会按实际形态自适应导航：单人口播显示“议题 + 叙事作用”，访谈显示“议题 + 人物”，混合内容同时保留两者。
 5. 在纪要、逐字稿与画面之间核对证据，确认人员身份；必要时播放并修正单轮原语言文本，随后更新纪要和脉络。
 6. 导出一个 `viewer.html + README.txt + assets/` 的 MeetingPack；收件人无需 GPU、LLM 或本机服务。
 
@@ -83,7 +83,22 @@ make run
 
 # 导出离线阅读包；默认不携带媒体
 .venv/bin/python bin/export_meeting.py meetings/<meeting>/ --media none
+
+# 导出给 WeKnora 等知识库使用的轻量 Markdown 包；base URL 用于时间码回跳
+.venv/bin/python bin/export_meeting.py meetings/<meeting>/ --profile kb \
+  --base-url http://<本机局域网地址>:8899
+
+# 导出可直接上传的单文件图文版；关键画面内嵌，不依赖图片路径或运行中的服务
+.venv/bin/python bin/export_meeting.py meetings/<meeting>/ --profile kb-html \
+  --base-url http://<本机局域网地址>:8899
 ```
+
+知识库导出不会重复塞入 Viewer、媒体和多份 JSON。只需要文字和最小体积时，解压
+`.kbpack.zip` 后上传 `<meeting>.kb.md`；需要知识库的 VLM 同时理解表格、图表和演示画面时，
+直接上传 `<meeting>.kb.html`。图文版把筛选后的关键画面压成最长边 1600px 的 JPEG data URI，
+口播、空白、会议 UI、过渡和已判定低价值的画面不嵌图，但文字解读仍保留。两种产物的时间码
+都会跳回本应用，所以测试前应确认 `--base-url` 是知识库使用者实际可访问的地址，而不是只能
+本机访问的 `127.0.0.1`。
 
 Web 导入会把源文件固化到会议目录。同文件系统优先使用 CoW reflink，不支持时复制；因此下载目录清理后会议仍可播放。存储清理只删除可再生缓存，不删除母版和阅读资产。
 
@@ -115,10 +130,10 @@ meeting-minutes/
 |---|---|---|
 | `source_video.*` / `source_audio.*` | 会议母版 | 否，受保护 |
 | `audio.wav` | 16 kHz PCM 工作音轨 | 是 |
-| `transcript.spk.json` | 带稳定 T ID 语义的具名逐字稿来源 | 代价高，视为 canonical |
+| `transcript.spk.json` | 带稳定 T ID 语义的具名逐字稿来源；长口播按受限时长切成可导航轮次 | 代价高，视为 canonical |
 | `minutes.md` | 正式可读纪要 | 可由来源重算，但保留版本 |
 | `minutes.evidence.json` | claim ↔ T/P linkage 与结构化行动项 | 可由纪要和来源重建 |
-| `meeting.topic-map.json` | 3–8 个整场议题及证据范围 | 可重建，输入变更即 stale |
+| `meeting.topic-map.json` | 3–8 个整场议题、证据范围及媒体自适应导航投影 | 可重建，输入变更即 stale |
 | `slides.json` + `slides/` | 逻辑页、出现区间和阅读缩略图 | 可从视频重建 |
 | `page_desc.json` | VL 对每个逻辑页的详细说明 | 可重建，成本较高 |
 | `.rag/` | 本地 embedding/reranker 索引 | 是 |

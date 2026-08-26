@@ -961,6 +961,8 @@ def main() -> int:
     ap.add_argument("--no-vl", action="store_true", help="不做 VL 画面内容层")
     ap.add_argument("--video", type=Path, default=None,
                     help="原视频(给了则按 captured 时间戳重抓原生分辨率帧给 VL, 否则用 slides/ 图)")
+    ap.add_argument("--reuse-vl-cache-only", action="store_true",
+                    help="严格只读 page_desc.json，不启动或调用视觉模型；用于存量文本/脉络重建")
     ap.add_argument("--refine-model", default=None,
                     help="大模型精修重写(如 qwen3.5-122b-a10b-planner; 首次调用需加载, 分钟级)")
     ap.add_argument("--publish", action="store_true",
@@ -970,7 +972,8 @@ def main() -> int:
         print("会议目录缺 transcript.spk.json 或 slides.json", file=sys.stderr)
         return 1
     out, stats = generate(args.mdir, args.out, vl=not args.no_vl, video=args.video,
-                          refine_model=args.refine_model)
+                          refine_model=args.refine_model,
+                          reuse_vl_cache_only=args.reuse_vl_cache_only)
     if args.publish:
         meeting_generation.finalize(
             args.mdir, pages=stats["pages"], vl_pages=stats["vl_pages"])

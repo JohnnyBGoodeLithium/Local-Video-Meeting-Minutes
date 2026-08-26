@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "bin"))
 
-from diarize import assign_speakers, smooth_dia, to_turns  # noqa: E402
+from diarize import assign_speakers, coalesce_turns, smooth_dia, to_turns  # noqa: E402
 
 
 def char(text, start, end):
@@ -49,5 +49,21 @@ assert [item[2] for item in smoothed] == ["A", "B", "A"], smoothed
 silent = [(0.0, 2.0, "A"), (2.0, 2.6, "B"), (2.6, 4.0, "A"), (5.0, 7.0, "B")]
 smoothed = smooth_dia(silent, chars=[char("前", 1.0, 1.2)])
 assert smoothed[:2] == [(0.0, 4.0, "A"), (5.0, 7.0, "B")], smoothed
+
+
+# 同一人物的短碎片仍可合并，但不能把长口播重新吞成从 00:00 开始的唯一 turn。
+short = [
+    {"speaker": "A", "start": 0.0, "end": 4.0, "text": "第一句。"},
+    {"speaker": "A", "start": 4.2, "end": 8.0, "text": "第二句。"},
+]
+assert len(coalesce_turns(short)) == 1
+long = [
+    {"speaker": "A", "start": index * 20.0, "end": (index + 1) * 20.0,
+     "text": "虚构的连续口播段落。" * 8}
+    for index in range(6)
+]
+coalesced = coalesce_turns(long)
+assert len(coalesced) >= 3, coalesced
+assert max(item["end"] - item["start"] for item in coalesced) <= 45.0
 
 print("diarization short-turn tests: PASS")

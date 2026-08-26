@@ -668,6 +668,8 @@ async function deleteMeeting(ev, slug) {
     $("#player-holder").innerHTML = '<p class="placeholder">选择会议后可回放</p>';
     $("#timeline").innerHTML = "";
     $("#speaker-legend").innerHTML = "";
+    $("#media-narrative-legend").innerHTML = "";
+    $("#media-narrative-legend").classList.add("hidden");
     $("#person-lanes").innerHTML = "";
     $("#person-lanes").classList.add("hidden");
     state.personLanes = false;
@@ -1743,8 +1745,14 @@ function buildTimeline(duration) {
   }
   appendGapParts(cursor, duration);
 
-  // 下层说话人节奏条：像素桶主导人着色，桶数与会议长度无关。
-  renderSpeakerLane(tl, duration);
+  // 媒体按内容形态切换第二维：单人口播看叙事作用，访谈保留人物，混合内容两者都显示。
+  const mediaNav = mediaNavigation();
+  const narrative = isMediaContent() && mediaNav?.show_narrative_lane
+    && mediaNav.segments?.length;
+  const speakers = !isMediaContent() || !mediaNav || mediaNav.show_speaker_lane;
+  tl.classList.toggle("media-hybrid", Boolean(narrative && speakers));
+  if (narrative) renderNarrativeLane(tl, duration, 29);
+  if (speakers) renderSpeakerLane(tl, duration, narrative ? 47 : 29);
   // 分钟刻度
   const step = duration > 5400 ? 600 : duration > 1500 ? 300 : 60;
   for (let t = 0; t <= duration; t += step) {
@@ -1764,6 +1772,7 @@ function buildTimeline(duration) {
   updateActiveChapter(player()?.currentTime || 0);
   updateTimelineFocus();
   renderSpeakerLegend();
+  renderNarrativeLegend();
   renderPersonLanes();
   applySpeakerFocus();
   // 空白处点击 seek
@@ -1842,12 +1851,14 @@ function speakerColor(speaker) {
 }
 
 // 节奏条：按渲染宽度分桶(约 2px/桶,上限 360)，每桶染该时间窗发言时长最长者的颜色。
-function renderSpeakerLane(tl, duration) {
+function renderSpeakerLane(tl, duration, top = 29) {
   $$(".tl-spk-lane", tl).forEach(item => item.remove());
   const transcript = state.bundle?.transcript || [];
   if (!transcript.length || !duration) return;
   const lane = document.createElement("div");
   lane.className = "tl-spk-lane";
+  lane.style.top = `${top}px`;
+  lane.style.bottom = "2px";
   const width = tl.clientWidth || 0;
   const bucketCount = Math.max(24, Math.min(360, Math.round(width / 2) || 180));
   // 预展开每轮的时间跨度，桶窗口按序推进指针，避免 O(桶×轮) 全量扫描。
@@ -1886,6 +1897,77 @@ function renderSpeakerLane(tl, duration) {
     lane.appendChild(seg);
   }
   tl.appendChild(lane);
+}
+
+const MEDIA_NARRATIVE_ROLES = {
+  setup: { zh: "铺垫", en: "Setup", color: "#7c8aa5" },
+  thesis: { zh: "观点", en: "Claim", color: "#4f7cff" },
+  explanation: { zh: "讲解", en: "Explanation", color: "#5d6f91" },
+  evidence: { zh: "证据", en: "Evidence", color: "#169b72" },
+  demo: { zh: "演示", en: "Demo", color: "#8358d8" },
+  caveat: { zh: "质疑/限制", en: "Caveat", color: "#d58a1f" },
+  conclusion: { zh: "结论", en: "Conclusion", color: "#13829b" },
+};
+
+function isMediaContent() { return contentTypeOf(state.bundle) === "media"; }
+function mediaNavigation() {
+  // 角色与时间范围是 canonical 导航数据，语言切换只翻译显示文案，不能被翻译
+  // sidecar 覆盖或丢失。
+  const value = state.bundle?.topic_map?.media_navigation;
+  return value?.schema === "media-navigation/v1" ? value : null;
+}
+function mediaShowsSpeakers() {
+  const value = mediaNavigation();
+  return !isMediaContent() || !value || value.show_speaker_lane !== false;
+}
+function narrativeRoleLabel(role) {
+  const item = MEDIA_NARRATIVE_ROLES[role] || MEDIA_NARRATIVE_ROLES.explanation;
+  return isEnglishUi() ? item.en : item.zh;
+}
+function renderNarrativeLane(tl, duration, top = 29) {
+  $$(".tl-narrative-lane", tl).forEach(item => item.remove());
+  const value = mediaNavigation();
+  if (!value?.segments?.length || !duration) return;
+  const lane = document.createElement("div");
+  lane.className = "tl-narrative-lane";
+  lane.style.top = `${top}px`;
+  for (const segment of value.segments) {
+    const start = Number(segment.start) || 0, end = Number(segment.end) || start;
+    if (end <= start) continue;
+    const role = MEDIA_NARRATIVE_ROLES[segment.role] || MEDIA_NARRATIVE_ROLES.explanation;
+    const block = document.createElement("div");
+    block.className = "tl-narrative-seg";
+    block.style.left = `${start / duration * 100}%`;
+    block.style.width = `${Math.max(.7, (end - start) / duration * 100)}%`;
+    block.style.background = role.color;
+    block.title = `${fmt(start)}–${fmt(end)} · ${narrativeRoleLabel(segment.role)}` +
+      (segment.title ? ` · ${segment.title}` : "");
+    if ((end - start) / duration >= .07)
+      block.innerHTML = `<span>${esc(narrativeRoleLabel(segment.role))}</span>`;
+    block.onclick = event => { event.stopPropagation(); seek(start); };
+    lane.appendChild(block);
+  }
+  tl.appendChild(lane);
+}
+
+function renderNarrativeLegend() {
+  const box = $("#media-narrative-legend"), value = mediaNavigation();
+  if (!box) return;
+  if (!isMediaContent() || !value?.show_narrative_lane || !value.segments?.length) {
+    box.innerHTML = ""; box.classList.add("hidden"); return;
+  }
+  const firstByRole = new Map();
+  value.segments.forEach(segment => {
+    if (!firstByRole.has(segment.role)) firstByRole.set(segment.role, segment);
+  });
+  box.innerHTML = [...firstByRole].map(([roleName, segment]) => {
+    const role = MEDIA_NARRATIVE_ROLES[roleName] || MEDIA_NARRATIVE_ROLES.explanation;
+    return `<button type="button" data-narrative-start="${Number(segment.start) || 0}">` +
+      `<i style="background:${role.color}"></i>${esc(narrativeRoleLabel(roleName))}</button>`;
+  }).join("");
+  $$('[data-narrative-start]', box).forEach(button =>
+    button.onclick = () => seek(Number(button.dataset.narrativeStart) || 0));
+  box.classList.remove("hidden");
 }
 
 // 相邻同说话人轮次合并为连续块；turn 缺 end 时用下一轮开始或整场时长补齐。
@@ -1965,7 +2047,9 @@ function renderSpeakerLegend() {
   if (!box) return;
   const transcript = state.bundle?.transcript || [];
   box.innerHTML = "";
-  if (!transcript.length) { box.classList.add("hidden"); return; }
+  if (!transcript.length || !mediaShowsSpeakers()) {
+    box.innerHTML = ""; box.classList.add("hidden"); return;
+  }
   const { stats, total } = speakerStats();
   const { bound, unbound } = speakerOrderByShare();
   const pct = name => Math.round((stats.get(name) || 0) / total * 100);
@@ -2025,6 +2109,7 @@ function renderLanesToggle() {
   const bar = $("#person-lanes-bar");
   const btn = $("#person-lanes-toggle");
   if (!bar || !btn) return;
+  if (!mediaShowsSpeakers()) { bar.classList.add("hidden"); return; }
   if (!(state.bundle?.transcript || []).length) { bar.classList.add("hidden"); return; }
   btn.textContent = state.personLanes ? ui("collapseLanes") : ui("expandLanes");
   btn.setAttribute("aria-expanded", String(state.personLanes));
@@ -2042,6 +2127,11 @@ function renderPersonLanes() {
   const box = $("#person-lanes");
   if (!box) return;
   box.innerHTML = "";
+  if (!mediaShowsSpeakers()) {
+    box.classList.add("hidden");
+    $("#person-lanes-bar")?.classList.add("hidden");
+    return;
+  }
   if (!state.personLanes || !(state.bundle?.transcript || []).length) {
     box.classList.add("hidden");
     return;
@@ -3757,7 +3847,10 @@ function showMinutesEvidence(claimId, jumpToFirst = false) {
   });
   $$(".evidence-page-seek", $("#evidence-body")).forEach(btn =>
     btn.onclick = () => seek(Number(btn.dataset.time || 0)));
-  if (jumpToFirst && turns.length) seek(Number(turns[0].t.start || 0));
+  if (jumpToFirst) {
+    if (turns.length) seek(Number(turns[0].t.start || 0));
+    else if (pages.length) seek(Number(pages[0].first || 0));
+  }
 }
 
 /* ---------- 会议结论审计 ---------- */
@@ -4039,10 +4132,10 @@ function exportPack(slugs, media = "none", profile = "full") {
   document.body.appendChild(a);
   a.click();
   a.remove();
-  toast(profile === "kb"
+  toast(profile !== "full"
     ? (isEnglishUi()
-      ? `Generating knowledge-base pack (${slugs.length} items)…`
-      : `正在生成知识库版内容包（${slugs.length} 个内容）…`)
+      ? `Generating ${profile === "kb-html" ? "visual " : ""}knowledge-base pack (${slugs.length} items)…`
+      : `正在生成${profile === "kb-html" ? "图文" : "轻量"}知识库内容包（${slugs.length} 个内容）…`)
     : isEnglishUi()
     ? `Generating content pack (${slugs.length} items)…`
     : `正在生成内容包（${slugs.length} 个内容）…`);
@@ -4060,7 +4153,7 @@ function updateExportSizeHint() {
   const data = state.exportPreflight;
   const hint = $("#export-size-hint");
   if (!data || !hint) return;
-  const kb = selectedExportProfile() === "kb";
+  const kb = selectedExportProfile() !== "full";
   $(".export-options", $("#export-preflight"))?.classList.toggle("inactive", kb);
   const media = $('input[name="export-media"]:checked', $("#export-preflight"))?.value || "none";
   const oversized = !kb && Number(data.estimated_bytes?.[media] || 0) > 30 * 1024 * 1024;
@@ -4085,7 +4178,11 @@ function renderExportPreflight() {
     ["full", isEnglishUi() ? "Full pack" : "完整包",
      isEnglishUi() ? "Offline viewer + evidence assets" : "离线查看器 + 证据资产"],
     ["kb", isEnglishUi() ? "Knowledge-base" : "知识库版",
-     isEnglishUi() ? "Plain text + media links" : "纯文本+媒体链接"],
+     isEnglishUi() ? "Markdown + online source links" : "Markdown + 在线源链接"],
+    ["kb-html", isEnglishUi() ? "Visual knowledge-base" : "知识库图文版",
+     isEnglishUi()
+       ? `One HTML + embedded key frames · about ${formatBytes(data.estimated_bytes.kb_html || 0)}`
+       : `单个 HTML + 内嵌关键画面 · 约 ${formatBytes(data.estimated_bytes.kb_html || 0)}`],
   ];
   const html = `<div class="export-facts">` +
     `<span><b>${esc(evidenceNames[data.evidence.state] || "部分证据")}</b>${data.evidence.linked_claims}/${data.evidence.claims} 条结论有链接</span>` +
@@ -4108,7 +4205,7 @@ function renderExportPreflight() {
       '<div class="export-warning">当前包仍可阅读，但部分结论不能回到原文核对。建议重新生成纪要后再正式分享。</div>') +
     `<p class="export-note">由 Meeting Minutes v${esc(data.product_version || "-")} 生成；文件名格式 <code>${esc(data.filename_pattern || "")}</code>。<br>` +
     '包顶层只有 <code>viewer.html</code>、<code>README.txt</code> 和 <code>assets/</code>。音视频是分享压缩版，项目中的原始母版不会被修改。' +
-    `${isEnglishUi() ? "The knowledge-base profile contains only one Markdown per item plus a manifest; media and screenshots stay online via links." : "知识库版每个内容只有一份 Markdown 和 manifest，媒体与截图走在线链接。"}</p>`;
+    `${isEnglishUi() ? "The lightweight KB profile uses Markdown and online links. The visual KB profile embeds selected JPEG frames in a standalone HTML for direct VLM ingestion." : "知识库轻量版使用 Markdown 与在线链接；图文版把筛选后的 JPEG 关键画面内嵌进单个 HTML，可直接交给带 VLM 的知识库。"}</p>`;
   $("#export-preflight").innerHTML = html;
   $$('input[name="export-profile"]', $("#export-preflight")).forEach(radio => {
     radio.onchange = updateExportSizeHint;
@@ -4129,8 +4226,10 @@ function exportMeeting(media = "none", profile = "full") {
   document.body.appendChild(a);
   a.click();
   a.remove();
-  toast(profile === "kb"
-    ? (isEnglishUi() ? "Generating knowledge-base pack…" : "正在生成知识库版导出包…")
+  toast(profile !== "full"
+    ? (isEnglishUi()
+      ? `Generating ${profile === "kb-html" ? "visual " : ""}knowledge-base export…`
+      : `正在生成${profile === "kb-html" ? "图文" : "轻量"}知识库导出…`)
     : media === "none" ? "正在生成离线查看包（默认不含音视频）…" : `正在生成含${media === "video" ? "视频" : "音频"}的查看包…`);
 }
 
