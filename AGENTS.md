@@ -24,6 +24,7 @@
 - `minutes.md` 是正式阅读文档；`minutes.evidence.json` 是 claim、结构化行动项和 T/P/C linkage 真源。
 - `meeting.topic-map.json`、VL 描述、翻译和 `.rag/` 是输入 revision 绑定的派生资产；来源变化后必须 stale 或重建。
 - VL 页面只能证明屏幕展示内容，不能单独证明会议决定。职位层级只能解释确认权限，不能把建议自动提升为结论。
+- 会议侧已经生成的 VL 标题、详情与 evidence 是知识库导出的首要视觉语义；外部知识库的 VLM 只用于补充读取图片中未被文字覆盖的字段，不能默认全量重复分析，更不能用第二套图片描述覆盖 canonical 结论。`profile=kb-html` 表示“保留可选视觉资产”，不表示消费方必须启用 VLM。
 - LLM 只能提出内容或结构化候选；文件路径、写入、删除、引用 ID 和 revision 必须由代码重新验证。
 
 ## 工程边界
@@ -39,6 +40,7 @@
 - 提交前检查仓库级 `user.name` / `user.email`，使用当前执行 agent 的正确身份，不沿用上一个 agent 的作者配置。已推送的提交不随意改写；若用户明确要求修正刚推送的提交，只用 `--force-with-lease`，并先说明影响。
 - 每批用户可见改动同步递增前端构建号（`web/static/index.html` 的 `v=` 参数与 `web/tests/smoke_test.py` 断言），排查"用户看到的是哪个版本"不靠猜。
 - 产品版本、前端构建号、Git commit 和数据 schema 必须分开。产品版本只从根目录 `VERSION` 读取；普通提交不升版，一个可验收发布可包含多个工程提交。
+- 知识库导出保持职责分离：本应用负责音视频分析、证据 linkage、图片筛选与导出；WeKnora 等外部系统负责文档分块、索引、检索和问答。默认推荐 `profile=kb`；需要保留截图时用 `profile=kb-html`，消费方 VLM 默认关闭、按“文字解读未覆盖的关键图表”需求显式开启。ASR 不参与 HTML/Markdown 导入。
 - 发布产品版本时，同步更新 `VERSION`、`CHANGELOG.md` 和需要设版本基线的文档；验证、commit 与 push 后创建并推送 annotated Git tag。详见 `docs/RELEASES.md`。
 
 ## 排障与验证模式（真实事故沉淀）
@@ -55,12 +57,14 @@
 - 用户旅程或产品信息架构变化：更新 `docs/PRODUCT_UX.md`。
 - pipeline、schema、数据流或模块边界变化：更新 `docs/ARCHITECTURE.md`。
 - 导出、evidence、action 或 RAG 记录变化：更新 `docs/EXPORT_AND_RAG.md`。
+- 知识库导出 profile、外部解析/VLM 建议或回跳契约变化：至少联动检查 `README.md`、`docs/PRODUCT_UX.md`、`docs/ARCHITECTURE.md`、`docs/PROCESSING_GUIDE.md`、`docs/EXPORT_AND_RAG.md`、`docs/PRODUCT_FUNCTIONS.md`、`CHANGELOG.md` 和 `HANDOFF.md`，不能只改实现旁的一份文档。
 - 模型、显卡、环境变量或安装方式变化：更新 `docs/DEPLOYMENT.md` 和 `docs/MODELS.md`。
 - 重要功能或修复：更新 `CHANGELOG.md`。Git 提交仍是完整历史真源。
 - 新增用户可感知功能或对现有功能做重要增强：同步更新 `docs/PRODUCT_FUNCTIONS.md`；四级功能编号上线后不得复用或重排，版本号和 Git 号必须来自实际交付，不能写预计值。
 - 工程事故的根因、修复与教训：更新 `docs/ENGINEERING_REVIEW.md` 已处理段。
 - README 只保留稳定入口、结构和文档地图，不复制每份深度文档的全部细节。
 - 产品版本、发布节奏或 Git tag 规则变化：更新 `docs/RELEASES.md`。
+- `HANDOFF.md` 顶部只描述当前已交付基线和真实待办；完成验证、提交或部署后必须把“待验证/待提交/待重启”等过期状态清掉，历史细节留给 CHANGELOG 和 Git。
 
 ## 验证门槛
 

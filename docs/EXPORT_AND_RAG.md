@@ -164,7 +164,7 @@ Web 只在 sidecar 的逐字稿和纪要 revision 与当前文件一致时展示
         └── video.mp4       # --media video：H.264 720p/10fps 分享版
 ```
 
-例如 `Project_review_2026-08-19_v0.10.0_20260819-153000.meetingpack.zip`。文件名中的产品版本来自根目录 `VERSION`，导出时间保证同一会议多次导出可并存。`README.txt` 和 `assets/manifest.json.generator.version` 同时记录生成器版本；Viewer 顶栏也显示该版本。
+例如 `Project_review_2026-08-26_v0.10.1_20260826-153000.meetingpack.zip`。文件名中的产品版本来自根目录 `VERSION`，导出时间保证同一会议多次导出可并存。`README.txt` 和 `assets/manifest.json.generator.version` 同时记录生成器版本；Viewer 顶栏也显示该版本。
 
 Viewer 提供四个任务入口：“会议脉络 / 会议纪要 / 逐字稿 / 屏幕内容”（媒体包对应为“论证脉络 / 分析纪要 / 逐字稿 / 画面解析”），右侧证据以抽屉按需打开。脉络、纪要和屏幕属于全宽浏览态；进入逐字稿才切成左侧媒体/截图内容舞台与时间轴、右侧完整逐字稿和发言级核听控制。浏览期间如果媒体仍在播放，只保留紧凑悬浮播放器。顶部搜索按当前入口限定到脉络节点、结论、逐字稿轮次或屏幕资料，并分别保留关键词。冻结的 `meeting-topic-map/v3`（兼容 v1/v2 旧图）通过质量门槛（`ready` 且 3–8 个一级议题）时默认打开脉络，否则安全回退纪要。v3 中 `turn_ids` / `evidence_ranges` 是代表论据，`navigation_turn_ids` / `ranges` 是完整浏览范围，顶层 `navigation_segments` 保留 `topic`、`transition`、`unclassified`。媒体图还可携带 `media-navigation/v1`：单人口播显示 Topic + 叙事作用，访谈显示 Topic + 人物，混合视频显示三条；Viewer 不重新推断类型。会议和访谈的人物节奏条继续按像素桶显示，并可展开逐人车道。逐字稿长发言拆成独立核听段落；上一段、重播、下一段及个人跳播都按可见段落工作。无视频时，截图舞台随音频播放或时间选择切换。静态 Viewer 不可写：先在在线工作台修正并同步下游，再重新导出。必须解压整个 ZIP 后再打开，不能只在压缩软件里预览单个 HTML。
 
@@ -221,7 +221,7 @@ Web“更多”菜单提供三种导出；命令行等价用法：
 MeetingPack/ContentPack 的"viewer + 中英纪要 + transcript json/md + records"表达对按文档分块的知识库（如本机 Docker 部署的腾讯 WeKnora）是冗余的，直接进 RAG 会拉低检索质量。知识库导出因此把**每个内容收敛成一份主文档**，KB 管理与问答归知识库，本应用只做分析与导出。按是否需要画面理解分成两种形态：
 
 - `profile=kb`：轻量文本版，Markdown 正文，屏幕图和媒体走在线链接；适合批量入库、纯文本问答和最小体积。
-- `profile=kb-html`：图文版，单场直接得到一个 `.kb.html`；正文结构与 Markdown 相同，筛选后的关键画面以 base64 JPEG 内嵌，适合启用了 VLM 的知识库理解表格、图表、规格页和演示画面。
+- `profile=kb-html`：图文版，单场直接得到一个 `.kb.html`；正文结构与 Markdown 相同，筛选后的关键画面以 base64 JPEG 内嵌。即使知识库关闭 VLM，也能检索会议侧已经生成的画面标题与详细解读；只有需要补读未文字化的表格字段、图表、规格页或演示细节时才开启外部 VLM。
 
 轻量版结构：
 
@@ -234,7 +234,7 @@ MeetingPack/ContentPack 的"viewer + 中英纪要 + transcript json/md + records
 
 `.kb.md` 结构：YAML front matter（`title` / `date` / `content_type` / `duration`（秒）/ `keywords`（每条带 `kind`）/ `source_url`（meta.json 有才带）），正文按分块友好顺序排列：**总体摘要 → 关键结论 → 待办（含负责人/期限，结构化投影） → 议题脉络（每议题一节） → 屏幕内容（每页一节） → 逐字稿（每轮一条）**；缺失板块整节跳过，语言跟随纪要主语言，不双语重复。
 
-图文版是同一正文的语义 HTML，不带脚本，也不依赖 CSS/图片目录或网络取图。每张入选画面在内存中统一转为最长边 1600px、质量 86 的 JPEG，再写成 `data:image/jpeg;base64,...`；原分析帧和会议目录都不修改。筛选规则只排除 `talking_head`、空白、摄像头/会议 UI、过渡和明确 `information_value=low` 的页面；被排除页面的标题、时间、VL 文字解读仍在正文中。WeKnora 的 HTML 解析器会静态转成 Markdown，其 Markdown 图片阶段可把 data URI 解码为图片二进制交给 ImageResolver/VLM，因此不能改成 `file://` 或仅指向同级 `assets/` 的相对路径。
+图文版是同一正文的语义 HTML，不带脚本，也不依赖 CSS/图片目录或网络取图。每张入选画面在内存中统一转为最长边 1600px、质量 86 的 JPEG，再写成 `data:image/jpeg;base64,...`；原分析帧和会议目录都不修改。筛选规则只排除 `talking_head`、空白、摄像头/会议 UI、过渡和明确 `information_value=low` 的页面；被排除页面的标题、时间、VL 文字解读仍在正文中。WeKnora 的 HTML 解析器会静态转成 Markdown，其 Markdown 图片阶段可把 data URI 解码为图片二进制并在启用时交给 ImageResolver/VLM，因此不能改成 `file://` 或仅指向同级 `assets/` 的相对路径。关闭 VLM 只是不再生成第二套图片说明，不影响随文的会议侧 VL 文字进入索引。
 
 **外链约定**（KB 与本应用同机是前提）：
 
@@ -260,7 +260,7 @@ GET /api/export/pack?slugs=a,b,c&profile=kb-html
 
 单场 `kb-html` HTTP/CLI 直接返回 `<名称>_<日期>_v<版本>_<时间>.kb.html`，无需解压即可上传。多场仍返回 `.kbpack.zip`，其中每场一份独立 `<slug>.kb.html`，另有 `index.md` 和 manifest；应解压后逐份上传 HTML，不把 zip 或 manifest 当正文。
 
-在 WeKnora 侧，纯文本知识库上传 `<slug>.kb.md`，启用 VLM 的图文知识库直接上传单场 `.kb.html`；HTML 不需要启用 ASR，Wiki/问题生成可按时延需要选择，和图片是否可解析无关。`manifest.json` 是机器清单，不是主要检索正文，`tags` 汇总可作为知识库过滤标签来源。建议用下面五步验收：
+在 WeKnora 侧，纯文本知识库上传 `<slug>.kb.md`，需要保留关键截图时直接上传单场 `.kb.html`。两者都不需要启用 ASR。由于会议侧已经写入画面标题、详细解读、时间和 evidence，VLM 默认建议关闭；只有验收目标包含“回答文字解读没有覆盖、但截图中可见的字段”时才开启。Wiki/问题生成按时延需要选择，与图片是否保留无关。`manifest.json` 是机器清单，不是主要检索正文，`tags` 汇总可作为知识库过滤标签来源。建议用下面五步验收：
 
 工程验收已直接用本机 `WeKnora-docreader v0.7.2` 的 `HTMLParser` 读取一份真实结构测试文件：HTML 静态解析得到 68,658 个正文字符、51 张图片和 141 个时间深链，其中 6 个是分析纪要的“依据 · 时间”链接；图片数量与导出端 data URI 计数一致。解析过程没有网络取图或知识库写入。该结果证明传输格式兼容，不替代用户在具体知识库中对分块、VLM 问答质量和深链可访问性的验收。
 
@@ -268,7 +268,9 @@ GET /api/export/pack?slugs=a,b,c&profile=kb-html
 2. 搜索一个只在原话出现的细节，确认仍能召回逐字稿块；
 3. 检查 WeKnora chunk 预览是否保留 Markdown 时间链接；
 4. 点击时间码，确认浏览器打开可访问的 `base_url` 并定位到非 00:00 的真实时间。若第三步丢链接，是 WeKnora 解析配置问题；若链接存在但打不开，通常是导出时使用了 `127.0.0.1` 或服务未对局域网开放。
-5. 图文版检查知识详情中的图片数，并提问一个只存在于表格/图表画面、逐字稿没有完整念出的字段；如果图片数为 0，先检查是否上传了 `.kb.html`（而非轻量 `.kb.md`）以及知识库是否启用 VLM。
+5. 图文版先在 VLM 关闭状态验证会议侧画面解读可检索；确实需要补读截图独有字段时，再单独开启 VLM 重新解析并做 A/B。若图片数为 0，先检查是否上传了 `.kb.html`（而非轻量 `.kb.md`）；图片是否被抽取与是否启用 VLM是两个问题。
+
+若文档已经处于“多模态识别”，修改知识库默认开关不会改写这次任务已经冻结的处理参数。应在文档菜单取消解析，进入“知识库设置 → 多模态 / 图片理解”关闭“多模态功能”，或在再次上传的确认页关闭同一开关，然后重新解析。不要为了 HTML/Markdown 开启 ASR。
 
 
 ## 5. RAG 使用方式

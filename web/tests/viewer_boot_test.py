@@ -10,7 +10,8 @@ import tempfile
 import copy
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "bin"))
+ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(ROOT / "bin"))
 
 import export_meeting  # noqa: E402
 
@@ -118,7 +119,8 @@ with tempfile.TemporaryDirectory() as td:
 
 assert proc.returncode == 0, proc.stderr[-300:]
 assert "启动冒烟正文标记" in proc.stdout, "viewer 正文未渲染"
-assert 'id="pack-version"' in proc.stdout and "Meeting Minutes v0.10.0" in proc.stdout, \
+version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+assert 'id="pack-version"' in proc.stdout and f"Meeting Minutes v{version}" in proc.stdout, \
     "viewer 未显示生成器产品版本"
 assert 'data-fluent-theme="light"' in proc.stdout, "viewer 未启用共享 Fluent 浅色 token"
 assert 'id="fluent-zoom-in"' in proc.stdout and "__FLUENT_" not in proc.stdout, \
