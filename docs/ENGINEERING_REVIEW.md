@@ -12,7 +12,7 @@
 ## 2026-08-26：公开媒体入口与前端单文件边界
 
 - 媒体入口若直接把 URL 和下载器返回值塞进作业/会议 JSON，会同时泄漏签名参数、Cookie、请求头、本机路径，并让列表、Viewer 与 KB 各自形成来源规则。现改为私有 inbox 请求 + 受限下载器 + `media-source/v1` 白名单；内容类型和来源标题在语音草稿前发布，失败恢复也不会误走会议 prompt。当前只校验初始 DNS/IP；在服务开放到 LAN 之前，下载 worker 仍需进一步做网络命名空间/出口代理隔离，以覆盖恶意重定向和 DNS rebinding，不能把当前入口当公网抓取服务。
-- `web/static/app.js` 已约五千余行，长度本身不是故障，但导入、库、队列、播放器、逐字稿、纪要、来源和导出共享可变状态，新增需求需要扫描过多无关代码。决策是保留模块化单体和原生 JS，按领域抽 ES modules，让 `app.js` 收敛为装配入口；Meeting/Media 只做 domain profile，不复制分析 core 或页面。现已抽 `media-source.js`、`imports.js`、`jobs.js`、`library.js`、`player-navigation.js` 五个无 DOM 规则模块；内容库的排序/筛选/初始选择和核听播放器的段落导航都能脱离页面独立验证，DOM、滚动和 `play()` 副作用仍留在入口。纯规则用 Node 回归，浏览器模块加载用 Headless Chromium 回归。迁移继续小步保持 API、页面和 Viewer 行为，暂不以 React 或微前端重写制造第二套状态系统。
+- `web/static/app.js` 已约五千余行，长度本身不是故障，但导入、库、队列、播放器、逐字稿、纪要、来源和导出共享可变状态，新增需求需要扫描过多无关代码。决策是保留模块化单体和原生 JS，按领域抽 ES modules，让 `app.js` 收敛为装配入口；Meeting/Media 只做 domain profile，不复制分析 core 或页面。现已抽 `media-source.js`、`imports.js`、`jobs.js`、`library.js`、`player-navigation.js`、`transcript.js`、`export.js` 七个无 DOM 规则模块；内容库选择、核听导航、逐字稿搜索/长轮次分段和导出体积/URL 规则都能脱离页面独立验证，DOM、滚动、`play()` 和下载点击副作用仍留在入口。纯规则用 Node 回归，浏览器模块加载用 Headless Chromium 回归。迁移继续小步保持 API、页面和 Viewer 行为，暂不以 React 或微前端重写制造第二套状态系统。
 
 ## 2026-08-21：整阶段门阻塞核听导出与急件
 

@@ -9,6 +9,12 @@ import { chooseInitialItem, deepLinkSeconds, filterLibrary, sortLibrary }
 import { adjacentReviewUnit, defaultReviewUnits, nearestReviewUnit,
   reviewIndexesFor, reviewUnitForTurn, turnEnd }
   from "../static/modules/player-navigation.js";
+import { nextSearchCursor, pendingReviewByTurn, splitTurnChunks, transcriptSearchHits,
+  turnReviewUnits }
+  from "../static/modules/transcript.js";
+import { exportSizeState, formatBytes, meetingExportHref, normalizeExportProfile,
+  packExportHref }
+  from "../static/modules/export.js";
 
 const media = {
   slug: "synthetic-media",
@@ -88,4 +94,32 @@ assert.equal(nearestReviewUnit(units, [0, 2], 10), 2);
 assert.equal(adjacentReviewUnit([0, 2], 0, 1), 2);
 assert.equal(adjacentReviewUnit([0, 2], 2, 1), null);
 
-console.log("frontend modules: source/import/job/library/player policies passed");
+assert.deepEqual(transcriptSearchHits([
+  { text: "Quarterly margin review" }, { text: "Supply update" }, { text: "MARGIN action" },
+], " margin "), [0, 2]);
+assert.equal(nextSearchCursor(-1, 3, 1), 0);
+assert.equal(nextSearchCursor(0, 3, -1), 2);
+const chunks = splitTurnChunks("第一句。第二句。第三句。", 120, 4, 20);
+assert.equal(chunks.length, 3);
+const chunkUnits = turnReviewUnits(
+  { start: 10, text: "第一句。第二句。第三句。", speaker: "Alice" }, 4, 130, chunks, 7);
+assert.deepEqual(chunkUnits.map(unit => unit.index), [7, 8, 9]);
+assert.equal(chunkUnits[0].start, 10);
+assert.equal(chunkUnits.at(-1).end, 130);
+assert.equal(pendingReviewByTurn({ pending: [
+  { turn_index: 2, suggested_text: "synthetic" }, { turn_index: "3" },
+] }).size, 1);
+
+assert.equal(normalizeExportProfile("unknown"), "full");
+assert.equal(formatBytes(2 * 1024 * 1024), "2.0 MB");
+assert.deepEqual(exportSizeState({ estimated_bytes: { video: 40 * 1024 * 1024 } },
+  "full", "video"), {
+  profile: "full", media: "video", estimatedBytes: 40 * 1024 * 1024, oversized: true,
+});
+assert.equal(exportSizeState({}, "kb", "video").media, "none");
+assert.equal(meetingExportHref("synthetic meeting", "audio", "full"),
+  "/api/meetings/synthetic%20meeting/export?media=audio&profile=full");
+assert.match(packExportHref(["one", "two"], "video", "kb-html"),
+  /slugs=one%2Ctwo&media=video&profile=kb-html$/);
+
+console.log("frontend modules: source/import/job/library/player/transcript/export policies passed");

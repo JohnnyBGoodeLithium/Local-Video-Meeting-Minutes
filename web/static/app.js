@@ -1,14 +1,20 @@
 import { contentTypeOf, safeSourceUrl }
-  from "./modules/media-source.js?v=20260826p97";
+  from "./modules/media-source.js?v=20260826p98";
 import { buildUploadFormData, enqueueMediaUrl, isSingleLocalVideo }
-  from "./modules/imports.js?v=20260826p97";
+  from "./modules/imports.js?v=20260826p98";
 import { jobDisplayName, selectJobPanel }
-  from "./modules/jobs.js?v=20260826p97";
+  from "./modules/jobs.js?v=20260826p98";
 import { chooseInitialItem, deepLinkSeconds, filterLibrary, sortLibrary }
-  from "./modules/library.js?v=20260826p97";
+  from "./modules/library.js?v=20260826p98";
 import { adjacentReviewUnit, defaultReviewUnits, nearestReviewUnit,
   reviewIndexesFor, reviewUnitForTurn as findReviewUnitForTurn, turnEnd }
-  from "./modules/player-navigation.js?v=20260826p97";
+  from "./modules/player-navigation.js?v=20260826p98";
+import { nextSearchCursor, pendingReviewByTurn, splitTurnChunks, transcriptSearchHits,
+  turnReviewUnits }
+  from "./modules/transcript.js?v=20260826p98";
+import { exportSizeState, formatBytes, meetingExportHref, normalizeExportProfile,
+  packExportHref }
+  from "./modules/export.js?v=20260826p98";
 
 /* 会议列表 + 回顾工作台（装配入口；领域规则逐步迁往 modules/） */
 "use strict";
@@ -839,10 +845,7 @@ function applyTranscriptSearch(keepCurrent = false) {
     if (count) count.textContent = "";
     return;
   }
-  state.bundle.transcript.forEach((t, i) => {
-    if (String(t.text || "").toLowerCase().includes(query))
-      state.transcriptSearch.hits.push(i);
-  });
+  state.transcriptSearch.hits = transcriptSearchHits(state.bundle.transcript, query);
   const hits = state.transcriptSearch.hits;
   hits.forEach(i => document.getElementById(`turn-${i}`)?.classList.add("search-hit"));
   if (!hits.length) {
@@ -863,7 +866,7 @@ function applyTranscriptSearch(keepCurrent = false) {
 function stepTranscriptMatch(direction) {
   const search = state.transcriptSearch;
   if (!search || !search.hits.length) return;
-  search.current = (search.current + direction + search.hits.length) % search.hits.length;
+  search.current = nextSearchCursor(search.current, search.hits.length, direction);
   $$("#transcript .turn.search-current").forEach(el => el.classList.remove("search-current"));
   const turnIndex = search.hits[search.current];
   const el = document.getElementById(`turn-${turnIndex}`);
@@ -2595,40 +2598,8 @@ function transcriptScrollAnchor(box) {
   return turn ? { id: turn.id, offset: turn.getBoundingClientRect().top - bounds.top } : null;
 }
 
-// 长轮次分块(纯展示层):单人连续块 >90s 或 >500 字时,在句子边界切成 ~45s/~200 字的显示子块。
-const TURN_CHUNK_CHARS = 200;
-const TURN_CHUNK_SECS = 45;
-
-function splitTurnChunks(text, duration) {
-  text = String(text || "");
-  if (!(duration > 90 || text.length > 500)) return null;
-  const sentences = text.match(/[^。!?\n]+[。!?\n]?/g) || [text];
-  const chunks = [];
-  let buf = "", bufStart = 0, pos = 0;
-  for (const sentence of sentences) {
-    const chunkSecs = duration > 0 ? (pos - bufStart) / Math.max(1, text.length) * duration : 0;
-    if (buf && (buf.length >= TURN_CHUNK_CHARS || chunkSecs >= TURN_CHUNK_SECS)) {
-      chunks.push({ text: buf, charStart: bufStart });
-      buf = "";
-    }
-    if (!buf) bufStart = pos;
-    buf += sentence;
-    pos += sentence.length;
-  }
-  if (buf) chunks.push({ text: buf, charStart: bufStart });
-  // 没有句子边界的超长整段,按字数硬切
-  if (chunks.length === 1 && text.length > 500) {
-    chunks.length = 0;
-    for (let at = 0; at < text.length; at += TURN_CHUNK_CHARS)
-      chunks.push({ text: text.slice(at, at + TURN_CHUNK_CHARS), charStart: at });
-  }
-  return chunks.length > 1 ? chunks : null;
-}
-
 function transcriptPendingByTurn() {
-  return new Map((state.bundle?.transcript_review?.pending || [])
-    .filter(item => Number.isInteger(item.turn_index))
-    .map(item => [item.turn_index, item]));
+  return pendingReviewByTurn(state.bundle?.transcript_review);
 }
 
 function openTranscriptEdit(index, candidate = null) {
@@ -2730,18 +2701,8 @@ function renderTranscript(preserveScroll = true) {
     const chunks = (showOriginal && !showTranslation) ? splitTurnChunks(t.text, turnDuration) : null;
     const pieces = chunks || [{ text: t.text, charStart: 0 }];
     const firstUnitIndex = state.reviewUnits.length;
-    const totalChars = Math.max(1, String(t.text || "").length);
-    pieces.forEach((piece, chunkIndex) => {
-      const start = (Number(t.start) || 0) + piece.charStart / totalChars * turnDuration;
-      const next = pieces[chunkIndex + 1];
-      const end = next
-        ? (Number(t.start) || 0) + next.charStart / totalChars * turnDuration
-        : reviewTurnEnd(i);
-      state.reviewUnits.push({
-        index: state.reviewUnits.length, turnIndex: i, chunkIndex,
-        chunkCount: pieces.length, start, end: Math.max(start, end), speaker: t.speaker,
-      });
-    });
+    state.reviewUnits.push(...turnReviewUnits(
+      t, i, reviewTurnEnd(i), pieces, firstUnitIndex));
     div.dataset.reviewUnit = firstUnitIndex;
     let textHtml = '<span class="turn-text">';
     if (showOriginal) {
@@ -2810,7 +2771,7 @@ function renderTranscript(preserveScroll = true) {
       for (const [offset, chunk] of chunks.slice(1).entries()) {
         const chunkIndex = offset + 1;
         const unitIndex = firstUnitIndex + chunkIndex;
-        const at = (Number(t.start) || 0) + chunk.charStart / totalChars * turnDuration;
+        const at = state.reviewUnits[unitIndex].start;
         const cont = document.createElement("div");
         cont.className = "turn turn-cont";
         cont.dataset.index = i;
@@ -4102,13 +4063,6 @@ function qualityShortcut(event) {
   saveQualityReview(claim, label.id, $("textarea", card)?.value || "", trigger);
 }
 
-function formatBytes(bytes) {
-  const value = Number(bytes) || 0;
-  if (value < 1024 * 1024) return `${Math.max(1, Math.round(value / 1024))} KB`;
-  if (value < 1024 * 1024 * 1024) return `${(value / 1024 / 1024).toFixed(value > 100 * 1024 * 1024 ? 0 : 1)} MB`;
-  return `${(value / 1024 / 1024 / 1024).toFixed(1)} GB`;
-}
-
 async function openExportDialog() {
   if (!state.slug) return;
   $(".more-menu")?.removeAttribute("open");
@@ -4170,7 +4124,7 @@ function exportPack(slugs, media = "none", profile = "full") {
   if (!slugs.length) return;
   closeExportDialog();
   const a = document.createElement("a");
-  a.href = `/api/export/pack?slugs=${encodeURIComponent(slugs.join(","))}&media=${encodeURIComponent(media)}&profile=${encodeURIComponent(profile)}`;
+  a.href = packExportHref(slugs, media, profile);
   a.download = "";
   document.body.appendChild(a);
   a.click();
@@ -4189,19 +4143,21 @@ function closeExportDialog() {
 }
 
 function selectedExportProfile() {
-  return $('input[name="export-profile"]:checked', $("#export-preflight"))?.value || "full";
+  return normalizeExportProfile(
+    $('input[name="export-profile"]:checked', $("#export-preflight"))?.value);
 }
 
 function updateExportSizeHint() {
   const data = state.exportPreflight;
   const hint = $("#export-size-hint");
   if (!data || !hint) return;
-  const kb = selectedExportProfile() !== "full";
-  $(".export-options", $("#export-preflight"))?.classList.toggle("inactive", kb);
+  const profile = selectedExportProfile();
   const media = $('input[name="export-media"]:checked', $("#export-preflight"))?.value || "none";
-  const oversized = !kb && Number(data.estimated_bytes?.[media] || 0) > 30 * 1024 * 1024;
-  hint.classList.toggle("hidden", !oversized);
-  if (oversized) {
+  const selection = exportSizeState(data, profile, media);
+  $(".export-options", $("#export-preflight"))?.classList.toggle(
+    "inactive", selection.profile !== "full");
+  hint.classList.toggle("hidden", !selection.oversized);
+  if (selection.oversized) {
     hint.textContent = isEnglishUi()
       ? "Estimated size exceeds the common 30MB email attachment limit; consider the knowledge-base profile (text + media links) instead."
       : "预计大小超过常见邮件附件 30MB 限制，可改用知识库版（纯文本+媒体链接）。";
@@ -4264,7 +4220,7 @@ function exportMeeting(media = "none", profile = "full") {
   if (!state.slug) return;
   closeExportDialog();
   const a = document.createElement("a");
-  a.href = `/api/meetings/${encodeURIComponent(state.slug)}/export?media=${encodeURIComponent(media)}&profile=${encodeURIComponent(profile)}`;
+  a.href = meetingExportHref(state.slug, media, profile);
   a.download = "";
   document.body.appendChild(a);
   a.click();
