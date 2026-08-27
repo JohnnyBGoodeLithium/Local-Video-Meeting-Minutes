@@ -1,0 +1,17 @@
+[Unit]
+Description=WeKnora local knowledge-base stack
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# 克隆目录可放在用户主目录；真实 .env 留在 WeKnora 仓库且不得提交到本项目。
+WorkingDirectory=%h/WeKnora
+ExecStart=/usr/bin/docker compose up -d --no-build
+ExecStop=/usr/bin/docker compose stop
+TimeoutStartSec=300
+TimeoutStopSec=90
+
+[Install]
+WantedBy=default.target

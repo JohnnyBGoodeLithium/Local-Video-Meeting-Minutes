@@ -1,6 +1,6 @@
 # Local Video Meeting Minutes
 
-**当前产品版本：v0.11.0**（仓库根目录 `VERSION` 为单一真源）
+**当前产品版本：v0.11.1**（仓库根目录 `VERSION` 为单一真源）
 
 本地多模态会议与高信息密度视频工作台：把录音、录屏、Teams VTT/DOCX、公开媒体链接、说话人声纹、组织架构和画面内容组织成可阅读、可核验、可修正、可离线分享的知识记录。
 
@@ -20,6 +20,7 @@
 4. 用户从会议脉络进入某个议题；时间操作改变播放位置，右侧节点选择只改变阅读 Focus。媒体内容会按实际形态自适应导航：单人口播显示“议题 + 叙事作用”，访谈显示“议题 + 人物”，混合内容同时保留两者。
 5. 在纪要、逐字稿与画面之间核对证据，确认人员身份；必要时播放并修正单轮原语言文本，随后更新纪要和脉络。
 6. 按使用场景导出：给同事离线核听用 `viewer.html + README.txt + assets/` 的 MeetingPack；给 WeKnora 等知识库用一场一文档的轻量 Markdown 或图文 HTML。收件人无需 GPU、LLM 或本机服务；时间证据可在服务地址可达时回跳原声。
+7. 配置知识库后，工作台顶栏直接进入 WeKnora；入库后的跨会议答案再通过时间依据回到本应用核听，形成“分析—检索—回证—修正—重新发布”闭环。
 
 ## 架构概览
 
@@ -64,6 +65,7 @@ make run
 - `http://127.0.0.1:8899/`：会议回顾、证据、翻译、追问与导出
 - `http://127.0.0.1:8899/admin`：人员身份、声纹试听和图形化 Org Chart
 - `http://127.0.0.1:8899/product`：面向管理、产品、UX 和技术评估的产品介绍
+- 顶栏“知识库”：仅在管理员设置 `MEETING_KB_URL` 后出现，打开独立 WeKnora 服务
 
 ## 常用处理命令
 
@@ -151,6 +153,7 @@ meeting-minutes/
 | [DESIGN_TOKENS.md](docs/DESIGN_TOKENS.md) | 了解 Fluent 2 适配、共享 token、图标与原生组件合同 |
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | 理解处理流、canonical 数据和模块边界 |
 | [EXPORT_AND_RAG.md](docs/EXPORT_AND_RAG.md) | 实现证据 linkage、MeetingPack 或 RAG 消费方 |
+| [WEKNORA_INTEGRATION.md](docs/WEKNORA_INTEGRATION.md) | 部署、资源调度、KB 文档交接、验收与未来一键同步合同 |
 | [DEPLOYMENT.md](docs/DEPLOYMENT.md) | 在 NVIDIA、AMD 或 CPU 机器部署和验收 |
 | [COST_MODEL.md](docs/COST_MODEL.md) | 查看 2 小时实测会议的云端/本地/套餐成本模型 |
 | [MODELS.md](docs/MODELS.md) | 选择模型、显存策略和常驻方式 |

@@ -134,7 +134,9 @@ check("GET /api/health → 200 + dry-run + local assistant",
       and health.get("product", {}).get("version") == PRODUCT_VERSION
       and health.get("assistant", {}).get("local_only") is True
       and health.get("assistant", {}).get("rag") == "meeting-rag/evidence-hybrid-v1"
-      and health.get("assistant", {}).get("retrieval_models", {}).get("mode") == "lexical")
+      and health.get("assistant", {}).get("retrieval_models", {}).get("mode") == "lexical"
+      and isinstance(health.get("integrations", {}).get("knowledge_base", {}).get(
+          "configured"), bool))
 s, headers, page = req("GET", "/", raw=True)
 cache_control = next((value for key, value in headers.items()
                       if key.lower() == "cache-control"), "")
@@ -152,6 +154,7 @@ check("首页显式展示结论审计和会议脉络入口且禁止缓存旧壳"
       and b'id="restructure-minutes"' in page
       and b'utility-panel' in page and b'pane-resizer' in page
       and b'export-preflight' in page and b'href="/static/product.html"' in page
+      and b'id="knowledge-base-link"' in page
       and "no-store" in cache_control)
 s, _, app_js = req("GET", "/static/app.js", raw=True)
 module_statuses = []
@@ -167,7 +170,7 @@ app_js = b"\n".join([app_js, *module_sources])
 check("前端装配入口使用可独立加载的原生 ES modules",
       all(status == 200 for status in module_statuses)
       and b'type="module"' in page
-      and b'./modules/media-source.js?v=20260826p101' in app_js
+      and b'./modules/media-source.js?v=20260827p102' in app_js
       and b'export function selectJobPanel' in app_js
       and b'export function sortLibrary' in app_js
       and b'export function nearestReviewUnit' in app_js
@@ -176,6 +179,10 @@ check("前端装配入口使用可独立加载的原生 ES modules",
       and b'export function exportSizeState' in app_js
       and b'export function resolveMinutesView' in app_js
       and b'export function renderMinutesView' in app_js)
+check("知识库入口只在服务端提供安全配置后显示",
+      b'health.integrations?.knowledge_base' in app_js
+      and b'knowledgeBase.configured && knowledgeBase.url' in app_js
+      and b'knowledgeLink.classList.remove("hidden")' in app_js)
 chrome = (shutil.which("chromium") or shutil.which("chromium-browser")
           or shutil.which("google-chrome"))
 if chrome:
@@ -184,12 +191,12 @@ if chrome:
         "--window-size=1600,900", "--virtual-time-budget=8000", "--dump-dom", BASE,
     ], capture_output=True, text=True, timeout=90)
     check("在线工作台 ES modules 在 Headless Chromium 完整启动",
-          browser.returncode == 0 and "20260826p101" in browser.stdout
+          browser.returncode == 0 and "20260827p102" in browser.stdout
           and 'class="meeting-item active"' in browser.stdout
           and 'id="turn-0"' in browser.stdout
           and 'id="minutes-heading-0"' in browser.stdout
           and "Uncaught" not in browser.stderr,
-          f"rc={browser.returncode}, build={'20260826p101' in browser.stdout}, "
+          f"rc={browser.returncode}, build={'20260827p102' in browser.stdout}, "
           f"active={'class=\"meeting-item active\"' in browser.stdout}, "
           f"transcript={'id=\"turn-0\"' in browser.stdout}, "
           f"minutes={'id=\"minutes-heading-0\"' in browser.stdout}, "
@@ -220,7 +227,7 @@ check("时间码跳转只滚动内容面板，不带动整页丢失播放器",
 check("在线屏幕舞台支持放大、缩放和相邻屏幕键盘导航",
       b'id="screen-preview-mask"' in page and b'openScreenPreview' in app_js
       and b'navigateScreenPreview' in app_js and b'SCREEN_PREVIEW_ZOOMS' in app_js
-      and b'20260826p101' in page)
+      and b'20260827p102' in page)
 check("会议深链 ?meeting=<slug>&t=<秒> 定位播放且忽略非法/超界 t",
       b'params.get("t")' in app_js and b'deepLinkSeek' in app_js
       and b'deepLinkSeconds' in app_js

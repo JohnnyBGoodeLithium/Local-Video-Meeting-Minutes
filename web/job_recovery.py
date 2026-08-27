@@ -111,7 +111,8 @@ def _failure_category(job: dict) -> str:
     if "服务重启，作业中断" in safe_log:
         return "interrupted"
     if rc in {-9, 137} or any(name in safe_log for name in (
-            "MemoryError", "OutOfMemoryError", "CUDAError")):
+            "MemoryError", "OutOfMemoryError", "CUDAError",
+            "ResourceUnavailableError")):
         return "resource"
     if any(name in safe_log for name in (
             "TimeoutError", "URLError", "ConnectionError", "HTTPError")):

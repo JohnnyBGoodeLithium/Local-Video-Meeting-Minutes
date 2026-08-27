@@ -8,6 +8,7 @@ run:
 doctor:
 	$(PY) bin/doctor.py --profile all
 
+check: export MEETING_RESOURCE_GUARD=0
 check:
 	$(PY) -c 'import ast,pathlib; files=list(pathlib.Path("bin").rglob("*.py"))+list(pathlib.Path("web").rglob("*.py")); [ast.parse(p.read_text(encoding="utf-8"), filename=str(p)) for p in files]; print(f"Python syntax: {len(files)} files OK")'
 	$(PY) web/tests/orgchart_extract_test.py
@@ -25,6 +26,7 @@ check:
 	$(PY) web/tests/job_scheduler_test.py
 	$(PY) web/tests/job_log_safety_test.py
 	$(PY) web/tests/job_recovery_test.py
+	$(PY) web/tests/resource_policy_test.py
 	$(PY) web/tests/job_preemption_test.py
 	$(PY) web/tests/media_materialize_test.py
 	$(PY) web/tests/media_url_test.py
@@ -58,6 +60,7 @@ check:
 	@if command -v node >/dev/null 2>&1; then node --check web/static/app.js && node --check web/static/admin.js && node web/tests/frontend_modules_test.mjs && node web/tests/assistant_intent_test.mjs; else echo "Node unavailable: skipped JS syntax check"; fi
 	git diff --check
 
+smoke: export MEETING_RESOURCE_GUARD=0
 smoke:
 	$(PY) web/tests/run_smoke.py
 

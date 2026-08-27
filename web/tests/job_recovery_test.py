@@ -83,6 +83,9 @@ with tempfile.TemporaryDirectory(prefix="meeting-recovery-") as tmp:
     resource = recovery_plan({**base, "kind": "regen", "stage": "生成纪要",
                               "rc": 137, "log": ["[error] 子进程失败 (rc=137)"]})
     assert resource["category"] == "resource" and resource["state"] == "available"
+    guarded = recovery_plan({**base, "kind": "regen", "stage": "等待计算资源",
+                             "log": ["[error] 子进程异常 (ResourceUnavailableError)"]})
+    assert guarded["category"] == "resource" and guarded["state"] == "available"
 
     missing = recovery_plan({**base, "kind": "regen", "meeting": "missing"})
     assert missing["state"] == "manual" and not missing["retained"]

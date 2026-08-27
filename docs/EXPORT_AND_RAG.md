@@ -274,6 +274,11 @@ GET /api/export/pack?slugs=a,b,c&profile=kb-html
 
 若文档已经处于“多模态识别”，修改知识库默认开关不会改写这次任务已经冻结的处理参数。应在文档菜单取消解析，进入“知识库设置 → 多模态 / 图片理解”关闭“多模态功能”，或在再次上传的确认页关闭同一开关，然后重新解析。不要为了 HTML/Markdown 开启 ASR。
 
+本仓库把上述交接视为产品旅程而非一次格式兼容测试：`deploy/weknora/` 提供无凭据的部署/并发模板，
+`bin/weknora_health.py` 检查两端健康，工作台可配置知识库入口，`docs/WEKNORA_INTEGRATION.md` 定义
+revision 替换、资源优先级、验收和未来 `KnowledgeSink` 合同。WeKnora 的数据库、凭据和真实知识库
+仍属于独立部署，不进入 MeetingPack 或本仓库。
+
 
 ## 5. RAG 使用方式
 

@@ -88,6 +88,10 @@ cmake --build build --config Release -j
 | `MEETING_RECOVERY_REFINE_MODEL` | 未设置 | 高质量恢复/精修模型 ID；大模型机器可设 `gpt-oss-120b` |
 | `MEETING_TERMINOLOGY_MODEL` | 跟随 `MEETING_LLM_MODEL` | 从已完成屏幕说明提取下一场 ASR 候选的本地模型 ID |
 | `MEETING_LLM_CONTEXT_SIZE` | `65536` | 长会切分预算依据 |
+| `MEETING_MEMORY_RESERVE_GIB` | `32` | 双文本模型允许常驻的健康线 |
+| `MEETING_MEMORY_STOP_GIB` | `24` | 低于此值卸载空闲模型并暂停新重阶段 |
+| `MEETING_MEMORY_EMERGENCY_GIB` | `8` | 低于此值可中断在途模型，优先保护整机 |
+| `MEETING_KB_URL` | 未设置 | 可选知识库浏览入口；配置后显示在工作台顶栏 |
 | `MEETING_VL_MODEL` | 当前用户 Miloco 路径 | VL GGUF |
 | `MEETING_VL_MMPROJ` | 当前用户 mmproj 路径 | VL projector |
 | `MEETING_VL_PORT` | `11436` | VL loopback 端口 |
@@ -138,6 +142,11 @@ llama-server --model /models/vl-model.gguf --mmproj /models/mmproj.gguf \
 ```
 
 如果显存/统一内存不允许文本模型与 7B VL 双槽同时驻留，应退回 `--parallel 1` 并设 `MEETING_VL_WORKERS=1`（串行解读）；不要为了常驻而让系统交换或 OOM。
+
+统一内存机器还应安装 `deploy/meeting-resource-guard.service.example`。它与管线内准入使用同一策略：
+健康状态允许两个文本模型驻留，音频/视觉阶段压到一个，120B 精修独占；低内存作业会显示等待并
+保留检查点。若同机部署 WeKnora，合并 `deploy/weknora/resource-profile.env.example` 的低并发项，
+并阅读 `docs/WEKNORA_INTEGRATION.md`，不要让 Wiki/图谱/自动问题生成与急件会议同时跑满。
 
 术语私有数据位于数据根的 `speaker_bank/terminology.json`（人工确认）和 `terminology.candidates.json`（自动候选），两者都不得进入 Git。仓库只提供不含人员信息的 `speaker_bank/terminology.template.json` 示例。历史会议回填会调用本机文本服务且只输出数量：
 

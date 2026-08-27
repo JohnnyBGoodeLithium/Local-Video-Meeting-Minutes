@@ -1,26 +1,26 @@
 import { contentTypeOf, safeSourceUrl }
-  from "./modules/media-source.js?v=20260826p101";
+  from "./modules/media-source.js?v=20260827p102";
 import { buildUploadFormData, enqueueMediaUrl, isSingleLocalVideo }
-  from "./modules/imports.js?v=20260826p101";
+  from "./modules/imports.js?v=20260827p102";
 import { jobDisplayName, selectJobPanel }
-  from "./modules/jobs.js?v=20260826p101";
+  from "./modules/jobs.js?v=20260827p102";
 import { chooseInitialItem, deepLinkSeconds, filterLibrary, sortLibrary }
-  from "./modules/library.js?v=20260826p101";
+  from "./modules/library.js?v=20260827p102";
 import { adjacentReviewUnit, defaultReviewUnits, nearestReviewUnit,
   reviewIndexesFor, reviewUnitForTurn as findReviewUnitForTurn, turnEnd }
-  from "./modules/player-navigation.js?v=20260826p101";
+  from "./modules/player-navigation.js?v=20260827p102";
 import { nextSearchCursor, pendingReviewByTurn, transcriptSearchHits }
-  from "./modules/transcript.js?v=20260826p101";
+  from "./modules/transcript.js?v=20260827p102";
 import { renderTranscriptView }
-  from "./modules/transcript-view.js?v=20260826p101";
+  from "./modules/transcript-view.js?v=20260827p102";
 import { exportSizeState, formatBytes, meetingExportHref, normalizeExportProfile,
   packExportHref }
-  from "./modules/export.js?v=20260826p101";
+  from "./modules/export.js?v=20260827p102";
 import { claimAction, claimIdsForTurn, evidenceSources, minutesState, normalizeReviewMode,
   resolveMinutesView, turnIndexAtTime, turnIndexesForSourceIds }
-  from "./modules/minutes.js?v=20260826p101";
+  from "./modules/minutes.js?v=20260827p102";
 import { renderMinutesView }
-  from "./modules/minutes-view.js?v=20260826p101";
+  from "./modules/minutes-view.js?v=20260827p102";
 
 /* 会议列表 + 回顾工作台（装配入口；领域规则逐步迁往 modules/） */
 "use strict";
@@ -148,7 +148,7 @@ function esc(s) {
 
 const UI_COPY = {
   "zh-CN": {
-    title: "会议纪要", brand: "🎙 会议纪要", meetings: "会议", product: "产品介绍", settings: "设置",
+    title: "会议纪要", brand: "🎙 会议纪要", meetings: "会议", product: "产品介绍", knowledgeBase: "知识库", settings: "设置",
     import: "＋ 导入会议", importMedia: "＋ 导入媒体视频", drop: "或拖入视频 + VTT/DOCX，或单个音视频",
     dropMedia: "或拖入一个本地视频", importSettings: "导入设置",
     mediaUrlDivider: "或粘贴公开视频链接", mediaUrlPlaceholder: "YouTube、Bilibili 或公开网页视频链接",
@@ -182,7 +182,7 @@ const UI_COPY = {
     emptyMediaList: "暂无媒体条目；可在条目的“更多”菜单标记为媒体视频",
   },
   en: {
-    title: "Meeting Minutes", brand: "🎙 Meeting Minutes", meetings: "Meetings", product: "Product", settings: "Settings",
+    title: "Meeting Minutes", brand: "🎙 Meeting Minutes", meetings: "Meetings", product: "Product", knowledgeBase: "Knowledge base", settings: "Settings",
     import: "+ Import meeting", importMedia: "+ Import media video", drop: "Drop video + VTT/DOCX, or one media file",
     dropMedia: "Or drop one local video", importSettings: "Import settings",
     mediaUrlDivider: "or paste a public video URL", mediaUrlPlaceholder: "YouTube, Bilibili, or a public web video URL",
@@ -390,6 +390,7 @@ function applyUiLanguage() {
   text(".brand", ui("brand"));
   text("#library-toggle", ui("meetings"));
   text("#product-link", ui("product"));
+  text("#knowledge-base-link", ui("knowledgeBase"));
   text("#settings-link span", ui("settings"));
   text("#pick-btn span", ui("import"));
   text("#undo-speaker-btn", ui("undoSpeaker"));
@@ -472,6 +473,14 @@ async function loadProductVersion() {
   try {
     const health = await jget("/api/health");
     const value = String(health.product?.version || "").trim();
+    const knowledgeBase = health.integrations?.knowledge_base || {};
+    const knowledgeLink = $("#knowledge-base-link");
+    if (knowledgeLink && knowledgeBase.configured && knowledgeBase.url) {
+      knowledgeLink.href = knowledgeBase.url;
+      knowledgeLink.classList.remove("hidden");
+    } else {
+      knowledgeLink?.classList.add("hidden");
+    }
     if (!value) return;
     version.textContent = `v${value}`;
     version.title = `产品版本 v${value} · 前端构建 ${SCRIPT_BUILD || "-"}`;

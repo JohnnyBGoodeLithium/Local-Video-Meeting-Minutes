@@ -1,0 +1,17 @@
+[Unit]
+Description=Meeting Minutes unified-memory resource guard
+After=llama-router.service
+Wants=llama-router.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/meeting-minutes
+EnvironmentFile=-/etc/meeting-minutes.env
+ExecStart=/opt/meeting-minutes/.venv/bin/python /opt/meeting-minutes/bin/meeting_core/resource_policy.py watch
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

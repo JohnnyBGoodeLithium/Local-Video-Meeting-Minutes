@@ -14,6 +14,8 @@ import urllib.request
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
+from meeting_core.resource_policy import admit_text_model
+
 
 DEFAULT_API = os.environ.get("MEETING_LLM_API", "http://127.0.0.1:11435/v1").rstrip("/")
 DEFAULT_MODEL = os.environ.get("MEETING_LLM_MODEL", "qwen3.6-35b-a3b-operator")
@@ -66,6 +68,9 @@ class LocalLLMClient:
     def complete(self, prompt: str, *, system: str | None = None,
                  max_tokens: int = 4096, temperature: float = 0.2,
                  repeat_penalty: float | None = None) -> Completion:
+        if (os.environ.get("MEETING_RESOURCE_GUARD", "1") != "0"
+                and urlparse(self.api).hostname in LOOPBACK_HOSTS):
+            admit_text_model(self.model)
         messages = []
         if system:
             messages.append({"role": "system", "content": system})

@@ -108,6 +108,17 @@ VL 终稿和 Topic Map 发布后，普通录屏与 Teams 管线会用一次本�
 
 视觉语义的责任边界是“会议应用先分析，知识库按需补充”：`page_desc.json` 及其证据投影是主语义，外部 VLM 不属于 canonical 生成链。图文 HTML 即使在 WeKnora 关闭 VLM，仍可按随文标题、详情和时间深链完成文本检索；开启 VLM 只为补读尚未文字化的图像字段，结果属于知识库自己的派生 chunk，不能反写会议结论。这样避免每次入库重复调用视觉模型，也避免不同模型对同一图表产生竞争事实。完整规范见 `docs/EXPORT_AND_RAG.md`。
 
+WeKnora 是知识消费 projection 的正式下游，而不是 canonical 子模块。在线工作台通过健康端点投影一个
+可配置的知识库入口；当前正式传输边界仍是 `kb`/`kb-html` 文件。未来直连必须实现 provider-neutral
+`KnowledgeSink`，用 meeting revision 做幂等替换并保留 ACL/删除边界，不能让外部知识库反写
+`transcript.spk.json`、`minutes.evidence.json` 或 identity/org 数据。部署与移交见
+`docs/WEKNORA_INTEGRATION.md`。
+
+`meeting_core.resource_policy` 是会议流水线、文本服务和知识库增强共享的资源准入层：健康时允许两个
+文本模型驻留，音频/视觉重阶段收缩为一个，120B 精修独占；低于安全线先卸载空闲模型并让作业进入
+“等待计算资源”，低于紧急线才中断在途模型以保护整机。它依据 `/proc/meminfo` 和 llama-router 槽位
+元数据工作，不读取模型请求正文；业务代码仍通过 provider/adapter 调模型，不依赖具体 GPU 厂商。
+
 视频纪要存在一个明确的身份一致性栅栏：VL 可以与用户的说话人修正并行，但终稿文本不能消费 VL 前的旧逐字稿快照。`minutes_by_page.py` 在 VL 完成后重新载入 `transcript.spk.json`，以该 revision 生成上下文；发布前再次核对 revision。若文本阶段又发生身份修正，丢弃旧文本并复用 `page_desc.json` 重跑文本阶段一次，不重复 ASR、分离或 VL。
 
 多模态终稿还经过一个非阻断覆盖审计。语音草稿 evidence 中的顶层决定、行动、风险和未决项会形成有上限的低信任 checklist，长会议 map 阶段只接收落在当前时间片的相关项；每一层都必须回到原始 T 证据核验，不能把 checklist 当新证据。发布后 `meeting_generation.coverage_audit` 以事项类型与稳定 T 交集判断它们是否在终稿保留或合并；文字相似但 T 不一致只记为诊断候选，不能冒充通过。审计不比较全文字数，也不把逐页页面事实算作“质量”。未匹配事项只在 `meeting.generation.json` 记录数量与 `review_needed`，不复制正文、不自动否决导出，因为后文纠正或合并也可能是合理原因。Web 将其显示为“终稿待复核”，引导用户进入结论审计。

@@ -26,6 +26,8 @@ from pathlib import Path
 
 from meeting_dir import for_recording, materialize_audio, materialize_source
 from meeting_core.transcript_review import bind_review_to_transcript
+from meeting_core.resource_policy import prepare_stage
+from meeting_core.llm import DEFAULT_DRAFT_MODEL
 
 ROOT = Path(__file__).resolve().parent.parent
 BIN = ROOT / "bin"
@@ -75,6 +77,7 @@ def main() -> int:
         dz_cmd += ["--device", args.diarize_device]
 
     print(f"[1/3] 并行：转写 + 说话人分离 → {folder}", flush=True)
+    prepare_stage("audio", keep=[DEFAULT_DRAFT_MODEL])
     p_tr = subprocess.Popen(tr_cmd, env=env)
     p_dz = subprocess.Popen(dz_cmd, env=env)
     rc_tr, rc_dz = p_tr.wait(), p_dz.wait()

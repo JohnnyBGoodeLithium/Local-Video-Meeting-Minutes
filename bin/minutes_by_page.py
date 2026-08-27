@@ -61,6 +61,7 @@ import meeting_topic_map
 import meeting_generation
 from meeting_core.hardware import configured_path
 from meeting_core.llm import DEFAULT_MINUTES_MODEL, LocalLLMClient, validated_api_base
+from meeting_core.resource_policy import prepare_stage
 
 ROUTER = validated_api_base(os.environ.get(
     "MEETING_LLM_API", "http://127.0.0.1:11435/v1")) + "/chat/completions"
@@ -761,6 +762,11 @@ def _extract_blocks(text: str):
 def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
              refine_model: str = None, reuse_vl_cache_only: bool = False,
              _identity_retry: int = 1):
+    requested_model = refine_model or MODEL
+    workload = "exclusive" if any(token in requested_model.lower()
+                                      for token in ("120b", "122b")) \
+        else ("visual" if vl and not reuse_vl_cache_only else "text")
+    prepare_stage(workload, keep=[requested_model])
     profile = minutes_profile(mdir)
     turns, pages = load_inputs(mdir)
     if not pages:

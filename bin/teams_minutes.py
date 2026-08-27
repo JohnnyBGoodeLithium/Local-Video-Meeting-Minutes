@@ -40,6 +40,8 @@ warnings.filterwarnings("ignore")
 from meeting_dir import for_teams, materialize_source
 from meeting_core.hardware import configured_path, inference_device
 from meeting_core.terminology import configured_bank_dir, safe_harvest_screen_candidates
+from meeting_core.resource_policy import prepare_stage
+from meeting_core.llm import DEFAULT_MINUTES_MODEL
 from teams_transcript import TranscriptFormatError, parse_transcript
 from slide_pages import extract_pages
 from minutes_by_page import generate as generate_minutes
@@ -207,6 +209,7 @@ def main() -> int:
     extract_audio(source_mp4, wav)
 
     print("[2/7] 本地说话人分离 ...", flush=True)
+    prepare_stage("audio", keep=[DEFAULT_MINUTES_MODEL])
     t0 = time.time()
     dia_turns, centroids = diarize(wav, args.num_speakers)
     print(f"[meta] 分离 {time.time()-t0:.1f}s | 声纹聚类 {len(centroids)} 个", flush=True)
@@ -267,6 +270,7 @@ def main() -> int:
     print(f"[meta] 逻辑页 {len(pages)} 页 | 抽页耗时 {time.time()-t0:.1f}s", flush=True)
 
     print("[7/7] 用 VL 屏幕资料升级多模态纪要 ...", flush=True)
+    prepare_stage("visual", keep=[DEFAULT_MINUTES_MODEL])
     out_path, mstats = generate_minutes(mdir, video=source_mp4, vl=not args.no_vl)
     meeting_generation.finalize(
         mdir, pages=mstats["pages"], vl_pages=mstats["vl_pages"])

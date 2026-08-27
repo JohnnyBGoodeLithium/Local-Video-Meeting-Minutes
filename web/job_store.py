@@ -141,6 +141,7 @@ def load_jobs():
 def _pipeline_stage(line: str, current: str = "处理中") -> str:
     value = line.lower()
     stages = [
+        (("等待计算资源", "resource guard", "memory guard"), "等待计算资源"),
         (("语音草稿", "voice draft"), "生成语音草稿"),
         (("多模态纪要", "升级多模态", "补充屏幕资料"), "升级多模态纪要"),
         (("asr", "transcrib", "转写", "字幕"), "语音转写"),
