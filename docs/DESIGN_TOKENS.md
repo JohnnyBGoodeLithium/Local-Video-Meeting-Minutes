@@ -58,6 +58,18 @@ button{ --btn-radius: 99px; }               /* 兼容组件级覆盖 */
 - 现有包被冻结，不会自动变化；需要重新导出才能获得新的设计基础；
 - 颜色主题不同，但信息层级、交互状态和无障碍合同相同。
 
+## 产品介绍页
+
+`/product` 同样加载 `fluent-foundation.css`，并在其上只增加一层产品叙事角色：
+`--productInk`、`--productCanvas`、`--productBrand`、`--productIdentity`、
+`--productEvidence`、`--productKnowledge` 和对应的暗色表面角色。页面组件只能引用这些
+角色或 Fluent 基础 token；具体品牌色变化不应要求逐个改卡片、按钮和数据流图。
+
+中英文不是两套主题或两份 HTML。中文 DOM 是无 JavaScript 时也可阅读的基线，
+`product-copy.js` 用相同 key 集合投影英文，并与工作台共享语言偏好。`product_intro_test.py`
+同时检查中英键一一对应、页面内容版本、Fluent 基础加载、必需产品角色和 `var()` 引用可解析，
+避免文案与设计 token 在后续版本中悄悄漂移。
+
 ## 各层细节
 
 - **Fluent 语义层**（`fluent-foundation.css`）：颜色角色、4px 间距、字号、圆角、阴影和动效。

@@ -170,7 +170,7 @@ app_js = b"\n".join([app_js, *module_sources])
 check("前端装配入口使用可独立加载的原生 ES modules",
       all(status == 200 for status in module_statuses)
       and b'type="module"' in page
-      and b'./modules/media-source.js?v=20260827p102' in app_js
+      and b'./modules/media-source.js?v=20260827p103' in app_js
       and b'export function selectJobPanel' in app_js
       and b'export function sortLibrary' in app_js
       and b'export function nearestReviewUnit' in app_js
@@ -191,18 +191,34 @@ if chrome:
         "--window-size=1600,900", "--virtual-time-budget=8000", "--dump-dom", BASE,
     ], capture_output=True, text=True, timeout=90)
     check("在线工作台 ES modules 在 Headless Chromium 完整启动",
-          browser.returncode == 0 and "20260827p102" in browser.stdout
+          browser.returncode == 0 and "20260827p103" in browser.stdout
           and 'class="meeting-item active"' in browser.stdout
           and 'id="turn-0"' in browser.stdout
           and 'id="minutes-heading-0"' in browser.stdout
           and "Uncaught" not in browser.stderr,
-          f"rc={browser.returncode}, build={'20260827p102' in browser.stdout}, "
+          f"rc={browser.returncode}, build={'20260827p103' in browser.stdout}, "
           f"active={'class=\"meeting-item active\"' in browser.stdout}, "
           f"transcript={'id=\"turn-0\"' in browser.stdout}, "
           f"minutes={'id=\"minutes-heading-0\"' in browser.stdout}, "
           f"uncaught={'Uncaught' in browser.stderr}, stderr={browser.stderr[-500:]!r}")
+    product_browser = subprocess.run([
+        chrome, "--headless=new", "--disable-gpu", "--no-sandbox",
+        "--window-size=1440,1000", "--virtual-time-budget=5000", "--dump-dom",
+        f"{BASE}/product",
+    ], capture_output=True, text=True, timeout=90)
+    check("产品介绍 ES module 在 Headless Chromium 完整启动",
+          product_browser.returncode == 0
+          and 'data-ui-language="zh-CN"' in product_browser.stdout
+          and '>v0.12.0</em>' in product_browser.stdout
+          and "Uncaught" not in product_browser.stderr,
+          f"rc={product_browser.returncode}, "
+          f"language={'data-ui-language=\"zh-CN\"' in product_browser.stdout}, "
+          f"version={'>v0.12.0</em>' in product_browser.stdout}, "
+          f"uncaught={'Uncaught' in product_browser.stderr}, "
+          f"stderr={product_browser.stderr[-500:]!r}")
 else:
     print("SKIP  在线工作台 ES modules 浏览器启动（未安装 Chromium）")
+    print("SKIP  产品介绍 ES module 浏览器启动（未安装 Chromium）")
 check("渐进纪要失败时明确等待终稿，不把空纪要误报为草稿可读",
       s == 200 and "语音草稿生成失败".encode() in app_js
       and "草稿失败，生成终稿".encode() in app_js
@@ -227,7 +243,7 @@ check("时间码跳转只滚动内容面板，不带动整页丢失播放器",
 check("在线屏幕舞台支持放大、缩放和相邻屏幕键盘导航",
       b'id="screen-preview-mask"' in page and b'openScreenPreview' in app_js
       and b'navigateScreenPreview' in app_js and b'SCREEN_PREVIEW_ZOOMS' in app_js
-      and b'20260827p102' in page)
+      and b'20260827p103' in page)
 check("会议深链 ?meeting=<slug>&t=<秒> 定位播放且忽略非法/超界 t",
       b'params.get("t")' in app_js and b'deepLinkSeek' in app_js
       and b'deepLinkSeconds' in app_js
@@ -302,10 +318,15 @@ check("结论审计默认聚焦重点结论并保留全部证据入口",
 s, product_headers, product_page = req("GET", "/product", raw=True)
 product_cache = next((value for key, value in product_headers.items()
                       if key.lower() == "cache-control"), "")
-check("产品介绍页突出人员身份核心、证据核心和技术架构",
+check("产品介绍页同步当前能力、双语与设计 token",
       s == 200 and b'Meeting Identity Core' in product_page
       and '人员身份核心'.encode() in product_page
       and '多模态证据核心'.encode() in product_page
+      and b'data-product-content-version="0.12"' in product_page
+      and b'data-ui-language="en"' in product_page
+      and b'/static/fluent-foundation.css?v=20260827p103' in product_page
+      and b'Media Analysis Core' in product_page
+      and b'WeKnora' in product_page
       and b'id="architecture"' in product_page
       and b'href="/"' in product_page and "no-store" in product_cache)
 s, _, j = req("GET", "/api/meetings")

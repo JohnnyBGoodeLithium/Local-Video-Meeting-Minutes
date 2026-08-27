@@ -51,6 +51,8 @@
 - 非微小改动的 Git 提交必须可交接、可审计。标题简洁说明变更类型和对象；正文至少交代：(1) 用户行为/问题为何改变，(2) 主要代码、API、schema 或数据边界，(3) 兼容、隐私、失败隔离或运行风险，(4) 实际验证命令与结果。只有拼写/注释等真正微小改动可使用单行提交。
 - 提交前检查仓库级 `user.name` / `user.email`，使用当前执行 agent 的正确身份，不沿用上一个 agent 的作者配置。已推送的提交不随意改写；若用户明确要求修正刚推送的提交，只用 `--force-with-lease`，并先说明影响。
 - 每个可整体验收、会改变浏览器资源图的前端批次同步递增一次构建号（`web/static/index.html` 的 `v=` 参数与 `web/tests/smoke_test.py` 断言），排查“用户看到的是哪个版本”不靠猜。产品版本、前端构建号、Git commit 和数据 schema 必须分开；产品版本只从根目录 `VERSION` 读取。
+- 产品介绍页必须声明 `data-product-content-version="<major>.<minor>"`。`VERSION` 的 `MAJOR` 或 `MINOR` 变化时，必须同步复核产品定位、能力边界、用户旅程和技术架构；`PATCH` 可只修缺陷。中英文使用同一 DOM 和同一 key 集合，语言偏好沿用工作台的 `meeting-minutes:workspace:v1`，不得维护两份会漂移的静态页面。
+- 产品介绍页与工作台、Viewer 共用 `fluent-foundation.css` 的基础 token；介绍页专有色彩只能通过 `--product*` 语义角色扩展，不在组件选择器里建立第二套无命名色板。新增引用必须由静态 token 回归验证可解析。
 - 发布产品版本时，同步更新 `VERSION`、`CHANGELOG.md` 和需要设版本基线的文档；验证、commit 与 push 后创建并推送 annotated Git tag。详见 `docs/RELEASES.md`。
 
 ## 排障与验证模式（真实事故沉淀）
