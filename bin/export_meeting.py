@@ -744,11 +744,29 @@ def main() -> int:
     parser.add_argument("--bank-dir", type=Path, default=Path(__file__).resolve().parent.parent / "speaker_bank")
     parser.add_argument("--media", choices=("none", "audio", "video"), default="none",
                         help="默认 none；分享阅读/RAG 不需要源视频")
-    parser.add_argument("--profile", choices=("full", "kb", "kb-html"), default="full",
-                        help="kb：轻量 Markdown 包；kb-html：单文件图文知识库版")
+    parser.add_argument("--profile", choices=("full", "ai", "kb", "kb-html"), default="full",
+                        help="ai：通用模型 Markdown；kb：轻量知识库包；kb-html：单文件图文知识库版")
     parser.add_argument("--base-url", default=None,
                         help="仅 kb profile：深链/外链 base；默认取 env MEETING_WEB_PUBLIC_BASE")
     args = parser.parse_args()
+    if args.profile == "ai":
+        import ai_context
+        mdir = args.meeting_dir.resolve()
+        try:
+            stats = ai_context.write_ai_context(
+                mdir, args.out or Path.cwd() / "probe.context.md",
+                bank_dir=args.bank_dir)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            print(f"导出失败: {exc}", file=sys.stderr)
+            return 1
+        final = Path(stats["path"])
+        if args.out is None:
+            target = Path.cwd() / stats["filename"]
+            final.replace(target)
+            final = target
+        print(f"[meta] AI Context: {final} | {stats['bytes']} bytes | "
+              f"turns={stats['turns']} revision={stats['revision']}")
+        return 0
     if args.profile in {"kb", "kb-html"}:
         import kb_document  # 延迟导入：full profile 不加载 KB 生成器
         mdir = args.meeting_dir.resolve()

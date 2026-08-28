@@ -295,10 +295,15 @@ def _strip_headings(text: str) -> str:
 def kb_document(mdir: Path, *, base_url: str, bank_dir: Path | None = None,
                 title: str | None = None, date: str | None = None,
                 image_urls: dict[int, str] | None = None,
-                photo_image_urls: dict[str, str] | None = None) -> str:
+                photo_image_urls: dict[str, str] | None = None,
+                portable: bool = False) -> str:
     """生成单场内容的自包含知识库 Markdown；只读会议目录，不调用模型。"""
     mdir = Path(mdir).resolve()
-    base = str(base_url or "").strip().rstrip("/") or default_base_url()
+    # KB 文档需要回跳在线工作台；AI Context 文档则会离开本机，不能写入
+    # 无法访问的 loopback/LAN 深链。portable 只移除本机链接，不删除时间码、
+    # 原始公开来源 URL、逐字稿或证据编号。
+    base = "" if portable else (
+        str(base_url or "").strip().rstrip("/") or default_base_url())
     slug = mdir.name
     minutes_path = next((mdir / n for n in ("minutes.md", "minutes.spk.md")
                          if (mdir / n).is_file()), None)
@@ -341,10 +346,13 @@ def kb_document(mdir: Path, *, base_url: str, bank_dir: Path | None = None,
 
     parts = [_front_matter(title, date, content_type, duration, keywords, source_url),
              "", f"# {title}", ""]
-    if _media_source(mdir, "video") is not None:
+    if not portable and _media_source(mdir, "video") is not None:
         parts += [f"[▶ {labels['full_video']}]({base}/api/meetings/{quote(slug)}/media/video)", ""]
-    elif _media_source(mdir, "audio") is not None:
+    elif not portable and _media_source(mdir, "audio") is not None:
         parts += [f"[▶ {labels['full_audio']}]({base}/api/meetings/{quote(slug)}/media/audio)", ""]
+
+    def time_ref(seconds: float) -> str:
+        return _stamp(seconds) if portable else _time_link(base, slug, seconds)
 
     if reading:
         summary = _drop_subsections(_find_section(reading, _SUMMARY_NAMES), _ACTION_NAMES)
@@ -380,7 +388,7 @@ def kb_document(mdir: Path, *, base_url: str, bank_dir: Path | None = None,
         for topic in topics:
             heading = str(topic.get("title") or "").strip() or "—"
             start = node_time(topic)
-            prefix = f"{_time_link(base, slug, start)} " if start is not None else ""
+            prefix = f"{time_ref(start)} " if start is not None else ""
             parts += [f"### {prefix}{heading}", ""]
             topic_summary = str(topic.get("summary") or "").strip()
             if topic_summary:
@@ -390,7 +398,7 @@ def kb_document(mdir: Path, *, base_url: str, bank_dir: Path | None = None,
                 if not child_title:
                     continue
                 child_start = node_time(child)
-                child_prefix = (f"{_time_link(base, slug, child_start)} "
+                child_prefix = (f"{time_ref(child_start)} "
                                 if child_start is not None else "")
                 child_summary = str(child.get("summary") or "").strip()
                 suffix = f"：{child_summary}" if child_summary else ""
@@ -409,12 +417,13 @@ def kb_document(mdir: Path, *, base_url: str, bank_dir: Path | None = None,
             number = int(page.get("page"))
             start = float(page.get("first", page.get("captured", 0)) or 0)
             page_label = labels["page"].format(number)
-            parts += [f"### {page_label} {_time_link(base, slug, start)}", ""]
+            parts += [f"### {page_label} {time_ref(start)}", ""]
             image = str(page.get("image") or "")
             if (image and "/" not in image and not image.startswith(".")
                     and (mdir / "slides" / image).is_file()):
-                image_url = (_file_url(base, slug, "slides/" + image)
-                             if image_urls is None else image_urls.get(number))
+                image_url = (None if portable and image_urls is None else
+                             (_file_url(base, slug, "slides/" + image)
+                              if image_urls is None else image_urls.get(number)))
                 if image_url:
                     parts += [f"![{page_label}]({image_url})", ""]
             description = _strip_headings(descs.get(number, ""))
@@ -431,12 +440,13 @@ def kb_document(mdir: Path, *, base_url: str, bank_dir: Path | None = None,
             alignment = photo.get("alignment") if isinstance(photo.get("alignment"), dict) else {}
             seconds = alignment.get("seconds")
             located = isinstance(seconds, (int, float))
-            time_text = (_time_link(base, slug, float(seconds)) if located
+            time_text = (time_ref(float(seconds)) if located
                          else labels["unlocated"])
             parts += [f"### {photo_title} · {time_text}", ""]
             image_path = str(photo.get("image_path") or "")
-            image_url = (_file_url(base, slug, image_path)
-                         if photo_image_urls is None else photo_image_urls.get(photo_id))
+            image_url = (None if portable and photo_image_urls is None else
+                         (_file_url(base, slug, image_path)
+                          if photo_image_urls is None else photo_image_urls.get(photo_id)))
             if image_path.startswith("photos/review/") and image_url:
                 parts += [f"![{photo_title}]({image_url})", ""]
             description = _strip_headings(str(photo.get("description") or ""))
@@ -450,7 +460,7 @@ def kb_document(mdir: Path, *, base_url: str, bank_dir: Path | None = None,
             start = float(turn.get("start", 0))
             speaker = str(turn.get("speaker") or "").strip() or "?"
             text = " ".join(str(turn.get("text") or "").split())
-            parts += [f"{_time_link(base, slug, start)} **{speaker}{colon}** {text}", ""]
+            parts += [f"{time_ref(start)} **{speaker}{colon}** {text}", ""]
 
     return "\n".join(parts).rstrip() + "\n"
 

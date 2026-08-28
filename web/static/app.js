@@ -1,26 +1,26 @@
 import { contentTypeOf, safeSourceUrl }
-  from "./modules/media-source.js?v=20260828p104";
+  from "./modules/media-source.js?v=20260828p105";
 import { buildUploadFormData, enqueueMediaUrl, isSingleLocalVideo }
-  from "./modules/imports.js?v=20260828p104";
+  from "./modules/imports.js?v=20260828p105";
 import { jobDisplayName, selectJobPanel }
-  from "./modules/jobs.js?v=20260828p104";
+  from "./modules/jobs.js?v=20260828p105";
 import { chooseInitialItem, deepLinkSeconds, filterLibrary, sortLibrary }
-  from "./modules/library.js?v=20260828p104";
+  from "./modules/library.js?v=20260828p105";
 import { adjacentReviewUnit, defaultReviewUnits, nearestReviewUnit,
   reviewIndexesFor, reviewUnitForTurn as findReviewUnitForTurn, turnEnd }
-  from "./modules/player-navigation.js?v=20260828p104";
+  from "./modules/player-navigation.js?v=20260828p105";
 import { nextSearchCursor, pendingReviewByTurn, transcriptSearchHits }
-  from "./modules/transcript.js?v=20260828p104";
+  from "./modules/transcript.js?v=20260828p105";
 import { renderTranscriptView }
-  from "./modules/transcript-view.js?v=20260828p104";
+  from "./modules/transcript-view.js?v=20260828p105";
 import { exportSizeState, formatBytes, meetingExportHref, normalizeExportProfile,
   packExportHref }
-  from "./modules/export.js?v=20260828p104";
+  from "./modules/export.js?v=20260828p105";
 import { claimAction, claimIdsForTurn, evidenceSources, minutesState, normalizeReviewMode,
   resolveMinutesView, turnIndexAtTime, turnIndexesForSourceIds }
-  from "./modules/minutes.js?v=20260828p104";
+  from "./modules/minutes.js?v=20260828p105";
 import { renderMinutesView }
-  from "./modules/minutes-view.js?v=20260828p104";
+  from "./modules/minutes-view.js?v=20260828p105";
 
 /* 会议列表 + 回顾工作台（装配入口；领域规则逐步迁往 modules/） */
 "use strict";
@@ -4153,9 +4153,13 @@ function exportPack(slugs, media = "none", profile = "full") {
   a.click();
   a.remove();
   toast(profile !== "full"
-    ? (isEnglishUi()
-      ? `Generating ${profile === "kb-html" ? "visual " : ""}knowledge-base pack (${slugs.length} items)…`
-      : `正在生成${profile === "kb-html" ? "图文" : "轻量"}知识库内容包（${slugs.length} 个内容）…`)
+    ? (profile === "ai"
+      ? (isEnglishUi()
+        ? `Generating AI context pack (${slugs.length} sources)…`
+        : `正在生成 AI 上下文包（${slugs.length} 个来源）…`)
+      : (isEnglishUi()
+        ? `Generating ${profile === "kb-html" ? "visual " : ""}knowledge-base pack (${slugs.length} items)…`
+        : `正在生成${profile === "kb-html" ? "图文" : "轻量"}知识库内容包（${slugs.length} 个内容）…`))
     : isEnglishUi()
     ? `Generating content pack (${slugs.length} items)…`
     : `正在生成内容包（${slugs.length} 个内容）…`);
@@ -4305,6 +4309,10 @@ function renderExportPreflight() {
   const profiles = [
     ["full", isEnglishUi() ? "Full pack" : "完整包",
      isEnglishUi() ? "Offline viewer + evidence assets" : "离线查看器 + 证据资产"],
+    ["ai", isEnglishUi() ? "AI context" : "AI 上下文",
+     isEnglishUi()
+       ? "One Markdown file for a model or notebook"
+       : "单个 Markdown，可交给通用模型或 Notebook"],
     ["kb", isEnglishUi() ? "Knowledge-base" : "知识库版",
      isEnglishUi() ? "Markdown + online source links" : "Markdown + 在线源链接"],
     ["kb-html", isEnglishUi() ? "Visual knowledge-base" : "知识库图文版",
@@ -4333,7 +4341,7 @@ function renderExportPreflight() {
       '<div class="export-warning">当前包仍可阅读，但部分结论不能回到原文核对。建议重新生成纪要后再正式分享。</div>') +
     `<p class="export-note">由 Meeting Minutes v${esc(data.product_version || "-")} 生成；文件名格式 <code>${esc(data.filename_pattern || "")}</code>。<br>` +
     '包顶层只有 <code>viewer.html</code>、<code>README.txt</code> 和 <code>assets/</code>。音视频是分享压缩版，项目中的原始母版不会被修改。' +
-    `${isEnglishUi() ? "The lightweight KB profile uses Markdown and online links. The visual KB profile embeds selected JPEG frames in a standalone HTML for direct VLM ingestion." : "知识库轻量版使用 Markdown 与在线链接；图文版把筛选后的 JPEG 关键画面内嵌进单个 HTML，可直接交给带 VLM 的知识库。"}</p>`;
+    `${isEnglishUi() ? "AI context is a portable Markdown source without local links or media. Confirm policy before uploading internal content to an external service. The lightweight KB profile keeps online links; the visual KB profile embeds selected JPEG frames." : "AI 上下文是不含本机链接和媒体的可携带 Markdown；将内部内容上传外部服务前请确认公司政策。知识库轻量版保留在线链接，图文版内嵌关键画面。"}</p>`;
   $("#export-preflight").innerHTML = html;
   $$('input[name="export-profile"]', $("#export-preflight")).forEach(radio => {
     radio.onchange = updateExportSizeHint;
@@ -4355,9 +4363,11 @@ function exportMeeting(media = "none", profile = "full") {
   a.click();
   a.remove();
   toast(profile !== "full"
-    ? (isEnglishUi()
-      ? `Generating ${profile === "kb-html" ? "visual " : ""}knowledge-base export…`
-      : `正在生成${profile === "kb-html" ? "图文" : "轻量"}知识库导出…`)
+    ? (profile === "ai"
+      ? (isEnglishUi() ? "Generating portable AI context…" : "正在生成可携带 AI 上下文…")
+      : (isEnglishUi()
+        ? `Generating ${profile === "kb-html" ? "visual " : ""}knowledge-base export…`
+        : `正在生成${profile === "kb-html" ? "图文" : "轻量"}知识库导出…`))
     : media === "none" ? "正在生成离线查看包（默认不含音视频）…" : `正在生成含${media === "video" ? "视频" : "音频"}的查看包…`);
 }
 

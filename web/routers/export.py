@@ -14,6 +14,7 @@ from starlette.background import BackgroundTask
 
 import export_meeting as meeting_export
 import export_pack as pack_export
+import ai_context
 import kb_document
 import meeting_generation
 from meeting_core import photos as meeting_photos
@@ -33,6 +34,8 @@ def _download_filename(ident: dict, now: datetime | None = None,
     stamp = (now or datetime.now().astimezone()).strftime("%Y%m%d-%H%M%S")
     if profile == "kb-html":
         return f"{base}{meeting_date}_{PRODUCT_VERSION_LABEL}_{stamp}.kb.html"
+    if profile == "ai":
+        return f"{base}{meeting_date}_{PRODUCT_VERSION_LABEL}_{stamp}.context.md"
     if profile == "kb":
         return f"{base}{meeting_date}_{PRODUCT_VERSION_LABEL}_{stamp}.kbpack.zip"
     return f"{base}{meeting_date}_{PRODUCT_VERSION_LABEL}_{stamp}.meetingpack.zip"
@@ -40,17 +43,22 @@ def _download_filename(ident: dict, now: datetime | None = None,
 
 @router.get("/api/meetings/{slug}/export")
 def export_meeting_pack(slug: str, media: str = Query("none", pattern="^(none|audio|video)$"),
-                        profile: str = Query("full", pattern="^(full|kb|kb-html)$")):
+                        profile: str = Query("full", pattern="^(full|ai|kb|kb-html)$")):
     """生成静态 MeetingPack；逐字稿形成后即可导出核听快照。
-    profile=kb 产轻量 Markdown 包；kb-html 产内嵌关键画面的单文件 HTML。"""
+    profile=ai 产通用模型 Markdown；kb 产轻量知识库包；kb-html 产内嵌
+    关键画面的单文件 HTML。"""
     mdir = _mdir(slug)
-    suffix = ".html" if profile == "kb-html" else ".zip"
+    suffix = ".md" if profile == "ai" else ".html" if profile == "kb-html" else ".zip"
     fd, temp_name = tempfile.mkstemp(prefix="meetingpack-", suffix=suffix)
     os.close(fd)
     archive = Path(temp_name)
     ident = _meeting_identity(slug)
     try:
-        if profile == "kb-html":
+        if profile == "ai":
+            ai_context.write_ai_context(
+                mdir, archive, bank_dir=BANK_DIR,
+                title=ident["title"], date=ident["date"])
+        elif profile == "kb-html":
             kb_document.write_kb_html(
                 mdir, archive, bank_dir=BANK_DIR,
                 title=ident["title"], date=ident["date"])
@@ -67,8 +75,9 @@ def export_meeting_pack(slug: str, media: str = Query("none", pattern="^(none|au
         raise HTTPException(400, str(exc)) from exc
     filename = _download_filename(ident, profile=profile)
     return FileResponse(
-        archive, media_type=("text/html; charset=utf-8"
-                             if profile == "kb-html" else "application/zip"),
+        archive, media_type=("text/markdown; charset=utf-8" if profile == "ai" else
+                             "text/html; charset=utf-8" if profile == "kb-html" else
+                             "application/zip"),
         filename=filename,
         background=BackgroundTask(archive.unlink, missing_ok=True))
 
@@ -76,9 +85,10 @@ def export_meeting_pack(slug: str, media: str = Query("none", pattern="^(none|au
 @router.get("/api/export/pack")
 def export_content_pack(slugs: str = Query(...),
                         media: str = Query("none", pattern="^(none|audio|video)$"),
-                        profile: str = Query("full", pattern="^(full|kb|kb-html)$")):
+                        profile: str = Query("full", pattern="^(full|ai|kb|kb-html)$")):
     """多内容打包导出：2–12 场会议合成一个 .contentpack.zip，同步返回。
-    profile=kb 时每场一份 Markdown；kb-html 时每场一份内嵌画面的 HTML。"""
+    profile=ai 时每场一份通用模型 Markdown；kb 时每场一份知识库 Markdown；
+    kb-html 时每场一份内嵌画面的 HTML。"""
     slug_list = []
     for slug in slugs.split(","):
         slug = slug.strip()

@@ -172,7 +172,7 @@ app_js = b"\n".join([app_js, *module_sources])
 check("前端装配入口使用可独立加载的原生 ES modules",
       all(status == 200 for status in module_statuses)
       and b'type="module"' in page
-      and b'./modules/media-source.js?v=20260828p104' in app_js
+      and b'./modules/media-source.js?v=20260828p105' in app_js
       and b'export function selectJobPanel' in app_js
       and b'export function sortLibrary' in app_js
       and b'export function nearestReviewUnit' in app_js
@@ -199,12 +199,12 @@ if chrome:
         "--window-size=1600,900", "--virtual-time-budget=8000", "--dump-dom", BASE,
     ], capture_output=True, text=True, timeout=90)
     check("在线工作台 ES modules 在 Headless Chromium 完整启动",
-          browser.returncode == 0 and "20260828p104" in browser.stdout
+          browser.returncode == 0 and "20260828p105" in browser.stdout
           and 'class="meeting-item active"' in browser.stdout
           and 'id="turn-0"' in browser.stdout
           and 'id="minutes-heading-0"' in browser.stdout
           and "Uncaught" not in browser.stderr,
-          f"rc={browser.returncode}, build={'20260828p104' in browser.stdout}, "
+          f"rc={browser.returncode}, build={'20260828p105' in browser.stdout}, "
           f"active={'class=\"meeting-item active\"' in browser.stdout}, "
           f"transcript={'id=\"turn-0\"' in browser.stdout}, "
           f"minutes={'id=\"minutes-heading-0\"' in browser.stdout}, "
@@ -251,15 +251,16 @@ check("时间码跳转只滚动内容面板，不带动整页丢失播放器",
 check("在线屏幕舞台支持放大、缩放和相邻屏幕键盘导航",
       b'id="screen-preview-mask"' in page and b'openScreenPreview' in app_js
       and b'navigateScreenPreview' in app_js and b'SCREEN_PREVIEW_ZOOMS' in app_js
-      and b'20260828p104' in page)
+      and b'20260828p105' in page)
 check("会议深链 ?meeting=<slug>&t=<秒> 定位播放且忽略非法/超界 t",
       b'params.get("t")' in app_js and b'deepLinkSeek' in app_js
       and b'deepLinkSeconds' in app_js
       and b'!Number.isFinite(value) || value < 0' in app_js
       and b'value > maximum' in app_js
       and b'seek(deepLinkSeek)' in app_js)
-check("导出弹窗提供轻量/图文知识库形态并在超 30MB 时提示改用",
+check("导出弹窗提供 AI 上下文与轻量/图文知识库形态",
       b'name="export-profile"' in app_js
+      and "AI 上下文".encode() in app_js and b'profile === "ai"' in app_js
       and "知识库图文版".encode() in app_js
       and b'kb-html' in app_js and b'embedded key frames' in app_js
       and "超过常见邮件附件 30MB 限制".encode() in app_js
@@ -332,7 +333,7 @@ check("产品介绍页同步当前能力、双语与设计 token",
       and '多模态证据核心'.encode() in product_page
       and b'data-product-content-version="0.13"' in product_page
       and b'data-ui-language="en"' in product_page
-      and b'/static/fluent-foundation.css?v=20260828p104' in product_page
+      and b'/static/fluent-foundation.css?v=20260828p105' in product_page
       and b'Media Analysis Core' in product_page
       and b'WeKnora' in product_page
       and b'id="architecture"' in product_page
@@ -802,6 +803,15 @@ try:
     # 知识库导出 profile：单会议 .kbpack.zip（kb.md + kb-pack/v1 manifest，纯文本外链）
     s, _, _ = req("GET", "/api/meetings/_smoke/export?profile=bogus", raw=True)
     check("非法导出 profile 被拒绝", s in (400, 422))
+    s, h, ai_bytes = req("GET", "/api/meetings/_smoke/export?profile=ai", raw=True)
+    ai_disposition = next((v for k, v in h.items()
+                           if k.lower() == "content-disposition"), "")
+    ai_doc = ai_bytes.decode("utf-8", errors="replace")
+    check("AI Context 单文件：保留证据与时间、不泄露本机深链",
+          s == 200 and 'source_schema: "meeting-ai-context/v1"' in ai_doc
+          and "#mm-C" in ai_doc and "00:00" in ai_doc
+          and "127.0.0.1" not in ai_doc and "/api/meetings/" not in ai_doc
+          and re.search(VERSIONED_NAME + r"\.context\.md", ai_disposition))
     s, h, kb_bytes = req("GET", "/api/meetings/_smoke/export?profile=kb", raw=True)
     kb_disposition = next((v for k, v in h.items()
                            if k.lower() == "content-disposition"), "")
@@ -859,6 +869,18 @@ try:
           and shared_keyword["text"] in kp_index
           and "_smoke" in kp_index and "_smoke2" in kp_index
           and len(kbpack_bytes) < 200_000)
+    s, h, ai_pack_bytes = req(
+        "GET", "/api/export/pack?slugs=_smoke,_smoke2&profile=ai", raw=True)
+    ai_pack = zipfile.ZipFile(io.BytesIO(ai_pack_bytes)) if s == 200 else None
+    ai_names = set(ai_pack.namelist()) if ai_pack else set()
+    ai_manifest = json.loads(ai_pack.read("manifest.json")) if ai_pack else {}
+    check("多内容 AI Context Pack：来源、入口提示与隐私声明齐全",
+          s == 200 and ai_pack is not None
+          and ai_names == {"INDEX.md", "START_HERE.md", "manifest.json",
+                           "sources/S001.context.md", "sources/S002.context.md"}
+          and ai_manifest.get("schema") == "meeting-ai-context-pack/v1"
+          and len(ai_manifest.get("sources", [])) == 2
+          and "user review required" in ai_manifest.get("privacy", ""))
     s, h, kb_html_pack_bytes = req(
         "GET", "/api/export/pack?slugs=_smoke,_smoke2&profile=kb-html", raw=True)
     kb_html_pack = (zipfile.ZipFile(io.BytesIO(kb_html_pack_bytes))

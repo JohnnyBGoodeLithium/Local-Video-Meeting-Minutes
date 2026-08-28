@@ -1,6 +1,6 @@
 /* Export selection, size, and URL rules. Dialog rendering and downloads stay in app.js. */
 
-const PROFILES = new Set(["full", "kb", "kb-html"]);
+const PROFILES = new Set(["full", "ai", "kb", "kb-html"]);
 const MEDIA = new Set(["none", "audio", "video"]);
 
 export function normalizeExportProfile(value) {

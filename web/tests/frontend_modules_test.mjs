@@ -125,10 +125,12 @@ assert.deepEqual(exportSizeState({ estimated_bytes: { video: 40 * 1024 * 1024 } 
   profile: "full", media: "video", estimatedBytes: 40 * 1024 * 1024, oversized: true,
 });
 assert.equal(exportSizeState({}, "kb", "video").media, "none");
+assert.equal(exportSizeState({}, "ai", "audio").media, "none");
 assert.equal(meetingExportHref("synthetic meeting", "audio", "full"),
   "/api/meetings/synthetic%20meeting/export?media=audio&profile=full");
 assert.match(packExportHref(["one", "two"], "video", "kb-html"),
   /slugs=one%2Ctwo&media=video&profile=kb-html$/);
+assert.match(meetingExportHref("one", "video", "ai"), /media=video&profile=ai$/);
 
 const minutesView = { id: "ai-brief", title: "Brief", sources: [
   { claim_id: "A1", start: 12 },
