@@ -45,6 +45,7 @@ from meeting_artifact import (FORMAL_ACTION_SECTIONS, WRAPPED_MARKER_RE,
                               minutes_reading_markdown)
 from meeting_structure import _visual_value, clean_model_text, visual_title
 from meeting_core.source_info import load_source_info
+from meeting_core import photos as meeting_photos
 import meeting_topic_map
 from product_version import PRODUCT_VERSION, PRODUCT_VERSION_LABEL
 
@@ -71,7 +72,9 @@ _LABELS = {
         "summary": "总体摘要", "conclusions": "关键结论", "actions": "待办",
         "topics": "议题脉络", "screens": "屏幕内容", "transcript": "逐字稿",
         "full_video": "完整视频", "full_audio": "完整音频",
-        "page": "第 {} 页", "tbd": "待确认", "speaker_colon": "：",
+        "page": "第 {} 页", "photos": "现场照片", "photo": "现场照片 {}",
+        "photo_note": "现场照片用于补充白板、纸面或线下展示；未与发言相互印证时，不独立证明会议结论。",
+        "unlocated": "未定位时间", "tbd": "待确认", "speaker_colon": "：",
         "action_header": ("事项", "负责人", "期限", "状态"),
         "status": {"confirmed": "已确认", "working_alignment": "方向共识",
                    "proposal": "提议", "open": "待确认", "informational": "记录"},
@@ -81,7 +84,9 @@ _LABELS = {
         "actions": "Action Items", "topics": "Topic Outline",
         "screens": "Screen Content", "transcript": "Transcript",
         "full_video": "Full video", "full_audio": "Full audio",
-        "page": "Page {}", "tbd": "TBD", "speaker_colon": ":",
+        "page": "Page {}", "photos": "Meeting Photos", "photo": "Meeting photo {}",
+        "photo_note": "Meeting photos supplement whiteboards, paper notes, or in-room displays; they do not independently prove a decision unless corroborated by the discussion.",
+        "unlocated": "Time not located", "tbd": "TBD", "speaker_colon": ":",
         "action_header": ("Item", "Owner", "Deadline", "Status"),
         "status": {"confirmed": "confirmed", "working_alignment": "alignment",
                    "proposal": "proposal", "open": "open",
@@ -289,7 +294,8 @@ def _strip_headings(text: str) -> str:
 
 def kb_document(mdir: Path, *, base_url: str, bank_dir: Path | None = None,
                 title: str | None = None, date: str | None = None,
-                image_urls: dict[int, str] | None = None) -> str:
+                image_urls: dict[int, str] | None = None,
+                photo_image_urls: dict[str, str] | None = None) -> str:
     """生成单场内容的自包含知识库 Markdown；只读会议目录，不调用模型。"""
     mdir = Path(mdir).resolve()
     base = str(base_url or "").strip().rstrip("/") or default_base_url()
@@ -415,6 +421,28 @@ def kb_document(mdir: Path, *, base_url: str, bank_dir: Path | None = None,
             if description:
                 parts += [description, ""]
 
+    photos = meeting_photos.load(mdir).get("photos", [])
+    if photos:
+        parts += [f"## {labels['photos']}", "", labels["photo_note"], ""]
+        for index, photo in enumerate(photos, start=1):
+            photo_id = str(photo.get("id") or f"F{index:04d}")
+            photo_title = str(photo.get("title") or photo.get("original_name")
+                              or labels["photo"].format(index)).strip()
+            alignment = photo.get("alignment") if isinstance(photo.get("alignment"), dict) else {}
+            seconds = alignment.get("seconds")
+            located = isinstance(seconds, (int, float))
+            time_text = (_time_link(base, slug, float(seconds)) if located
+                         else labels["unlocated"])
+            parts += [f"### {photo_title} · {time_text}", ""]
+            image_path = str(photo.get("image_path") or "")
+            image_url = (_file_url(base, slug, image_path)
+                         if photo_image_urls is None else photo_image_urls.get(photo_id))
+            if image_path.startswith("photos/review/") and image_url:
+                parts += [f"![{photo_title}]({image_url})", ""]
+            description = _strip_headings(str(photo.get("description") or ""))
+            if description:
+                parts += [description, ""]
+
     if turns:
         parts += [f"## {labels['transcript']}", ""]
         colon = labels["speaker_colon"]
@@ -499,6 +527,37 @@ def _embedded_page_images(mdir: Path) -> tuple[dict[int, str], dict]:
     }
 
 
+def _embedded_photo_images(mdir: Path) -> tuple[dict[str, str], dict]:
+    """内嵌现场照片的阅读 JPEG；原始母版只留在会议 canonical 目录。"""
+    images: dict[str, str] = {}
+    source_bytes = embedded_bytes = skipped = 0
+    photo_root = (mdir / "photos" / "review").resolve()
+    for photo in meeting_photos.load(mdir).get("photos", []):
+        photo_id = str(photo.get("id") or "").strip()
+        image_path = str(photo.get("image_path") or "")
+        if not photo_id or not image_path.startswith("photos/review/"):
+            skipped += 1
+            continue
+        try:
+            source = (mdir / image_path).resolve()
+            if not source.is_file() or not source.is_relative_to(photo_root):
+                skipped += 1
+                continue
+            source_bytes += source.stat().st_size
+            uri, size = _kb_html_image(source)
+        except (OSError, ValueError):
+            skipped += 1
+            continue
+        images[photo_id] = uri
+        embedded_bytes += size
+    return images, {
+        "embedded_photos": len(images),
+        "skipped_photos": skipped,
+        "source_photo_bytes": source_bytes,
+        "embedded_photo_bytes": embedded_bytes,
+    }
+
+
 def _strip_front_matter(markdown: str) -> str:
     if markdown.startswith("---\n"):
         end = markdown.find("\n---\n", 4)
@@ -518,22 +577,25 @@ def kb_html_document(mdir: Path, *, base_url: str, bank_dir: Path | None = None,
     content_type = (meta.get("content_type")
                     if meta.get("content_type") in {"meeting", "media"} else "meeting")
     image_urls, image_stats = _embedded_page_images(mdir)
+    photo_image_urls, photo_stats = _embedded_photo_images(mdir)
     markdown = kb_document(
         mdir, base_url=base_url, bank_dir=bank_dir, title=resolved_title,
-        date=resolved_date, image_urls=image_urls)
+        date=resolved_date, image_urls=image_urls, photo_image_urls=photo_image_urls)
     body = KB_MD.render(_strip_front_matter(markdown))
     language = _document_language(markdown)
     labels = ({"meta": "文档元数据", "type": "内容类型", "date": "日期",
-               "images": "内嵌关键画面"} if language == "zh-CN" else
+               "images": "内嵌关键画面", "photos": "内嵌现场照片"} if language == "zh-CN" else
               {"meta": "Document metadata", "type": "Content type", "date": "Date",
-               "images": "Embedded key frames"})
+               "images": "Embedded key frames", "photos": "Embedded meeting photos"})
     metadata = (
         f'<section class="document-meta" aria-label="{html.escape(labels["meta"])}">'
         f'<p><strong>{html.escape(labels["type"])}：</strong>{html.escape(content_type)}'
         + (f' · <strong>{html.escape(labels["date"])}：</strong>{html.escape(resolved_date)}'
            if resolved_date else "")
         + f' · <strong>{html.escape(labels["images"])}：</strong>'
-          f'{image_stats["embedded_images"]}</p></section>')
+          f'{image_stats["embedded_images"]}'
+        + f' · <strong>{html.escape(labels["photos"])}：</strong>'
+          f'{photo_stats["embedded_photos"]}</p></section>')
     document = f'''<!doctype html>
 <html lang="{html.escape(language)}">
 <head>
@@ -555,7 +617,7 @@ table{{border-collapse:collapse;width:100%}} th,td{{border:1px solid #ddd;paddin
 </body>
 </html>
 '''
-    return document, {**image_stats, "schema": KB_HTML_SCHEMA,
+    return document, {**image_stats, **photo_stats, "schema": KB_HTML_SCHEMA,
                       "document_bytes": len(document.encode("utf-8"))}
 
 

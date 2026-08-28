@@ -38,6 +38,7 @@ from meeting_artifact import (
 from meeting_views import evidence_integrity
 from meeting_structure import build_structure, clean_model_text, visual_title
 from meeting_core.source_info import load_source_info
+from meeting_core import photos as meeting_photos
 import meeting_topic_map
 import meeting_generation
 from product_version import PRODUCT_VERSION, PRODUCT_VERSION_LABEL
@@ -157,6 +158,30 @@ def _analysis_slide_assets(mdir: Path, pages: list[dict], evidence: dict) -> dic
         except (OSError, ValueError):
             item["image"] = None
     return assets
+
+
+def _meeting_photo_assets(mdir: Path) -> tuple[list[dict], dict[str, bytes]]:
+    """导出可直接取用的高质量 JPEG；canonical 原图继续只留在本机。"""
+    projected: list[dict] = []
+    assets: dict[str, bytes] = {}
+    root = mdir.resolve()
+    for item in meeting_photos.project(mdir):
+        raw = str(item.get("asset_path") or "")
+        source = (mdir / raw).resolve()
+        try:
+            if not raw or not source.is_file() or not source.is_relative_to(root):
+                continue
+            arcname = f"assets/photos/{str(item['id']).lower()}.jpg"
+            assets[arcname] = _jpeg_asset(source)
+        except (OSError, ValueError, KeyError):
+            continue
+        projected.append({
+            **item,
+            "image": arcname,
+            "asset_path": arcname,
+            "visual_description": item.get("display_description") or "",
+        })
+    return projected, assets
 
 
 def _optimized_media(source: Path, kind: str, temp_dir: Path) -> tuple[Path, str, str]:
@@ -470,7 +495,8 @@ def _viewer_html(title: str, date: str, minutes_html: str, evidence: dict, integ
                  document_state: str = "ready",
                  keywords: list[str] | None = None,
                  content_type: str = "meeting",
-                 source_info: dict | None = None) -> bytes:
+                 source_info: dict | None = None,
+                 photos: list[dict] | None = None) -> bytes:
     duration = max((float(t.get("end", 0)) for t in evidence["sources"]["transcript"]), default=0)
     payload = {
         "title": title,
@@ -490,6 +516,7 @@ def _viewer_html(title: str, date: str, minutes_html: str, evidence: dict, integ
         "media_path": media_path,
         "media_kind": media_kind,
         "speaker_navigation": speaker_navigation_rows or [],
+        "photos": photos or [],
         "document_state": document_state,
         "product": {"name": "Meeting Minutes", "version": PRODUCT_VERSION},
     }
@@ -570,6 +597,7 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
         page["visual_description"] = clean_model_text(page.get("visual_description") or "")
         page["title"] = visual_title(page["visual_description"], number)
     slide_assets = _analysis_slide_assets(mdir, pages, evidence)
+    photo_visuals, photo_assets = _meeting_photo_assets(mdir)
     evidence_bytes = json.dumps(evidence, ensure_ascii=False, indent=2).encode("utf-8")
     facts_bytes = json.dumps(facts, ensure_ascii=False, indent=2).encode("utf-8")
     integrity = evidence_integrity(evidence)
@@ -629,7 +657,7 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
                                         media_arc, media_kind, source_language, minutes_languages,
                                         topic_map_languages, visuals_languages,
                                         speaker_navigation_rows, document_state, keywords,
-                                        content_type, source_info),
+                                        content_type, source_info, photos=photo_visuals),
             "README.txt": _readme(media_mode, document_state).encode("utf-8"),
             "AGENTS.md": _AGENTS_MD.encode("utf-8"),
             "assets/minutes.md": reading_minutes.encode("utf-8"),
@@ -642,8 +670,12 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
             "assets/evidence.json": evidence_bytes,
             "assets/facts.json": facts_bytes,
             "assets/topic-map.json": topic_map_bytes,
+            "assets/photos.json": json.dumps(
+                {"schema": meeting_photos.SCHEMA, "photos": photo_visuals},
+                ensure_ascii=False, indent=2).encode("utf-8"),
             "assets/rag/records.jsonl": rag_bytes,
             **slide_assets,
+            **photo_assets,
         }
         disk_files = [(media_file, media_arc)] if media_file and media_arc else []
         manifest_files = [
@@ -669,6 +701,10 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
                       "included_bytes": media_file.stat().st_size if media_file else 0},
             "slides": {"format": "image/jpeg", "source": "vl_analysis_frame",
                        "included_bytes": sum(len(data) for data in slide_assets.values())},
+            "photos": {"format": "image/jpeg", "source": "meeting_photo_review_copy",
+                       "count": len(photo_visuals),
+                       "included_bytes": sum(len(data) for data in photo_assets.values()),
+                       "decision_evidence": False},
             "evidence": integrity,
             "facts": {"schema": facts.get("schema"),
                       "claims": len(facts.get("claims", [])),
@@ -678,6 +714,7 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
             "document": {"state": document_state,
                          "snapshot": document_state != "ready"},
             "counts": {"turns": len(turns), "pages": len(pages),
+                       "photos": len(photo_visuals),
                        "claims": len(evidence["claims"]),
                        "facts": len(facts.get("claims", [])),
                        "keywords": len(keywords),

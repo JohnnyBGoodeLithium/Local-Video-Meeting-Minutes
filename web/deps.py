@@ -148,6 +148,8 @@ def _meeting_storage(mdir: Path) -> dict:
         *[path for pattern in ("source_video.*", "source_audio.*") for path in mdir.glob(pattern)
           if path.is_file()],
         *[path for path in (mdir / "source.vtt", mdir / "source.docx") if path.is_file()],
+        *[path for path in (mdir / "photos" / "original").glob("*")
+          if path.is_file() and not path.is_symlink()],
     })
     # 兼容旧录音会议：没有独立母版时，audio.wav 本身必须被保护。
     if not any(path.name.startswith(("source_video.", "source_audio.")) for path in original):

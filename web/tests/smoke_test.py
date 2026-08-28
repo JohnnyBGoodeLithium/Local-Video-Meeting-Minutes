@@ -155,6 +155,8 @@ check("首页显式展示结论审计和会议脉络入口且禁止缓存旧壳"
       and b'utility-panel' in page and b'pane-resizer' in page
       and b'export-preflight' in page and b'href="/static/product.html"' in page
       and b'id="knowledge-base-link"' in page
+      and b'id="knowledge-publish-btn"' in page
+      and b'id="knowledge-publish-mask"' in page
       and "no-store" in cache_control)
 s, _, app_js = req("GET", "/static/app.js", raw=True)
 module_statuses = []
@@ -183,6 +185,12 @@ check("知识库入口只在服务端提供安全配置后显示",
       b'health.integrations?.knowledge_base' in app_js
       and b'knowledgeBase.configured && knowledgeBase.url' in app_js
       and b'knowledgeLink.classList.remove("hidden")' in app_js)
+check("知识库发布交互区分自动/文字/图文并只向服务端提交目标与格式",
+      b'openKnowledgePublishDialog' in app_js
+      and b'name="knowledge-profile"' in app_js
+      and b'/knowledge/publish' in app_js
+      and b'target_id: target' in app_js
+      and b'smoke-key' not in app_js)
 chrome = (shutil.which("chromium") or shutil.which("chromium-browser")
           or shutil.which("google-chrome"))
 if chrome:
@@ -349,16 +357,34 @@ s, _, ctype_resp = req("POST", "/api/meetings/_smoke/content-type", {"content_ty
 item_media = next((m for m in req("GET", "/api/meetings")[2].get("meetings", [])
                    if m["slug"] == "_smoke"), {})
 bundle_media = req("GET", "/api/meetings/_smoke/bundle")[2]
+_, _, media_kb = req("GET", "/api/meetings/_smoke/knowledge/preflight")
 check("标记为媒体后列表与 bundle 同步反映 media",
       s == 200 and ctype_resp.get("ok") is True
       and ctype_resp.get("content_type") == "media"
       and item_media.get("content_type") == "media"
-      and bundle_media.get("content_type") == "media")
+      and bundle_media.get("content_type") == "media"
+      and media_kb.get("recommended_profile") == "kb-html")
 s, _, _ = req("POST", "/api/meetings/_smoke/content-type", {"content_type": "meeting"})
 item_back = next((m for m in req("GET", "/api/meetings")[2].get("meetings", [])
                   if m["slug"] == "_smoke"), {})
 check("重新分类回会议后恢复 meeting",
       s == 200 and item_back.get("content_type") == "meeting")
+s, _, knowledge_ready = req("GET", "/api/meetings/_smoke/knowledge/preflight")
+check("会议知识发布预检给出 allowlist 目标与轻量文字推荐",
+      s == 200 and knowledge_ready.get("configured") is True
+      and knowledge_ready.get("recommended_profile") == "kb"
+      and knowledge_ready.get("document_ready") is True
+      and knowledge_ready.get("targets", [{}])[0].get("id") == "kb-smoke-001")
+s, _, published = req("POST", "/api/meetings/_smoke/knowledge/publish", {
+    "target_id": "kb-smoke-001", "profile": "auto"})
+s2, _, current = req("POST", "/api/meetings/_smoke/knowledge/publish", {
+    "target_id": "kb-smoke-001", "profile": "auto"})
+ledger_text = (SMOKE / "meeting.knowledge-publications.json").read_text(encoding="utf-8")
+check("一键发布首次创建、同 revision 幂等且回执不保存正文或 API key",
+      s == 200 and published.get("profile") == "kb"
+      and published.get("publication", {}).get("outcome") == "created"
+      and s2 == 200 and current.get("publication", {}).get("outcome") == "already_current"
+      and "smoke-key" not in ledger_text and "大家好" not in ledger_text)
 check("前端提供会议/媒体分段切换与更多菜单重新分类入口",
       b'id="content-type-tabs"' in page and b'id="content-type-btn"' in page
       and "标记为媒体视频".encode() in page
@@ -466,12 +492,36 @@ check("撤销后下游证据重新成为当前版本",
       j.get("evidence", {}).get("state") == "ready"
       and j.get("transcript_review", {}).get("downstream_state") == "current")
 
-# 2b. 存储分层：母版/阅读资产受保护，智能清理仅移除可再生工作帧
+# 2b. 现场照片：固化原始副本、阅读 JPEG、无确认拖动与 bundle 视觉资料投影。
+photo_stream = io.BytesIO()
+Image.new("RGB", (640, 360), (242, 238, 220)).save(photo_stream, format="JPEG")
+s, _, photo_result = multipart_files(
+    "/api/meetings/_smoke/photos",
+    [("files", "whiteboard.jpg", photo_stream.getvalue(), "image/jpeg")],
+    fields=[("mode", "current_time"), ("anchor_seconds", "2.5")])
+photo_bundle = req("GET", "/api/meetings/_smoke/bundle")[2]
+check("现场照片导入固化原始/阅读副本并进入视觉资料",
+      s == 200 and photo_result.get("imported", [{}])[0].get("id") == "F0001"
+      and (SMOKE / "photos/original/F0001.jpg").is_file()
+      and (SMOKE / "photos/review/F0001.jpg").is_file()
+      and len(photo_bundle.get("photos", [])) == 1
+      and any(item.get("kind") == "photo"
+              for item in photo_bundle.get("structure", {}).get("visuals", [])))
+s, _, aligned_photo = req(
+    "PATCH", "/api/meetings/_smoke/photos/F0001/alignment", {"seconds": 4.25})
+s2, _, _ = req(
+    "GET", "/api/meetings/_smoke/file?path=photos/review/F0001.jpg", raw=True)
+check("现场照片可直接拖动校正时间并通过安全文件路由读取",
+      s == 200 and aligned_photo.get("photo", {}).get("alignment", {}).get("seconds") == 4.25
+      and s2 == 200)
+
+# 2c. 存储分层：母版/阅读资产受保护，智能清理仅移除可再生工作帧
 s, _, storage_before = req("GET", "/api/meetings/_smoke/storage")
 cache_ids = {group.get("id") for group in storage_before.get("cache", {}).get("groups", [])}
 check("存储接口区分受保护母版、阅读资产和可再生缓存",
       s == 200 and storage_before.get("schema") == "meeting-storage/v1"
       and storage_before.get("original", {}).get("protected") is True
+      and storage_before.get("original", {}).get("files", 0) >= 2
       and storage_before.get("reading", {}).get("bytes", 0) > 0
       and "vl_frames" in cache_ids)
 s, _, cleaned = req("POST", "/api/meetings/_smoke/storage/cleanup")
@@ -480,7 +530,9 @@ check("智能清理只删除白名单缓存并保留会议核心文件",
       and not (SMOKE / "slides" / "full_01.jpg").exists()
       and (SMOKE / "audio.wav").is_file()
       and (SMOKE / "minutes.md").is_file()
-      and (SMOKE / "meeting.topic-map.json").is_file())
+      and (SMOKE / "meeting.topic-map.json").is_file()
+      and (SMOKE / "photos/original/F0001.jpg").is_file()
+      and (SMOKE / "photos/review/F0001.jpg").is_file())
 
 # 2b. 本地结论审计：逐条标签、乐观锁、隐私最小化与汇总
 minutes_before_quality = (SMOKE / "minutes.md").read_text()
@@ -833,6 +885,7 @@ check("导出预检只返回内容状态、数量、媒体和预计体积",
       and f"_v{PRODUCT_VERSION}_YYYYMMDD-HHMMSS.meetingpack.zip" in preflight.get("filename_pattern", "")
       and preflight.get("evidence", {}).get("claims") == 3
       and preflight.get("content", {}).get("transcript_turns") == 3
+      and preflight.get("content", {}).get("photos") == 1
       and preflight.get("media", {}).get("audio", {}).get("available") is True
       and preflight.get("media", {}).get("video", {}).get("available") is False
       and preflight.get("media", {}).get("audio", {}).get("format") == "AAC 40kbps"
@@ -851,7 +904,8 @@ names = set(pack.namelist()) if pack else set()
 required = {"viewer.html", "README.txt", "AGENTS.md", "assets/minutes.md", "assets/transcript.json",
             "assets/transcript.md", "assets/evidence.json", "assets/facts.json",
             "assets/topic-map.json", "assets/rag/records.jsonl", "assets/manifest.json",
-            "assets/slides/p0001.jpg", "assets/slides/p0002.jpg"}
+            "assets/slides/p0001.jpg", "assets/slides/p0002.jpg",
+            "assets/photos.json", "assets/photos/f0001.jpg"}
 check("导出 MeetingPack → 标准文件齐全且默认无音视频",
       s == 200 and required <= names and not any(n.startswith("assets/media/") for n in names)
       and re.search(VERSIONED_NAME + r"\.meetingpack\.zip", content_disposition)
@@ -878,6 +932,11 @@ check("MeetingPack 直接复用 VL JPEG，README 说明图片可独立取用",
       and "可直接复制到 PPT、Word、邮件" in pack_readme
       and manifest.get("slides", {}).get("format") == "image/jpeg"
       and manifest.get("slides", {}).get("source") == "vl_analysis_frame")
+check("MeetingPack 同步导出现场照片阅读副本并保持补充资料边界",
+      pack is not None and pack.read("assets/photos/f0001.jpg").startswith(b"\xff\xd8")
+      and manifest.get("photos", {}).get("count") == 1
+      and manifest.get("photos", {}).get("decision_evidence") is False
+      and '"kind":"photo"' in viewer)
 check("MeetingPack v5 manifest/evidence/RAG/Topic Map 共享稳定 linkage",
       manifest.get("schema") == "meetingpack/v5"
       and manifest.get("generator", {}).get("version") == PRODUCT_VERSION

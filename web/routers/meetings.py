@@ -16,6 +16,7 @@ import keyword_service
 import minutes_view_service
 import transcript_service
 import voice_bank as vb
+from meeting_core import photos as meeting_photos
 from deps import (BANK_DIR, BANK_LOCK, CONTENT_TYPES, DRY_RUN, EVALUATIONS_DIR, MEETINGS, MD,
                   MEETING_META_LOCK, STORAGE_LOCK, artifact, assistant, _audio_path,
                   _clean_meeting_cache, _current_evidence, _evidence_state,
@@ -199,6 +200,14 @@ def get_bundle(slug: str):
     structure = meeting_structure.build_structure(
         minutes_path.read_text(encoding="utf-8") if minutes_path else "",
         transcript, slides, descriptions, evidence, duration=duration)
+    photo_visuals = meeting_photos.project(mdir)
+    structure["visuals"] = sorted(
+        [*(structure.get("visuals") or []), *photo_visuals],
+        key=lambda visual: (
+            visual.get("first") is None,
+            float(visual.get("first") or 0) if visual.get("first") is not None else 10**12,
+            str(visual.get("id") or "")),
+    )
     # VL 结果本身通常是 Markdown；沿用纪要的安全渲染配置（禁用原始 HTML），
     # 让屏幕内容页保持可读层级，而不是把标题/列表作为原始文本展示。
     for visual in structure.get("visuals", []):
@@ -291,6 +300,7 @@ def get_bundle(slug: str):
         "document_state": document_state,
         "generation": generation,
         "structure": structure,
+        "photos": photo_visuals,
         "topic_map": topic_payload,
         "evidence": {
             "schema": evidence.get("schema"),

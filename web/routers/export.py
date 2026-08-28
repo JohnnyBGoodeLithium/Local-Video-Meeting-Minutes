@@ -16,6 +16,7 @@ import export_meeting as meeting_export
 import export_pack as pack_export
 import kb_document
 import meeting_generation
+from meeting_core import photos as meeting_photos
 from product_version import PRODUCT_VERSION, PRODUCT_VERSION_LABEL
 from deps import (BANK_DIR, _current_evidence, _evidence_state,
                   _meeting_identity, _minutes_file, _mdir, _read_json, _safe,
@@ -127,6 +128,13 @@ def export_meeting_preflight(slug: str):
         if path and path.is_file():
             base_bytes += path.stat().st_size
     slides_dir = mdir / "slides"
+    photos = meeting_photos.load(mdir).get("photos", [])
+    photo_bytes = sum(
+        (mdir / str(photo.get("image_path") or "")).stat().st_size
+        for photo in photos
+        if str(photo.get("image_path") or "").startswith("photos/review/")
+        and (mdir / str(photo.get("image_path") or "")).is_file())
+    base_bytes += photo_bytes
     video = _video_path(mdir)
     slide_images = []
     analysis_bytes = 0
@@ -172,6 +180,7 @@ def export_meeting_preflight(slug: str):
         "content": {
             "transcript_turns": len(transcript),
             "pages": sum(1 for page in slides if page.get("kind") == "slide") or len(slides),
+            "photos": len(photos),
         },
         "media": {
             "audio": {"available": bool(audio), "source_bytes": audio_bytes,
@@ -184,6 +193,7 @@ def export_meeting_preflight(slug: str):
             "audio": base_bytes + audio_export_bytes,
             "video": base_bytes + video_export_bytes,
             # HTML 的 data URI 有约 4/3 膨胀；实际还会跳过低价值/口播画面并压成 JPEG。
-            "kb_html": max(0, base_bytes - analysis_bytes) + int(analysis_bytes * 4 / 3),
+            "kb_html": max(0, base_bytes - analysis_bytes - photo_bytes)
+            + int((analysis_bytes + photo_bytes) * 4 / 3),
         },
     }

@@ -53,6 +53,7 @@ def main() -> int:
         bank = root / "bank"
         jobs = root / "jobs"
         port = free_port()
+        weknora_port = free_port()
         base = f"http://127.0.0.1:{port}"
         env = {
             **os.environ,
@@ -68,6 +69,13 @@ def main() -> int:
             "MEETING_WEB_DRYRUN_DELAY": "0.4",
             "MEETING_RAG_MODE": "lexical",
             "PYTHONUNBUFFERED": "1",
+            "MEETING_KB_PROVIDER": "weknora",
+            "MEETING_KB_URL": f"http://127.0.0.1:{weknora_port}",
+            "MEETING_KB_API_URL": f"http://127.0.0.1:{weknora_port}",
+            "MEETING_KB_API_KEY": "smoke-key",
+            "MEETING_KB_DEFAULT_ID": "kb-smoke-001",
+            "MEETING_KB_DEFAULT_NAME": "Synthetic KB",
+            "FAKE_WEKNORA_PORT": str(weknora_port),
         }
         subprocess.run([str(PY), str(PROJECT / "web/tests/make_fake_bank.py")],
                        env=env, cwd=PROJECT, check=True)
@@ -83,7 +91,15 @@ def main() -> int:
             "queue_priority": 20, "priority_boost": False,
         }), encoding="utf-8")
         log_path = root / "server.log"
-        with log_path.open("w", encoding="utf-8") as log:
+        fake_log_path = root / "fake-weknora.log"
+        with log_path.open("w", encoding="utf-8") as log, \
+                fake_log_path.open("w", encoding="utf-8") as fake_log:
+            fake = subprocess.Popen(
+                [str(PY), str(PROJECT / "web/tests/fake_weknora.py")],
+                env=env, cwd=PROJECT, stdout=fake_log, stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+            wait_ready(f"http://127.0.0.1:{weknora_port}", fake)
             proc = subprocess.Popen(
                 [str(PY), str(PROJECT / "web/server.py")],
                 env=env, cwd=PROJECT, stdout=log, stderr=subprocess.STDOUT,
@@ -109,6 +125,13 @@ def main() -> int:
                     except subprocess.TimeoutExpired:
                         os.killpg(proc.pid, signal.SIGKILL)
                         proc.wait(timeout=5)
+                if fake.poll() is None:
+                    os.killpg(fake.pid, signal.SIGTERM)
+                    try:
+                        fake.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        os.killpg(fake.pid, signal.SIGKILL)
+                        fake.wait(timeout=5)
 
 
 if __name__ == "__main__":

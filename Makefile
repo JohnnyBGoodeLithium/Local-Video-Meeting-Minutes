@@ -41,6 +41,8 @@ check:
 	$(PY) web/tests/vl_describe_pages_test.py
 	$(PY) web/tests/meeting_generation_test.py
 	$(PY) web/tests/meeting_structure_test.py
+	$(PY) web/tests/meeting_photos_test.py
+	$(PY) web/tests/knowledge_sink_test.py
 	$(PY) web/tests/meeting_topic_map_test.py
 	$(PY) web/tests/hardware_test.py
 	$(PY) web/tests/asr_provider_test.py

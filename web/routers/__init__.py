@@ -1,7 +1,7 @@
 """路由汇总：server.py 创建 app 后按此顺序 include，保持原单文件注册顺序。"""
 
-from routers import (assistant, export, jobs, keywords, media, meetings, orgchart, pages,
-                     quality, speakers, transcript, translations)  # noqa: F401
+from routers import (assistant, export, jobs, keywords, knowledge, media, meetings, orgchart,
+                     pages, photos, quality, speakers, transcript, translations)  # noqa: F401
 
 all_routers = [
     pages.router,
@@ -10,8 +10,10 @@ all_routers = [
     translations.router,
     keywords.router,
     export.router,
+    knowledge.router,
     assistant.router,
     media.router,
+    photos.router,
     transcript.router,
     speakers.router,
     orgchart.router,

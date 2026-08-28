@@ -25,6 +25,7 @@ sys.path.insert(0, str(PROJECT / "bin"))
 import kb_document  # noqa: E402
 import meeting_topic_map  # noqa: E402
 from meeting_artifact import load_speaker_profiles, write_evidence_document  # noqa: E402
+from meeting_core import photos as meeting_photos  # noqa: E402
 
 BASE = "http://kb.test"
 
@@ -159,6 +160,11 @@ with tempfile.TemporaryDirectory(prefix="kb-document-test-") as tmp:
     bare_dir = make_meeting(root, "2026-08-25_beta", full=False)
     make_keyword_sidecar(bare_dir, [{"text": "玄戒O3", "kind": "product"},
                                     {"text": "二场独有词", "kind": "topic"}])
+    photo_source = Path(tmp) / "whiteboard.jpg"
+    Image.new("RGB", (480, 320), (245, 240, 225)).save(photo_source)
+    meeting_photos.import_photos(
+        full_dir, [(photo_source, "Whiteboard.jpg")], mode="current_time",
+        anchor_seconds=42.5, duration=70.0)
 
     doc = kb_document.kb_document(full_dir, base_url=BASE)
     slug = "2026-08-25_alpha"
@@ -207,6 +213,12 @@ with tempfile.TemporaryDirectory(prefix="kb-document-test-") as tmp:
     assert "合成推理" not in doc
     assert not re.search(r"^# 标题$", doc, re.M)
 
+    # 现场照片独立成节，带时间深链和在线图片地址；信任边界不会把它写成决策证据。
+    assert "## 现场照片" in doc
+    assert f"[00:42]({BASE}/?meeting={slug}&t=42.5)" in doc
+    assert (f"file?path=photos/review/F0001.jpg" in doc
+            and "不独立证明会议结论" in doc)
+
     # 逐字稿：小数秒深链 + 说话人
     assert (f"[01:05]({BASE}/?meeting={slug}&t=65.5) **Carol：** "
             "小数秒时间码轮次，合成内容。") in doc
@@ -222,14 +234,15 @@ with tempfile.TemporaryDirectory(prefix="kb-document-test-") as tmp:
     # 图文 KB：HTML 自包含关键画面，不依赖截图 URL；静态解析器可回收 data URI。
     html_doc, html_stats = kb_document.kb_html_document(full_dir, base_url=BASE)
     assert 'name="meeting-kb-schema" content="meeting-kb-html/v1"' in html_doc
-    assert html_doc.count("data:image/jpeg;base64,") == 2
+    assert html_doc.count("data:image/jpeg;base64,") == 3
     assert "file?path=slides/" not in html_doc
     assert "总体摘要" in html_doc and "逐字稿" in html_doc and "#mm-C" in html_doc
     assert html_stats["embedded_images"] == 2
+    assert html_stats["embedded_photos"] == 1
     assert html_stats["embedded_image_bytes"] > 0
     assert html_stats["document_bytes"] == len(html_doc.encode("utf-8"))
     image_payloads = re.findall(r'data:image/jpeg;base64,([^"\s]+)', html_doc)
-    assert len(image_payloads) == 2
+    assert len(image_payloads) == 3
     assert all(__import__("base64").b64decode(value).startswith(b"\xff\xd8")
                for value in image_payloads)
 
@@ -240,7 +253,7 @@ with tempfile.TemporaryDirectory(prefix="kb-document-test-") as tmp:
         json.dumps(filtered_slides, ensure_ascii=False), encoding="utf-8")
     filtered_html, filtered_stats = kb_document.kb_html_document(full_dir, base_url=BASE)
     assert filtered_stats["embedded_images"] == 1
-    assert filtered_html.count("data:image/jpeg;base64,") == 1
+    assert filtered_html.count("data:image/jpeg;base64,") == 2
     assert "合成页面二。绿色测试背景。" in filtered_html
     (full_dir / "slides.json").write_text(
         json.dumps(SLIDES, ensure_ascii=False), encoding="utf-8")

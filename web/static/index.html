@@ -80,9 +80,12 @@
             <button id="regen-btn" type="button" disabled>重新生成纪要</button>
             <button id="retranscribe-btn" type="button" disabled title="保留母版与旧版本，使用当前 ASR 配置重建">使用最新上下文重新转写</button>
             <button id="content-type-btn" type="button" disabled title="只改变库内分类，不重新处理内容">标记为媒体视频</button>
+            <button id="photo-import-btn" type="button" disabled title="补充白板、纸面笔记或现场展示照片">添加现场照片…</button>
+            <input id="photo-file-input" type="file" accept="image/jpeg,image/png,image/webp" multiple hidden>
             <button id="undo-speaker-btn" type="button" disabled>撤销上次说话人修改</button>
             <button id="refine-btn" type="button" disabled title="使用更强的本地模型优化全文">优化全文</button>
             <button id="export-btn" type="button" disabled title="导出前检查证据、媒体和预计大小">分享 / 导出…</button>
+            <button id="knowledge-publish-btn" type="button" disabled title="将当前版本发布或更新到已配置的知识库">发布到知识库…</button>
             <button id="storage-btn" type="button" disabled title="查看原始母版、阅读资产和可再生缓存">存储与清理…</button>
             <a href="/admin">人员与高级设置</a>
           </div>
@@ -267,6 +270,51 @@
     <div class="dialog-btns export-actions">
       <button id="export-cancel" type="button">取消</button>
       <button id="export-confirm" class="primary" type="button" disabled>生成离线查看包</button>
+    </div>
+  </div>
+</div>
+
+<div id="knowledge-publish-mask" class="mask hidden">
+  <div class="dialog export-dialog knowledge-publish-dialog" role="dialog" aria-modal="true"
+       aria-labelledby="knowledge-publish-title">
+    <div class="export-dialog-head">
+      <div>
+        <h3 id="knowledge-publish-title">发布到知识库</h3>
+        <p id="knowledge-publish-subtitle" class="dim">把当前可信版本发布到 WeKnora；再次发布会更新原文档。</p>
+      </div>
+      <button id="knowledge-publish-close" type="button" aria-label="关闭">×</button>
+    </div>
+    <div id="knowledge-publish-content" class="knowledge-publish-content">
+      <p class="placeholder">正在检查知识结构与发布状态…</p>
+    </div>
+    <div class="dialog-btns export-actions">
+      <button id="knowledge-publish-cancel" type="button">取消</button>
+      <button id="knowledge-publish-confirm" class="primary" type="button" disabled>发布当前版本</button>
+    </div>
+  </div>
+</div>
+
+<div id="photo-import-mask" class="mask hidden">
+  <div class="dialog photo-import-dialog" role="dialog" aria-modal="true" aria-labelledby="photo-import-title">
+    <h3 id="photo-import-title">添加现场照片</h3>
+    <p id="photo-import-summary" class="dim">选择白板、纸面笔记或线下展示照片。</p>
+    <div class="photo-import-files" id="photo-import-files"></div>
+    <fieldset class="photo-alignment-options">
+      <legend>照片放在会议的什么位置？</legend>
+      <label><input type="radio" name="photo-alignment" value="current_time" checked>
+        <span><b>从当前播放位置开始排列</b><small id="photo-current-time">当前 00:00；有拍摄时间时保留照片间隔</small></span></label>
+      <label><input type="radio" name="photo-alignment" value="capture_time">
+        <span><b>按拍摄时间自动对齐</b><small>需要照片含 EXIF 拍摄时间，并填写会议开始时间</small></span></label>
+      <label class="photo-meeting-start hidden" id="photo-meeting-start-row">
+        <span>会议开始时间</span><input id="photo-meeting-start" type="datetime-local" step="1">
+      </label>
+      <label><input type="radio" name="photo-alignment" value="unlocated">
+        <span><b>暂不定位</b><small>先保存，之后在时间轴拖动或放到当前播放位置</small></span></label>
+    </fieldset>
+    <p class="photo-trust-note">照片用于补充现场资料；模型解读不能单独证明会议作出了决定。</p>
+    <div class="dialog-btns">
+      <button id="photo-import-cancel" type="button">取消</button>
+      <button id="photo-import-confirm" class="primary" type="button">导入照片</button>
     </div>
   </div>
 </div>

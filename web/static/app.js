@@ -137,6 +137,8 @@ const state = {
   progressiveRefreshes: new Set(),
   transcriptReview: null,
   transcriptEditIndex: null,
+  photoImportFiles: [],
+  knowledgePreflight: null,
 };
 
 /* ---------- 工具 ---------- */
@@ -459,6 +461,20 @@ function applyUiLanguage() {
       ? "Only changes the library classification; content is not reprocessed"
       : "只改变库内分类，不重新处理内容";
   }
+  const photoButton = $("#photo-import-btn");
+  if (photoButton) {
+    photoButton.textContent = english ? "Add meeting photos…" : "添加现场照片…";
+    photoButton.title = english
+      ? "Add whiteboard, paper-note, or in-room display photos"
+      : "补充白板、纸面笔记或现场展示照片";
+  }
+  const publishButton = $("#knowledge-publish-btn");
+  if (publishButton) {
+    publishButton.textContent = english ? "Publish to knowledge base…" : "发布到知识库…";
+    publishButton.title = english
+      ? "Publish or update the current revision in the configured knowledge base"
+      : "将当前版本发布或更新到已配置的知识库";
+  }
   $$('[data-ui-language]').forEach(button => {
     const active = button.dataset.uiLanguage === state.uiLanguage;
     button.classList.toggle("active", active);
@@ -771,6 +787,7 @@ async function deleteMeeting(ev, slug) {
     $("#retranscribe-btn").disabled = true;
     $("#refine-btn").disabled = true;
     $("#export-btn").disabled = true;
+    $("#knowledge-publish-btn").disabled = true;
     $("#storage-btn").disabled = true;
     $("#quality-tab").disabled = true;
     $("#chapters-tab").disabled = true;
@@ -1334,8 +1351,10 @@ async function loadMeeting(slug) {
     : "需要保留可读取的音频或视频母版";
   $("#refine-btn").disabled = isDraft;
   $("#export-btn").disabled = !(b.transcript?.length);
+  $("#knowledge-publish-btn").disabled = !(b.transcript?.length);
   $("#storage-btn").disabled = false;
   $("#content-type-btn").disabled = false;
+  $("#photo-import-btn").disabled = contentTypeOf(b) !== "meeting";
   $("#assistant-launcher").disabled = false;
   if (state.workspace.utilityOpen) openUtility(state.workspace.utilityTab);
   if (isDraft && state.viewMode === "quality") state.viewMode = "minutes";
@@ -1447,8 +1466,9 @@ function visualValueLabel(visual) {
 }
 
 function visualImageUrl(visual) {
-  return visual?.image
-    ? `/api/meetings/${encodeURIComponent(state.slug)}/file?path=${encodeURIComponent(`slides/${visual.image}`)}`
+  const path = visual?.asset_path || (visual?.image ? `slides/${visual.image}` : "");
+  return path
+    ? `/api/meetings/${encodeURIComponent(state.slug)}/file?path=${encodeURIComponent(path)}`
     : "";
 }
 
@@ -1507,9 +1527,11 @@ function updateScreenPreview(visual = null) {
   $("#screen-preview-image").src = visualImageUrl(source);
   $("#screen-preview-title").textContent = visualReadingCopy(source).title;
   $("#screen-preview-kicker").textContent = source.kind === "slide"
-    ? `第 ${source.page} 页` : "动态画面";
-  const at = Number(source.ranges?.[0]?.[0] ?? source.first ?? 0);
-  $("#screen-preview-meta").textContent = `${fmt(at)} · ${visualValueLabel(source)} · ` +
+    ? `第 ${source.page} 页` : source.kind === "photo"
+      ? (isEnglishUi() ? "Meeting photo" : "现场照片") : "动态画面";
+  const rawAt = source.ranges?.[0]?.[0] ?? source.first;
+  const at = rawAt == null ? Number.NaN : Number(rawAt);
+  $("#screen-preview-meta").textContent = `${Number.isFinite(at) ? fmt(at) : (isEnglishUi() ? "Unlocated" : "未定位")} · ${visualValueLabel(source)} · ` +
     `${source.display_status === "discussed" ? "有对应讨论" :
       source.display_status === "display_only" ? "仅展示" : "动态画面"}`;
   const index = visuals.findIndex(item => item.id === source.id);
@@ -1554,8 +1576,8 @@ function navigateScreenPreview(delta) {
   const index = visuals.findIndex(item => item.id === state.screenPreview.visualId);
   const target = visuals[index + delta];
   if (!target) return;
-  const at = Number(target.ranges?.[0]?.[0] ?? target.first ?? 0);
-  seek(at, false);
+  const at = Number(target.ranges?.[0]?.[0] ?? target.first);
+  if (Number.isFinite(at)) seek(at, false);
   updateScreenPreview(target);
 }
 
@@ -1659,6 +1681,73 @@ function updateTimelineFocus() {
     range.style.left = `${Number(start) / duration * 100}%`;
     range.style.width = `${Math.max(.6, (Number(end) - Number(start)) / duration * 100)}%`;
     tl.appendChild(range);
+  }
+}
+
+async function updatePhotoAlignment(photoId, seconds) {
+  if (!state.slug || !photoId) return;
+  try {
+    const response = await api(
+      `/api/meetings/${encodeURIComponent(state.slug)}/photos/${encodeURIComponent(photoId)}/alignment`,
+      { method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ seconds: Number.isFinite(seconds) ? seconds : null }) });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.detail || response.status);
+    const visual = (state.bundle?.structure?.visuals || []).find(item => item.id === photoId);
+    if (visual) {
+      const aligned = payload.photo?.alignment || {};
+      visual.alignment = aligned;
+      visual.first = Number.isFinite(aligned.seconds) ? aligned.seconds : null;
+      visual.ranges = Number.isFinite(aligned.seconds)
+        ? [[aligned.seconds, aligned.seconds + 1]] : [];
+    }
+    buildTimeline(Number(state.bundle?.duration || player()?.duration || 1));
+    if (state.viewMode === "visuals") renderVisuals(true);
+    toast(Number.isFinite(seconds)
+      ? `${isEnglishUi() ? "Photo aligned at" : "照片已定位到"} ${fmt(seconds)}`
+      : (isEnglishUi() ? "Photo left unlocated" : "照片已设为未定位"));
+  } catch (error) {
+    toast(`${isEnglishUi() ? "Photo alignment failed" : "照片定位失败"}：${error.message}`);
+  }
+}
+
+function renderPhotoMarkers(timeline, duration) {
+  const photos = (state.bundle?.structure?.visuals || []).filter(
+    visual => visual.kind === "photo" && visual.alignment?.seconds != null
+      && Number.isFinite(Number(visual.alignment.seconds)));
+  for (const photo of photos) {
+    const marker = document.createElement("button");
+    marker.type = "button";
+    marker.className = "tl-photo-marker";
+    marker.dataset.photoId = photo.id;
+    marker.style.left = `${Number(photo.alignment.seconds) / duration * 100}%`;
+    marker.title = `${fmt(photo.alignment.seconds)} · ${photo.title || (isEnglishUi() ? "Meeting photo" : "现场照片")} · ${isEnglishUi() ? "Drag to align" : "拖动校正时间"}`;
+    let moved = false;
+    let pendingSeconds = Number(photo.alignment.seconds);
+    marker.addEventListener("pointerdown", event => {
+      event.stopPropagation();
+      moved = false;
+      marker.classList.add("dragging");
+      marker.setPointerCapture(event.pointerId);
+    });
+    marker.addEventListener("pointermove", event => {
+      if (!marker.hasPointerCapture(event.pointerId)) return;
+      const bounds = timeline.getBoundingClientRect();
+      const ratio = Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width));
+      pendingSeconds = ratio * duration;
+      marker.style.left = `${ratio * 100}%`;
+      marker.title = `${fmt(pendingSeconds)} · ${isEnglishUi() ? "Release to align" : "松开完成定位"}`;
+      moved = true;
+    });
+    marker.addEventListener("pointerup", event => {
+      event.stopPropagation();
+      marker.classList.remove("dragging");
+      if (marker.hasPointerCapture(event.pointerId)) marker.releasePointerCapture(event.pointerId);
+      if (moved) updatePhotoAlignment(photo.id, pendingSeconds);
+      else openVisual(photo.id, Number(photo.alignment.seconds));
+    });
+    marker.addEventListener("click", event => event.stopPropagation());
+    timeline.appendChild(marker);
   }
 }
 
@@ -1838,6 +1927,7 @@ function buildTimeline(duration) {
     tick.appendChild(lab);
     tl.appendChild(tick);
   }
+  renderPhotoMarkers(tl, duration);
   // 播放头
   const head = document.createElement("div");
   head.className = "tl-head";
@@ -3495,7 +3585,12 @@ function mediaRoleLabel(role) {
 function visualNavCard(visual, selected) {
   const visualImage = visualImageUrl(visual);
   const copy = visualReadingCopy(visual);
-  const visualStatus = visual.display_status === "discussed" ? (isEnglishUi() ? "Discussed" : "有讨论") :
+  const photo = visual.kind === "photo";
+  const visualStatus = photo
+    ? (visual.alignment?.seconds == null ? (isEnglishUi() ? "Unlocated" : "未定位")
+      : visual.alignment?.state === "suggested" ? (isEnglishUi() ? "Suggested time" : "建议时间")
+        : (isEnglishUi() ? "Time confirmed" : "时间已确认"))
+    : visual.display_status === "discussed" ? (isEnglishUi() ? "Discussed" : "有讨论") :
     visual.display_status === "display_only" ? (isEnglishUi() ? "Display only" : "仅展示") :
       (isEnglishUi() ? "Motion" : "动态画面");
   const role = contentTypeOf(state.bundle) === "media" ? mediaVisualRole(visual) : null;
@@ -3503,8 +3598,8 @@ function visualNavCard(visual, selected) {
     `${visual.information_value === "low" ? "low-information" : ""}" ` +
     `data-visual-select="${esc(visual.id)}"><span class="visual-nav-thumb">` +
     (visualImage ? `<img src="${visualImage}" alt="">` : `<i>${isEnglishUi() ? "No frame" : "无截图"}</i>`) +
-    `</span><span class="visual-nav-copy"><small>${fmt(visual.first)} · ` +
-    `${visual.kind === "slide" ? (isEnglishUi() ? `Frame ${visual.page}` : `第${visual.page}帧`) : (isEnglishUi() ? "Camera" : "摄像头")}</small>` +
+    `</span><span class="visual-nav-copy"><small>${visual.first == null ? (isEnglishUi() ? "Unlocated" : "未定位") : fmt(visual.first)} · ` +
+    `${visual.kind === "slide" ? (isEnglishUi() ? `Frame ${visual.page}` : `第${visual.page}帧`) : photo ? (isEnglishUi() ? "Meeting photo" : "现场照片") : (isEnglishUi() ? "Camera" : "摄像头")}</small>` +
     `<b>${esc(copy.title)}</b><span>` +
     (role ? `<i class="visual-role ${esc(role)}">${esc(mediaRoleLabel(role))}</i>` :
       `<i class="visual-value ${esc(visual.information_value || "unknown")}">${esc(visualValueLabel(visual))}</i>`) +
@@ -3577,7 +3672,11 @@ function renderVisuals(preserveListScroll = false) {
   const selected = visibleVisuals.find(item => item.id === state.selectedVisualId) || visibleVisuals[0];
   state.selectedVisualId = selected.id;
   const selectedCopy = visualReadingCopy(selected);
-  const status = selected.display_status === "discussed" ? "有对应讨论"
+  const selectedPhoto = selected.kind === "photo";
+  const status = selectedPhoto
+    ? (selected.alignment?.seconds == null ? "未定位"
+      : selected.alignment?.state === "suggested" ? "建议时间" : "时间已确认")
+    : selected.display_status === "discussed" ? "有对应讨论"
     : selected.display_status === "display_only" ? "仅展示" : "动态画面";
   const image = visualImageUrl(selected);
   const filters = media ? ["all", "evidence", "demo", "context", "transition"].map(role => {
@@ -3596,20 +3695,26 @@ function renderVisuals(preserveListScroll = false) {
     (media ? mediaVisualList(visibleVisuals, selected) : visibleVisuals.map(
       visual => visualNavCard(visual, selected)).join("")) +
     `</nav><article class="structure-detail visual-detail">` +
-    `<header class="structure-detail-head"><div><span>屏幕 · ${esc(status)} · ${esc(visualValueLabel(selected))}</span>` +
+    `<header class="structure-detail-head"><div><span>${selectedPhoto ? "现场照片" : "屏幕"} · ${esc(status)} · ${esc(visualValueLabel(selected))}</span>` +
     `<h2>${esc(selectedCopy.title)}</h2>` +
     (selectedCopy.summary ? `<p>${esc(selectedCopy.summary)}</p>` : "") + `</div></header>` +
     `<div class="visual-value-note ${esc(selected.information_value || "unknown")}"><b>${esc(visualValueLabel(selected))}</b>` +
     `<span>${esc(selected.value_reason || "尚未判断这张画面的信息价值。")}</span></div>` +
     (selected.analysis_state === "pending" ? `<div class="visual-reprocess pending">屏幕解析仍在进行，完成前不会判断这页的内容价值。</div>` :
       selected.needs_reprocess ? `<div class="visual-reprocess">页面解析没有得到可读正文，已标记为需要重新解析；当前不会将它判为低信息。</div>` : "") +
+    (selectedPhoto ? `<div class="visual-photo-actions"><span>${selected.alignment?.seconds == null
+      ? (isEnglishUi() ? "This photo is saved but not linked to playback." : "照片已保存，但尚未关联播放进度。")
+      : `${isEnglishUi() ? "Located at" : "定位于"} ${fmt(selected.alignment.seconds)} · ${selected.alignment.confidence === "high" ? (isEnglishUi() ? "EXIF high confidence" : "EXIF 高置信") : (isEnglishUi() ? "Manual / medium confidence" : "人工/中等置信")}`}</span>` +
+      `<button type="button" data-photo-align-current="${esc(selected.id)}">${isEnglishUi() ? "Place at current playback" : "放到当前播放位置"}</button>` +
+      (selected.alignment?.seconds != null ? `<button type="button" data-photo-unlocate="${esc(selected.id)}">${isEnglishUi() ? "Remove time link" : "取消时间定位"}</button>` : "") +
+      `</div>` : "") +
     `<div class="visual-ranges">${(selected.ranges || []).map(([start, end]) =>
       `<button type="button" data-visual-seek="${start}">${fmt(start)}–${fmt(end)}</button>`).join("")}</div>` +
     (image ? `<img class="visual-hero" data-preview-visual="${esc(selected.id)}" src="${image}" ` +
       `alt="${esc(selectedCopy.title)}" title="${isEnglishUi() ? "Click to enlarge" : "点击放大查看"}">` :
       `<div class="visual-no-image">该片段没有静态页面截图</div>`) +
-    `<section class="visual-description"><h3>屏幕内容解读</h3>` +
-    `<p class="visual-boundary">仅说明画面展示内容，不代表会议作出了决定。</p>` +
+    `<section class="visual-description"><h3>${selectedPhoto ? "现场照片解读" : "屏幕内容解读"}</h3>` +
+    `<p class="visual-boundary">${selectedPhoto ? "照片用于补充现场资料；未经音频或人工确认，不能单独证明会议作出了决定。" : "仅说明画面展示内容，不代表会议作出了决定。"}</p>` +
     `<div>${visualDescriptionHtml(selected)}</div></section>` +
     structureClaimGroup("相关会议内容", selected.claim_ids) +
     `</article></div>`;
@@ -3628,6 +3733,11 @@ function renderVisuals(preserveListScroll = false) {
   });
   $$('[data-visual-seek]', box).forEach(button =>
     button.onclick = () => seek(Number(button.dataset.visualSeek)));
+  $$('[data-photo-align-current]', box).forEach(button =>
+    button.onclick = () => updatePhotoAlignment(button.dataset.photoAlignCurrent,
+      Number(player()?.currentTime || state.focus.time || 0)));
+  $$('[data-photo-unlocate]', box).forEach(button =>
+    button.onclick = () => updatePhotoAlignment(button.dataset.photoUnlocate, null));
   $$('[data-preview-visual]', box).forEach(image =>
     image.onclick = () => openScreenPreview(image.dataset.previewVisual));
   wireStructureClaims(box);
@@ -3899,6 +4009,83 @@ function qualityShortcut(event) {
   saveQualityReview(claim, label.id, $("textarea", card)?.value || "", trigger);
 }
 
+function selectedPhotoAlignmentMode() {
+  return $('input[name="photo-alignment"]:checked', $("#photo-import-mask"))?.value
+    || "current_time";
+}
+
+function updatePhotoAlignmentDialog() {
+  const mode = selectedPhotoAlignmentMode();
+  $("#photo-meeting-start-row")?.classList.toggle("hidden", mode !== "capture_time");
+  const at = Number(player()?.currentTime || 0);
+  $("#photo-current-time").textContent = isEnglishUi()
+    ? `Current ${fmt(at)}; capture-time gaps are preserved when available`
+    : `当前 ${fmt(at)}；有拍摄时间时保留照片间隔`;
+}
+
+function openPhotoImportDialog(files) {
+  if (!state.slug || contentTypeOf(state.bundle) !== "meeting") return;
+  state.photoImportFiles = [...(files || [])];
+  if (!state.photoImportFiles.length) return;
+  $(".more-menu")?.removeAttribute("open");
+  const names = state.photoImportFiles.slice(0, 8).map(file => esc(file.name)).join("、");
+  const extra = Math.max(0, state.photoImportFiles.length - 8);
+  $("#photo-import-files").innerHTML = `<b>${state.photoImportFiles.length} ${isEnglishUi() ? "photos" : "张照片"}</b> · ${names}` +
+    (extra ? ` · +${extra}` : "");
+  $("#photo-import-title").textContent = isEnglishUi() ? "Add meeting photos" : "添加现场照片";
+  $("#photo-import-summary").textContent = isEnglishUi()
+    ? "Add whiteboards, paper notes, or in-room displays to this meeting."
+    : "补充白板、纸面笔记或线下展示照片。";
+  $("#photo-import-mask").classList.remove("hidden");
+  updatePhotoAlignmentDialog();
+}
+
+function closePhotoImportDialog() {
+  $("#photo-import-mask")?.classList.add("hidden");
+  state.photoImportFiles = [];
+  const input = $("#photo-file-input");
+  if (input) input.value = "";
+}
+
+async function importMeetingPhotos() {
+  if (!state.slug || !state.photoImportFiles.length) return;
+  const mode = selectedPhotoAlignmentMode();
+  const meetingStart = $("#photo-meeting-start").value;
+  if (mode === "capture_time" && !meetingStart) {
+    toast(isEnglishUi() ? "Enter the meeting start time" : "请填写会议开始时间");
+    $("#photo-meeting-start").focus();
+    return;
+  }
+  const button = $("#photo-import-confirm");
+  button.disabled = true;
+  button.textContent = isEnglishUi() ? "Importing…" : "正在导入…";
+  const playback = Number(player()?.currentTime || 0);
+  const form = new FormData();
+  state.photoImportFiles.forEach(file => form.append("files", file, file.name));
+  form.append("mode", mode);
+  if (mode === "capture_time") form.append("meeting_start", meetingStart);
+  if (mode === "current_time") form.append("anchor_seconds", String(playback));
+  try {
+    const response = await api(`/api/meetings/${encodeURIComponent(state.slug)}/photos`, {
+      method: "POST", body: form,
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.detail || response.status);
+    const count = payload.imported?.length || state.photoImportFiles.length;
+    closePhotoImportDialog();
+    toast(isEnglishUi()
+      ? `${count} meeting photos imported. Drag the teal markers to correct time.`
+      : `已导入 ${count} 张现场照片，可拖动时间轴上的青绿色标记校正时间。`);
+    await loadMeeting(state.slug);
+    if (mode !== "unlocated" && player()) seek(playback, false);
+  } catch (error) {
+    toast(`${isEnglishUi() ? "Photo import failed" : "照片导入失败"}：${error.message}`);
+  } finally {
+    button.disabled = false;
+    button.textContent = isEnglishUi() ? "Import photos" : "导入照片";
+  }
+}
+
 async function openExportDialog() {
   if (!state.slug) return;
   $(".more-menu")?.removeAttribute("open");
@@ -3976,6 +4163,112 @@ function exportPack(slugs, media = "none", profile = "full") {
 
 function closeExportDialog() {
   $("#export-mask").classList.add("hidden");
+}
+
+async function openKnowledgePublishDialog() {
+  if (!state.slug) return;
+  $(".more-menu")?.removeAttribute("open");
+  $("#knowledge-publish-title").textContent = isEnglishUi()
+    ? "Publish to knowledge base" : "发布到知识库";
+  $("#knowledge-publish-subtitle").textContent = isEnglishUi()
+    ? "Publish the current trusted revision to WeKnora; publishing again updates the same knowledge item."
+    : "把当前可信版本发布到 WeKnora；再次发布会更新同一条知识。";
+  $("#knowledge-publish-cancel").textContent = isEnglishUi() ? "Cancel" : "取消";
+  $("#knowledge-publish-confirm").textContent = isEnglishUi()
+    ? "Publish current revision" : "发布当前版本";
+  $("#knowledge-publish-mask").classList.remove("hidden");
+  $("#knowledge-publish-confirm").disabled = true;
+  $("#knowledge-publish-content").innerHTML = `<p class="placeholder">${isEnglishUi()
+    ? "Checking knowledge structure and publication status…"
+    : "正在检查知识结构与发布状态…"}</p>`;
+  try {
+    state.knowledgePreflight = await jget(
+      `/api/meetings/${encodeURIComponent(state.slug)}/knowledge/preflight`);
+    renderKnowledgePublishDialog();
+  } catch (error) {
+    $("#knowledge-publish-content").innerHTML = `<div class="export-warning">${esc(
+      isEnglishUi() ? `Preflight failed: ${error.message}` : `发布检查失败：${error.message}`)}</div>`;
+  }
+}
+
+function closeKnowledgePublishDialog() {
+  $("#knowledge-publish-mask").classList.add("hidden");
+}
+
+function renderKnowledgePublishDialog() {
+  const data = state.knowledgePreflight;
+  if (!data) return;
+  const english = isEnglishUi();
+  const kind = data.content_type === "media"
+    ? (english ? "Media source" : "媒体内容") : (english ? "Meeting" : "会议");
+  if (!data.configured || !data.targets?.length) {
+    $("#knowledge-publish-content").innerHTML = `<div class="knowledge-setup"><b>${esc(english
+      ? "One-time server setup required" : "需要一次服务端配置")}</b><p>${esc(english
+      ? "Set the WeKnora API URL, scoped API key, and an allowed target knowledge-base ID. Credentials stay on the server and never enter this browser or Git."
+      : "配置 WeKnora API 地址、具备写权限的 API key 和允许发布的知识库 ID。凭据只留在服务端，不进入浏览器或 Git。")}</p>` +
+      `<code>MEETING_KB_API_URL · MEETING_KB_API_KEY · MEETING_KB_DEFAULT_ID</code></div>`;
+    return;
+  }
+  const targets = data.targets.filter(item => item.available);
+  const selectedTarget = targets[0];
+  const profiles = [
+    ["auto", english ? "Auto for this source" : "按内容自动选择",
+      data.recommended_profile === "kb-html"
+        ? (english ? "Visual HTML" : "图文 HTML") : (english ? "Text knowledge" : "轻量文字")],
+    ["kb", english ? "Text knowledge" : "轻量文字",
+      english ? "Small, fast, conclusions + transcript + deep links" : "体积小、入库快，保留结论/原文/时间依据"],
+    ["kb-html", english ? "Visual knowledge" : "图文知识",
+      english ? "Embeds selected frames and meeting photos" : "内嵌筛选画面与现场照片"],
+  ];
+  const publication = selectedTarget?.publication;
+  $("#knowledge-publish-content").innerHTML =
+    `<div class="knowledge-summary"><span><b>${esc(kind)}</b>${esc(english ? "Source type" : "内容类型")}</span>` +
+    `<span><b>${Number(data.content?.transcript_turns || 0)}</b>${esc(english ? "Transcript turns" : "段逐字稿")}</span>` +
+    `<span><b>${Number(data.content?.pages || 0)} + ${Number(data.content?.photos || 0)}</b>${esc(english ? "Key frames + photos" : "关键画面 + 现场照片")}</span></div>` +
+    `<label class="knowledge-target-field"><span>${esc(english ? "Target knowledge base" : "目标知识库")}</span>` +
+    `<select id="knowledge-target-select">${targets.map(item =>
+      `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join("")}</select></label>` +
+    `<div class="knowledge-recommendation"><b>${esc(english ? "Recommended" : "推荐")}: ${esc(
+      data.recommended_profile === "kb-html" ? (english ? "Visual knowledge" : "图文知识")
+        : (english ? "Text knowledge" : "轻量文字"))}</b><br>${esc(data.recommendation_reason || "")}</div>` +
+    `<div class="export-profile">${profiles.map(([id, title, detail], index) =>
+      `<label class="export-profile-option"><input type="radio" name="knowledge-profile" value="${id}" ${index === 0 ? "checked" : ""}>` +
+      `<span><b>${esc(title)}</b><small>${esc(detail)}</small></span></label>`).join("")}</div>` +
+    (publication ? `<div class="export-note"><b>${esc(english ? "Existing publication" : "已有发布")}</b><br>` +
+      `${esc(publication.published_at || "")} · ${esc(publication.profile || "")}` +
+      `<br>${esc(english ? "Publishing again updates this knowledge item." : "再次发布会更新这条知识，不创建无标识副本。")}</div>` : "") +
+    (!data.document_ready ? `<div class="export-warning">${esc(english
+      ? "Final minutes are not ready. Export a review pack instead of publishing incomplete knowledge."
+      : "纪要尚未就绪；请先导出核听包，不把不完整结果发布到正式知识库。")}</div>` : "");
+  $("#knowledge-publish-confirm").disabled = !data.document_ready || !targets.length;
+}
+
+async function publishToKnowledgeBase() {
+  if (!state.slug) return;
+  const target = $("#knowledge-target-select")?.value;
+  const profile = $('input[name="knowledge-profile"]:checked')?.value || "auto";
+  if (!target) return;
+  const button = $("#knowledge-publish-confirm");
+  button.disabled = true;
+  button.textContent = isEnglishUi() ? "Publishing…" : "正在发布…";
+  try {
+    const response = await api(`/api/meetings/${encodeURIComponent(state.slug)}/knowledge/publish`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ target_id: target, profile }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.detail || response.status);
+    closeKnowledgePublishDialog();
+    const outcome = result.publication?.outcome;
+    toast(isEnglishUi()
+      ? (outcome === "already_current" ? "Knowledge is already current" : "Published to knowledge base; indexing has started")
+      : (outcome === "already_current" ? "知识库已经是当前版本" : "已发布到知识库，后台正在索引"));
+  } catch (error) {
+    toast(`${isEnglishUi() ? "Publish failed" : "发布失败"}：${error.message}`);
+    button.disabled = false;
+  } finally {
+    button.textContent = isEnglishUi() ? "Publish current revision" : "发布当前版本";
+  }
 }
 
 function selectedExportProfile() {
@@ -5332,6 +5625,15 @@ function init() {
   $("#undo-speaker-btn").onclick = undoSpeakerOperation;
   $("#rename-btn").onclick = startRename;
   $("#content-type-btn").onclick = toggleContentType;
+  $("#photo-import-btn").onclick = () => $("#photo-file-input").click();
+  $("#photo-file-input").addEventListener("change", event => openPhotoImportDialog(event.target.files));
+  $$('input[name="photo-alignment"]').forEach(input =>
+    input.addEventListener("change", updatePhotoAlignmentDialog));
+  $("#photo-import-cancel").onclick = closePhotoImportDialog;
+  $("#photo-import-confirm").onclick = importMeetingPhotos;
+  $("#photo-import-mask").addEventListener("click", event => {
+    if (event.target.id === "photo-import-mask") closePhotoImportDialog();
+  });
   $("#transcript-search").addEventListener("input", applyTranscriptSearch);
   $("#transcript-search").addEventListener("keydown", e => {
     if (e.key !== "Enter") return;
@@ -5361,6 +5663,7 @@ function init() {
       regenMinutes("qwen3.5-122b-a10b-planner");
   };
   $("#export-btn").onclick = openExportDialog;
+  $("#knowledge-publish-btn").onclick = openKnowledgePublishDialog;
   $("#storage-btn").onclick = openStorageDialog;
   $("#minutes-tab").onclick = () => setReviewMode("minutes");
   $("#chapters-tab").onclick = () => setReviewMode("chapters");
@@ -5428,6 +5731,12 @@ function init() {
   };
   $("#export-mask").addEventListener("click", event => {
     if (event.target.id === "export-mask") closeExportDialog();
+  });
+  $("#knowledge-publish-close").onclick = closeKnowledgePublishDialog;
+  $("#knowledge-publish-cancel").onclick = closeKnowledgePublishDialog;
+  $("#knowledge-publish-confirm").onclick = publishToKnowledgeBase;
+  $("#knowledge-publish-mask").addEventListener("click", event => {
+    if (event.target.id === "knowledge-publish-mask") closeKnowledgePublishDialog();
   });
   $("#storage-close").onclick = closeStorageDialog;
   $("#storage-cancel").onclick = closeStorageDialog;
