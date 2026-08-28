@@ -3,9 +3,16 @@
 > 给接手 agent：先读本文件和 `AGENTS.md`，再看 `CHANGELOG.md` 未发布段了解最近改动。
 > 本文件在每次交接或大方向变化时更新；过期的进行中事项完成后删除对应段落。
 
-更新时间：2026-08-28（产品版本 v0.13.1；在线工作台构建号 20260828p104；提交号以 `git log -1` 为准）
+更新时间：2026-08-28（产品版本 v0.14.0；在线工作台构建号 20260828p105；提交号以 `git log -1` 为准）
 
 ## 当前状态速览（2026-08-28）
+
+**最新产品方向（v0.14.0 / p105，实现提交 `aa69e92`）**：
+
+1. 核心定位收缩为“本地会议上下文编译器”。ASR、说话人分离、VL 和文本生成保留为可替换输入增强；产品不再以追平云端模型为主线，差异化在人员身份、证据 linkage、核听修正和可携带导出。
+2. 新增 `profile=ai`：单场直接下载 `.context.md`，多场生成 `.contextpack.zip`。产物只用已有 canonical 纪要/证据/脉络/画面文字/逐字稿，不调用模型，不带本机深链和媒体二进制。文档自带来源隔离、证据引用和外部上传复核声明。
+3. MeetingPack 继续是给人的离线核听包；KB Markdown/HTML 和 WeKnora 继续是知识库通道；AI Context 是给用户自选的 GPT/豆包/Gemini/Notebook/本地模型的中立来源文档。不建第二套通用 Notebook UI，不把历史会议 Lens/汇报演练固化在工作台。
+4. 全量 `make check` 与隔离 smoke 208/208 已通过，包括真实 HTTP 单场/多场 AI Context 下载、Headless Chromium 产品页与工作台启动。最终 release commit、tag 与本机安全部署状态以本轮交付结果为准。
 
 **KB/RAG 学习入口**：`docs/KB_RAG_LEARNING_GUIDE.md` 用当前 canonical → KB projection → WeKnora / 本地 RAG 链路解释核心概念、分块、混合检索、reranker、证据扩展、revision、故障分层和脱敏实验。它是学习与验收入口；实现合同仍以 `docs/EXPORT_AND_RAG.md` 和 `docs/WEKNORA_INTEGRATION.md` 为准。
 

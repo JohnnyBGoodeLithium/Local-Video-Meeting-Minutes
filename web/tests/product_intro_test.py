@@ -53,9 +53,10 @@ bare_refs = set(re.findall(r"var\(\s*(--[\w-]+)\s*\)", product_css))
 missing_refs = sorted(bare_refs - defined - {"--wave"})
 assert not missing_refs, f"产品介绍引用未定义 token：{missing_refs}"
 
-# Current v0.11+ product capabilities must not regress to the original p51 story.
+# Current product capabilities must not regress to the original p51 story or make
+# optional local analysis look like the non-replaceable product core.
 for marker in (
-    "Media Analysis Core", "MeetingPack", "WeKnora", "resource",
+    "Optional Enrichment", "MeetingPack", "AI Context", "WeKnora", "resource",
     "product-copy.js?v=20260828p105",
 ):
     assert marker in html + script + copy_source, f"产品介绍缺少当前能力标记：{marker}"

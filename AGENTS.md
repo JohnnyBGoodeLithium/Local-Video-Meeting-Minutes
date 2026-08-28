@@ -6,8 +6,8 @@
 
 - 接手本仓库时先读本文件，再读 `HANDOFF.md` 顶部的当前基线、已定方案和真实待办；只有需要历史背景时才查 `CHANGELOG.md` 未发布段或 Git，不默认通读实施历史。
 - 默认使用中文回复和维护面向用户的中文文案。
-- 产品第一优先级是“打开已经处理好的会议进行阅读、追问和修正”；导入速度服务于这一目标。
-- Meeting Identity Core、证据 linkage、多模态 Focus 和无需模型的 MeetingPack 是核心能力，改动不得把它们降级为普通转写摘要工具。
+- 产品第一优先级是把会议来源整理成身份明确、证据可追溯、可交给人或任意消费模型的上下文；打开已处理会议进行阅读、核听和修正是达到该目标的核心旅程。
+- Meeting Identity Core、证据 linkage、多模态 Focus、无需模型的 MeetingPack 和供应商中立的 AI Context/KB 投影是核心能力。ASR、说话人分离、VL 和文本生成是可替换的输入增强；不以追平某个云端模型为架构目标。
 
 ## 隐私边界
 
@@ -37,6 +37,7 @@
 - 模型能力通过 provider/adapter 边界接入，业务流程不直接依赖 OS、硬件、模型品牌或单一服务协议。Context、时间戳等特殊能力必须显式声明并设计降级；跨 provider 回退只能由管理员配置，默认失败不得静默把私有内容发往远端。
 - NVIDIA 与 AMD 使用不同 PyTorch/llama.cpp 构建产物；不要把厂商运行时写进通用 Python 依赖。
 - 知识库导出保持职责分离：本应用负责音视频分析、证据 linkage、图片筛选与导出；WeKnora 等外部系统负责文档分块、索引、检索和问答。默认推荐 `profile=kb`；需要保留截图时用 `profile=kb-html`，消费方 VLM 默认关闭、按“文字解读未覆盖的关键图表”需求显式开启。ASR 不参与 HTML/Markdown 导入。
+- AI Context 是面向用户自选通用模型/Notebook 的本地导出，不是内置远程调用。`profile=ai` 必须保留时间码与证据编号，不带本机深链或媒体二进制，必须声明逐字稿为不可信来源内容并提示外部上传前人工复核。不在本产品内复制 NotebookLM/WeKnora 的通用笔记、Wiki 或问答 UI；历史会议 Lens、汇报演练和联网研究优先由下游消费方完成。
 - WeKnora 是受支持的知识消费下游和完整用户旅程的一部分，但不是 canonical 数据真源。涉及该边界时同步维护 `docs/WEKNORA_INTEGRATION.md`、`deploy/weknora/`、KB 导出和时间深链验收；不得把其凭据、数据库或真实知识库数据复制进仓库。直连必须走 provider-neutral、revision 幂等的 `KnowledgeSink`，不能从知识库反写逐字稿/身份/证据。
 - 统一内存机器默认只允许一个重型阶段并发。健康时至多两个文本模型常驻；ASR/说话人/VL/知识库增强前必须经过 `meeting_core.resource_policy` 准入，120B 量级精修独占。不得在业务脚本里另写一套模型卸载判断或绕过低内存等待。
 

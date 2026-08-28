@@ -1,32 +1,31 @@
 # Local Video Meeting Minutes
 
-**当前产品版本：v0.13.1**（仓库根目录 `VERSION` 为单一真源）
+**当前产品版本：v0.14.0**（仓库根目录 `VERSION` 为单一真源）
 
-本地多模态会议与高信息密度视频工作台：把录音、录屏、Teams VTT/DOCX、公开媒体链接、说话人声纹、组织架构和画面内容组织成可阅读、可核验、可修正、可离线分享的知识记录。
+本地会议上下文编译器：把录音、录屏、Teams VTT/DOCX、公开媒体链接以及已经存在的逐字稿，整理成身份明确、证据可追溯、可以交给同事、通用模型、Notebook 或知识库继续使用的上下文。
 
-它已经不是“钉钉闪记的本地替代品”。产品的核心差异是把四类信息绑定在一起：
+产品不再以“持续追赶云端 ASR/VL/文本模型效果”为核心目标。本地 ASR、说话人分离、VL 和纪要模型保留为可替换的输入增强；稳定核心是校正、证据和供应商中立的导出。四类能力仍绑定同一 canonical 数据：
 
 - **Meeting Identity Core**：声纹证据 → 稳定 Person ID → 中文名/全拼/英文名等类型化名称 → 可编辑 Org Chart。它解决会议室共用麦克风只能显示设备名称、无法区分真人的问题。
 - **Evidence Core**：纪要结论、行动项和风险绑定逐字稿 T ID、屏幕页 P ID 与 claim C ID；页面展示不能被自动升级为会议决定。
 - **Multimodal Review**：会议脉络是首屏，播放器、时间轴、逐字稿、当前屏幕和结论共享 Focus；屏幕资料可放大、缩放并按时间前后切换。
-- **Knowledge Core**：本地混合检索、reranker、带来源问答、结论审计和版本化 MeetingPack，为后续跨会议 RAG 保留稳定 linkage。
+- **Portable Context Core**：同一事实可确定性投影为离线 MeetingPack、单文件 AI Context Markdown、KB Markdown/HTML 或 revision 幂等的 WeKnora 文档。消费端可以更换，时间与证据 linkage 不丢失。
 
 ## 用户旅程
 
-1. 先选择“会议”或“媒体”：会议可导入音频、录屏或 Teams 录像 + VTT/DOCX；媒体可拖入一条本地视频或粘贴一个公开页面链接。若外部逐字稿不准，可忽略并改用本地 ASR，原文件保留可回退。
-2. 先完成转写和说话人识别，尽快发布可阅读的语音草稿。
-   ASR 默认在本机运行，也可显式接入兼容端点；会议标题和确认术语属于可降级增强。命中已知易误听词时只复核对应短音频，不能由后置文本模型改写原语言逐字稿。
-3. 后台继续抽取逻辑页面、理解共享画面、生成多模态终稿和整场会议脉络。
+1. 先选择“会议”或“媒体”：已有 Teams VTT/DOCX 可直接作为转写来源；只有音视频时才使用配置的本地或兼容 ASR。来源原件固化，外部逐字稿不准时可忽略并重转写。
+2. 确认最影响复用质量的信息：人员姓名、说话人归属、原语言逐字稿和关键结论证据。本地说话人、VL、翻译和纪要生成是可选增强，不是导出的供应商依赖。
+3. 有录屏时后台可以继续抽取逻辑页面、理解共享画面并生成多模态终稿；急用时只要 canonical 逐字稿形成，就可以先导出核听或 AI 上下文快照。
 4. 用户从会议脉络进入某个议题；时间操作改变播放位置，右侧节点选择只改变阅读 Focus。媒体内容会按实际形态自适应导航：单人口播显示“议题 + 叙事作用”，访谈显示“议题 + 人物”，混合内容同时保留两者。
 5. 在纪要、逐字稿与画面之间核对证据，确认人员身份；必要时播放并修正单轮原语言文本，随后更新纪要和脉络。
 6. 线下讨论中的白板、纸面或黑板照片可在会后补入：优先读取拍摄时间，也可按当前播放位置直接对齐或暂存为未定位资料；原图受保护，阅读副本进入 Web、Viewer、MeetingPack 和知识投影，但不会被单独冒充会议决定。
-7. 按使用场景交付：给同事离线核听用 `viewer.html + README.txt + assets/` 的 MeetingPack；需要跨内容检索时从“更多 → 发布到知识库”一键创建或更新。会议默认发布结论、待办、脉络、逐字稿与时间依据；媒体有关键画面时默认发布自包含图文文档，并保留原视频链接。
-8. 发布以内容 revision 幂等：重复点击不会复制文档，内容变化后更新同一知识目标。入库答案再通过时间依据回到本应用核听，形成“分析—检索—回证—修正—重新发布”闭环。
+7. 按消费方交付：给同事核听用 MeetingPack；给 GPT、豆包、Gemini、NotebookLM 或其他模型用单场 `.context.md`；给 WeKnora 等知识库用 KB Markdown/HTML。外部上传前由用户确认公司政策和脱敏范围。
+8. 多场同系列会议可以导出 `.contextpack.zip`，每场一份纯文本来源，另附来源索引、证据使用约定和通用起始提示词。历史模式、汇报训练或专题研究交给用户选择的下游模型完成，本应用不再建设第二套通用 Notebook。
 
 ## 架构概览
 
 ```text
-音频 / 视频 / Teams VTT·DOCX / 公开媒体 URL
+音频 / 视频 / Teams VTT·DOCX / 公开媒体 URL / 已有逐字稿
         │
         ├─ 转写与字级对齐 ───────┐
         ├─ 说话人分离与声纹匹配 ─┼─ transcript.spk.json (T IDs)
@@ -39,7 +38,7 @@
                           │       └──────────┬──────────┘
                           └─ 自然语言重组 ──┤
                                              ▼
-                              Web 阅读器 / MeetingPack Viewer
+                   Web 阅读器 / MeetingPack / AI Context / KB Projection
 ```
 
 详细边界见 [系统架构](docs/ARCHITECTURE.md)，结论和 RAG schema 见 [导出与 RAG](docs/EXPORT_AND_RAG.md)，
@@ -86,6 +85,12 @@ make run
 
 # 导出离线阅读包；默认不携带媒体
 .venv/bin/python bin/export_meeting.py meetings/<meeting>/ --media none
+
+# 导出一个可直接交给通用模型或 Notebook 的 Markdown；不含本机链接和媒体
+.venv/bin/python bin/export_meeting.py meetings/<meeting>/ --profile ai
+
+# 多场同系列会议：每场一份 context.md + 来源索引 + 使用提示
+.venv/bin/python bin/export_pack.py meetings/<one>/ meetings/<two>/ --profile ai
 
 # 导出给 WeKnora 等知识库使用的轻量 Markdown 包；base URL 用于时间码回跳
 .venv/bin/python bin/export_meeting.py meetings/<meeting>/ --profile kb \

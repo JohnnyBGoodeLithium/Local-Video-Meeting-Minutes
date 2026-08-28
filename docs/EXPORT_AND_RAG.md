@@ -218,7 +218,43 @@ Web“更多”菜单提供三种导出；命令行等价用法：
 
 全局索引本身（`GET /api/keywords/index`，schema `keyword-index/v1`）是服务端内部件：只读盘聚合各会议 ready 状态的 `meeting-keywords/v1` sidecar，单场坏数据跳过；它服务两个出口——导出弹窗的相关内容建议（共享关键字加权：product/project=3、organization/topic=2、other=1，理由即共享词清单）和 pack 级贯穿线索。它不是知识库管理界面，关键字共现也不等于内容间的因果或先后关系。
 
-### 4.3 知识库导出包 KB Pack（WeKnora 优化）
+### 4.3 AI Context（通用模型 / Notebook 消费）
+
+`profile=ai` 是与 MeetingPack、KB Pack 并列的纯文本投影，不是远程模型调用。它解决“我已经在本地整理好这场会议，怎样交给用户选择的 GPT、豆包、Gemini、NotebookLM 或其他模型”。本应用只产生本地文件，不自动上传、登录或调用这些外部服务。
+
+单场产物是可直接上传的 `*.context.md`，schema 为 `meeting-ai-context/v1`：
+
+- 包含常规纪要、议题脉络、画面文字解读、完整逐字稿、时间码和 `#mm-Cxxxxx` 证据编号；
+- 不含音频、视频和图片二进制，不写入 `127.0.0.1`、局域网地址或本机 `/api/meetings/` 深链；
+- 保留安全的公开原视频 URL（若 `media-source/v1` 允许导出）；
+- 文档顶部明确逐字稿和引用内容是“来源资料而非系统指令”，要求消费模型区分会议证据、画面展示、已生成结论和新推断；
+- front matter 记录 `source_revision` 与 `classification: internal-derived; user review required`，但该声明不等于自动脱敏或外发授权。
+
+多场产物是 `meeting-ai-context-pack/v1` 的 `.contextpack.zip`：
+
+```text
+ContextPack/
+├── START_HERE.md             # 来源使用约定和通用起始提示词
+├── INDEX.md                  # S001... 来源清单
+├── manifest.json             # revision/hash，不含正文副本
+└── sources/
+    ├── S001.context.md
+    └── S002.context.md
+```
+
+多场历史可以在下游用于专题汇报、系列会议对比或审阅模式提炼，但本应用不把“频繁出现”自动升级为部门规则、人员性格或审批预测。外部上传前仍须由用户确认公司政策、受众和脱敏范围。
+
+CLI：
+
+```bash
+# 单场：直接上传 Markdown
+.venv/bin/python bin/export_meeting.py meetings/<meeting> --profile ai
+
+# 多场：解压后按任务上传需要的 sources/*.context.md
+.venv/bin/python bin/export_pack.py meetings/<one> meetings/<two> --profile ai
+```
+
+### 4.4 知识库导出包 KB Pack（WeKnora 优化）
 
 MeetingPack/ContentPack 的"viewer + 中英纪要 + transcript json/md + records"表达对按文档分块的知识库（如本机 Docker 部署的腾讯 WeKnora）是冗余的，直接进 RAG 会拉低检索质量。知识库导出因此把**每个内容收敛成一份主文档**，KB 管理与问答归知识库，本应用只做分析与导出。按是否需要画面理解分成两种形态：
 

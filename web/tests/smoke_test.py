@@ -217,11 +217,11 @@ if chrome:
     check("产品介绍 ES module 在 Headless Chromium 完整启动",
           product_browser.returncode == 0
           and 'data-ui-language="zh-CN"' in product_browser.stdout
-          and '>v0.13.1</em>' in product_browser.stdout
+          and '>v0.14.0</em>' in product_browser.stdout
           and "Uncaught" not in product_browser.stderr,
           f"rc={product_browser.returncode}, "
           f"language={'data-ui-language=\"zh-CN\"' in product_browser.stdout}, "
-          f"version={'>v0.13.1</em>' in product_browser.stdout}, "
+          f"version={'>v0.14.0</em>' in product_browser.stdout}, "
           f"uncaught={'Uncaught' in product_browser.stderr}, "
           f"stderr={product_browser.stderr[-500:]!r}")
 else:
@@ -331,10 +331,11 @@ check("产品介绍页同步当前能力、双语与设计 token",
       s == 200 and b'Meeting Identity Core' in product_page
       and '人员身份核心'.encode() in product_page
       and '多模态证据核心'.encode() in product_page
-      and b'data-product-content-version="0.13"' in product_page
+      and b'data-product-content-version="0.14"' in product_page
       and b'data-ui-language="en"' in product_page
       and b'/static/fluent-foundation.css?v=20260828p105' in product_page
-      and b'Media Analysis Core' in product_page
+      and b'Optional Enrichment' in product_page
+      and b'AI Context' in product_page
       and b'WeKnora' in product_page
       and b'id="architecture"' in product_page
       and b'href="/"' in product_page and "no-store" in product_cache)

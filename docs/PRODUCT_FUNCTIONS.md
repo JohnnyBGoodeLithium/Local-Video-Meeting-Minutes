@@ -89,6 +89,7 @@
 | 8.1.2.3 | 多内容打包导出 | 把 2–12 场会议合成一个 `.contentpack.zip`：顶层 README/AGENTS/manifest（content-pack/v1）+ 跨内容关键字贯穿线索索引（content-pack-index/v1），`meetings/<slug>/` 各为完整 MeetingPack；命名沿用版本化约定，默认取最高频共享关键字。 | v0.10.1 | `7017381` | P1 |
 | 8.1.2.4 | 知识库导出形态 | 导出弹窗可选"知识库版（纯文本+媒体链接）"（CLI/HTTP `profile=kb`）：每个内容收敛成一份自包含 `<slug>.kb.md`（分块友好章节 + YAML front matter），时间码渲染成 `?meeting=<slug>&t=<秒>` 深链、媒体与屏幕图走在线外链，产 `.kbpack.zip` + `kb-pack/v1` manifest（多场追加文字版 index.md）；预检超 30MB 时提示改用该形态。 | v0.10.1 | `275677d` | P1 |
 | 8.1.2.5 | 图文知识库单文件 | 导出弹窗/CLI/HTTP 增加 `profile=kb-html`：单场直接产一个可上传的 `.kb.html`，纪要、脉络、屏幕解读和逐字稿共用轻量版结构，筛选后的关键画面转为最长边 1600px JPEG 并以内嵌 data URI 保留为可选视觉资产；WeKnora VLM 默认可关闭，仅在需要补读未文字化字段时开启。口播、空白、会议 UI、过渡和明确低价值帧只留文字。纪要结论的依据编号旁带真实时间深链，纯画面依据取页面首次出现时间。多场包内每场一份独立 HTML，manifest 记录格式、图片模式和数量。 | v0.10.1 | `f228075` | P1 |
+| 8.1.2.6 | 通用 AI 上下文导出 | 导出弹窗、CLI 和 HTTP 增加 `profile=ai`：单场生成 `meeting-ai-context/v1` 的 `.context.md`，保留纪要、脉络、画面文字解读、完整逐字稿、时间码和证据编号，移除本机深链与媒体二进制；多场生成 `meeting-ai-context-pack/v1` 纯文本包，附来源索引、起始提示和隐私声明。文档声明逐字稿为来源内容而非系统指令，系统不自动上传外部服务。 | v0.14.0 | `aa69e92` | P0 |
 | 9.1.1.1 | 默认纯本地隐私 | ASR、VL、文本模型、RAG 和 Web 默认只在本机/loopback；远端和跨 provider 回退必须显式配置。 | v0.8.0 | `9d25c13` | P0 |
 | 9.1.1.2 | AMD/NVIDIA/CPU 兼容 | 模型路径、设备、dtype 与 ASR provider 可配置，业务流程不写死 AMD、OS 或单一模型供应商。 | v0.8.0 | `9d25c13` | P1 |
 | 9.1.2.1 | 产品版本追踪 | VERSION 单一真源同步工作台、Viewer、健康端点和导出命名。 | v0.8.1 | `a994ba3` | P1 |

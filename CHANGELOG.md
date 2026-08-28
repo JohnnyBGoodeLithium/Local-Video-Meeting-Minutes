@@ -11,7 +11,13 @@ git show <commit>
 
 ## 未发布
 
-- 新增面向非 RAG 专家的项目学习指南：用 Meeting Minutes → WeKnora 的真实数据边界解释 KB、分块、embedding、混合召回、RRF、reranker、证据扩展、revision 与可验证引用；附会议/媒体差异、分层排障、四个脱敏实验、固定验收表和渐进学习路径，并明确“利益相关者审阅视角”只能基于可回证观察、人工确认和留出会议验证，不能固化为无依据的人物画像。
+
+## v0.14.0 — 2026-08-28
+
+- 产品核心收缩为“本地会议上下文编译器”：既有 VTT/DOCX 可直接进入修正与导出；本地 ASR、说话人分离、VL 和文本模型保留为可替换输入增强，不再以追平任一云端模型为产品成立条件。差异化集中于 Meeting Identity、证据 linkage、核听修正和供应商中立导出。
+- 新增 `profile=ai`：单场产生 `meeting-ai-context/v1` 的 `.context.md`，保留纪要、脉络、画面文字解读、完整逐字稿、时间码和证据编号，但不携带本机深链、音视频或图片二进制。多场产生 `meeting-ai-context-pack/v1` 的纯文本 `.contextpack.zip`，附来源索引、起始提示、revision/hash 与隐私声明。文档明确逐字稿为不可信来源内容，缺依据不得补写；系统不自动上传外部服务。在线导出弹窗、CLI、HTTP 与多内容打包均支持。
+- 保留 MeetingPack 作为给人的离线核听交付，保留 KB Markdown/HTML 与 WeKnora 作为知识消费通道；不再在工作台建设第二套 NotebookLM 式通用笔记/研究 UI。历史会议 Lens、汇报演练和联网红队可作为 Context Pack 的下游用法，不自动固化为人物画像或部门规则。
+- 新增面向非 RAG 专家的项目学习指南，并把 Stakeholder Review Lens 明确定义为下游、可回证、需人工确认的研究方法。产品介绍页同步收口为 Identity / Evidence / Portable Context 三核心，中英双语共用同一 DOM；在线缓存构建号升至 `20260828p105`。
 
 ## v0.13.1 — 2026-08-28
 

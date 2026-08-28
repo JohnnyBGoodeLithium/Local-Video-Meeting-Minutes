@@ -2,7 +2,9 @@
 
 ## 目标与边界
 
-本项目把本地录音、普通录屏、Teams 录制和用户明确提交的公开媒体链接转换为可检索逐字稿、说话人信息、逻辑画面与证据化阅读文档。默认情况下，会议正文、录音、声纹和组织架构不离开本机。管理员也可显式配置局域网或获批云端模型端点；产品不会自行跨端点或把本地失败静默降级为云端调用。
+本项目是一个本地会议上下文编译器：把本地录音、普通录屏、Teams VTT/DOCX、用户明确提交的公开媒体链接和已有逐字稿，统一整理为身份明确、证据可追溯的 canonical 记录，再确定性导出给人、通用模型或知识库。ASR、说话人分离、VL 和文本模型保留为 provider/adapter 形式的可替换输入增强，不再是必须超越云端才成立的产品核心。
+
+默认情况下，会议正文、录音、声纹和组织架构不离开本机。管理员也可显式配置局域网或获批云端模型端点；产品不会自行跨端点或把本地失败静默降级为云端调用。AI Context 只在用户点击导出后生成本地文件，系统本身不把它上传给任何消费端。
 
 不在当前范围内：多人账号、远程部署、公网访问、云端模型自动回退、跨会议全局语义搜索。
 
@@ -34,14 +36,17 @@ flowchart LR
     API --> STRUCT[meeting_structure.py\n确定性阅读投影]
     STRUCT --> DATA
     API --> EVAL[(本地 evaluations)]
-    DATA --> EXPORT[MeetingPack 导出器]
-    EXPORT --> VIEWER[静态 viewer.html]
-    EXPORT --> RAG[证据 JSON + RAG JSONL]
+    DATA --> EXPORT[确定性上下文投影]
+    EXPORT --> VIEWER[MeetingPack viewer.html]
+    EXPORT --> AIC[AI Context Markdown]
+    EXPORT --> RAG[KB Markdown/HTML + RAG JSONL]
 ```
 
 ## 模块化单体边界
 
-Meeting 与 Media 不是两套项目。二者共用 **Media Analysis Core**：媒体固化、音轨、ASR、说话人、镜头/逻辑页、VL、evidence、来源契约和导出；其上使用两个 domain profile：Meeting 强调决定/待办/风险与人员身份，Media 强调论证/规格/作者观点与叙事作用。Web、MeetingPack Viewer 和 KB HTML/Markdown 是同一 canonical 资产的不同 projection。
+Meeting 与 Media 不是两套项目。二者共用 **Media Analysis Core**：媒体固化、音轨、可选 ASR、说话人、镜头/逻辑页、VL、evidence、来源契约和导出；其上使用两个 domain profile：Meeting 强调决定/待办/风险与人员身份，Media 强调论证/规格/作者观点与叙事作用。Web、MeetingPack Viewer、AI Context 和 KB HTML/Markdown 是同一 canonical 资产的不同 projection。
+
+`bin/ai_context.py` 是面向外部消费模型的纯文本投影，不调用模型、不复制媒体、不写回会议目录。`meeting-ai-context/v1` 保留读取纪要、议题、画面解读、逐字稿、时间码和 `#mm-Cxxxxx` 证据编号，删除只在本机成立的媒体/图片深链。`meeting-ai-context-pack/v1` 只把多份上述文档与 INDEX/START_HERE/manifest 打包，不在本应用内实现第二套 Notebook 或通用研究 UI。
 
 `web/static/app.js` 曾同时承担导入、库列表、作业、播放器、逐字稿、纪要、媒体来源与导出，约五千余行，继续新增跨域状态的回归成本已高于单文件收益。现在已迁为无构建原生 ES module 入口，并从 `web/static/modules/` 抽出 `media-source`、`imports`、`jobs`、`library`、`player-navigation`、`transcript`、`export` 和 `minutes` 八个无 DOM 规则模块；`transcript-view` 与 `minutes-view` 是两个 DOM projection，分别接收阅读数据、格式函数和行为 callback，不反向读取全局 `state`，也不调用 API 或媒体播放。入口负责把当前状态装配成参数：逐字稿 renderer 返回核听单元后由入口协调播放、Focus、搜索与滚动；纪要 renderer 负责标准/AI 视图、草稿/译文/待办候选的阅读节点和证据链接接线，证据抽屉、AI 修改、保存/撤销/恢复仍由入口 controller 执行。拆分完成的判据是模块拥有明确输入/输出、在线工作台与无头 Viewer/smoke 行为不变，而不是追求文件数；当前不引入 React、微前端或复制 Meeting/Media 页面。
 
