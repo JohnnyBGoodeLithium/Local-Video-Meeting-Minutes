@@ -1,26 +1,26 @@
 import { contentTypeOf, safeSourceUrl }
-  from "./modules/media-source.js?v=20260827p103";
+  from "./modules/media-source.js?v=20260828p104";
 import { buildUploadFormData, enqueueMediaUrl, isSingleLocalVideo }
-  from "./modules/imports.js?v=20260827p103";
+  from "./modules/imports.js?v=20260828p104";
 import { jobDisplayName, selectJobPanel }
-  from "./modules/jobs.js?v=20260827p103";
+  from "./modules/jobs.js?v=20260828p104";
 import { chooseInitialItem, deepLinkSeconds, filterLibrary, sortLibrary }
-  from "./modules/library.js?v=20260827p103";
+  from "./modules/library.js?v=20260828p104";
 import { adjacentReviewUnit, defaultReviewUnits, nearestReviewUnit,
   reviewIndexesFor, reviewUnitForTurn as findReviewUnitForTurn, turnEnd }
-  from "./modules/player-navigation.js?v=20260827p103";
+  from "./modules/player-navigation.js?v=20260828p104";
 import { nextSearchCursor, pendingReviewByTurn, transcriptSearchHits }
-  from "./modules/transcript.js?v=20260827p103";
+  from "./modules/transcript.js?v=20260828p104";
 import { renderTranscriptView }
-  from "./modules/transcript-view.js?v=20260827p103";
+  from "./modules/transcript-view.js?v=20260828p104";
 import { exportSizeState, formatBytes, meetingExportHref, normalizeExportProfile,
   packExportHref }
-  from "./modules/export.js?v=20260827p103";
+  from "./modules/export.js?v=20260828p104";
 import { claimAction, claimIdsForTurn, evidenceSources, minutesState, normalizeReviewMode,
   resolveMinutesView, turnIndexAtTime, turnIndexesForSourceIds }
-  from "./modules/minutes.js?v=20260827p103";
+  from "./modules/minutes.js?v=20260828p104";
 import { renderMinutesView }
-  from "./modules/minutes-view.js?v=20260827p103";
+  from "./modules/minutes-view.js?v=20260828p104";
 
 /* 会议列表 + 回顾工作台（装配入口；领域规则逐步迁往 modules/） */
 "use strict";

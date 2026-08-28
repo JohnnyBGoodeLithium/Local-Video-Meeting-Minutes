@@ -222,6 +222,11 @@ Web“更多”菜单提供三种导出；命令行等价用法：
 
 MeetingPack/ContentPack 的"viewer + 中英纪要 + transcript json/md + records"表达对按文档分块的知识库（如本机 Docker 部署的腾讯 WeKnora）是冗余的，直接进 RAG 会拉低检索质量。知识库导出因此把**每个内容收敛成一份主文档**，KB 管理与问答归知识库，本应用只做分析与导出。按是否需要画面理解分成两种形态：
 
+同一投影也可由工作台直接发布。`KnowledgeSink` 只接收已经生成的 artifact，不读取浏览器凭据、不调用模型、
+不改变 canonical 数据。会议默认 `kb`；媒体有关键画面、或会议含 `meeting-photos/v1` 现场照片时自动推荐
+`kb-html`。远端回执以 `provider + target_id + artifact revision + profile` 幂等，保存文档 ID 和状态但不保存
+正文或 API key。文件 profile 更新采用“先创建新版本，成功后清理旧文档”，避免发布失败让已有知识消失。
+
 - `profile=kb`：轻量文本版，Markdown 正文，屏幕图和媒体走在线链接；适合批量入库、纯文本问答和最小体积。
 - `profile=kb-html`：图文版，单场直接得到一个 `.kb.html`；正文结构与 Markdown 相同，筛选后的关键画面以 base64 JPEG 内嵌。即使知识库关闭 VLM，也能检索会议侧已经生成的画面标题与详细解读；只有需要补读未文字化的表格字段、图表、规格页或演示细节时才开启外部 VLM。
 
@@ -236,7 +241,7 @@ MeetingPack/ContentPack 的"viewer + 中英纪要 + transcript json/md + records
 
 `.kb.md` 结构：YAML front matter（`title` / `date` / `content_type` / `duration`（秒）/ `keywords`（每条带 `kind`）/ `source_url`（meta.json 有才带）），正文按分块友好顺序排列：**总体摘要 → 关键结论 → 待办（含负责人/期限，结构化投影） → 议题脉络（每议题一节） → 屏幕内容（每页一节） → 逐字稿（每轮一条）**；缺失板块整节跳过，语言跟随纪要主语言，不双语重复。
 
-图文版是同一正文的语义 HTML，不带脚本，也不依赖 CSS/图片目录或网络取图。每张入选画面在内存中统一转为最长边 1600px、质量 86 的 JPEG，再写成 `data:image/jpeg;base64,...`；原分析帧和会议目录都不修改。筛选规则只排除 `talking_head`、空白、摄像头/会议 UI、过渡和明确 `information_value=low` 的页面；被排除页面的标题、时间、VL 文字解读仍在正文中。WeKnora 的 HTML 解析器会静态转成 Markdown，其 Markdown 图片阶段可把 data URI 解码为图片二进制并在启用时交给 ImageResolver/VLM，因此不能改成 `file://` 或仅指向同级 `assets/` 的相对路径。关闭 VLM 只是不再生成第二套图片说明，不影响随文的会议侧 VL 文字进入索引。
+图文版是同一正文的语义 HTML，不带脚本，也不依赖 CSS/图片目录或网络取图。每张入选画面在内存中统一转为最长边 1600px、质量 86 的 JPEG，再写成 `data:image/jpeg;base64,...`；现场照片复用已生成的 review JPEG 并附时间/未定位说明。原分析帧、现场照片母版和会议目录都不修改。筛选规则只排除 `talking_head`、空白、摄像头/会议 UI、过渡和明确 `information_value=low` 的页面；被排除页面的标题、时间、VL 文字解读仍在正文中。WeKnora 的 HTML 解析器会静态转成 Markdown，其 Markdown 图片阶段可把 data URI 解码为图片二进制并在启用时交给 ImageResolver/VLM，因此不能改成 `file://` 或仅指向同级 `assets/` 的相对路径。关闭 VLM 只是不再生成第二套图片说明，不影响随文的会议侧 VL 文字进入索引。
 
 **外链约定**（KB 与本应用同机是前提）：
 
@@ -276,7 +281,7 @@ GET /api/export/pack?slugs=a,b,c&profile=kb-html
 
 本仓库把上述交接视为产品旅程而非一次格式兼容测试：`deploy/weknora/` 提供无凭据的部署/并发模板，
 `bin/weknora_health.py` 检查两端健康，工作台可配置知识库入口，`docs/WEKNORA_INTEGRATION.md` 定义
-revision 替换、资源优先级、验收和未来 `KnowledgeSink` 合同。WeKnora 的数据库、凭据和真实知识库
+revision 幂等发布、资源优先级、验收和 `KnowledgeSink` 合同。WeKnora 的数据库、凭据和真实知识库
 仍属于独立部署，不进入 MeetingPack 或本仓库。
 
 

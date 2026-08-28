@@ -37,7 +37,7 @@
 - 模型能力通过 provider/adapter 边界接入，业务流程不直接依赖 OS、硬件、模型品牌或单一服务协议。Context、时间戳等特殊能力必须显式声明并设计降级；跨 provider 回退只能由管理员配置，默认失败不得静默把私有内容发往远端。
 - NVIDIA 与 AMD 使用不同 PyTorch/llama.cpp 构建产物；不要把厂商运行时写进通用 Python 依赖。
 - 知识库导出保持职责分离：本应用负责音视频分析、证据 linkage、图片筛选与导出；WeKnora 等外部系统负责文档分块、索引、检索和问答。默认推荐 `profile=kb`；需要保留截图时用 `profile=kb-html`，消费方 VLM 默认关闭、按“文字解读未覆盖的关键图表”需求显式开启。ASR 不参与 HTML/Markdown 导入。
-- WeKnora 是受支持的知识消费下游和完整用户旅程的一部分，但不是 canonical 数据真源。涉及该边界时同步维护 `docs/WEKNORA_INTEGRATION.md`、`deploy/weknora/`、KB 导出和时间深链验收；不得把其凭据、数据库或真实知识库数据复制进仓库。未来直连必须走 provider-neutral、revision 幂等的 `KnowledgeSink`，不能从知识库反写逐字稿/身份/证据。
+- WeKnora 是受支持的知识消费下游和完整用户旅程的一部分，但不是 canonical 数据真源。涉及该边界时同步维护 `docs/WEKNORA_INTEGRATION.md`、`deploy/weknora/`、KB 导出和时间深链验收；不得把其凭据、数据库或真实知识库数据复制进仓库。直连必须走 provider-neutral、revision 幂等的 `KnowledgeSink`，不能从知识库反写逐字稿/身份/证据。
 - 统一内存机器默认只允许一个重型阶段并发。健康时至多两个文本模型常驻；ASR/说话人/VL/知识库增强前必须经过 `meeting_core.resource_policy` 准入，120B 量级精修独占。不得在业务脚本里另写一套模型卸载判断或绕过低内存等待。
 
 ## 工作单元、重构与 Git
@@ -54,6 +54,8 @@
 - 产品介绍页必须声明 `data-product-content-version="<major>.<minor>"`。`VERSION` 的 `MAJOR` 或 `MINOR` 变化时，必须同步复核产品定位、能力边界、用户旅程和技术架构；`PATCH` 可只修缺陷。中英文使用同一 DOM 和同一 key 集合，语言偏好沿用工作台的 `meeting-minutes:workspace:v1`，不得维护两份会漂移的静态页面。
 - 产品介绍页与工作台、Viewer 共用 `fluent-foundation.css` 的基础 token；介绍页专有色彩只能通过 `--product*` 语义角色扩展，不在组件选择器里建立第二套无命名色板。新增引用必须由静态 token 回归验证可解析。
 - 发布产品版本时，同步更新 `VERSION`、`CHANGELOG.md` 和需要设版本基线的文档；验证、commit 与 push 后创建并推送 annotated Git tag。详见 `docs/RELEASES.md`。
+- 现场照片的原图属于受保护母版，统一 JPEG 只是阅读投影；时间只能来自可信 EXIF 或用户明确对齐，文件 mtime 不得冒充拍摄时间。照片可补充屏幕/现场语境，但不能单独升级为会议决定证据。
+- 外部知识库只消费 canonical 数据的只读 projection。新增 provider 必须实现 `KnowledgeSink`，以正文 revision 幂等发布，凭据只留服务端，回执不得保存正文或密钥，远端知识不得反写逐字稿、身份、纪要 evidence 或 Org Chart。会议默认文字知识，媒体关键画面及含现场照片的会议可默认图文知识。
 
 ## 排障与验证模式（真实事故沉淀）
 

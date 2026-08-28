@@ -56,7 +56,7 @@ assert not missing_refs, f"产品介绍引用未定义 token：{missing_refs}"
 # Current v0.11+ product capabilities must not regress to the original p51 story.
 for marker in (
     "Media Analysis Core", "MeetingPack", "WeKnora", "resource",
-    "product-copy.js?v=20260827p103",
+    "product-copy.js?v=20260828p104",
 ):
     assert marker in html + script + copy_source, f"产品介绍缺少当前能力标记：{marker}"
 

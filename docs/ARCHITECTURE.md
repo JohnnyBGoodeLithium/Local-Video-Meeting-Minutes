@@ -104,14 +104,15 @@ VL 终稿和 Topic Map 发布后，普通录屏与 Teams 管线会用一次本�
 
 `minutes_by_page.py` 和 `summarize.py` 使用 `meeting-minutes-prompt/v1` 结构化输入，并在可读 Markdown 中留下隐藏的 T/P 证据 marker。`meeting_artifact.py` 将其规范化为 `minutes.evidence.json`；Web、`export_meeting.py` 和后续 RAG 都消费同一 sidecar。导出器生成 `meetingpack/v5`：顶层只有 `viewer.html + README.txt + AGENTS.md + assets/`。AGENTS.md 是给 AI agent 的一等使用合同：除文件地图与引用规则外，还按任务给出菜谱——单场深读、同系列多场对比（用 `sources.transcript` 里跨包恒定的 `person_id` 对人、topic-map 标题对议题、actions 按负责人+事项语义对待办，输出标注新增/延续/翻案/消失并引用双场 C 编号）、会后产出、知识库索引与事实核对——整包拖进 agent 会话时不只读纪要，也能直接做例行会对比。完整逐字稿、Topic Map、屏幕资料、媒体时间跳转、证据状态及已生成的双语纪要进入同一个无需服务、LLM、CDN 或网络请求的 Viewer。Viewer 只保留与在线工作台一致的“会议脉络 / 会议纪要 / 屏幕内容”，不再导出四种 audience/depth 重排视图。VL 描述在进入 evidence、Viewer 和 RAG 前复用在线端的 reasoning 清洗/标题提取。`assets/slides/pNNNN.jpg` 与 VL 原生分析帧共用同一份 JPEG：缓存存在时逐字节复用，缓存已清理时按同一页面时间点和分析参数从受保护视频母版恢复；不再为导出生成第二套 WebP。压缩分享媒体仍是独立派生副本，导出不会反写 canonical sidecar 或原始母版。`bin/export_pack.py` 在此基础上提供多内容打包：把 2–12 场会议各导出为 MeetingPack 后解压进 `meetings/<slug>/`，顶层叠加 README、AGENTS.md、`content-pack/v1` manifest 和 `content-pack-index/v1` 跨内容关键字贯穿线索索引（来源是实际打进包的关键字），Web 端 `GET /api/export/pack` 同步返回 `.contentpack.zip`。
 
-`bin/kb_document.py` 是同一 canonical/evidence 数据的知识库投影，不把完整 MeetingPack 再塞进外部 RAG。`profile=kb` 生成轻量 Markdown 和在线媒体/图片深链；`profile=kb-html` 生成无脚本的单文件语义 HTML，并把 medium/high 关键画面在内存中重编码为最长边 1600px、quality 86 的 JPEG data URI。HTML 不引用本地文件、不需要静态资源目录；WeKnora 的静态 HTML→Markdown→base64 图片提取链可把它分成文本和可选图片资产。图片筛选与正文信息独立：被排除的低价值画面仍有标题、时间和 VL 文本，只有二进制不进包。两种投影只读会议目录，不调用模型，也不修改分析帧。
+`bin/kb_document.py` 是同一 canonical/evidence 数据的知识库投影，不把完整 MeetingPack 再塞进外部 RAG。`profile=kb` 生成轻量 Markdown 和在线媒体/图片深链；`profile=kb-html` 生成无脚本的单文件语义 HTML，并把 medium/high 关键画面和现场照片阅读副本以内嵌 JPEG 携带。HTML 不引用本地文件、不需要静态资源目录；WeKnora 的静态 HTML→Markdown→base64 图片提取链可把它分成文本和可选图片资产。图片筛选与正文信息独立：被排除的低价值画面仍有标题、时间和 VL 文本，只有二进制不进包。两种投影只读会议目录，不调用模型，也不修改分析帧。
 
 视觉语义的责任边界是“会议应用先分析，知识库按需补充”：`page_desc.json` 及其证据投影是主语义，外部 VLM 不属于 canonical 生成链。图文 HTML 即使在 WeKnora 关闭 VLM，仍可按随文标题、详情和时间深链完成文本检索；开启 VLM 只为补读尚未文字化的图像字段，结果属于知识库自己的派生 chunk，不能反写会议结论。这样避免每次入库重复调用视觉模型，也避免不同模型对同一图表产生竞争事实。完整规范见 `docs/EXPORT_AND_RAG.md`。
 
-WeKnora 是知识消费 projection 的正式下游，而不是 canonical 子模块。在线工作台通过健康端点投影一个
-可配置的知识库入口；当前正式传输边界仍是 `kb`/`kb-html` 文件。未来直连必须实现 provider-neutral
-`KnowledgeSink`，用 meeting revision 做幂等替换并保留 ACL/删除边界，不能让外部知识库反写
-`transcript.spk.json`、`minutes.evidence.json` 或 identity/org 数据。部署与移交见
+WeKnora 是知识消费 projection 的正式下游，而不是 canonical 子模块。在线工作台通过健康端点投影入口，
+并通过 `meeting_core.knowledge_sink.KnowledgeSink` 发布确定性的 `kb`/`kb-html` artifact。服务端只暴露目标
+allowlist，API key 不进入浏览器；`meeting.knowledge-publications.json` 只保存 provider、目标、远端文档 ID、
+profile、artifact revision 和状态。相同 revision 幂等，文本原位更新，文件先创建新 revision 再清理旧文档；
+失败保留旧文档。外部知识库不能反写 `transcript.spk.json`、`minutes.evidence.json` 或 identity/org 数据。部署与移交见
 `docs/WEKNORA_INTEGRATION.md`。
 
 `meeting_core.resource_policy` 是会议流水线、文本服务和知识库增强共享的资源准入层：健康时允许两个
@@ -132,6 +133,11 @@ WeKnora 是知识消费 projection 的正式下游，而不是 canonical 子模�
 `stamps.json` 是 ASR 与字级对齐完整结束后的早期检查点，不在半截识别时发布。上传作业若在“语音转写”或“区分发言人”阶段失败，且受保护视频/音频和完整 stamps 仍存在，可通过 `speaker_resume` 恢复：`transcribe.py --reuse-stamps` 确定性重建 `transcript.ts.md`/`transcript.txt`，`video_minutes.py --reuse-asr` 随后重跑 pyannote 说话人分离、声纹与纪要等下游；不会重复 ASR，但当前仍需重跑说话人分离。任一必需资产缺失时拒绝伪续跑并要求重新导入。
 
 ### 媒体固化与存储生命周期
+
+现场照片使用独立 `meeting-photos/v1` sidecar。`photos/original/Fxxxx.<ext>` 是受保护母版，
+`photos/review/Fxxxx.jpg` 是 Web/Viewer/MeetingPack/KB 共用阅读投影。自动时间只接受 EXIF 拍摄时间；
+文件 mtime 可能来自复制/下载，不得用于会议定位。用户可在在线端按播放器当前位置对齐、拖动校正或标为
+未定位；Viewer 只读。照片能够补全白板/纸面语境，但没有 T/P/C 会议证据时不能单独证明决定或行动。
 
 `meta.json` 只保存可读标题、内容类型与目录索引时间。`content_type` 取 `meeting`（默认）或 `media`：会议与媒体共用同一条管线、关键字索引和导出，只按该字段在列表与措辞上分流；缺字段或未知值一律按 `meeting` 读取，存量零迁移。`imported_at` 在首次上传成功后固定，`updated_at` 随改名、纪要/Topic Map/重转写成功更新。旧会议优先回放历史 upload job 的创建时间；无历史时才用最早派生资产 mtime 估算。源媒体 mtime 保留来源设备时间，绝不用作导入时间。
 

@@ -1,6 +1,6 @@
 # Local Video Meeting Minutes
 
-**当前产品版本：v0.12.0**（仓库根目录 `VERSION` 为单一真源）
+**当前产品版本：v0.13.0**（仓库根目录 `VERSION` 为单一真源）
 
 本地多模态会议与高信息密度视频工作台：把录音、录屏、Teams VTT/DOCX、公开媒体链接、说话人声纹、组织架构和画面内容组织成可阅读、可核验、可修正、可离线分享的知识记录。
 
@@ -19,8 +19,9 @@
 3. 后台继续抽取逻辑页面、理解共享画面、生成多模态终稿和整场会议脉络。
 4. 用户从会议脉络进入某个议题；时间操作改变播放位置，右侧节点选择只改变阅读 Focus。媒体内容会按实际形态自适应导航：单人口播显示“议题 + 叙事作用”，访谈显示“议题 + 人物”，混合内容同时保留两者。
 5. 在纪要、逐字稿与画面之间核对证据，确认人员身份；必要时播放并修正单轮原语言文本，随后更新纪要和脉络。
-6. 按使用场景导出：给同事离线核听用 `viewer.html + README.txt + assets/` 的 MeetingPack；给 WeKnora 等知识库用一场一文档的轻量 Markdown 或图文 HTML。收件人无需 GPU、LLM 或本机服务；时间证据可在服务地址可达时回跳原声。
-7. 配置知识库后，工作台顶栏直接进入 WeKnora；入库后的跨会议答案再通过时间依据回到本应用核听，形成“分析—检索—回证—修正—重新发布”闭环。
+6. 线下讨论中的白板、纸面或黑板照片可在会后补入：优先读取拍摄时间，也可按当前播放位置直接对齐或暂存为未定位资料；原图受保护，阅读副本进入 Web、Viewer、MeetingPack 和知识投影，但不会被单独冒充会议决定。
+7. 按使用场景交付：给同事离线核听用 `viewer.html + README.txt + assets/` 的 MeetingPack；需要跨内容检索时从“更多 → 发布到知识库”一键创建或更新。会议默认发布结论、待办、脉络、逐字稿与时间依据；媒体有关键画面时默认发布自包含图文文档，并保留原视频链接。
+8. 发布以内容 revision 幂等：重复点击不会复制文档，内容变化后更新同一知识目标。入库答案再通过时间依据回到本应用核听，形成“分析—检索—回证—修正—重新发布”闭环。
 
 ## 架构概览
 
@@ -65,7 +66,7 @@ make run
 - `http://127.0.0.1:8899/`：会议回顾、证据、翻译、追问与导出
 - `http://127.0.0.1:8899/admin`：人员身份、声纹试听和图形化 Org Chart
 - `http://127.0.0.1:8899/product`：面向管理、产品、UX 和技术评估的中英双语产品介绍
-- 顶栏“知识库”：仅在管理员设置 `MEETING_KB_URL` 后出现，打开独立 WeKnora 服务
+- “更多 → 发布到知识库”：管理员配置 API 与目标白名单后，一键发布/更新 WeKnora；顶栏“知识库”仍用于打开独立服务
 
 ## 常用处理命令
 
@@ -95,7 +96,11 @@ make run
   --base-url http://<本机局域网地址>:8899
 ```
 
-知识库导出不会重复塞入 Viewer、媒体和多份 JSON。只需要文字和最小体积时，解压
+工作台也可直接发布，不需要先下载再上传。服务端只把白名单目标 ID 暴露给浏览器，API key
+保留在服务端；本地回执只记录 provider、目标、远端文档 ID、profile 和 revision，不保存正文或凭据。
+最小配置见 [WeKnora 集成](docs/WEKNORA_INTEGRATION.md) 和 `deploy/meeting-minutes.env.example`。
+
+知识库导出不会重复塞入 Viewer、媒体和多份 JSON。需要离线移交或手工上传时，只需要文字和最小体积，解压
 `.kbpack.zip` 后上传 `<meeting>.kb.md`；希望保留关键截图时直接上传 `<meeting>.kb.html`。
 会议应用已经生成画面标题、详细解读和 evidence，因此 WeKnora 的 VLM 默认可以关闭；只有需要
 补读文字解读未覆盖的表格字段、图表或演示细节时才显式开启，避免重复分析与两套解释冲突。
@@ -141,6 +146,8 @@ meeting-minutes/
 | `meeting.topic-map.json` | 3–8 个整场议题、证据范围及媒体自适应导航投影 | 可重建，输入变更即 stale |
 | `slides.json` + `slides/` | 逻辑页、出现区间和阅读缩略图 | 可从视频重建 |
 | `page_desc.json` | VL 对每个逻辑页的详细说明 | 可重建，成本较高 |
+| `meeting.photos.json` + `photos/` | 现场照片、EXIF/人工时间对齐与受保护原图/阅读副本 | 原图不可再生；阅读副本可重建 |
+| `meeting.knowledge-publications.json` | 不含正文/凭据的知识库发布回执与 revision | 可从远端状态重新建立 |
 | `.rag/` | 本地 embedding/reranker 索引 | 是 |
 
 ## 文档地图
@@ -153,7 +160,7 @@ meeting-minutes/
 | [DESIGN_TOKENS.md](docs/DESIGN_TOKENS.md) | 了解 Fluent 2 适配、共享 token、图标与原生组件合同 |
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | 理解处理流、canonical 数据和模块边界 |
 | [EXPORT_AND_RAG.md](docs/EXPORT_AND_RAG.md) | 实现证据 linkage、MeetingPack 或 RAG 消费方 |
-| [WEKNORA_INTEGRATION.md](docs/WEKNORA_INTEGRATION.md) | 部署、资源调度、KB 文档交接、验收与未来一键同步合同 |
+| [WEKNORA_INTEGRATION.md](docs/WEKNORA_INTEGRATION.md) | 部署、资源调度、一键知识发布、文件回退与验收合同 |
 | [DEPLOYMENT.md](docs/DEPLOYMENT.md) | 在 NVIDIA、AMD 或 CPU 机器部署和验收 |
 | [COST_MODEL.md](docs/COST_MODEL.md) | 查看 2 小时实测会议的云端/本地/套餐成本模型 |
 | [MODELS.md](docs/MODELS.md) | 选择模型、显存策略和常驻方式 |
