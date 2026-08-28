@@ -160,6 +160,7 @@ meeting-minutes/
 | [DESIGN_TOKENS.md](docs/DESIGN_TOKENS.md) | 了解 Fluent 2 适配、共享 token、图标与原生组件合同 |
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | 理解处理流、canonical 数据和模块边界 |
 | [EXPORT_AND_RAG.md](docs/EXPORT_AND_RAG.md) | 实现证据 linkage、MeetingPack 或 RAG 消费方 |
+| [KB_RAG_LEARNING_GUIDE.md](docs/KB_RAG_LEARNING_GUIDE.md) | 从零理解 KB、分块、混合检索、reranker、引用与项目实验方法 |
 | [WEKNORA_INTEGRATION.md](docs/WEKNORA_INTEGRATION.md) | 部署、资源调度、一键知识发布、文件回退与验收合同 |
 | [DEPLOYMENT.md](docs/DEPLOYMENT.md) | 在 NVIDIA、AMD 或 CPU 机器部署和验收 |
 | [COST_MODEL.md](docs/COST_MODEL.md) | 查看 2 小时实测会议的云端/本地/套餐成本模型 |

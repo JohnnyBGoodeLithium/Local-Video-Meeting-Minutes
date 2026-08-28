@@ -7,6 +7,8 @@
 
 ## 当前状态速览（2026-08-28）
 
+**KB/RAG 学习入口**：`docs/KB_RAG_LEARNING_GUIDE.md` 用当前 canonical → KB projection → WeKnora / 本地 RAG 链路解释核心概念、分块、混合检索、reranker、证据扩展、revision、故障分层和脱敏实验。它是学习与验收入口；实现合同仍以 `docs/EXPORT_AND_RAG.md` 和 `docs/WEKNORA_INTEGRATION.md` 为准。
+
 **v0.13.1 WeKnora 实机协议修复**：真实服务验证发现 manual knowledge 的状态枚举是 `publish`，不是
 `published`；adapter 与 fake provider 已同步修正，防止隔离测试再次放过协议漂移。无需重生成会议。
 
