@@ -36,9 +36,14 @@ class Handler(BaseHTTPRequestHandler):
         if not self._authorized():
             return
         size = int(self.headers.get("Content-Length") or 0)
-        if size:
-            self.rfile.read(size)
+        body = self.rfile.read(size) if size else b""
         if re.fullmatch(r"/api/v1/knowledge-bases/[^/]+/knowledge/(manual|file)", self.path):
+            if self.path.endswith("/manual"):
+                try:
+                    if json.loads(body).get("status") != "publish":
+                        return self._reply(400)
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    return self._reply(400)
             Handler.counter += 1
             return self._reply(201, {"id": f"smoke-doc-{Handler.counter}",
                                      "parse_status": "processing"})
@@ -48,10 +53,14 @@ class Handler(BaseHTTPRequestHandler):
         if not self._authorized():
             return
         size = int(self.headers.get("Content-Length") or 0)
-        if size:
-            self.rfile.read(size)
+        body = self.rfile.read(size) if size else b""
         match = re.fullmatch(r"/api/v1/knowledge/manual/([^/]+)", self.path)
         if match:
+            try:
+                if json.loads(body).get("status") != "publish":
+                    return self._reply(400)
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                return self._reply(400)
             return self._reply(data={"id": match.group(1), "parse_status": "processing"})
         self._reply(404)
 

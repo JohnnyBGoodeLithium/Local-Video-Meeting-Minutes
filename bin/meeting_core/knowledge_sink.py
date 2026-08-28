@@ -150,7 +150,7 @@ class WeKnoraSink:
                 "POST", f"/knowledge-bases/{target.id}/knowledge/manual",
                 body=self._json({"title": artifact.title,
                                  "content": artifact.body.decode("utf-8"),
-                                 "status": "published", "tag_id": target.tag_id,
+                                 "status": "publish", "tag_id": target.tag_id,
                                  "channel": "meeting-minutes"}))
         else:
             metadata = json.dumps({"source": "meeting-minutes",
@@ -183,7 +183,7 @@ class WeKnoraSink:
             "PUT", f"/knowledge/manual/{document_id}",
             body=self._json({"title": artifact.title,
                              "content": artifact.body.decode("utf-8"),
-                             "status": "published", "tag_id": target.tag_id,
+                             "status": "publish", "tag_id": target.tag_id,
                              "channel": "meeting-minutes"}))
         data = _response_data(payload)
         return PublishResult(str(data.get("id") or document_id),

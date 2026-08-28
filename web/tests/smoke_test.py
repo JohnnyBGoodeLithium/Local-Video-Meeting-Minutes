@@ -217,11 +217,11 @@ if chrome:
     check("产品介绍 ES module 在 Headless Chromium 完整启动",
           product_browser.returncode == 0
           and 'data-ui-language="zh-CN"' in product_browser.stdout
-          and '>v0.13.0</em>' in product_browser.stdout
+          and '>v0.13.1</em>' in product_browser.stdout
           and "Uncaught" not in product_browser.stderr,
           f"rc={product_browser.returncode}, "
           f"language={'data-ui-language=\"zh-CN\"' in product_browser.stdout}, "
-          f"version={'>v0.13.0</em>' in product_browser.stdout}, "
+          f"version={'>v0.13.1</em>' in product_browser.stdout}, "
           f"uncaught={'Uncaught' in product_browser.stderr}, "
           f"stderr={product_browser.stderr[-500:]!r}")
 else:
