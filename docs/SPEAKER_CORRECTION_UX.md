@@ -1,8 +1,8 @@
 # 说话人身份确认与混声修复 UX
 
-> 实施状态：v0.14.1 / Web p106 已实现；核心实现提交 `12c74f8`。本文保留为交互状态和 DOM 合同。
+> 实施状态：v0.14.2 / Web p107 已实现；核心实现提交 `ac55ae9`。本文保留为交互状态和 DOM 合同。
 
-状态：v0.14.1 已按本合同实施；后续调整仍需保持这里定义的状态、安全和 DOM 边界。
+状态：v0.14.2 已按本合同实施；后续调整仍需保持这里定义的状态、安全和 DOM 边界。
 
 ## 1. 当前痛点与成功标准
 
@@ -56,6 +56,7 @@ speakerCorrection: {
   groupAssignments: {},
   returnScrollAnchor: null,
   returnPlaybackTime: null,
+  exitConfirmation: false,
   error: ""
 }
 ```
@@ -77,7 +78,6 @@ speakerCorrection: {
     input[type=search]
     .speaker-person-candidates
     button “新建人员”
-    button “暂不确认”
   .speaker-identity-error[aria-live]
   footer
     button.primary “确认全部为此人”
@@ -115,6 +115,10 @@ state、不控制播放器。`speaker-correction.js` 负责状态转换、previe
 
 逐字稿 renderer 在 `select_examples` 模式只让来源组可选；其他轮次弱化且不可选。进入/退出不改变
 `currentTime`，重渲染使用已有 scroll anchor。应用后仅高亮服务端返回的实际变更轮次。
+
+所有用户可见文案由 `speaker-correction-view.js` 的中英 copy 投影生成；DOM renderer 必须接收显式
+`language`，不能把中文写进状态值。每次改动都要在 Headless Chromium 中切换到英文，实际打开身份卡
+和混声修复侧栏；“稍后处理 / Review later”是身份卡唯一的暂缓动作。
 
 ## 4. Preview 合同的最小扩展
 

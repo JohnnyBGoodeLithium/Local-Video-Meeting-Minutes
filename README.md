@@ -88,6 +88,10 @@ make run
 # 导出离线 Viewer；默认不携带媒体
 .venv/bin/python bin/export_meeting.py meetings/<meeting>/ --media none
 
+# 需要核听或核看时可分别选择压缩音频/视频；录屏会议支持二选一
+.venv/bin/python bin/export_meeting.py meetings/<meeting>/ --media audio
+.venv/bin/python bin/export_meeting.py meetings/<meeting>/ --media video
+
 # 导出 AI / 知识库 Pack：可直接交给通用模型、Notebook 或知识库；不含本机链接和媒体
 .venv/bin/python bin/export_meeting.py meetings/<meeting>/ --profile ai
 

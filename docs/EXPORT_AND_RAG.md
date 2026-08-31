@@ -188,7 +188,7 @@ Viewer 提供四个任务入口：“会议脉络 / 会议纪要 / 逐字稿 / �
 - 需要审计动态演示、动画过程或非幻灯片画面：包含视频；
 - 包作为正式留档，需要在离线环境复核原始证据：包含视频。
 
-Web 标题区的普通导出只展示两个消费意图：离线 Viewer，以及 AI / 知识库 Pack。下面的媒体选项只属于 Viewer；AI / 知识库 Pack 自动排除媒体二进制。`kb` / `kb-html` 继续作为 CLI、HTTP 和“发布到知识库”的高级兼容能力，不在普通导出中平铺。命令行等价用法：
+Web 标题区的普通导出只展示两个消费意图：离线 Viewer，以及 AI / 知识库 Pack。下面的媒体选项只属于 Viewer，并按资产可用性分别列出 none/audio/video；录屏同时具有音轨和视频时，用户可以只带压缩音频，不会被视频选项覆盖。AI / 知识库 Pack 自动排除媒体二进制。`kb` / `kb-html` 继续作为 CLI、HTTP 和“发布到知识库”的高级兼容能力，不在普通导出中平铺。命令行等价用法：
 
 ```bash
 .venv/bin/python bin/export_meeting.py meetings/<会议>/ --media none
