@@ -176,10 +176,14 @@ void (async () => {
     throw new Error(`timeout: ${label}`);
   };
   await waitFor(() => document.querySelector('#turn-1 .chip'), 'transcript');
-
   const realFetch = window.fetch.bind(window);
   window.fetch = async (input, init) => {
     const url = String(input);
+    // Language switching normally auto-starts three derived translations. This browser
+    // journey verifies presentation only and must not mutate the isolated API fixture.
+    if (url.includes('/translations/') && String(init?.method || 'GET').toUpperCase() === 'POST')
+      return new Response(JSON.stringify({state: 'missing'}),
+        {status: 200, headers: {'Content-Type': 'application/json'}});
     if (url.endsWith('/bind')) return new Response(JSON.stringify({
       ok: true, turns: 1, name: 'Alice Example'
     }), {status: 200, headers: {'Content-Type': 'application/json'}});
@@ -198,11 +202,17 @@ void (async () => {
     }), {status: 200, headers: {'Content-Type': 'application/json'}});
     return realFetch(input, init);
   };
+  document.querySelector('[data-ui-language="en"]').click();
+  await waitFor(() => document.documentElement.lang === 'en', 'English UI');
+  const oneImportIcon = document.querySelectorAll('#pick-btn svg').length === 1
+    && !/^[+＋]/.test(document.querySelector('#pick-btn span')?.textContent.trim() || '');
 
   // Lightweight identity confirmation followed by the nearby undo action.
   document.querySelector('#turn-1 .chip').click();
   const identity = await waitFor(() => document.querySelector(
     '#speaker-identity-popover:not(.hidden) [data-person-input]'), 'identity card');
+  const englishIdentity = document.querySelector('#speaker-identity-popover h3')?.textContent.trim()
+    === 'Who is this speaker?';
   identity.value = 'Alice Example';
   identity.dispatchEvent(new Event('input', { bubbles: true }));
   document.querySelector('#speaker-identity-popover [data-confirm]').click();
@@ -217,6 +227,9 @@ void (async () => {
   await waitFor(() => document.querySelector('#speaker-identity-popover:not(.hidden) [data-repair]'),
     'advanced entry');
   document.querySelector('#speaker-identity-popover [data-repair]').click();
+  const englishRepair = await waitFor(() => document.querySelector(
+    '#speaker-correction-sheet:not(.hidden) h3')?.textContent.trim() === 'Fix mixed speakers',
+    'English mixed-speaker view');
   const example = await waitFor(() => document.querySelector(
     '#speaker-correction-sheet:not(.hidden) [data-example="0"]'), 'example selection');
   example.click();
@@ -235,6 +248,9 @@ void (async () => {
     conservative,
     document.querySelector('#speaker-correction-sheet').classList.contains('hidden'),
     document.querySelectorAll('#export-preflight input[name="export-profile"]').length === 2,
+    englishIdentity,
+    Boolean(englishRepair),
+    oneImportIcon,
   ].join('|');
 })().catch(error => {
   window.__speakerCorrectionE2E = `error:${error?.stack || error}`;
@@ -249,7 +265,7 @@ void (async () => {
                     time.sleep(0.1)
             finally:
                 cdp.close()
-            if result != "true|true|true|true":
+            if result != "true|true|true|true|true|true|true":
                 raise RuntimeError(f"unexpected browser result: {result!r}")
             print("speaker correction browser: identity/undo and advanced preview/apply passed")
             return 0

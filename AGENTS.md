@@ -33,6 +33,7 @@
 - 优先把可复用逻辑放在 `bin/meeting_core/` 或独立 service，不继续把所有功能堆入 `web/server.py` 和 `web/static/app.js`。
 - Meeting 与 Media 是共享 Media Analysis Core 上的业务 profile，不得复制 ASR、说话人、VL、证据或导出管线。Web、Viewer 与 KB 是同一 canonical 数据的 projection。前端继续增加跨域状态前，应按 import/library/jobs/player/transcript/minutes/media-source/export 边界抽出原生 ES module；DOM projection 必须接收显式数据与 callback，不得反向读取全局 `state`、调用 API 或直接控制媒体。除非已有模块测试和迁移收益证据，不以框架重写代替边界重构。
 - 在线 Web 与 `bin/meetingpack_viewer.html` 的阅读语义要同步；离线 Viewer 必须保持单 HTML、无 CDN、无服务端、无 LLM。
+- 新增或修改任何用户可见的工作台/Viewer 文案，必须在同一批次完成中文和英文投影；独立 DOM 模块也必须接收语言或 copy 参数，不能硬编码单一语言。验收至少用 Headless Chromium 切换一次语言并实际打开新增界面，不能只检查字典键存在。
 - 人物身份修正必须渐进披露：普通入口先回答“这个声音是谁”，只有用户明确指出混入他人才进入高级核对；默认只改手选片段，相似扩展必须主动开启，人工确认始终受保护，写入前预览、写入后就近撤销。普通路径不得暴露声音 ID、聚类、质心等工程概念。
 - 保持 CUDA、ROCm 和 CPU 可移植性。PyTorch GPU 选择走 `meeting_core.hardware`；模型路径和端点用环境变量，不新增机器专属绝对路径。
 - 模型能力通过 provider/adapter 边界接入，业务流程不直接依赖 OS、硬件、模型品牌或单一服务协议。Context、时间戳等特殊能力必须显式声明并设计降级；跨 provider 回退只能由管理员配置，默认失败不得静默把私有内容发往远端。

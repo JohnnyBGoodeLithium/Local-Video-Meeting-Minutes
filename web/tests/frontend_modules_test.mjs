@@ -14,7 +14,7 @@ import { nextSearchCursor, pendingReviewByTurn, splitTurnChunks, transcriptSearc
   from "../static/modules/transcript.js";
 import { renderTranscriptView, transcriptScrollAnchor }
   from "../static/modules/transcript-view.js";
-import { exportSizeState, formatBytes, meetingExportHref, normalizeExportProfile,
+import { availableViewerMedia, exportSizeState, formatBytes, meetingExportHref, normalizeExportProfile,
   packExportHref }
   from "../static/modules/export.js";
 import { claimAction, claimIdsForTurn, evidenceSources, minutesState, normalizeReviewMode,
@@ -126,6 +126,8 @@ assert.deepEqual(exportSizeState({ estimated_bytes: { video: 40 * 1024 * 1024 } 
 });
 assert.equal(exportSizeState({}, "kb", "video").media, "none");
 assert.equal(exportSizeState({}, "ai", "audio").media, "none");
+assert.deepEqual(availableViewerMedia({ audio: { available: true }, video: { available: true } }),
+  ["none", "audio", "video"], "有录屏时仍可单独选择音频或视频");
 assert.equal(meetingExportHref("synthetic meeting", "audio", "full"),
   "/api/meetings/synthetic%20meeting/export?media=audio&profile=full");
 assert.match(packExportHref(["one", "two"], "video", "kb-html"),

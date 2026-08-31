@@ -11,6 +11,11 @@ export function normalizeExportMedia(value) {
   return MEDIA.has(value) ? value : "none";
 }
 
+export function availableViewerMedia(media = {}) {
+  return ["none", ...(media.audio?.available ? ["audio"] : []),
+    ...(media.video?.available ? ["video"] : [])];
+}
+
 export function formatBytes(bytes) {
   const value = Number(bytes) || 0;
   if (value < 1024 * 1024) return `${Math.max(1, Math.round(value / 1024))} KB`;

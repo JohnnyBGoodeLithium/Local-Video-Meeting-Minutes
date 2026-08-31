@@ -1,33 +1,33 @@
 import { contentTypeOf, safeSourceUrl }
-  from "./modules/media-source.js?v=20260831p106";
+  from "./modules/media-source.js?v=20260831p107";
 import { buildUploadFormData, enqueueMediaUrl, isSingleLocalVideo }
-  from "./modules/imports.js?v=20260831p106";
+  from "./modules/imports.js?v=20260831p107";
 import { jobDisplayName, selectJobPanel }
-  from "./modules/jobs.js?v=20260831p106";
+  from "./modules/jobs.js?v=20260831p107";
 import { chooseInitialItem, deepLinkSeconds, filterLibrary, sortLibrary }
-  from "./modules/library.js?v=20260831p106";
+  from "./modules/library.js?v=20260831p107";
 import { adjacentReviewUnit, defaultReviewUnits, nearestReviewUnit,
   reviewIndexesFor, reviewUnitForTurn as findReviewUnitForTurn, turnEnd }
-  from "./modules/player-navigation.js?v=20260831p106";
+  from "./modules/player-navigation.js?v=20260831p107";
 import { nextSearchCursor, pendingReviewByTurn, transcriptSearchHits }
-  from "./modules/transcript.js?v=20260831p106";
+  from "./modules/transcript.js?v=20260831p107";
 import { renderTranscriptView }
-  from "./modules/transcript-view.js?v=20260831p106";
-import { exportSizeState, formatBytes, meetingExportHref, normalizeExportProfile,
+  from "./modules/transcript-view.js?v=20260831p107";
+import { availableViewerMedia, exportSizeState, formatBytes, meetingExportHref, normalizeExportProfile,
   packExportHref }
-  from "./modules/export.js?v=20260831p106";
+  from "./modules/export.js?v=20260831p107";
 import { claimAction, claimIdsForTurn, evidenceSources, minutesState, normalizeReviewMode,
   resolveMinutesView, turnIndexAtTime, turnIndexesForSourceIds }
-  from "./modules/minutes.js?v=20260831p106";
+  from "./modules/minutes.js?v=20260831p107";
 import { renderMinutesView }
-  from "./modules/minutes-view.js?v=20260831p106";
+  from "./modules/minutes-view.js?v=20260831p107";
 import { beginExampleSelection, beginIdentity, buildCorrectionApplyPayload,
   correctionSummary, createSpeakerCorrectionState, representativeTurns,
   resetSpeakerCorrection, setGroupAssignment, setIncludeSuggested, setPreview,
   toggleExample, withCorrectionError }
-  from "./modules/speaker-correction.js?v=20260831p106";
+  from "./modules/speaker-correction.js?v=20260831p107";
 import { renderCorrectionSheet, renderIdentityPopover }
-  from "./modules/speaker-correction-view.js?v=20260831p106";
+  from "./modules/speaker-correction-view.js?v=20260831p107";
 
 /* 会议列表 + 回顾工作台（装配入口；领域规则逐步迁往 modules/） */
 "use strict";
@@ -158,7 +158,7 @@ function esc(s) {
 const UI_COPY = {
   "zh-CN": {
     title: "会议纪要", brand: "🎙 会议纪要", meetings: "会议", product: "产品介绍", knowledgeBase: "知识库", settings: "设置",
-    import: "＋ 导入会议", importMedia: "＋ 导入媒体视频", drop: "或拖入视频 + VTT/DOCX，或单个音视频",
+    import: "导入会议", importMedia: "导入媒体视频", drop: "或拖入视频 + VTT/DOCX，或单个音视频",
     dropMedia: "或拖入一个本地视频", importSettings: "导入设置",
     mediaUrlDivider: "或粘贴公开视频链接", mediaUrlPlaceholder: "YouTube、Bilibili 或公开网页视频链接",
     mediaUrlSubmit: "解析链接", mediaUrlHint: "将获取平台标题、发布者和发布时间；不导入播放列表或直播",
@@ -192,7 +192,7 @@ const UI_COPY = {
   },
   en: {
     title: "Meeting Minutes", brand: "🎙 Meeting Minutes", meetings: "Meetings", product: "Product", knowledgeBase: "Knowledge base", settings: "Settings",
-    import: "+ Import meeting", importMedia: "+ Import media video", drop: "Drop video + VTT/DOCX, or one media file",
+    import: "Import meeting", importMedia: "Import media video", drop: "Drop video + VTT/DOCX, or one media file",
     dropMedia: "Or drop one local video", importSettings: "Import settings",
     mediaUrlDivider: "or paste a public video URL", mediaUrlPlaceholder: "YouTube, Bilibili, or a public web video URL",
     mediaUrlSubmit: "Parse URL", mediaUrlHint: "Retrieves platform title, publisher, and publish date; playlists and live streams are not supported",
@@ -4102,21 +4102,18 @@ function updateExportSizeHint() {
 function renderExportPreflight() {
   const data = state.exportPreflight;
   if (!data) return;
-  const evidenceNames = { ready: "可核证", stale: "依据已过期", partial: "部分证据" };
-  const preferredMedia = data.media.video.available ? "video"
-    : (data.media.audio.available ? "audio" : null);
-  const options = [
-    ["none", isEnglishUi() ? "Without media" : "不附媒体",
-      isEnglishUi() ? "Smallest Viewer; minutes, map, transcript and evidence stay available" : "体积最小；仍保留纪要、脉络、逐字稿与证据", true],
-    ...(preferredMedia ? [[preferredMedia,
-      preferredMedia === "video"
-        ? (isEnglishUi() ? "Include review video" : "附带回看视频")
-        : (isEnglishUi() ? "Include review audio" : "附带回听音频"),
-      preferredMedia === "video"
-        ? `${data.media.video.format || "720p"}，${isEnglishUi() ? "screen remains readable" : "保留屏幕可读性"}`
-        : `${data.media.audio.format || "AAC"}，${isEnglishUi() ? "seekable from evidence" : "可按证据跳转"}`,
-      true]] : []),
-  ];
+  const evidenceNames = isEnglishUi()
+    ? { ready: "Traceable", stale: "Evidence stale", partial: "Partial evidence" }
+    : { ready: "可核证", stale: "依据已过期", partial: "部分证据" };
+  const optionCopy = {
+    none: [isEnglishUi() ? "Without media" : "不附媒体",
+      isEnglishUi() ? "Smallest Viewer; minutes, map, transcript and evidence stay available" : "体积最小；仍保留纪要、脉络、逐字稿与证据"],
+    audio: [isEnglishUi() ? "Include review audio" : "附带回听音频",
+      `${data.media.audio.format || "AAC"} · ${isEnglishUi() ? "seekable from evidence" : "可按证据跳转"}`],
+    video: [isEnglishUi() ? "Include review video" : "附带回看视频",
+      `${data.media.video.format || "720p"} · ${isEnglishUi() ? "screen remains readable" : "保留屏幕可读性"}`],
+  };
+  const options = availableViewerMedia(data.media).map(id => [id, ...optionCopy[id], true]);
   const profiles = [
     ["full", isEnglishUi() ? "Offline Viewer" : "离线 Viewer",
      isEnglishUi() ? "Open, listen and verify without a server" : "无需服务即可阅读、回听与核证"],
@@ -4126,9 +4123,9 @@ function renderExportPreflight() {
        : "可交给 GPT、豆包、Gemini、NotebookLM 或知识库的 Markdown"],
   ];
   const html = `<div class="export-facts">` +
-    `<span><b>${esc(evidenceNames[data.evidence.state] || "部分证据")}</b>${data.evidence.linked_claims}/${data.evidence.claims} 条结论有链接</span>` +
-    `<span><b>${data.content.transcript_turns}</b>段逐字稿</span>` +
-    `<span><b>${data.content.pages}</b>页共享画面</span></div>` +
+    `<span><b>${esc(evidenceNames[data.evidence.state] || (isEnglishUi() ? "Partial evidence" : "部分证据"))}</b>${data.evidence.linked_claims}/${data.evidence.claims} ${isEnglishUi() ? "linked conclusions" : "条结论有链接"}</span>` +
+    `<span><b>${data.content.transcript_turns}</b>${isEnglishUi() ? "transcript segments" : "段逐字稿"}</span>` +
+    `<span><b>${data.content.pages}</b>${isEnglishUi() ? "shared-screen pages" : "页共享画面"}</span></div>` +
     `<div class="export-profile">${profiles.map(([id, title, detail], index) =>
       `<label class="export-profile-option">` +
       `<input type="radio" name="export-profile" value="${id}" ${index === 0 ? "checked" : ""}>` +
@@ -4137,7 +4134,7 @@ function renderExportPreflight() {
       `<label class="export-option ${available ? "" : "disabled"}">` +
       `<input type="radio" name="export-media" value="${id}" ${index === 0 ? "checked" : ""} ${available ? "" : "disabled"}>` +
       `<span><b>${title}</b><small>${detail}</small></span>` +
-      `<strong>约 ${formatBytes(data.estimated_bytes[id])}</strong></label>`).join("")}</div>` +
+      `<strong>${isEnglishUi() ? "About" : "约"} ${formatBytes(data.estimated_bytes[id])}</strong></label>`).join("")}</div>` +
     `<div id="export-size-hint" class="export-warning hidden"></div>` +
     (data.export_mode === "review_snapshot"
       ? '<div class="export-warning"><b>处理中核听快照</b><br>说话人、逐字稿、跳播和所选媒体可用；纪要、脉络、证据与屏幕资料仅代表现在，终稿完成后请重新导出正式分享版。</div>'
@@ -4958,7 +4955,8 @@ function restoreCorrectionContext(correction, changed = []) {
 
 function showSpeakerChangeNotice(message) {
   const box = $("#speaker-change-notice");
-  box.innerHTML = `<span>${esc(message)}</span><button type="button" aria-label="撤销本次人物修改">撤销</button>`;
+  const undoLabel = isEnglishUi() ? "Undo" : "撤销";
+  box.innerHTML = `<span>${esc(message)}</span><button type="button" aria-label="${isEnglishUi() ? "Undo this speaker change" : "撤销本次人物修改"}">${undoLabel}</button>`;
   box.querySelector("button").onclick = async () => {
     box.classList.add("hidden");
     await undoSpeakerOperation();
@@ -4971,9 +4969,11 @@ function showSpeakerChangeNotice(message) {
 function closeSpeakerCorrection(force = false) {
   const correction = state.speakerCorrection;
   if (!force && correction.mode !== "identify" && correction.selectedTurnIndexes.size
-      && !String(correction.error).startsWith("再次点击")) {
-    state.speakerCorrection = withCorrectionError(correction,
-      `退出会放弃已选择的 ${correction.selectedTurnIndexes.size} 段发言。`);
+      && !correction.exitConfirmation) {
+    state.speakerCorrection = withCorrectionError({ ...correction, exitConfirmation: true },
+      isEnglishUi()
+        ? `Leaving will discard ${correction.selectedTurnIndexes.size} selected segments.`
+        : `退出会放弃已选择的 ${correction.selectedTurnIndexes.size} 段发言。`);
     renderSpeakerCorrectionUI();
     return;
   }
@@ -4995,6 +4995,7 @@ function renderSpeakerCorrectionUI() {
   const persons = state.speakers?.persons || [];
   renderIdentityPopover({
     root: $("#speaker-identity-popover"), correction, transcript, persons,
+    language: state.uiLanguage,
     representatives: state.speakerCorrectionReview?.summary?.representative_turns
       || representativeTurns(transcript, correction.sourceVoice, 3),
     formatTime: fmt, escapeHtml: esc, onClose: () => closeSpeakerCorrection(true),
@@ -5002,21 +5003,25 @@ function renderSpeakerCorrectionUI() {
     onConfirm: confirmSpeakerIdentity, onRepair: beginSpeakerRepair,
     onPlay: playCorrectionTurn,
   });
-  const summary = correctionSummary(correction, transcript);
+  const summary = correctionSummary(correction, transcript,
+    isEnglishUi() ? "Speaker to review" : "待确认说话人");
   renderCorrectionSheet({
     root: $("#speaker-correction-sheet"), correction, transcript, persons,
+    language: state.uiLanguage,
     locked: new Set(state.speakerCorrectionReview?.protected || []),
     formatTime: fmt, formatDuration: fmt, escapeHtml: esc, summary,
     onExit: () => closeSpeakerCorrection(false),
     onDiscard: () => closeSpeakerCorrection(true),
     onContinueExit: () => {
-      state.speakerCorrection = withCorrectionError(state.speakerCorrection, "");
+      state.speakerCorrection = withCorrectionError(
+        { ...state.speakerCorrection, exitConfirmation: false }, "");
       renderSpeakerCorrectionUI();
     },
     onToggleExample: toggleSpeakerCorrectionExample,
     onNext: previewSpeakerCorrection,
     onBack: () => {
-      state.speakerCorrection = { ...correction, mode: "select_examples", error: "" };
+      state.speakerCorrection = { ...correction, mode: "select_examples",
+        exitConfirmation: false, error: "" };
       renderSpeakerCorrectionUI(); renderTranscript();
     },
     onIncludeSuggested: include => {
@@ -5054,7 +5059,7 @@ async function openSpeakerIdentity(voice, name, detail = {}) {
     renderSpeakerCorrectionUI();
   } catch (error) {
     state.speakerCorrection = withCorrectionError(state.speakerCorrection,
-      `暂时无法读取代表片段：${error.message}`);
+      `${isEnglishUi() ? "Representative segments are temporarily unavailable" : "暂时无法读取代表片段"}：${error.message}`);
     renderSpeakerCorrectionUI();
   }
 }
@@ -5062,7 +5067,8 @@ async function openSpeakerIdentity(voice, name, detail = {}) {
 async function confirmSpeakerIdentity(name, create = false) {
   name = String(name || state.speakerCorrectionChoice || "").trim();
   if (!name) {
-    state.speakerCorrection = withCorrectionError(state.speakerCorrection, "请先选择或输入一个人员姓名。");
+    state.speakerCorrection = withCorrectionError(state.speakerCorrection,
+      isEnglishUi() ? "Choose or enter a person name first." : "请先选择或输入一个人员姓名。");
     renderSpeakerCorrectionUI(); return;
   }
   const correction = state.speakerCorrection;
@@ -5077,8 +5083,10 @@ async function confirmSpeakerIdentity(name, create = false) {
     const candidates = result.detail?.candidates?.map(item => item.name).filter(Boolean) || [];
     state.speakerCorrection = withCorrectionError({ ...correction, mode: "identify" },
       response.status === 409
-        ? `没有精确找到「${name}」。${candidates.length ? `候选：${candidates.join("、")}。` : ""}可选择候选，或点击“新建人员并确认”。`
-        : `确认失败：${result.detail?.detail || result.detail || response.status}`);
+        ? (isEnglishUi()
+          ? `No exact match for “${name}”. ${candidates.length ? `Candidates: ${candidates.join(", ")}. ` : ""}Choose a candidate or use “Create person and confirm”.`
+          : `没有精确找到「${name}」。${candidates.length ? `候选：${candidates.join("、")}。` : ""}可选择候选，或点击“新建人员并确认”。`)
+        : `${isEnglishUi() ? "Confirmation failed" : "确认失败"}：${result.detail?.detail || result.detail || response.status}`);
     state.speakerCorrectionChoice = name;
     renderSpeakerCorrectionUI(); return;
   }
@@ -5089,7 +5097,9 @@ async function confirmSpeakerIdentity(name, create = false) {
   renderSpeakerCorrectionUI();
   await loadMeeting(state.slug);
   restoreCorrectionContext(correction, changed);
-  showSpeakerChangeNotice(`已将 ${result.turns || changed.length} 段发言确认给「${result.name || name}」。`);
+  showSpeakerChangeNotice(isEnglishUi()
+    ? `${result.turns || changed.length} segments confirmed as “${result.name || name}”.`
+    : `已将 ${result.turns || changed.length} 段发言确认给「${result.name || name}」。`);
 }
 
 function beginSpeakerRepair() {
@@ -5127,7 +5137,9 @@ async function previewSpeakerCorrection() {
     renderTranscript();
   } catch (error) {
     state.speakerCorrection = withCorrectionError(state.speakerCorrection,
-      `无法生成结果预览：${error.message}。已选片段仍然保留，可重试。`);
+      isEnglishUi()
+        ? `Could not build the preview: ${error.message}. Your selected segments are preserved; try again.`
+        : `无法生成结果预览：${error.message}。已选片段仍然保留，可重试。`);
     renderSpeakerCorrectionUI();
   }
 }
@@ -5144,7 +5156,9 @@ async function applySpeakerCorrection() {
       const after = current.transcript?.[index];
       return before && after && Math.abs(Number(before.start || 0) - Number(after.start || 0)) < .05;
     });
-    if (!stable) throw new Error("逐字稿已变化，请返回后重新选择样例");
+    if (!stable) throw new Error(isEnglishUi()
+      ? "The transcript changed. Go back and select examples again."
+      : "逐字稿已变化，请返回后重新选择样例");
     const response = await api(`/api/meetings/${encodeURIComponent(state.slug)}/split`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -5162,11 +5176,17 @@ async function applySpeakerCorrection() {
     restoreCorrectionContext(correction, changed);
     const target = [...new Set(assignments)];
     showSpeakerChangeNotice(target.length === 1
-      ? `已将 ${result.moved || changed.length} 段发言从「${correction.sourceDisplayName}」调整为「${target[0]}」。`
-      : `已重新核对 ${result.moved || changed.length} 段发言，并形成 ${result.clusters || target.length} 个结果组。`);
+      ? (isEnglishUi()
+        ? `${result.moved || changed.length} segments changed from “${correction.sourceDisplayName}” to “${target[0]}”.`
+        : `已将 ${result.moved || changed.length} 段发言从「${correction.sourceDisplayName}」调整为「${target[0]}」。`)
+      : (isEnglishUi()
+        ? `${result.moved || changed.length} segments reviewed into ${result.clusters || target.length} result groups.`
+        : `已重新核对 ${result.moved || changed.length} 段发言，并形成 ${result.clusters || target.length} 个结果组。`));
   } catch (error) {
     state.speakerCorrection = withCorrectionError({ ...correction, mode: "preview" },
-      `应用失败：${error.message}。你的选择和人员指定仍然保留。`);
+      isEnglishUi()
+        ? `Apply failed: ${error.message}. Your selection and person assignments are preserved.`
+        : `应用失败：${error.message}。你的选择和人员指定仍然保留。`);
     renderSpeakerCorrectionUI();
   }
 }

@@ -52,6 +52,8 @@ assert.equal(payload.group_assignments["group-2"].name, "王五");
 state = setGroupAssignment(state, "group-2", { name: "", create: false });
 assert.equal(buildCorrectionApplyPayload(state).group_assignments["group-2"].name, "",
   "每个结果组可以独立保持未命名");
+assert.equal(correctionSummary(state, transcript, "Speaker to review").groups[1].displayName,
+  "Speaker to review", "未命名结果组随界面语言投影，不在状态层写死中文");
 assert.equal(representativeTurns(transcript, "source", 3).length, 3);
 
 const failed = withCorrectionError(state, "preview unavailable");

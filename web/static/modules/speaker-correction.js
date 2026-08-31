@@ -16,6 +16,7 @@ export function createSpeakerCorrectionState() {
     returnScrollAnchor: null,
     returnPlaybackTime: null,
     anchorRect: null,
+    exitConfirmation: false,
     error: "",
   };
 }
@@ -39,7 +40,7 @@ export function beginIdentity(current, { voice, displayName, scrollAnchor, playb
 
 export function beginExampleSelection(current) {
   return { ...current, mode: "select_examples", preview: null,
-    includeSuggested: false, groupAssignments: {}, error: "" };
+    includeSuggested: false, groupAssignments: {}, exitConfirmation: false, error: "" };
 }
 
 export function toggleExample(current, index) {
@@ -47,7 +48,7 @@ export function toggleExample(current, index) {
   if (selected.has(index)) selected.delete(index);
   else selected.add(index);
   return { ...current, selectedTurnIndexes: selected, preview: null,
-    includeSuggested: false, groupAssignments: {}, error: "" };
+    includeSuggested: false, groupAssignments: {}, exitConfirmation: false, error: "" };
 }
 
 export function withCorrectionError(current, error) {
@@ -103,17 +104,17 @@ export function setPreview(current, raw, transcript = []) {
       : { name: "", create: false };
   });
   return { ...current, mode: "preview", preview, includeSuggested: false,
-    groupAssignments: assignments, error: "" };
+    groupAssignments: assignments, exitConfirmation: false, error: "" };
 }
 
 export function setIncludeSuggested(current, include) {
-  return { ...current, includeSuggested: Boolean(include), error: "" };
+  return { ...current, includeSuggested: Boolean(include), exitConfirmation: false, error: "" };
 }
 
 export function setGroupAssignment(current, key, assignment = {}) {
   return { ...current, groupAssignments: { ...current.groupAssignments,
     [key]: { name: String(assignment.name || "").trim(), create: Boolean(assignment.create) } },
-    error: "" };
+    exitConfirmation: false, error: "" };
 }
 
 export function durationOf(transcript = [], turnIndexes = []) {
@@ -137,7 +138,7 @@ export function representativeTurns(transcript = [], voice, limit = 3) {
     .filter(Number.isInteger).slice(0, limit);
 }
 
-export function correctionSummary(current, transcript = []) {
+export function correctionSummary(current, transcript = [], pendingLabel = "待确认说话人") {
   const preview = current.preview;
   if (!preview) return null;
   const sourceTurns = transcript.map((turn, index) => ({ turn, index }))
@@ -147,7 +148,7 @@ export function correctionSummary(current, transcript = []) {
       ...(current.includeSuggested ? group.suggestedTurns : [])]);
     const assignment = current.groupAssignments[group.groupKey] || {};
     return { ...group, turns, duration: durationOf(transcript, turns),
-      displayName: assignment.name || "待确认说话人" };
+      displayName: assignment.name || pendingLabel };
   });
   const moved = new Set(groups.flatMap(group => group.turns));
   return {
