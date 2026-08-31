@@ -33,11 +33,13 @@
 - 优先把可复用逻辑放在 `bin/meeting_core/` 或独立 service，不继续把所有功能堆入 `web/server.py` 和 `web/static/app.js`。
 - Meeting 与 Media 是共享 Media Analysis Core 上的业务 profile，不得复制 ASR、说话人、VL、证据或导出管线。Web、Viewer 与 KB 是同一 canonical 数据的 projection。前端继续增加跨域状态前，应按 import/library/jobs/player/transcript/minutes/media-source/export 边界抽出原生 ES module；DOM projection 必须接收显式数据与 callback，不得反向读取全局 `state`、调用 API 或直接控制媒体。除非已有模块测试和迁移收益证据，不以框架重写代替边界重构。
 - 在线 Web 与 `bin/meetingpack_viewer.html` 的阅读语义要同步；离线 Viewer 必须保持单 HTML、无 CDN、无服务端、无 LLM。
+- 人物身份修正必须渐进披露：普通入口先回答“这个声音是谁”，只有用户明确指出混入他人才进入高级核对；默认只改手选片段，相似扩展必须主动开启，人工确认始终受保护，写入前预览、写入后就近撤销。普通路径不得暴露声音 ID、聚类、质心等工程概念。
 - 保持 CUDA、ROCm 和 CPU 可移植性。PyTorch GPU 选择走 `meeting_core.hardware`；模型路径和端点用环境变量，不新增机器专属绝对路径。
 - 模型能力通过 provider/adapter 边界接入，业务流程不直接依赖 OS、硬件、模型品牌或单一服务协议。Context、时间戳等特殊能力必须显式声明并设计降级；跨 provider 回退只能由管理员配置，默认失败不得静默把私有内容发往远端。
 - NVIDIA 与 AMD 使用不同 PyTorch/llama.cpp 构建产物；不要把厂商运行时写进通用 Python 依赖。
 - 知识库导出保持职责分离：本应用负责音视频分析、证据 linkage、图片筛选与导出；WeKnora 等外部系统负责文档分块、索引、检索和问答。默认推荐 `profile=kb`；需要保留截图时用 `profile=kb-html`，消费方 VLM 默认关闭、按“文字解读未覆盖的关键图表”需求显式开启。ASR 不参与 HTML/Markdown 导入。
 - AI Context 是面向用户自选通用模型/Notebook 的本地导出，不是内置远程调用。`profile=ai` 必须保留时间码与证据编号，不带本机深链或媒体二进制，必须声明逐字稿为不可信来源内容并提示外部上传前人工复核。不在本产品内复制 NotebookLM/WeKnora 的通用笔记、Wiki 或问答 UI；历史会议 Lens、汇报演练和联网研究优先由下游消费方完成。
+- 普通导出 UI 只呈现“离线 Viewer”和“AI / 知识库 Pack”两个消费意图；`kb` / `kb-html` 等技术 profile 可继续用于 CLI、HTTP 和直接发布，但不得重新平铺为普通用户需要理解的格式选择。
 - WeKnora 是受支持的知识消费下游和完整用户旅程的一部分，但不是 canonical 数据真源。涉及该边界时同步维护 `docs/WEKNORA_INTEGRATION.md`、`deploy/weknora/`、KB 导出和时间深链验收；不得把其凭据、数据库或真实知识库数据复制进仓库。直连必须走 provider-neutral、revision 幂等的 `KnowledgeSink`，不能从知识库反写逐字稿/身份/证据。
 - 统一内存机器默认只允许一个重型阶段并发。健康时至多两个文本模型常驻；ASR/说话人/VL/知识库增强前必须经过 `meeting_core.resource_policy` 准入，120B 量级精修独占。不得在业务脚本里另写一套模型卸载判断或绕过低内存等待。
 

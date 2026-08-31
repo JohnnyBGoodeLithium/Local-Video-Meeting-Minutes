@@ -48,7 +48,7 @@ Meeting 与 Media 不是两套项目。二者共用 **Media Analysis Core**：�
 
 `bin/ai_context.py` 是面向外部消费模型的纯文本投影，不调用模型、不复制媒体、不写回会议目录。`meeting-ai-context/v1` 保留读取纪要、议题、画面解读、逐字稿、时间码和 `#mm-Cxxxxx` 证据编号，删除只在本机成立的媒体/图片深链。`meeting-ai-context-pack/v1` 只把多份上述文档与 INDEX/START_HERE/manifest 打包，不在本应用内实现第二套 Notebook 或通用研究 UI。
 
-`web/static/app.js` 曾同时承担导入、库列表、作业、播放器、逐字稿、纪要、媒体来源与导出，约五千余行，继续新增跨域状态的回归成本已高于单文件收益。现在已迁为无构建原生 ES module 入口，并从 `web/static/modules/` 抽出 `media-source`、`imports`、`jobs`、`library`、`player-navigation`、`transcript`、`export` 和 `minutes` 八个无 DOM 规则模块；`transcript-view` 与 `minutes-view` 是两个 DOM projection，分别接收阅读数据、格式函数和行为 callback，不反向读取全局 `state`，也不调用 API 或媒体播放。入口负责把当前状态装配成参数：逐字稿 renderer 返回核听单元后由入口协调播放、Focus、搜索与滚动；纪要 renderer 负责标准/AI 视图、草稿/译文/待办候选的阅读节点和证据链接接线，证据抽屉、AI 修改、保存/撤销/恢复仍由入口 controller 执行。拆分完成的判据是模块拥有明确输入/输出、在线工作台与无头 Viewer/smoke 行为不变，而不是追求文件数；当前不引入 React、微前端或复制 Meeting/Media 页面。
+`web/static/app.js` 曾同时承担导入、库列表、作业、播放器、逐字稿、纪要、媒体来源与导出，约五千余行，继续新增跨域状态的回归成本已高于单文件收益。现在已迁为无构建原生 ES module 入口，并从 `web/static/modules/` 抽出 `media-source`、`imports`、`jobs`、`library`、`player-navigation`、`transcript`、`export`、`minutes` 和 `speaker-correction` 等无 DOM 规则模块；`transcript-view`、`minutes-view` 与 `speaker-correction-view` 是 DOM projection，只接收显式阅读/交互数据、格式函数和行为 callback，不反向读取全局 `state`，也不调用 API 或媒体播放。`speaker-correction` 独立拥有人物核对状态转换、预览标准化、多分组分配和保守写入 payload；入口只负责 API、播放器/滚动上下文、刷新与撤销装配。拆分完成的判据是模块拥有明确输入/输出、在线工作台与 Headless Chromium/smoke 行为不变，而不是追求文件数；当前不引入 React、微前端或复制 Meeting/Media 页面。
 
 ## 目录职责
 
@@ -95,7 +95,7 @@ VL 终稿和 Topic Map 发布后，普通录屏与 Teams 管线会用一次本�
 
 `teams_minutes.py` 使用 Teams VTT 或 DOCX 的姓名线索与本地分离结果对齐；会议室混合通道继续按声纹拆分，然后进入同样的语音草稿 → VL 终稿流程。`teams_transcript.py` 是不依赖 Web 和第三方 Office 库的输入边界：VTT 读取 cue，DOCX 直接读取 OOXML 中“粗体姓名 → 时间码 → 正文”的 run 结构，忽略头像等媒体；DOCX 不含结束时间，因此用下一条开始时间推导，最后一条使用分离得到的媒体时长。解析失败在写 canonical 逐字稿前终止，不降级猜测姓名或正文。
 
-说话人修正区分两类证据：未具名拆分或相似扩展需要音频 embedding；用户明确手选轮次并指定已有人员时，人工身份判断是更高优先级证据，服务端可直接复用该人员现有 voice。直接改派不改声纹质心、不写原始 cluster 映射，只更新选中 turn 的 `voice/speaker` 并写 `speaker.corrections.json` 硬锁；整个 bank、逐字稿和锁文件仍包含在 `speaker_history` 可撤销事务中。这样 0 时长/极短边界轮次不依赖模型可提取性，未选轮次也不会被隐式扩散。
+说话人修正区分两类证据：系统建议的相似扩展需要音频 embedding；用户明确手选轮次并指定已有人员时，人工身份判断是更高优先级证据，服务端可直接复用该人员现有 voice。轻量身份卡通过 bind 接口确认整组；高级核对先读取 review 摘要，再以 split preview 返回手选、建议、保护、存疑和一个或多个建议分组。前端默认提交 `expand_similar=false`，并以 `group_assignments` 分别指定每组人物或保持未命名。直接改派不改声音质心、不写原始 cluster 映射，只更新选中 turn 的 `voice/speaker` 并写 `speaker.corrections.json` 硬锁；整个 bank、逐字稿和锁文件仍包含在 `speaker_history` 可撤销事务中。已有人工确认的轮次无论前端选择如何都由后端再次保护；canonical 会议格式未改变。
 
 外部逐字稿不是强制真源。上传路由通过 `transcript_policy` 明确选择 `external` / `ignored` / `local_asr`；`source.json.transcript_source` 记录当前 canonical 逐字稿来源。选择忽略时仍把 VTT/DOCX 固化为受保护母版，但 `speaker_navigation` 不得把其姓名标签投影到本地 ASR 结果。`retranscribe_local.py` 可为存量音频或视频会议创建 `.versions/before-local-asr-*` 快照，再使用当前显式配置的 provider 和最新 Context 重建逐字稿、说话人、纪要、evidence 和 Topic Map；视频复用 `slides.json/page_desc.json` 且不启动 VL，任一子管线失败时恢复快照。
 

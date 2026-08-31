@@ -15,6 +15,7 @@
 
 1. 先选择“会议”或“媒体”：已有 Teams VTT/DOCX 可直接作为转写来源；只有音视频时才使用配置的本地或兼容 ASR。来源原件固化，外部逐字稿不准时可忽略并重转写。
 2. 确认最影响复用质量的信息：人员姓名、说话人归属、原语言逐字稿和关键结论证据。本地说话人、VL、翻译和纪要生成是可选增强，不是导出的供应商依赖。
+   点击说话人先用轻量身份卡确认整组；只有发现混入他人才进入“修复混入的说话人”，默认只改手选片段，预览后应用并可就近撤销。
 3. 有录屏时后台可以继续抽取逻辑页面、理解共享画面并生成多模态终稿；急用时只要 canonical 逐字稿形成，就可以先导出核听或 AI 上下文快照。
 4. 用户从会议脉络进入某个议题；时间操作改变播放位置，右侧节点选择只改变阅读 Focus。媒体内容会按实际形态自适应导航：单人口播显示“议题 + 叙事作用”，访谈显示“议题 + 人物”，混合内容同时保留两者。
 5. 在纪要、逐字稿与画面之间核对证据，确认人员身份；必要时播放并修正单轮原语言文本，随后更新纪要和脉络。
@@ -83,10 +84,11 @@ make run
 .venv/bin/python bin/minutes_by_page.py meetings/<meeting>/ --publish
 .venv/bin/python bin/meeting_topic_map.py meetings/<meeting>/
 
-# 导出离线阅读包；默认不携带媒体
+# 工作台普通导出只有两个入口：离线 Viewer，以及 AI / 知识库 Pack。
+# 导出离线 Viewer；默认不携带媒体
 .venv/bin/python bin/export_meeting.py meetings/<meeting>/ --media none
 
-# 导出一个可直接交给通用模型或 Notebook 的 Markdown；不含本机链接和媒体
+# 导出 AI / 知识库 Pack：可直接交给通用模型、Notebook 或知识库；不含本机链接和媒体
 .venv/bin/python bin/export_meeting.py meetings/<meeting>/ --profile ai
 
 # 多场同系列会议：每场一份 context.md + 来源索引 + 使用提示
