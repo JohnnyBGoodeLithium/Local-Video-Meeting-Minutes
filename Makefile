@@ -22,6 +22,7 @@ check:
 	$(PY) web/tests/design_tokens_test.py
 	$(PY) web/tests/product_version_test.py
 	$(PY) web/tests/product_intro_test.py
+	$(PY) web/tests/documentation_structure_test.py
 	$(PY) web/tests/summarize_request_test.py
 	$(PY) web/tests/voice_draft_test.py
 	$(PY) web/tests/job_scheduler_test.py
