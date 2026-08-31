@@ -312,6 +312,7 @@ body.page-index { overflow: hidden; }
   color: #dce5ff;
   font-weight: var(--fw-600);
 }
+.quality-entry[aria-pressed="true"] { box-shadow: inset 0 -2px 0 var(--colorBrandStroke1); }
 .quality-entry:not(:disabled)::before { content: "✓ "; color: #76d5aa; }
 .quality-entry.evidence-missing { border-color: rgba(226, 161, 60, .7); background: rgba(226, 161, 60, .12); }
 .quality-entry.evidence-missing::before { content: "! "; color: #efbd67; }
@@ -1223,7 +1224,7 @@ button.danger-text { border-color: transparent; background: transparent; color: 
 .materials-empty p { margin: 0 0 var(--sp-16); color: var(--dim); line-height: 1.6; }
 .materials-empty .materials-trust-boundary { max-width: 640px; margin: 0; }
 
-/* 会议结论审计 */
+/* 关键结论核对 */
 .quality-view { min-height: 0; flex: 1; overflow-y: auto; padding: var(--sp-14) var(--sp-18) var(--sp-60); }
 .quality-summary {
   position: sticky;

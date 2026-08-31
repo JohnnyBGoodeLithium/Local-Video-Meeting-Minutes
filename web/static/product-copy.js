@@ -24,7 +24,7 @@ export const EN_COPY = Object.freeze({
   archWorkspace: "Online workspace",
   architectureBody: "ASR, text models, visual models, and knowledge bases enter through provider adapters. Deterministic code owns canonical facts, stable IDs, revisions, and export projections, so both processors and consumers can change.",
   architectureTitle: "Local-first, provider-neutral context architecture",
-  auditTab: "Conclusion audit",
+  auditTab: "Key conclusion review",
   beforeFoot: "Identity, authority, and ownership collapse into one device name",
   beforeQuote1: "“I suggest finishing this next week.”",
   beforeQuote2: "“This has not been approved yet.”",

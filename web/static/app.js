@@ -1,44 +1,44 @@
 import { contentTypeOf, safeSourceUrl }
-  from "./modules/media-source.js?v=20260831p108";
+  from "./modules/media-source.js?v=20260831p109";
 import { buildUploadFormData, enqueueMediaUrl, isSingleLocalVideo }
-  from "./modules/imports.js?v=20260831p108";
+  from "./modules/imports.js?v=20260831p109";
 import { jobDisplayName, selectJobPanel }
-  from "./modules/jobs.js?v=20260831p108";
+  from "./modules/jobs.js?v=20260831p109";
 import { jobPresentation }
-  from "./modules/job-progress.js?v=20260831p108";
+  from "./modules/job-progress.js?v=20260831p109";
 import { closeJobSheet, renderCompactJob, renderJobSheet, renderProcessingBanner }
-  from "./modules/job-progress-view.js?v=20260831p108";
+  from "./modules/job-progress-view.js?v=20260831p109";
 import { chooseInitialItem, deepLinkSeconds, filterLibrary, sortLibrary }
-  from "./modules/library.js?v=20260831p108";
+  from "./modules/library.js?v=20260831p109";
 import { adjacentReviewUnit, defaultReviewUnits, nearestReviewUnit,
   reviewIndexesFor, reviewUnitForTurn as findReviewUnitForTurn, turnEnd }
-  from "./modules/player-navigation.js?v=20260831p108";
+  from "./modules/player-navigation.js?v=20260831p109";
 import { nextSearchCursor, pendingReviewByTurn, transcriptSearchHits }
-  from "./modules/transcript.js?v=20260831p108";
+  from "./modules/transcript.js?v=20260831p109";
 import { renderTranscriptView }
-  from "./modules/transcript-view.js?v=20260831p108";
+  from "./modules/transcript-view.js?v=20260831p109";
 import { availableViewerMedia, exportSizeState, formatBytes, meetingExportHref, normalizeExportProfile,
   packExportHref }
-  from "./modules/export.js?v=20260831p108";
+  from "./modules/export.js?v=20260831p109";
 import { claimAction, claimIdsForTurn, evidenceSources, minutesState, normalizeReviewMode,
   resolveMinutesView, turnIndexAtTime, turnIndexesForSourceIds }
-  from "./modules/minutes.js?v=20260831p108";
+  from "./modules/minutes.js?v=20260831p109";
 import { renderMinutesView }
-  from "./modules/minutes-view.js?v=20260831p108";
+  from "./modules/minutes-view.js?v=20260831p109";
 import { beginExampleSelection, beginIdentity, buildCorrectionApplyPayload,
   correctionSummary, createSpeakerCorrectionState, representativeTurns,
   resetSpeakerCorrection, setGroupAssignment, setIncludeSuggested, setPreview,
   toggleExample, withCorrectionError }
-  from "./modules/speaker-correction.js?v=20260831p108";
+  from "./modules/speaker-correction.js?v=20260831p109";
 import { renderCorrectionSheet, renderIdentityPopover }
-  from "./modules/speaker-correction-view.js?v=20260831p108";
+  from "./modules/speaker-correction-view.js?v=20260831p109";
 import { beginPhotoImport, createPhotoImportState, hydratePhotoCaptureTimes,
   markPhotoImportResult, photoUploadSpec, releasePhotoImport, removePhotoImportItem,
   setPhotoMeetingStart, setPhotoPositionMode, togglePhotoTimeSettings,
   withPhotoImportBusy, withPhotoImportError, formatPhotoBytes }
-  from "./modules/photo-import.js?v=20260831p108";
+  from "./modules/photo-import.js?v=20260831p109";
 import { renderPhotoImport }
-  from "./modules/photo-import-view.js?v=20260831p108";
+  from "./modules/photo-import-view.js?v=20260831p109";
 
 /* 会议列表 + 回顾工作台（装配入口；领域规则逐步迁往 modules/） */
 "use strict";
@@ -183,7 +183,7 @@ const UI_COPY = {
     skipVl: "快速处理，不分析共享画面", ignoreTranscript: "忽略附带逐字稿，改用本地语音识别",
     search: "搜索会议…", sortImported: "最近导入", sortMeeting: "会议时间", sortUpdated: "最近更新", transcript: "逐字稿",
     original: "原文", translated: "译文", comparison: "对照", translateTo: "译为", follow: "跟随",
-    outline: "会议脉络", minutes: "会议纪要", screens: "画面与资料", audit: "结论审计",
+    outline: "会议脉络", minutes: "会议纪要", screens: "画面与资料", audit: "核对关键结论",
     assistant: "AI 对话", evidence: "证据", send: "发送", restructure: "✦ 重组纪要",
     restructurePlaceholder: "描述你希望的栏目、顺序、读者和详略，例如：先给管理层结论，再按项目列进展、分歧、风险和有依据的待办。",
     ask: "问这场会议，或告诉我如何修改纪要…", launcher: "问这场会议，或修改纪要…",
@@ -217,7 +217,7 @@ const UI_COPY = {
     skipVl: "Fast processing; skip shared-screen analysis", ignoreTranscript: "Ignore attached transcript and use local speech recognition",
     search: "Search meetings…", sortImported: "Recently imported", sortMeeting: "Meeting time", sortUpdated: "Recently updated", transcript: "Transcript",
     original: "Original", translated: "Translation", comparison: "Side by side", translateTo: "Translate to", follow: "Follow",
-    outline: "Meeting map", minutes: "Minutes", screens: "Visuals & Materials", audit: "Conclusion audit",
+    outline: "Meeting map", minutes: "Minutes", screens: "Visuals & Materials", audit: "Review key conclusions",
     assistant: "AI chat", evidence: "Evidence", send: "Send", restructure: "✦ Restructure",
     restructurePlaceholder: "Describe the sections, order, audience, and level of detail you want, for example: executive decisions first, then progress, disagreements, risks, and evidenced actions by project.",
     ask: "Ask about this meeting or request a minutes edit…", launcher: "Ask about or edit this meeting…",
@@ -255,18 +255,18 @@ const CONTENT_TYPE_LABELS = {
   meeting: {
     "zh-CN": { recordNoun: "会议记录", speakerCount: n => `${n} 位发言人`,
                renameTitle: "修改会议名称", markAction: "标记为媒体视频",
-               outline: "会议脉络", minutes: "会议纪要", screens: "画面与资料", audit: "结论审计" },
+               outline: "会议脉络", minutes: "会议纪要", screens: "画面与资料", audit: "核对关键结论" },
     en: { recordNoun: "Meeting record", speakerCount: n => `${n} speakers`,
           renameTitle: "Rename meeting", markAction: "Mark as media",
-          outline: "Meeting map", minutes: "Minutes", screens: "Visuals & Materials", audit: "Conclusion audit" },
+          outline: "Meeting map", minutes: "Minutes", screens: "Visuals & Materials", audit: "Review key conclusions" },
   },
   media: {
     "zh-CN": { recordNoun: "媒体记录", speakerCount: n => `${n} 位出镜`,
                renameTitle: "修改标题", markAction: "标记为会议",
-               outline: "论证脉络", minutes: "分析纪要", screens: "画面解析", audit: "依据审计" },
+               outline: "论证脉络", minutes: "分析纪要", screens: "画面解析", audit: "核对关键依据" },
     en: { recordNoun: "Media record", speakerCount: n => `${n} on camera`,
           renameTitle: "Rename title", markAction: "Mark as meeting",
-          outline: "Argument map", minutes: "Analysis", screens: "Visual analysis", audit: "Source audit" },
+          outline: "Argument map", minutes: "Analysis", screens: "Visual analysis", audit: "Review key sources" },
   },
 };
 function contentLabel(type, key, ...args) {
@@ -838,6 +838,7 @@ async function deleteMeeting(ev, slug) {
     $("#visuals-tab").disabled = true;
     $("#quality-entry-btn").disabled = true;
     $("#quality-entry-btn").textContent = ui("audit");
+    $("#quality-entry-btn").classList.add("hidden");
     $$('[data-transcript-mode]').forEach(button => button.disabled = true);
     $("#translation-target").disabled = true;
     state.translation = null;
@@ -1024,7 +1025,7 @@ function renderMeetingStatuses() {
   const qualityTitle = finalNeedsReview
     ? (isEnglishUi()
       ? `${unresolved} material voice-draft item(s) were not matched in the multimodal final. They may have been merged, corrected, or omitted; verify them in Conclusion Audit.`
-      : `语音草稿中有 ${unresolved} 条重要事项未在多模态终稿中找到对应投影；可能被合并、纠正或遗漏，请到“结论审计”核对。`)
+      : `语音草稿中有 ${unresolved} 条重要事项未在多模态终稿中找到对应投影；可能被合并、纠正或遗漏，请到“核对关键结论”检查。`)
     : "";
   const evidenceState = b.evidence?.state || "partial";
   const evidenceLabel = evidenceState === "ready" ? (isEnglishUi() ? "Traceable" : "可核证")
@@ -1094,18 +1095,22 @@ function renderTranscriptReviewBar() {
   if (pending) parts.push(isEnglishUi() ? `${pending} need listening` : `${pending} 处待核听`);
   box.innerHTML = `<strong>${isEnglishUi() ? "Original transcript" : "原语言逐字稿"}</strong>` +
     `<span>${esc(parts.join(" · ") || (isEnglishUi() ? "Clean" : "已复核"))}</span>` +
-    (syncPending ? `<span class="review-sync">${isEnglishUi() ? "Minutes and outline need updating" : "纪要与脉络待同步"}</span>` : "") +
+    (syncPending ? `<span class="review-sync" title="${isEnglishUi()
+      ? "Uses the saved visual analysis and does not run the vision model again"
+      : "复用已有画面解读，不会重新运行视觉模型"}">${isEnglishUi()
+      ? "Minutes need syncing after transcript edits"
+      : "逐字稿有新修正，纪要待同步"}</span>` : "") +
     `<span class="review-spacer"></span>` +
     (pending ? `<button type="button" data-review-action="pending">${isEnglishUi() ? "Review" : "开始核听"}</button>` : "") +
     (review.undo_available ? `<button type="button" data-review-action="undo">${isEnglishUi() ? "Undo last edit" : "撤销上次文本修正"}</button>` : "") +
-    (syncPending ? `<button type="button" data-review-action="sync">${isEnglishUi() ? "Update minutes" : "更新纪要"}</button>` : "");
+    (syncPending ? `<button type="button" data-review-action="sync">${isEnglishUi() ? "Quick sync" : "快速同步纪要"}</button>` : "");
   box.classList.remove("hidden");
   $("[data-review-action='pending']", box)?.addEventListener("click", () => {
     const item = review.pending?.[0];
     if (Number.isInteger(item?.turn_index)) openTranscriptEdit(item.turn_index, item);
   });
   $("[data-review-action='undo']", box)?.addEventListener("click", undoTranscriptEdit);
-  $("[data-review-action='sync']", box)?.addEventListener("click", () => regenMinutes(""));
+  $("[data-review-action='sync']", box)?.addEventListener("click", syncMinutes);
 }
 
 async function loadMeeting(slug) {
@@ -1207,8 +1212,7 @@ async function loadMeeting(slug) {
   $("#chapters-tab").disabled = !(b.transcript?.length);
   $("#visuals-tab").disabled = contentTypeOf(b) === "media" && !(b.structure?.visuals?.length);
   $("#quality-entry-btn").disabled = isDraft;
-  if (isDraft) $("#quality-entry-btn").textContent = isEnglishUi()
-    ? "Audit after final minutes" : "终稿后审计结论";
+  $("#quality-entry-btn").classList.add("hidden");
   $$('[data-transcript-mode]').forEach(button => button.disabled = false);
   $("#translation-target").disabled = false;
   $("#translation-target").value = state.translationTarget;
@@ -1222,7 +1226,11 @@ async function loadMeeting(slug) {
   if (!isDraft) await loadQualityReview();
   else {
     state.quality = null;
-    $("#quality").innerHTML = '<div class="quality-empty"><h3>语音草稿暂不审计</h3><p>屏幕表格、数字和画面依据仍在补充，终稿后再开始结论审计。</p></div>';
+    $("#quality").innerHTML = `<div class="quality-empty"><h3>${isEnglishUi()
+      ? "Key conclusions are not reviewed during the voice draft"
+      : "语音草稿暂不核对关键结论"}</h3><p>${isEnglishUi()
+      ? "Screen tables, figures, and visual evidence are still being added. Review key conclusions after the final minutes are ready."
+      : "屏幕表格、数字和画面依据仍在补充，终稿完成后再核对关键结论。"}</p></div>`;
   }
 }
 
@@ -3161,6 +3169,7 @@ async function setUiLanguage(language) {
   if (state.viewMode === "chapters") renderChapters();
   if (state.viewMode === "visuals") renderVisuals();
   if (state.viewMode === "quality") renderQualityReview();
+  if (state.quality) updateQualityIndicators();
   updateFocusPresentation(false);
   await loadTopicMapTranslation(true);
   await loadMinutesTranslation(true);
@@ -3210,14 +3219,19 @@ function renderMinutes() {
 function structureClaimCard(id) {
   const claim = (state.bundle?.evidence?.claims || []).find(item => item.id === id);
   if (!claim) return "";
-  const status = qualityStatusNames[claim.status] || claim.status || "记录";
-  const kind = qualityKindNames[claim.kind] || claim.kind || "内容";
+  const statusPair = qualityStatusNames[claim.status];
+  const kindPair = qualityKindNames[claim.kind];
+  const status = statusPair ? statusPair[isEnglishUi() ? 1 : 0]
+    : claim.status || (isEnglishUi() ? "Record" : "记录");
+  const kind = kindPair ? kindPair[isEnglishUi() ? 1 : 0]
+    : claim.kind || (isEnglishUi() ? "Content" : "内容");
   const action = claimAction(state.bundle?.evidence, claim);
   return `<button type="button" class="structure-claim" data-structure-claim="${esc(id)}">` +
     `<span class="structure-claim-meta"><i>${esc(kind)}</i><i>${esc(status)}</i>` +
     `${claim.start != null ? `<i>${fmt(claim.start)}</i>` : ""}</span>` +
     `<b>${esc(action?.text || claim.text)}</b>` +
-    (action ? `<small>负责人：${esc(action.owner || "待确认")} · 期限：${esc(action.deadline || "待确认")}` +
+    (action ? `<small>${isEnglishUi() ? "Owner" : "负责人"}：${esc(action.owner || (isEnglishUi() ? "Unconfirmed" : "待确认"))} · ` +
+      `${isEnglishUi() ? "Due" : "期限"}：${esc(action.deadline || (isEnglishUi() ? "Unconfirmed" : "待确认"))}` +
       `${action.status ? ` · ${esc(action.status)}` : ""}</small>` : "") +
     `</button>`;
 }
@@ -3722,6 +3736,7 @@ function setReviewMode(mode) {
   if (state.viewMode === "chapters") renderChapters();
   if (state.viewMode === "visuals") renderVisuals();
   if (state.viewMode === "quality") renderQualityReview();
+  if (state.quality) updateQualityIndicators();
 }
 
 function showMinutesEvidence(claimId, jumpToFirst = false) {
@@ -3760,27 +3775,40 @@ function showMinutesEvidence(claimId, jumpToFirst = false) {
   }
 }
 
-/* ---------- 会议结论审计 ---------- */
+/* ---------- 关键结论核对 ---------- */
 
 const qualityStatusNames = {
-  confirmed: "已确认决定",
-  working_alignment: "方向共识",
-  proposal: "提议",
-  open: "待解决",
-  informational: "信息记录",
+  confirmed: ["已确认决定", "Confirmed decision"],
+  working_alignment: ["方向共识", "Working alignment"],
+  proposal: ["提议", "Proposal"],
+  open: ["待解决", "Open"],
+  informational: ["信息记录", "Information"],
 };
 
 const qualityKindNames = {
-  decision: "决定",
-  alignment: "共识",
-  proposal: "提议",
-  action: "行动项",
-  discussion: "讨论",
-  purpose: "主旨",
-  open_question: "待决问题",
+  decision: ["决定", "Decision"],
+  alignment: ["共识", "Alignment"],
+  proposal: ["提议", "Proposal"],
+  action: ["行动项", "Action"],
+  discussion: ["讨论", "Discussion"],
+  purpose: ["主旨", "Purpose"],
+  open_question: ["待决问题", "Open question"],
 };
 
+const qualityLabelEnglish = {
+  correct: "Conclusion matches the evidence",
+  proposal_not_decision: "Proposal presented as a decision",
+  should_be_decision: "Decision omitted or weakened",
+  wrong_evidence: "Evidence does not support this conclusion",
+  wrong_owner_deadline: "Owner or due date is incorrect",
+  unsupported: "No transcript support",
+  cannot_judge: "Cannot verify yet",
+};
+
+function qualityCopy(chinese, english) { return isEnglishUi() ? english : chinese; }
+
 function qualityLabelName(id) {
+  if (isEnglishUi() && qualityLabelEnglish[id]) return qualityLabelEnglish[id];
   return state.quality?.labels?.find(item => item.id === id)?.label || id || "";
 }
 
@@ -3791,12 +3819,22 @@ function updateQualityIndicators() {
   const evidenceReady = state.quality?.evidence_state === "ready";
   $("#quality-badge").textContent = pending;
   $("#quality-badge").classList.toggle("hidden", pending === 0);
-  $("#quality-entry-btn").classList.toggle("evidence-missing", !evidenceReady);
-  $("#quality-entry-btn").textContent = !evidenceReady
-    ? (isEnglishUi() ? "Conclusion evidence incomplete" : "结论依据待补全") : !total
-    ? (isEnglishUi() ? "No conclusions to audit" : "暂无可审计结论") : pending
-    ? `${isEnglishUi() ? "Audit conclusions" : "审计会议结论"} · ${pending}`
-    : (total ? (isEnglishUi() ? "View audit results" : "查看审计结果") : ui("audit"));
+  const issues = Number(summary.issues || 0);
+  const stale = Number(summary.stale || 0);
+  const needsAttention = !evidenceReady || pending > 0 || issues > 0 || stale > 0;
+  const entry = $("#quality-entry-btn");
+  entry.classList.toggle("hidden", !needsAttention && state.viewMode !== "quality");
+  entry.classList.toggle("evidence-missing", !evidenceReady || stale > 0);
+  entry.setAttribute("aria-pressed", String(state.viewMode === "quality"));
+  entry.textContent = !evidenceReady
+    ? (isEnglishUi() ? "Conclusion evidence needs updating" : "结论依据需要更新")
+    : pending
+      ? `${isEnglishUi() ? "Review key conclusions" : "核对关键结论"} · ${pending}`
+      : issues
+        ? `${isEnglishUi() ? "Review identified issues" : "查看已发现问题"} · ${issues}`
+        : stale
+          ? `${isEnglishUi() ? "Review outdated decisions" : "重新核对过期判断"} · ${stale}`
+          : (isEnglishUi() ? "Key conclusions reviewed" : "关键结论已核对");
 }
 
 async function loadQualityReview() {
@@ -3807,7 +3845,8 @@ async function loadQualityReview() {
     renderQualityReview();
   } catch (e) {
     state.quality = null;
-    $("#quality").innerHTML = '<p class="placeholder">无法读取本地审计记录</p>';
+    $("#quality").innerHTML = `<p class="placeholder">${qualityCopy(
+      "无法读取本地核对记录", "Could not load the local review record")}</p>`;
   }
 }
 
@@ -3825,8 +3864,11 @@ function qualityClaimVisible(claim) {
 
 function qualityClaimKind(claim) {
   if (claim.kind === "action" && !claim.formal_action)
-    return claim.status === "informational" ? "过程记录" : "行动线索（未入待办）";
-  return qualityKindNames[claim.kind] || claim.kind;
+    return claim.status === "informational"
+      ? qualityCopy("过程记录", "Process note")
+      : qualityCopy("行动线索（未入待办）", "Action clue (not a formal action)");
+  const pair = qualityKindNames[claim.kind];
+  return pair ? pair[isEnglishUi() ? 1 : 0] : claim.kind;
 }
 
 function renderQualityReview() {
@@ -3835,40 +3877,52 @@ function renderQualityReview() {
   if (!box || !quality) return;
   if (quality.evidence_state !== "ready") {
     const reason = quality.evidence_state === "stale"
-      ? "纪要或逐字稿已经变化，现有依据已过期。"
-      : "这场会议还没有结构化的结论依据。";
-    box.innerHTML = `<div class="quality-empty"><h3>暂时无法审计结论</h3><p>${esc(reason)}</p>` +
-      `<p class="dim">请先重新生成纪要；审计界面不会调用模型，也不会修改正式纪要。</p></div>`;
+      ? qualityCopy("纪要或逐字稿已经变化，现有依据已过期。",
+        "The minutes or transcript changed, so the current evidence is out of date.")
+      : qualityCopy("这场会议还没有结构化的结论依据。",
+        "This meeting does not have structured conclusion evidence yet.");
+    box.innerHTML = `<div class="quality-empty"><h3>${qualityCopy(
+      "暂时无法核对关键结论", "Key conclusions cannot be reviewed yet")}</h3><p>${esc(reason)}</p>` +
+      `<p class="dim">${qualityCopy(
+        "请先重新生成纪要；核对不会调用模型，也不会修改正式纪要。",
+        "Regenerate the minutes first. Reviewing does not call a model or modify the official minutes.")}</p></div>`;
     return;
   }
   const allSummary = quality.summary || {};
   const prioritySummary = quality.priority_summary || allSummary;
   if (!allSummary.total) {
-    box.innerHTML = `<div class="quality-empty"><h3>还没有可审计的结构化结论</h3>` +
-      `<p>这份旧纪要没有 claim 级依据标记，需要重新生成一次带依据的纪要。</p>` +
-      `<p class="dim">打开结论审计不会运行模型，也不会改变现有纪要。</p></div>`;
+    box.innerHTML = `<div class="quality-empty"><h3>${qualityCopy(
+      "还没有可核对的结构化结论", "There are no structured conclusions to review")}</h3>` +
+      `<p>${qualityCopy("这份旧纪要没有结论级依据标记，需要重新生成一次带依据的纪要。",
+        "These older minutes do not contain conclusion-level evidence markers. Regenerate them once to add evidence.")}</p>` +
+      `<p class="dim">${qualityCopy("打开核对不会运行模型，也不会改变现有纪要。",
+        "Opening this review does not run a model or change the official minutes.")}</p></div>`;
     return;
   }
   const s = state.qualityScope === "priority" ? prioritySummary : allSummary;
   const pct = s.total ? Math.round((s.reviewed / s.total) * 100) : 0;
   const filters = [
-    ["pending", `待审计 ${s.pending || 0}`],
-    ["issues", `存疑 ${s.issues || 0}`],
-    ["passed", `可信 ${s.passed || 0}`],
-    ["all", `全部 ${s.total || 0}`],
+    ["pending", `${qualityCopy("待核对", "Pending")} ${s.pending || 0}`],
+    ["issues", `${qualityCopy("有问题", "Issues")} ${s.issues || 0}`],
+    ["passed", `${qualityCopy("正确", "Correct")} ${s.passed || 0}`],
+    ["all", `${qualityCopy("全部", "All")} ${s.total || 0}`],
   ];
   let html = `<section class="quality-summary">` +
-    `<div class="quality-summary-head"><div><b>会议结论审计</b>` +
-    `<p>默认只核对决定、共识、正式行动、风险与未决问题；背景记录仍保留在“全部证据”。</p></div>` +
+    `<div class="quality-summary-head"><div><b>${qualityCopy("核对关键结论", "Review key conclusions")}</b>` +
+    `<p>${qualityCopy("默认只核对决定、共识、正式行动、风险与未决问题；背景记录仍保留在“全部证据”。",
+      "The default view focuses on decisions, alignment, formal actions, risks, and open questions. Background records remain under All evidence.")}</p></div>` +
     `<strong>${s.reviewed || 0}/${s.total || 0}</strong></div>` +
     `<div class="quality-progress"><i style="width:${pct}%"></i></div>` +
-    `<div class="quality-metrics"><span>完成 ${pct}%</span><span class="issue">问题 ${s.issues || 0}</span>` +
-    `<span>待定 ${s.uncertain || 0}</span><span>过期 ${s.stale || 0}</span>` +
-    `<span>逐字稿依据 ${s.with_transcript_evidence || 0}/${s.total || 0}</span></div>` +
+    `<div class="quality-metrics"><span>${qualityCopy("完成", "Complete")} ${pct}%</span>` +
+    `<span class="issue">${qualityCopy("问题", "Issues")} ${s.issues || 0}</span>` +
+    `<span>${qualityCopy("待定", "Uncertain")} ${s.uncertain || 0}</span>` +
+    `<span>${qualityCopy("过期", "Outdated")} ${s.stale || 0}</span>` +
+    `<span>${qualityCopy("逐字稿依据", "Transcript evidence")} ${s.with_transcript_evidence || 0}/${s.total || 0}</span></div>` +
     `<div class="quality-scope"><button type="button" data-quality-scope="priority" ` +
-    `class="${state.qualityScope === "priority" ? "active" : ""}">重点结论 ${prioritySummary.total || 0}</button>` +
+    `class="${state.qualityScope === "priority" ? "active" : ""}">${qualityCopy(
+      "重点结论", "Key conclusions")} ${prioritySummary.total || 0}</button>` +
     `<button type="button" data-quality-scope="all" class="${state.qualityScope === "all" ? "active" : ""}">` +
-    `全部证据 ${allSummary.total || 0}</button></div>` +
+    `${qualityCopy("全部证据", "All evidence")} ${allSummary.total || 0}</button></div>` +
     `<div class="quality-filters">${filters.map(([id, label]) =>
       `<button type="button" data-quality-filter="${id}" class="${state.qualityFilter === id ? "active" : ""}">${label}</button>`
     ).join("")}</div></section>`;
@@ -3876,33 +3930,42 @@ function renderQualityReview() {
   const claims = quality.claims.filter(qualityClaimVisible);
   if (!claims.length) {
     const emptyTitle = state.qualityScope === "priority" && !(prioritySummary.total || 0)
-      ? "没有需要优先审计的重点结论"
-      : state.qualityFilter === "pending" ? "这一轮结论已经审计完成" : "此筛选下没有条目";
+      ? qualityCopy("没有需要优先核对的重点结论", "No key conclusions need priority review")
+      : state.qualityFilter === "pending"
+        ? qualityCopy("这一轮结论已经核对完成", "This review is complete")
+        : qualityCopy("此筛选下没有条目", "No items match this filter");
     html += `<div class="quality-empty"><h3>${emptyTitle}</h3>` +
-      `<p class="dim">可以切换范围或筛选，查看保留的背景事实与既有判断。</p></div>`;
+      `<p class="dim">${qualityCopy("可以切换范围或筛选，查看保留的背景事实与既有判断。",
+        "Change the scope or filter to inspect retained background facts and earlier reviews.")}</p></div>`;
   }
   for (const claim of claims) {
     const review = claim.review;
     const stale = claim.previous_review;
-    const status = qualityStatusNames[claim.status] || claim.status;
+    const statusPair = qualityStatusNames[claim.status];
+    const status = statusPair ? statusPair[isEnglishUi() ? 1 : 0] : claim.status;
     const kind = qualityClaimKind(claim);
     html += `<article class="quality-card ${review ? `reviewed label-${esc(review.label)}` : ""}" data-quality-claim="${esc(claim.id)}">` +
       `<div class="quality-card-head"><div class="quality-tags"><span>${esc(status)}</span><span>${esc(kind)}</span>` +
       `<span class="${claim.has_transcript_evidence ? "has-evidence" : "missing-evidence"}">` +
-      `${claim.turn_ids?.length || 0} 段原文</span><span>${claim.page_ids?.length || 0} 页画面</span></div>` +
-      `<button type="button" class="quality-evidence">核对依据</button></div>` +
+      `${claim.turn_ids?.length || 0} ${qualityCopy("段原文", "excerpts")}</span>` +
+      `<span>${claim.page_ids?.length || 0} ${qualityCopy("页画面", "visuals")}</span></div>` +
+      `<button type="button" class="quality-evidence">${qualityCopy("打开相关原话", "Open source evidence")}</button></div>` +
       `<div class="quality-claim-text">${esc(claim.text)}</div>` +
-      (claim.speakers?.length ? `<div class="quality-speakers">发言：${esc(claim.speakers.join("、"))}</div>` : "") +
-      (stale ? `<div class="quality-stale">相关内容有变化，原判断“${esc(qualityLabelName(stale.label))}”已失效，请重新核对。</div>` : "") +
+      (claim.speakers?.length ? `<div class="quality-speakers">${qualityCopy("发言", "Speakers")}：${esc(claim.speakers.join("、"))}</div>` : "") +
+      (stale ? `<div class="quality-stale">${esc(qualityCopy(
+        `相关内容有变化，原判断“${qualityLabelName(stale.label)}”已失效，请重新核对。`,
+        `The source changed. The previous review “${qualityLabelName(stale.label)}” is outdated; review it again.`))}</div>` : "") +
       `<div class="quality-labels">${quality.labels.map(item =>
-        `<button type="button" data-quality-label="${esc(item.id)}" title="快捷键 ${esc(item.shortcut)}" ` +
-        `class="${review?.label === item.id ? "selected" : ""}"><kbd>${esc(item.shortcut)}</kbd>${esc(item.label)}</button>`
+        `<button type="button" data-quality-label="${esc(item.id)}" title="${qualityCopy("快捷键", "Shortcut")} ${esc(item.shortcut)}" ` +
+        `class="${review?.label === item.id ? "selected" : ""}"><kbd>${esc(item.shortcut)}</kbd>${esc(qualityLabelName(item.id))}</button>`
       ).join("")}</div>` +
-      `<details class="quality-note" ${review?.note ? "open" : ""}><summary>补充说明（可选）</summary>` +
-      `<textarea maxlength="1000" rows="2" placeholder="例如：原文是建议语气，尚未确认…">${esc(review?.note || "")}</textarea>` +
-      (review ? `<button type="button" class="quality-save-note">保存说明</button>` : `<span class="dim">选择判断时会一并保存</span>`) +
+      `<details class="quality-note" ${review?.note ? "open" : ""}><summary>${qualityCopy(
+        "补充说明（可选）", "Add a note (optional)")}</summary>` +
+      `<textarea maxlength="1000" rows="2" placeholder="${qualityCopy(
+        "例如：原文是建议语气，尚未确认…", "For example: the source is phrased as a proposal, not a confirmed decision…")}">${esc(review?.note || "")}</textarea>` +
+      (review ? `<button type="button" class="quality-save-note">${qualityCopy("保存说明", "Save note")}</button>` : `<span class="dim">${qualityCopy("选择判断时会一并保存", "The note is saved with your review")}</span>`) +
       `</details>` +
-      (review ? `<div class="quality-result">已记录：${esc(qualityLabelName(review.label))}</div>` : "") +
+      (review ? `<div class="quality-result">${qualityCopy("已记录", "Recorded")}：${esc(qualityLabelName(review.label))}</div>` : "") +
       `</article>`;
   }
   box.innerHTML = html;
@@ -3946,10 +4009,10 @@ async function saveQualityReview(claim, label, note, button) {
     state.quality = data;
     updateQualityIndicators();
     renderQualityReview();
-    toast(`已记录：${qualityLabelName(label)}`);
+    toast(`${qualityCopy("已记录", "Recorded")}：${qualityLabelName(label)}`);
   } catch (e) {
     button.disabled = false;
-    toast(`审计记录失败：${e.message}`);
+    toast(`${qualityCopy("核对记录失败", "Could not save the review")}：${e.message}`);
   }
 }
 
@@ -5110,6 +5173,36 @@ async function regenMinutes(refineModel) {
   });
 }
 
+async function syncMinutes() {
+  if (!state.slug) return;
+  const button = $("[data-review-action='sync']", $("#transcript-review-bar"));
+  if (button) button.disabled = true;
+  const response = await api(`/api/meetings/${encodeURIComponent(state.slug)}/sync_minutes`,
+    { method: "POST" });
+  const job = await response.json();
+  if (!response.ok) {
+    toast(`${isEnglishUi() ? "Quick sync unavailable" : "暂时无法快速同步"}：${job.detail || response.status}`);
+    if (button) button.disabled = false;
+    return;
+  }
+  toast(isEnglishUi()
+    ? "Updating minutes with the saved visual analysis…"
+    : "正在复用已有画面资料更新纪要…");
+  pollJob(job.id, current => {
+    if (current.status === "done") {
+      toast(isEnglishUi()
+        ? "Minutes updated. The meeting map and translations will continue in the background."
+        : "纪要已更新；会议脉络和翻译将在后台继续同步");
+      loadMeeting(state.slug);
+    } else if (["failed", "cancelled"].includes(current.status)) {
+      toast(isEnglishUi()
+        ? "Minutes sync did not finish. Your transcript edits were kept."
+        : "纪要同步未完成；逐字稿修正已经保留");
+      if (button) button.disabled = false;
+    }
+  });
+}
+
 async function retranscribeLocal() {
   if (!state.slug || !state.bundle) return;
   const warning = "使用最新上下文重新转写？\n\n"
@@ -5798,7 +5891,7 @@ function wireTablistKeyboard(tablist) {
   tablist.addEventListener("keydown", event => {
     if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
     const tabs = [...tablist.querySelectorAll('[role="tab"]')]
-      .filter(tab => !tab.disabled && !tab.hidden);
+      .filter(tab => !tab.disabled && !tab.hidden && !tab.classList.contains("hidden"));
     const current = tabs.indexOf(document.activeElement);
     if (current < 0 || !tabs.length) return;
     let next = current;

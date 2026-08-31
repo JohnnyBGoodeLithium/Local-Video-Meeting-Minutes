@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>会议纪要</title>
-<link rel="stylesheet" href="/static/fluent-foundation.css?v=20260831p108">
-<link rel="stylesheet" href="/static/style.css?v=20260831p108">
-<link rel="stylesheet" href="/static/theme.css?v=20260831p108">
+<link rel="stylesheet" href="/static/fluent-foundation.css?v=20260831p109">
+<link rel="stylesheet" href="/static/style.css?v=20260831p109">
+<link rel="stylesheet" href="/static/theme.css?v=20260831p109">
 </head>
 <body class="page-index">
 <header class="topbar">
@@ -73,7 +73,7 @@
         <div id="meeting-statuses" class="meeting-statuses" aria-live="polite"></div>
       </div>
       <div class="meeting-head-actions">
-        <button id="quality-entry-btn" class="quality-entry" type="button" disabled>审计会议结论</button>
+        <button id="quality-entry-btn" class="quality-entry hidden" type="button" disabled>核对关键结论</button>
         <button id="export-btn" class="header-export fluent-button" type="button" disabled title="导出离线 Viewer 或 AI / 知识库 Pack">导出</button>
         <details class="more-menu">
           <summary><svg class="fluent-icon" aria-hidden="true"><use href="/static/fluent-icons.svg#fluent-more-horizontal"></use></svg><span>更多</span></summary>
@@ -161,8 +161,8 @@
             <button id="chapters-tab" class="mode-tab fluent-tab" role="tab" aria-selected="false" type="button" disabled>会议脉络</button>
             <button id="minutes-tab" class="mode-tab active fluent-tab" role="tab" aria-selected="true" type="button">会议纪要</button>
             <button id="visuals-tab" class="mode-tab fluent-tab" role="tab" aria-selected="false" type="button" disabled>画面与资料</button>
-            <button id="quality-tab" class="mode-tab fluent-tab" role="tab" aria-selected="false" type="button" disabled>
-              结论审计 <span id="quality-badge" class="quality-badge hidden"></span>
+            <button id="quality-tab" class="mode-tab fluent-tab hidden" role="tab" aria-selected="false" type="button" disabled>
+              核对关键结论 <span id="quality-badge" class="quality-badge hidden"></span>
             </button>
             <select id="minutes-view" class="minutes-view-select hidden" aria-label="纪要版本">
               <option value="standard">标准纪要</option>
@@ -350,6 +350,6 @@
 
 <div id="tl-tip" class="tl-tip hidden"></div>
 
-<script type="module" src="/static/app.js?v=20260831p108"></script>
+<script type="module" src="/static/app.js?v=20260831p109"></script>
 </body>
 </html>

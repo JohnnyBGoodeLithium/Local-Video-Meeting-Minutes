@@ -140,9 +140,9 @@ check("GET /api/health → 200 + dry-run + local assistant",
 s, headers, page = req("GET", "/", raw=True)
 cache_control = next((value for key, value in headers.items()
                       if key.lower() == "cache-control"), "")
-check("首页显式展示结论审计和会议脉络入口且禁止缓存旧壳",
+check("首页保留条件式关键结论核对和会议脉络入口且禁止缓存旧壳",
       s == 200 and b'quality-entry-btn' in page and b'quality-tab' in page
-      and "结论审计".encode() in page and "会议脉络".encode() in page
+      and "核对关键结论".encode() in page and "会议脉络".encode() in page
       and "画面与资料".encode() in page and "完整纪要".encode() not in page
       and b'data-transcript-mode="comparison"' in page
       and b'id="translation-target"' in page
@@ -181,7 +181,7 @@ app_js = b"\n".join([app_js, *module_sources])
 check("前端装配入口使用可独立加载的原生 ES modules",
       all(status == 200 for status in module_statuses)
       and b'type="module"' in page
-      and b'./modules/media-source.js?v=20260831p108' in app_js
+      and b'./modules/media-source.js?v=20260831p109' in app_js
       and b'export function selectJobPanel' in app_js
       and b'export function sortLibrary' in app_js
       and b'export function nearestReviewUnit' in app_js
@@ -210,12 +210,12 @@ if chrome:
         "--window-size=1600,900", "--virtual-time-budget=8000", "--dump-dom", BASE,
     ], capture_output=True, text=True, timeout=90)
     check("在线工作台 ES modules 在 Headless Chromium 完整启动",
-          browser.returncode == 0 and "20260831p108" in browser.stdout
+          browser.returncode == 0 and "20260831p109" in browser.stdout
           and 'class="meeting-item active"' in browser.stdout
           and 'id="turn-0"' in browser.stdout
           and 'id="minutes-heading-0"' in browser.stdout
           and "Uncaught" not in browser.stderr,
-          f"rc={browser.returncode}, build={'20260831p108' in browser.stdout}, "
+          f"rc={browser.returncode}, build={'20260831p109' in browser.stdout}, "
           f"active={'class=\"meeting-item active\"' in browser.stdout}, "
           f"transcript={'id=\"turn-0\"' in browser.stdout}, "
           f"minutes={'id=\"minutes-heading-0\"' in browser.stdout}, "
@@ -250,7 +250,7 @@ if chrome:
     ], capture_output=True, text=True, timeout=120, env=os.environ)
     check("Headless Chromium 完成渐进处理、失败恢复和现场资料旅程",
           workspace_browser.returncode == 0
-          and "progress, recovery, bilingual materials lifecycle passed" in workspace_browser.stdout,
+          and "progress, recovery, bilingual key review and materials lifecycle passed" in workspace_browser.stdout,
           f"rc={workspace_browser.returncode}, out={workspace_browser.stdout[-500:]!r}, "
           f"err={workspace_browser.stderr[-500:]!r}")
 else:
@@ -279,7 +279,7 @@ check("时间码跳转只滚动内容面板，不带动整页丢失播放器",
 check("在线屏幕舞台支持放大、缩放和相邻屏幕键盘导航",
       b'id="screen-preview-mask"' in page and b'openScreenPreview' in app_js
       and b'navigateScreenPreview' in app_js and b'SCREEN_PREVIEW_ZOOMS' in app_js
-      and b'20260831p108' in page)
+      and b'20260831p109' in page)
 check("会议深链 ?meeting=<slug>&t=<秒> 定位播放且忽略非法/超界 t",
       b'params.get("t")' in app_js and b'deepLinkSeek' in app_js
       and b'deepLinkSeconds' in app_js
@@ -362,7 +362,7 @@ check("产品介绍页同步当前能力、双语与设计 token",
       and '多模态证据核心'.encode() in product_page
       and b'data-product-content-version="0.15"' in product_page
       and b'data-ui-language="en"' in product_page
-      and b'/static/fluent-foundation.css?v=20260831p108' in product_page
+      and b'/static/fluent-foundation.css?v=20260831p109' in product_page
       and b'Optional Enrichment' in product_page
       and b'AI Context' in product_page
       and b'WeKnora' in product_page
@@ -1442,6 +1442,13 @@ check("已经使用本地 ASR 的纯音频旧会议也允许重新转写",
       and audio_retranscribe_done.get("kind") == "retranscribe")
 
 # 12. regen（dry-run）
+s, _, fast_job = req("POST", "/api/meetings/_smoke/sync_minutes")
+fast_done = poll_job(fast_job.get("id")) if fast_job.get("id") else fast_job
+check("POST sync_minutes 严格复用画面缓存且跳过同步 Topic Map",
+      s == 200 and fast_done.get("status") == "done"
+      and "--reuse-vl-cache-only" in fast_job.get("cmd", [])
+      and "--skip-topic-map" in fast_job.get("cmd", [])
+      and fast_job.get("progress", {}).get("phase_count") == 2)
 s, _, j = req("POST", "/api/meetings/_smoke/regen_minutes")
 check("POST regen_minutes → 200 作业创建", s == 200 and j.get("kind") == "regen")
 jj = poll_job(j["id"])

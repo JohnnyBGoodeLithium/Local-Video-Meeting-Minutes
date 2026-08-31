@@ -219,6 +219,19 @@ void (async () => {
   document.querySelector('[data-ui-language="en"]').click();
   await waitFor(() => document.documentElement.lang === 'en', 'English UI');
   const englishMaterials = document.querySelector('#visuals-tab').textContent.trim() === 'Visuals & Materials';
+  const qualityEntryHidden = document.querySelector('#quality-entry-btn').classList.contains('hidden');
+  const qualityTab = await waitFor(() => {
+    const tab = document.querySelector('#quality-tab');
+    return tab && !tab.disabled && tab;
+  }, 'key conclusion review route');
+  qualityTab.click();
+  await waitFor(() => !document.querySelector('#quality').classList.contains('hidden'), 'English quality review');
+  const allEvidence = await waitFor(() => document.querySelector('[data-quality-scope="all"]'), 'all evidence');
+  allEvidence.click();
+  const englishQuality = document.querySelector('#quality').textContent.includes('Review key conclusions')
+    && document.querySelector('#quality').textContent.includes('Conclusion matches the evidence')
+    && document.querySelector('#quality').textContent.includes('Open source evidence')
+    && document.querySelector('#quality-tab').classList.contains('hidden') && qualityEntryHidden;
   document.querySelector('#visuals-tab').click();
   document.querySelector('#photo-import-btn').click();
   const bytes = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='), c => c.charCodeAt(0));
@@ -263,7 +276,8 @@ void (async () => {
 
   window.__workspaceUxE2E = [draftReady,Boolean(detailReady),failureClear,previewClear,
     window.__recoveryStarted === true,contextKept,completedCollapsed,englishMaterials,
-    previews,removable,progressivePosition,imported === 2,renamed,alignmentCalls === 2,productDelete,deleted].join('|');
+    englishQuality,previews,removable,progressivePosition,imported === 2,renamed,
+    alignmentCalls === 2,productDelete,deleted].join('|');
 })().catch(error => { window.__workspaceUxE2E = `error:${error?.stack || error}`; });
 """)
                 result = "running"
@@ -282,11 +296,11 @@ void (async () => {
                     if result != "running":
                         break
                     time.sleep(0.1)
-                if result != "true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true":
+                if result != "true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true":
                     raise RuntimeError(f"unexpected browser result: {result!r}")
             finally:
                 cdp.close()
-            print("workspace UX browser: progress, recovery, bilingual materials lifecycle passed")
+            print("workspace UX browser: progress, recovery, bilingual key review and materials lifecycle passed")
             return 0
         finally:
             process.terminate()
