@@ -42,6 +42,8 @@ from meeting_core.hardware import configured_path, inference_device
 from meeting_core.terminology import configured_bank_dir, safe_harvest_screen_candidates
 from meeting_core.resource_policy import prepare_stage
 from meeting_core.llm import DEFAULT_MINUTES_MODEL
+from meeting_core.progress_events import (output_ready, phase_done,
+                                          progress as progress_event)
 from teams_transcript import TranscriptFormatError, parse_transcript
 from slide_pages import extract_pages
 from minutes_by_page import generate as generate_minutes
@@ -204,11 +206,14 @@ def main() -> int:
     slug = mdir.name
     t_all = time.time()
 
+    progress_event("prepare")
     print(f"[1/7] 抽音轨 → {mdir}", flush=True)
     wav = mdir / "audio.wav"
     extract_audio(source_mp4, wav)
+    phase_done("prepare")
 
     print("[2/7] 本地说话人分离 ...", flush=True)
+    progress_event("teams_alignment")
     prepare_stage("audio", keep=[DEFAULT_MINUTES_MODEL])
     t0 = time.time()
     dia_turns, centroids = diarize(wav, args.num_speakers)
@@ -259,15 +264,24 @@ def main() -> int:
     # 未绑定声音自动切试听片段(供网页/CLI 绑定前试听)
     subprocess.run([sys.executable, str(ROOT / "bin" / "voice_tool.py"), "sample", str(mdir)],
                    check=False, capture_output=True)
+    phase_done("teams_alignment")
+    output_ready("transcript")
+    output_ready("speaker_navigation")
 
     print("[5/7] 先生成语音草稿纪要 ...", flush=True)
-    meeting_generation.generate_voice_draft(mdir, python=sys.executable)
+    progress_event("voice_draft")
+    draft_ready = meeting_generation.generate_voice_draft(mdir, python=sys.executable)
+    phase_done("voice_draft")
+    if draft_ready:
+        output_ready("voice_draft")
     meeting_generation.begin_visual_enrichment(mdir)
 
     print("[6/7] 抽屏幕共享逻辑页 ...", flush=True)
+    progress_event("visual_extraction")
     t0 = time.time()
     pages = extract_pages(source_mp4, mdir / "slides", mdir / "slides.json")
     print(f"[meta] 逻辑页 {len(pages)} 页 | 抽页耗时 {time.time()-t0:.1f}s", flush=True)
+    phase_done("visual_extraction", done=len(pages), total=len(pages), unit="pages")
 
     print("[7/7] 用 VL 屏幕资料升级多模态纪要 ...", flush=True)
     prepare_stage("visual", keep=[DEFAULT_MINUTES_MODEL])

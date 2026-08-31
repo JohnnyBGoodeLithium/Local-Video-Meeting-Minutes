@@ -62,6 +62,8 @@ import meeting_generation
 from meeting_core.hardware import configured_path
 from meeting_core.llm import DEFAULT_MINUTES_MODEL, LocalLLMClient, validated_api_base
 from meeting_core.resource_policy import prepare_stage
+from meeting_core.progress_events import (output_ready, phase_done,
+                                          progress as progress_event)
 
 ROUTER = validated_api_base(os.environ.get(
     "MEETING_LLM_API", "http://127.0.0.1:11435/v1")) + "/chat/completions"
@@ -511,12 +513,16 @@ def describe_pages(mdir: Path, pages, api: str, video: Path = None):
                 with lock:
                     descs.pop(p["page"], None)
                     persist()
+                progress_event("visual_understanding", done=len(descs), total=len(pages),
+                               unit="pages")
                 continue
             with lock:
                 descs[page_no] = cleaned
                 persist()
             print(f"[meta] VL 第{page_no}页 tokens={usage.get('completion_tokens','?')}",
                   flush=True)
+            progress_event("visual_understanding", done=len(descs), total=len(pages),
+                           unit="pages")
     print(f"[meta] VL 解读 {len(todo)} 页(累计 {len(descs)}/{len(pages)})"
           f" | {time.time()-t0:.0f}s", flush=True)
     return descs
@@ -774,6 +780,8 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
 
     descs = {}
     vl_review = {"candidates": 0, "reviewed": 0, "failed": 0, "model": None}
+    if vl:
+        progress_event("visual_understanding", done=0, total=len(pages), unit="pages")
     if vl and reuse_vl_cache_only:
         cache = json.loads((mdir / "page_desc.json").read_text(encoding="utf-8")) \
             if (mdir / "page_desc.json").is_file() else {}
@@ -812,6 +820,10 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
                         stop_local_model(review_proc)
                         print(f"[meta] 疑难页视觉复核完成 {vl_review['reviewed']} 页"
                               f" | 本轮失败 {vl_review['failed']}", flush=True)
+    if vl:
+        phase_done("visual_understanding", done=len(descs), total=len(pages), unit="pages")
+        if descs:
+            output_ready("visuals", state="ready" if len(descs) >= len(pages) else "partial")
 
     # VL can take tens of minutes. Speaker corrections are intentionally allowed
     # while it runs, so the transcript loaded before VL is only a page-extraction
@@ -821,6 +833,9 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
     pages = latest_pages
     transcript_revision = file_revision(mdir / "transcript.spk.json")
     opening, per_page = slice_turns(turns, pages)
+    content_pages = [p for p in pages if per_page.get(p["page"])]
+    final_batches = 1 + (len(content_pages) + 7) // 8
+    progress_event("final_minutes", done=0, total=final_batches, unit="batches")
     bank_dir = Path(os.environ.get("MEETING_WEB_BANK", mdir.parent.parent / "speaker_bank"))
     profiles = load_speaker_profiles(turns, bank_dir)
     summary_context = build_prompt_context(turns, pages, descs, profiles)
@@ -858,6 +873,7 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
     print(f"[meta] 总体摘要+板块 {len(part1)} 字 | 模式 {overview_mode}"
           f" ({overview_chunks} 段) | tokens {u1.get('completion_tokens','?')}"
           f" | {time.time()-t0:.0f}s", flush=True)
+    progress_event("final_minutes", done=1, total=final_batches, unit="batches")
 
     def pages_context(group):
         numbers = {int(p["page"]) for p in group}
@@ -868,7 +884,6 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
 
     # 逐页详情：有讨论的页按 8 页一组分次调用(防单次输出截断); 空页走确定性占位
     blocks = {}
-    content_pages = [p for p in pages if per_page.get(p["page"])]
     t0 = time.time()
     for gi in range(0, len(content_pages), 8):
         grp = content_pages[gi:gi + 8]
@@ -879,6 +894,8 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
         blocks.update(got)
         print(f"[meta] 页块 第{grp[0]['page']}-{grp[-1]['page']}页: 得 {len(got)}/{len(grp)}"
               f" | tokens {u_g.get('completion_tokens','?')}", flush=True)
+        progress_event("final_minutes", done=1 + gi // 8 + 1,
+                       total=final_batches, unit="batches")
 
     by_page = {p["page"]: p for p in pages}
     missing = [n for n in by_page if n not in blocks and per_page.get(n)]
@@ -955,6 +972,8 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
             "refined": refined,
             "refine_model": refine_model if refined else None,
         })
+    phase_done("final_minutes", done=final_batches, total=final_batches, unit="batches")
+    output_ready("final_minutes")
     return out, {"pages": len(pages), "page_blocks": len(pages), "chars": len(md),
                  "vl_pages": len(descs), "refined": refined,
                  "claims": len(evidence["claims"])}

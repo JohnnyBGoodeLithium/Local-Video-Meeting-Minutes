@@ -323,7 +323,8 @@ def retranscribe_local(slug: str):
     if _video_path(mdir) is None and _audio_path(mdir) is None:
         raise HTTPException(400, "没有受保护的音视频母版，无法重新转写")
     cmd = build_retranscribe_command(mdir)
-    job = _new_job("retranscribe", route="video", meeting=slug, cmd=cmd,
+    job = _new_job("retranscribe", route="video" if _video_path(mdir) else "audio",
+                   meeting=slug, cmd=cmd,
                    transcript_policy="local_asr")
     response = dict(job)
     EXEC.submit(_run_pipeline, job)
@@ -356,7 +357,8 @@ def regen_minutes(slug: str, refine: str = Query("")):
             "missing_visual_cache": "视频会议缺少可复用的屏幕缓存，请重新导入以恢复抽帧阶段",
         }
         raise HTTPException(400, messages.get(str(exc), "现有资产不足，无法重生成")) from exc
-    job = _new_job("regen", meeting=slug, cmd=cmd)
+    job = _new_job("regen", route="video" if _video_path(mdir) else "audio",
+                   meeting=slug, cmd=cmd)
     resp = dict(job)
     EXEC.submit(_run_pipeline, job)
     return resp

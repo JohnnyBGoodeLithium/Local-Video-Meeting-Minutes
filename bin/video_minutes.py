@@ -31,6 +31,8 @@ from meeting_core.terminology import configured_bank_dir, safe_harvest_screen_ca
 from meeting_core.transcript_review import bind_review_to_transcript
 from meeting_core.resource_policy import prepare_stage
 from meeting_core.llm import DEFAULT_DRAFT_MODEL, DEFAULT_MINUTES_MODEL
+from meeting_core.progress_events import (output_ready, phase_done,
+                                          progress as progress_event)
 import voice_bank as vb
 from teams_minutes import extract_audio, diarize, slugify, mmss
 from slide_pages import extract_pages
@@ -129,11 +131,14 @@ def main() -> int:
     t_all = time.time()
     env = dict(os.environ, HF_HUB_OFFLINE="1")
 
+    progress_event("prepare")
     print(f"[1/6] 抽音轨 → {mdir}", flush=True)
     wav = mdir / "audio.wav"
     extract_audio(source_mp4, wav)
+    phase_done("prepare")
 
     print("[2/6] 转写 ∥ 说话人分离 ...", flush=True)
+    progress_event("speech_processing")
     prepare_stage("audio", keep=[DEFAULT_DRAFT_MODEL])
     tr_cmd = [str(PY), str(BIN / "transcribe.py"), str(wav), "--out", str(mdir),
               "--context-title", args.slug or slug]
@@ -207,11 +212,19 @@ def main() -> int:
         summary = review.get("summary", {})
         print(f"[meta] 逐字稿音频复核 | 自动修正 {summary.get('auto_corrected', 0)}"
               f" | 待核听 {summary.get('pending', 0)}", flush=True)
+    phase_done("speech_processing")
+    output_ready("transcript")
+    output_ready("speaker_navigation")
 
     print("[4/6] 先生成语音草稿纪要 ...", flush=True)
-    meeting_generation.generate_voice_draft(mdir, python=sys.executable)
+    progress_event("voice_draft")
+    draft_ready = meeting_generation.generate_voice_draft(mdir, python=sys.executable)
+    phase_done("voice_draft")
+    if draft_ready:
+        output_ready("voice_draft")
     meeting_generation.begin_visual_enrichment(mdir)
 
+    progress_event("visual_extraction")
     if args.reuse_visuals and (mdir / "slides.json").is_file():
         try:
             pages = json.loads((mdir / "slides.json").read_text(encoding="utf-8"))
@@ -224,6 +237,7 @@ def main() -> int:
         pages = extract_pages(source_mp4, mdir / "slides", mdir / "slides.json",
                               mode="media" if args.media else "slides")
         print(f"[meta] 逻辑页 {len(pages)} 页 | 抽页耗时 {time.time()-t0:.1f}s", flush=True)
+    phase_done("visual_extraction", done=len(pages), total=len(pages), unit="pages")
 
     print("[6/6] 用 VL 屏幕资料升级多模态纪要 ...", flush=True)
     prepare_stage("visual", keep=[DEFAULT_MINUTES_MODEL])

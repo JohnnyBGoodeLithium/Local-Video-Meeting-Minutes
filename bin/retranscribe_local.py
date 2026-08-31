@@ -19,6 +19,8 @@ import sys
 import time
 from pathlib import Path
 
+from meeting_core.progress_events import phase_done, progress as progress_event
+
 
 ROOT = Path(__file__).resolve().parent.parent
 PY = Path(os.environ.get("MEETING_PYTHON", sys.executable)).expanduser()
@@ -114,8 +116,10 @@ def main() -> int:
 
     signal.signal(signal.SIGTERM, interrupted)
     signal.signal(signal.SIGINT, interrupted)
+    progress_event("retranscribe_prepare")
     version, existing = _snapshot(mdir)
     print(f"[meta] 已创建重转写前快照，保留 {len(existing)} 个派生文件", flush=True)
+    phase_done("retranscribe_prepare")
     if videos:
         command = [str(PY), str(ROOT / "bin" / "video_minutes.py"), str(videos[0]),
                    "--meeting-dir", str(mdir), "--reuse-visuals"]

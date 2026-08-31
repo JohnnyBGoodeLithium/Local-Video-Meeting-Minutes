@@ -17,8 +17,10 @@ from pydantic import BaseModel
 
 import meeting_dir as md_util
 from deps import (AUDIO_EXT, BANK_LOCK, CONTENT_TYPES, DATA_ROOT, DOCX_EXT, INBOX, PY, ROOT,
-                  VIDEO_EXT, VTT_EXT, _meeting_identity, _now, _safe, _slugify)
+                  VIDEO_EXT, VTT_EXT, _meeting_identity, _now, _safe, _slugify,
+                  _video_path)
 from job_store import EXEC, JOBS, PROCS, _new_job, _run_pipeline, _save_job, _set_status
+from job_progress import apply_event, normalize_job_progress
 from job_recovery import (build_minutes_command, build_retranscribe_command,
                           build_speaker_resume_command, build_topic_map_command,
                           meeting_dir_for_job, preemption_resume_spec, recovery_plan)
@@ -46,14 +48,15 @@ def _job_with_recovery(original: dict) -> dict:
     """给失败卡片附加有限恢复状态，不暴露判断所用日志正文或文件路径。"""
     job = dict(original)
     job["content_type"] = _job_content_type(job)
-    if job.get("status") not in {"failed", "cancelled", "paused"}:
-        return job
-    plan = recovery_plan(job)
-    successor = JOBS.get(str(job.get("recovered_by") or ""))
-    if successor and successor.get("status") in {"queued", "running", "done"}:
-        plan = {**plan, "state": "recovered", "action": "none",
-                "successor_status": successor.get("status")}
-    job["recovery"] = plan
+    plan = None
+    if job.get("status") in {"failed", "cancelled", "paused"}:
+        plan = recovery_plan(job)
+        successor = JOBS.get(str(job.get("recovered_by") or ""))
+        if successor and successor.get("status") in {"queued", "running", "done"}:
+            plan = {**plan, "state": "recovered", "action": "none",
+                    "successor_status": successor.get("status")}
+        job["recovery"] = plan
+    job["progress"] = normalize_job_progress(job, JOBS.values(), recovery=plan)
     return job
 
 
@@ -64,6 +67,16 @@ def _link_recovery(source: dict, successor: dict, quality: str) -> None:
         successor["retry_of"] = source["id"]
         successor["recovery_attempt"] = int(source.get("recovery_attempt") or 0) + 1
         successor["recovery_quality"] = quality
+        if isinstance(successor.get("progress"), dict):
+            successor["progress"]["attempt"] = successor["recovery_attempt"] + 1
+            phase = str(successor["progress"].get("phase") or "prepare")
+            successor["progress"] = apply_event(successor["progress"], "recovery", {
+                "action": "resume", "phase": phase,
+                "reused": [item for item in (source.get("progress") or {})
+                           .get("available_outputs", {})
+                           if (source.get("progress") or {})
+                           .get("available_outputs", {}).get(item) == "ready"],
+            })
         _save_job(source)
         _save_job(successor)
 
@@ -292,7 +305,8 @@ def retry_job(jid: str, quality: str = Query("standard", pattern="^(standard|hig
                 raise ValueError("unsupported_recovery")
         except ValueError as exc:
             raise HTTPException(409, "会议资产已经变化，当前无法继续恢复") from exc
-        new_job = _new_job(kind, meeting=slug, cmd=command,
+        new_job = _new_job(kind, route="video" if _video_path(mdir) else "audio",
+                           meeting=slug, cmd=command,
                            recovery_scope=plan.get("scope"))
         EXEC.submit(_run_pipeline, new_job)
 

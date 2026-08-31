@@ -14,6 +14,8 @@ from pathlib import Path
 
 from deps import (BANK_LOCK, CONTENT_TYPES, DATA_ROOT, DRY_RUN, DRY_RUN_DELAY, INBOX, JOBS_DIR,
                   MEETINGS, MEETING_META_LOCK, ROOT, _now)
+from job_progress import (apply_event, initial_progress, normalize_job_progress,
+                          parse_event)
 from job_scheduler import SerialPriorityExecutor, default_priority
 
 EXEC = SerialPriorityExecutor()  # 重模型仍单 worker 串行，但等待任务可以重排
@@ -46,6 +48,10 @@ def _set_status(job: dict, status: str, **kw):
     with BANK_LOCK:
         job["status"] = status
         job.update(kw)
+        if (isinstance(job.get("progress"), dict)
+                and job["progress"].get("schema") == "job-progress/v2"):
+            job["progress"] = normalize_job_progress(
+                job, (), now=float(job.get("finished") or _now()))
         _save_job(job)
 
 
@@ -84,7 +90,17 @@ def _record_meeting_activity(job: dict) -> None:
 def _scheduler_error(job: dict, exc: Exception) -> None:
     """未知异常不能杀死唯一调度线程；日志只保存异常类型，不保存潜在正文。"""
     job.setdefault("log", []).append(f"[error] 后台调度异常 ({type(exc).__name__})")
-    _set_status(job, "failed", finished=_now(), rc=None)
+    finished = _now()
+    progress = job.get("progress") or initial_progress(job, finished)
+    phase = str(progress.get("phase") or "prepare")
+    job["progress"] = apply_event(progress, "failure", {
+        "phase": phase, "code": "SCHEDULER_INTERNAL_ERROR",
+        "category": "unknown_internal", "recoverability": "retry_stage",
+        "exception_type": type(exc).__name__,
+    }, finished)
+    projected = {**job, "status": "failed", "finished": finished, "rc": None}
+    job["progress"] = normalize_job_progress(projected, (), now=finished)
+    _set_status(job, "failed", finished=finished, rc=None)
 
 
 EXEC.set_error_handler(_scheduler_error)
@@ -118,6 +134,8 @@ def _new_job(kind: str, **kw) -> dict:
     job = {"id": jid, "kind": kind, "status": "queued", "created": _now(),
            "queue_priority": default_priority(kind), "priority_boost": False,
            "started": None, "finished": None, "rc": None, "log": [], **kw}
+    if "progress" not in job:
+        job["progress"] = initial_progress(job, job["created"])
     with BANK_LOCK:
         JOBS[jid] = job
         _save_job(job)
@@ -133,7 +151,11 @@ def load_jobs():
             continue
         if job.get("status") in ("queued", "running"):
             job["status"] = "failed"
+            job["finished"] = _now()
             job.setdefault("log", []).append("[error] 服务重启，作业中断")
+            if (isinstance(job.get("progress"), dict)
+                    and job["progress"].get("schema") == "job-progress/v2"):
+                job["progress"] = normalize_job_progress(job, (), now=job["finished"])
             _save_job(job)
         JOBS[job["id"]] = job
 
@@ -160,7 +182,17 @@ def _run_pipeline(job: dict):
     """后台线程：subprocess 调 bin/ 管线脚本。stdout 只留元数据行。"""
     if job.get("cancel_requested"):   # 排队期间被取消
         return
-    _set_status(job, "running", started=_now(), stage="准备处理")
+    started = _now()
+    progress = job.get("progress")
+    if not isinstance(progress, dict) or progress.get("schema") != "job-progress/v2":
+        progress = initial_progress(job, started)
+    first_phase = str(progress.get("phase") or "prepare")
+    progress = apply_event(progress, "progress", {
+        "phase": first_phase, "state": "running",
+    }, started)
+    progress["started_at"] = started
+    job["progress"] = progress
+    _set_status(job, "running", started=started, stage="准备处理")
     cmd = job["cmd"]
     actual = [cmd[0], cmd[1], "--help"] if DRY_RUN else cmd
     if DRY_RUN:
@@ -177,6 +209,13 @@ def _run_pipeline(job: dict):
         PROCS[job["id"]] = proc
         for raw in proc.stdout or []:
             line = raw.rstrip()
+            event = parse_event(line)
+            if event:
+                with BANK_LOCK:
+                    job["progress"] = apply_event(
+                        job.get("progress") or initial_progress(job), *event)
+                    _save_job(job)
+                continue
             if not line.lstrip().startswith("["):
                 safe_error = _safe_child_exception(line)
                 if safe_error:
@@ -193,8 +232,18 @@ def _run_pipeline(job: dict):
                 _save_job(job)
         proc.wait()
     except Exception as e:
-        job["log"].append(f"[error] 启动失败: {type(e).__name__}: {e}")
-        _set_status(job, "failed", finished=_now(), rc=-1)
+        job["log"].append(f"[error] 启动失败 ({type(e).__name__})")
+        finished = _now()
+        progress = job.get("progress") or initial_progress(job, finished)
+        phase = str(progress.get("phase") or "prepare")
+        job["progress"] = apply_event(progress, "failure", {
+            "phase": phase, "code": "PIPELINE_START_FAILED",
+            "category": "unknown_internal", "recoverability": "retry_stage",
+            "exception_type": type(e).__name__,
+        }, finished)
+        projected = {**job, "status": "failed", "finished": finished, "rc": -1}
+        job["progress"] = normalize_job_progress(projected, (), now=finished)
+        _set_status(job, "failed", finished=finished, rc=-1)
         return
     finally:
         PROCS.pop(job["id"], None)
@@ -205,7 +254,11 @@ def _run_pipeline(job: dict):
     job["log"] = job["log"][-300:]
     if job.get("cancel_requested"):
         stopped_status = "paused" if job.get("pause_requested") else "cancelled"
-        _set_status(job, stopped_status, finished=_now(), rc=proc.returncode)
+        finished = _now()
+        projected = {**job, "status": stopped_status, "finished": finished,
+                     "rc": proc.returncode}
+        job["progress"] = normalize_job_progress(projected, (), now=finished)
+        _set_status(job, stopped_status, finished=finished, rc=proc.returncode)
     else:
         if proc.returncode == 0 and (job.get("kind") == "upload"
                                      or job.get("auto_resume")) and not DRY_RUN:
@@ -221,8 +274,11 @@ def _run_pipeline(job: dict):
                     job["log"].append(f"[error] 上传暂存目录清理失败: {type(exc).__name__}")
         succeeded = proc.returncode == 0
         finished = _now()
-        _set_status(job, "done" if succeeded else "failed",
-                    finished=finished, rc=proc.returncode,
+        terminal = "done" if succeeded else "failed"
+        projected = {**job, "status": terminal, "finished": finished,
+                     "rc": proc.returncode}
+        job["progress"] = normalize_job_progress(projected, (), now=finished)
+        _set_status(job, terminal, finished=finished, rc=proc.returncode,
                     result={"dry_run": True} if DRY_RUN and succeeded else None)
         if succeeded and not DRY_RUN and job.get("kind") in {
                 "upload", "regen", "topic_map", "retranscribe"}:

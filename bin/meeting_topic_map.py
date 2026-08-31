@@ -23,6 +23,8 @@ import meeting_artifact as artifact
 import meeting_structure
 from meeting_core.media_navigation import build_media_navigation
 from meeting_core.llm import validated_api_base
+from meeting_core.progress_events import (failure as failure_event, output_ready,
+                                          phase_done, progress as progress_event)
 
 
 SCHEMA = "meeting-topic-map/v3"
@@ -895,6 +897,7 @@ def generate_topic_map(mdir: Path, *, llm: Callable[[str, int], object] | None =
     )
     summaries = list(checkpoint.get("summaries", [])) if checkpoint_valid else []
     _annotate_candidates(summaries)
+    progress_event("topic_map", done=len(summaries), total=len(windows), unit="windows")
     if summaries:
         print(f"[meta] Topic Map 复用 {len(summaries)}/{len(windows)} 个局部归纳", flush=True)
     for index, window in enumerate(windows[len(summaries):], len(summaries) + 1):
@@ -946,6 +949,7 @@ def generate_topic_map(mdir: Path, *, llm: Callable[[str, int], object] | None =
                                   encoding="utf-8")
         checkpoint_tmp.replace(checkpoint_path)
         print(f"[meta] Topic Map 局部归纳 {index}/{len(windows)}", flush=True)
+        progress_event("topic_map", done=index, total=len(windows), unit="windows")
     reduce_payload = {
         "schema": "meeting-topic-reduce-input/v1",
         "windows": summaries,
@@ -1006,6 +1010,8 @@ def generate_topic_map(mdir: Path, *, llm: Callable[[str, int], object] | None =
     tmp.write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding="utf-8")
     tmp.replace(path)
     checkpoint_path.unlink(missing_ok=True)
+    phase_done("topic_map", done=len(windows), total=len(windows), unit="windows")
+    output_ready("topic_map")
     return path, result
 
 
@@ -1016,6 +1022,7 @@ def generate_for_pipeline(mdir: Path) -> dict | None:
         _path, result = generate_topic_map(mdir)
     except Exception as exc:
         print(f"[warn] Topic Map 暂未生成: {type(exc).__name__}: {exc}", flush=True)
+        progress_event("topic_map", state="degraded")
         return None
     print(f"[meta] Topic Map: {result['stats']['topics']} 个论点 / "
           f"{result['stats']['children']} 个子节点 / "
@@ -1034,6 +1041,8 @@ def main() -> int:
         path, result = generate_topic_map(args.meeting_dir, chunk_seconds=args.chunk_seconds)
     except Exception as exc:
         print(f"[error] Topic Map 生成失败: {type(exc).__name__}: {exc}", file=sys.stderr)
+        failure_event("TOPIC_MAP_FAILED", "stage_processing_failed", "topic_map",
+                      "retry_stage", exception_type=type(exc).__name__)
         return 1
     print(f"[meta] Topic Map: {result['stats']['topics']} 个论点 / "
           f"{result['stats']['children']} 个子节点 / "

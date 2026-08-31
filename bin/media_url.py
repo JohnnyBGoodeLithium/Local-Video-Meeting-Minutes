@@ -20,6 +20,7 @@ from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 from meeting_core.source_info import from_ytdlp
+from meeting_core.progress_events import phase_done, progress as progress_event
 from meeting_dir import for_teams
 from teams_minutes import slugify
 
@@ -115,6 +116,7 @@ def _download(url: str, destination: Path) -> tuple[Path, dict]:
         if bucket >= last_percent["value"] + 10:
             last_percent["value"] = bucket
             print(f"[meta] 下载媒体 {bucket}%", flush=True)
+            progress_event("download", done=bucket, total=100, unit="percent")
 
     options = {
         "format": f"bv*[height<={max_height}]+ba/b[height<={max_height}]/best",
@@ -170,9 +172,11 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
+        progress_event("download", done=0, total=100, unit="percent")
         request = json.loads(args.request.read_text(encoding="utf-8"))
         url = validate_public_url(str(request.get("url") or ""))
         media, info = _download(url, args.request.parent)
+        phase_done("download", done=100, total=100, unit="percent")
         source_info = from_ytdlp(info)
         title = str(source_info.get("title") or "Internet media").strip()[:180] or "Internet media"
         upload_date = str(info.get("upload_date") or "")

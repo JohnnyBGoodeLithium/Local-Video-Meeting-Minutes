@@ -28,6 +28,8 @@ from meeting_dir import for_recording, materialize_audio, materialize_source
 from meeting_core.transcript_review import bind_review_to_transcript
 from meeting_core.resource_policy import prepare_stage
 from meeting_core.llm import DEFAULT_DRAFT_MODEL
+from meeting_core.progress_events import (output_ready, phase_done,
+                                          progress as progress_event)
 
 ROOT = Path(__file__).resolve().parent.parent
 BIN = ROOT / "bin"
@@ -60,9 +62,11 @@ def main() -> int:
     else:
         folder = for_recording(ROOT, original.stem, args.title)
     folder.mkdir(parents=True, exist_ok=True)
+    progress_event("prepare")
     source_audio = materialize_source(
         original, folder / f"source_audio{original.suffix.lower() or '.audio'}")
     wav = materialize_audio(source_audio, folder / "audio.wav")
+    phase_done("prepare")
     t_start = time.time()
     env = dict(os.environ, HF_HUB_OFFLINE="1")
 
@@ -77,6 +81,7 @@ def main() -> int:
         dz_cmd += ["--device", args.diarize_device]
 
     print(f"[1/3] 并行：转写 + 说话人分离 → {folder}", flush=True)
+    progress_event("speech_processing")
     prepare_stage("audio", keep=[DEFAULT_DRAFT_MODEL])
     p_tr = subprocess.Popen(tr_cmd, env=env)
     p_dz = subprocess.Popen(dz_cmd, env=env)
@@ -113,13 +118,19 @@ def main() -> int:
         print(f"警告：声纹入库失败(rc={rc})，不影响纪要生成；可稍后手动运行 "
               f"bin/voice_enroll.py {folder}", file=sys.stderr)
     bind_review_to_transcript(folder)
+    phase_done("speech_processing")
+    output_ready("transcript")
+    output_ready("speaker_navigation")
 
     print("[3/3] 生成分说话人纪要 ...", flush=True)
+    progress_event("final_minutes")
     rc = subprocess.run([str(PY), str(BIN / "summarize.py"), str(folder / "transcript.txt"),
                          "--spk", str(folder / "transcript.spk.json"),
                          "--max-tokens", "8192"]).returncode
     if rc:
         return 1
+    phase_done("final_minutes")
+    output_ready("final_minutes")
 
     print(f"[meta] 全链路完成，总耗时 {time.time()-t_start:.1f}s", flush=True)
     return 0
