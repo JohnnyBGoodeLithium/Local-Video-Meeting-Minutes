@@ -65,4 +65,11 @@ const legacy = normalizeProgress({ status: "running", progress: { done: 3, total
 assert.equal(legacy.source, "legacy_estimate");
 assert.equal(legacy.done, 3);
 
+const draftFailed = structuredClone(progress);
+draftFailed.available_outputs.voice_draft = "failed";
+draftFailed.available_outputs.final_minutes = "pending";
+const draftFailedPresentation = jobPresentation({ ...job, progress: draftFailed },
+  "Synthetic Review", "zh-CN");
+assert.doesNotMatch(draftFailedPresentation.headline, /语音草稿已就绪/);
+
 console.log("Job progress frontend: bilingual projection, ETA, recovery, and diagnostics passed");

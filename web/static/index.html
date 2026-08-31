@@ -78,7 +78,7 @@
         <details class="more-menu">
           <summary><svg class="fluent-icon" aria-hidden="true"><use href="/static/fluent-icons.svg#fluent-more-horizontal"></use></svg><span>更多</span></summary>
           <div class="more-menu-pop">
-            <button id="photo-import-btn" type="button" disabled title="补充白板、纸面笔记或现场展示照片">添加现场照片…</button>
+            <button id="photo-import-btn" type="button" disabled title="补充白板、纸面笔记、会议室展示或实物照片">添加现场资料…</button>
             <input id="photo-file-input" type="file" accept="image/jpeg,image/png,image/webp" multiple hidden>
             <button id="knowledge-publish-btn" type="button" disabled title="将当前版本发布或更新到已配置的知识库">发布到知识库…</button>
             <details class="more-advanced">
@@ -107,6 +107,10 @@
             <div class="player-box-head">
               <span id="playback-time">00:00 / 00:00</span>
               <span id="current-chapter" class="current-chapter hidden"></span>
+              <button id="photo-import-current-btn" class="player-material-action hidden" type="button" disabled>
+                <svg class="fluent-icon" aria-hidden="true"><use href="/static/fluent-icons.svg#fluent-add"></use></svg>
+                <span>在 00:00 添加照片</span>
+              </button>
               <button id="player-toggle" class="player-toggle hidden" type="button" aria-expanded="false">展开画面</button>
             </div>
             <div id="focus-summary" class="focus-summary hidden" aria-live="polite"></div>
@@ -282,25 +286,26 @@
 
 <div id="photo-import-mask" class="mask hidden">
   <div class="dialog photo-import-dialog" role="dialog" aria-modal="true" aria-labelledby="photo-import-title">
-    <h3 id="photo-import-title">添加现场照片</h3>
-    <p id="photo-import-summary" class="dim">选择白板、纸面笔记或线下展示照片。</p>
-    <div class="photo-import-files" id="photo-import-files"></div>
-    <fieldset class="photo-alignment-options">
-      <legend>照片放在会议的什么位置？</legend>
-      <label><input type="radio" name="photo-alignment" value="current_time" checked>
-        <span><b>从当前播放位置开始排列</b><small id="photo-current-time">当前 00:00；有拍摄时间时保留照片间隔</small></span></label>
-      <label><input type="radio" name="photo-alignment" value="capture_time">
-        <span><b>按拍摄时间自动对齐</b><small>需要照片含 EXIF 拍摄时间，并填写会议开始时间</small></span></label>
-      <label class="photo-meeting-start hidden" id="photo-meeting-start-row">
-        <span>会议开始时间</span><input id="photo-meeting-start" type="datetime-local" step="1">
-      </label>
-      <label><input type="radio" name="photo-alignment" value="unlocated">
-        <span><b>暂不定位</b><small>先保存，之后在时间轴拖动或放到当前播放位置</small></span></label>
-    </fieldset>
-    <p class="photo-trust-note">照片用于补充现场资料；模型解读不能单独证明会议作出了决定。</p>
+    <div class="export-dialog-head">
+      <div><h3 id="photo-import-title">添加现场资料</h3>
+        <p id="photo-import-summary" class="dim">补充视频中没有清楚记录的白板、纸面笔记、会议室展示或实物照片。</p></div>
+      <button id="photo-import-close" type="button" aria-label="关闭"><svg class="fluent-icon" aria-hidden="true"><use href="/static/fluent-icons.svg#fluent-dismiss"></use></svg></button>
+    </div>
+    <div id="photo-import-content" class="photo-import-content"></div>
     <div class="dialog-btns">
       <button id="photo-import-cancel" type="button">取消</button>
-      <button id="photo-import-confirm" class="primary" type="button">导入照片</button>
+      <button id="photo-import-confirm" class="primary" type="button">导入现场资料</button>
+    </div>
+  </div>
+</div>
+
+<div id="photo-delete-mask" class="mask hidden">
+  <div class="dialog photo-delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="photo-delete-title" aria-describedby="photo-delete-description">
+    <h3 id="photo-delete-title">删除这项现场资料？</h3>
+    <p id="photo-delete-description" class="dim">受保护原图和阅读副本会一并删除，其他会议内容不受影响。</p>
+    <div class="dialog-btns">
+      <button id="photo-delete-cancel" type="button">取消</button>
+      <button id="photo-delete-confirm" class="danger" type="button">删除现场资料</button>
     </div>
   </div>
 </div>

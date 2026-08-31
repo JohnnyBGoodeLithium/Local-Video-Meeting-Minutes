@@ -11,6 +11,7 @@ import json
 import os
 import shutil
 import threading
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Iterable
@@ -198,10 +199,13 @@ def import_photos(
         document = load(mdir)
         existing_hashes = {str(item.get("sha256")): item for item in document["photos"]}
         imported: list[dict] = []
+        results: list[dict] = []
         try:
             for item in prepared:
                 if item["sha256"] in existing_hashes:
-                    imported.append(existing_hashes[item["sha256"]])
+                    existing = existing_hashes[item["sha256"]]
+                    imported.append(existing)
+                    results.append({"photo": existing, "duplicate": True})
                     continue
                 photo_id = _next_id(document["photos"])
                 original_ext = ".jpg" if item["ext"] == ".jpeg" else item["ext"]
@@ -242,6 +246,7 @@ def import_photos(
                 document["photos"].append(record)
                 existing_hashes[item["sha256"]] = record
                 imported.append(record)
+                results.append({"photo": record, "duplicate": False})
             document["updated_at"] = _now_iso()
             _atomic_json(mdir / "meeting.photos.json", document)
         except Exception:
@@ -251,7 +256,14 @@ def import_photos(
                 except OSError:
                     pass
             raise
-    return {"schema": SCHEMA, "imported": imported, "photos": document["photos"]}
+    return {
+        "schema": SCHEMA,
+        "imported": imported,
+        "results": results,
+        "created_ids": [item["photo"]["id"] for item in results if not item["duplicate"]],
+        "duplicate_ids": [item["photo"]["id"] for item in results if item["duplicate"]],
+        "photos": document["photos"],
+    }
 
 
 def set_alignment(mdir: Path, photo_id: str, seconds: float | None,
@@ -271,11 +283,82 @@ def set_alignment(mdir: Path, photo_id: str, seconds: float | None,
             if value < 0 or (duration > 0 and value > duration):
                 raise PhotoError("照片时间超出会议范围")
             record["alignment"] = {"seconds": round(value, 3), "state": "confirmed",
-                                   "method": "manual_drag",
+                                   "method": "manual_position",
                                    "confidence": "medium"}
         document["updated_at"] = _now_iso()
         _atomic_json(mdir / "meeting.photos.json", document)
         return record
+
+
+def set_title(mdir: Path, photo_id: str, title: str) -> dict:
+    """只更新阅读标题；原文件名与内容 hash 保持不变。"""
+    clean = " ".join(str(title or "").split()).strip()
+    if not 1 <= len(clean) <= 120:
+        raise PhotoError("现场资料标题需为 1–120 个字符")
+    with _LOCK:
+        document = load(mdir)
+        record = next((item for item in document["photos"]
+                       if item.get("id") == photo_id), None)
+        if record is None:
+            raise PhotoError("现场资料不存在")
+        record["title"] = clean
+        document["updated_at"] = _now_iso()
+        _atomic_json(mdir / "meeting.photos.json", document)
+        return record
+
+
+def _managed_photo_path(mdir: Path, raw: str, folder: str) -> Path:
+    """把 sidecar 路径约束在当前会议的指定照片目录内。"""
+    root = (mdir / "photos" / folder).resolve()
+    candidate = (mdir / str(raw or "")).resolve()
+    try:
+        inside = candidate.is_relative_to(root)
+    except AttributeError:  # pragma: no cover - Python < 3.9 compatibility
+        inside = root == candidate or root in candidate.parents
+    if not inside:
+        raise PhotoError("现场资料文件路径不安全，未执行删除")
+    return candidate
+
+
+def delete_photo(mdir: Path, photo_id: str) -> dict:
+    """事务式删除 sidecar 条目、受保护原图和阅读副本。
+
+    文件先在各自受控目录内改名为 tombstone，随后原子写入 sidecar；若写入失败，
+    文件会恢复原名。这样不会留下指向已删除文件的 canonical 记录。
+    """
+    with _LOCK:
+        document = load(mdir)
+        record = next((item for item in document["photos"]
+                       if item.get("id") == photo_id), None)
+        if record is None:
+            raise PhotoError("现场资料不存在")
+        managed = [
+            _managed_photo_path(mdir, str(record.get("original_path") or ""), "original"),
+            _managed_photo_path(mdir, str(record.get("image_path") or ""), "review"),
+        ]
+        moved: list[tuple[Path, Path]] = []
+        try:
+            for path in managed:
+                if not path.is_file():
+                    continue
+                tombstone = path.with_name(f".{path.name}.deleting-{uuid.uuid4().hex}")
+                os.replace(path, tombstone)
+                moved.append((path, tombstone))
+            document["photos"] = [item for item in document["photos"]
+                                  if item.get("id") != photo_id]
+            document["updated_at"] = _now_iso()
+            _atomic_json(mdir / "meeting.photos.json", document)
+        except Exception:
+            for original, tombstone in reversed(moved):
+                if tombstone.exists():
+                    os.replace(tombstone, original)
+            raise
+        for _, tombstone in moved:
+            try:
+                tombstone.unlink()
+            except OSError:
+                pass
+        return {"deleted": record, "photos": document["photos"]}
 
 
 def project(mdir: Path) -> list[dict]:
@@ -292,7 +375,7 @@ def project(mdir: Path) -> list[dict]:
             "page": None,
             "title": title,
             "description": str(item.get("description") or ""),
-            "display_description": str(item.get("description") or "尚未生成图片解读。"),
+            "display_description": str(item.get("description") or "未分析，仅作为现场资料保存"),
             "image": str(item.get("image_path") or ""),
             "asset_path": str(item.get("image_path") or ""),
             "original_name": str(item.get("original_name") or ""),

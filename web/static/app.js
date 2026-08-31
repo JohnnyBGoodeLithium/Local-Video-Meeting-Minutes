@@ -32,6 +32,13 @@ import { beginExampleSelection, beginIdentity, buildCorrectionApplyPayload,
   from "./modules/speaker-correction.js?v=20260831p107";
 import { renderCorrectionSheet, renderIdentityPopover }
   from "./modules/speaker-correction-view.js?v=20260831p107";
+import { beginPhotoImport, createPhotoImportState, hydratePhotoCaptureTimes,
+  markPhotoImportResult, photoUploadSpec, releasePhotoImport, removePhotoImportItem,
+  setPhotoMeetingStart, setPhotoPositionMode, togglePhotoTimeSettings,
+  withPhotoImportBusy, withPhotoImportError, formatPhotoBytes }
+  from "./modules/photo-import.js?v=20260831p107";
+import { renderPhotoImport }
+  from "./modules/photo-import-view.js?v=20260831p107";
 
 /* 会议列表 + 回顾工作台（装配入口；领域规则逐步迁往 modules/） */
 "use strict";
@@ -149,7 +156,12 @@ const state = {
   progressiveRefreshes: new Set(),
   transcriptReview: null,
   transcriptEditIndex: null,
-  photoImportFiles: [],
+  photoImport: createPhotoImportState(),
+  pendingPhotoEntry: "materials",
+  pendingPhotoReturnFocus: null,
+  photoRenameId: null,
+  photoDeleteTarget: null,
+  photoDeleteReturnFocus: null,
   knowledgePreflight: null,
 };
 
@@ -475,11 +487,28 @@ function applyUiLanguage() {
   }
   const photoButton = $("#photo-import-btn");
   if (photoButton) {
-    photoButton.textContent = english ? "Add meeting photos…" : "添加现场照片…";
+    photoButton.textContent = english ? "Add meeting materials…" : "添加现场资料…";
     photoButton.title = english
-      ? "Add whiteboard, paper-note, or in-room display photos"
-      : "补充白板、纸面笔记或现场展示照片";
+      ? "Add photos of whiteboards, paper notes, room displays, or physical objects"
+      : "补充白板、纸面笔记、会议室展示或实物照片";
   }
+  updatePhotoCurrentButton(Number(player()?.currentTime || 0));
+  text("#photo-import-title", english ? "Add meeting materials" : "添加现场资料");
+  text("#photo-import-summary", english
+    ? "Add whiteboards, paper notes, room displays, or physical objects that the recording did not capture clearly."
+    : "补充视频中没有清楚记录的白板、纸面笔记、会议室展示或实物照片。");
+  $("#photo-import-close")?.setAttribute("aria-label", english ? "Close" : "关闭");
+  text("#photo-import-cancel", english ? "Cancel" : "取消");
+  text("#photo-import-confirm", state.photoImport.busy
+    ? (english ? "Importing…" : "正在导入…")
+    : (english ? "Import materials" : "导入现场资料"));
+  text("#photo-delete-title", english ? "Delete this meeting material?" : "删除这项现场资料？");
+  text("#photo-delete-description", english
+    ? "The protected original and reading copy will both be removed. Other meeting content is not affected."
+    : "受保护原图和阅读副本会一并删除，其他会议内容不受影响。");
+  text("#photo-delete-cancel", english ? "Cancel" : "取消");
+  text("#photo-delete-confirm", english ? "Delete material" : "删除现场资料");
+  if (!$("#photo-import-mask")?.classList.contains("hidden")) renderPhotoImportDialog();
   const publishButton = $("#knowledge-publish-btn");
   if (publishButton) {
     publishButton.textContent = english ? "Publish to knowledge base…" : "发布到知识库…";
@@ -759,6 +788,8 @@ async function deleteMeeting(ev, slug) {
     state.slug = null;
     state.bundle = null;
     state.transcriptReview = null;
+    closePhotoImportDialog();
+    closePhotoDeleteDialog();
     closeTranscriptEdit();
     $("#transcript-review-bar")?.classList.add("hidden");
     $("#meeting-title").textContent = "选择一场会议";
@@ -776,7 +807,7 @@ async function deleteMeeting(ev, slug) {
     $("#transcript").innerHTML = '<p class="placeholder">← 选择一场会议</p>';
     $("#minutes").innerHTML = '<p class="placeholder">纪要内容</p>';
     $("#chapters").innerHTML = '<p class="placeholder">选择会议后可查看会议脉络</p>';
-    $("#visuals").innerHTML = '<p class="placeholder">选择会议后可查看屏幕内容</p>';
+    $("#visuals").innerHTML = '<p class="placeholder">选择会议后可查看画面与资料</p>';
     $("#player-holder").innerHTML = '<p class="placeholder">选择会议后可回放</p>';
     $("#timeline").innerHTML = "";
     $("#speaker-legend").innerHTML = "";
@@ -793,6 +824,7 @@ async function deleteMeeting(ev, slug) {
     state.legendShowAll = false;
     state.speakerColorCache = null;
     $("#utterance-controls").innerHTML = "";
+    updatePhotoCurrentButton(0);
     $("#utterance-controls").classList.add("hidden");
     $("#current-chapter").classList.add("hidden");
     $("#regen-btn").disabled = true;
@@ -1163,6 +1195,7 @@ async function loadMeeting(slug) {
   $("#storage-btn").disabled = false;
   $("#content-type-btn").disabled = false;
   $("#photo-import-btn").disabled = contentTypeOf(b) !== "meeting";
+  updatePhotoCurrentButton(0);
   $("#assistant-launcher").disabled = false;
   if (state.workspace.utilityOpen) openUtility(state.workspace.utilityTab);
   if (isDraft && state.viewMode === "quality") state.viewMode = "minutes";
@@ -1172,7 +1205,7 @@ async function loadMeeting(slug) {
     ? "chapters" : (topicMapReady ? "chapters" : "minutes");
   $("#quality-tab").disabled = isDraft;
   $("#chapters-tab").disabled = !(b.transcript?.length);
-  $("#visuals-tab").disabled = !(b.structure?.visuals?.length);
+  $("#visuals-tab").disabled = contentTypeOf(b) === "media" && !(b.structure?.visuals?.length);
   $("#quality-entry-btn").disabled = isDraft;
   if (isDraft) $("#quality-entry-btn").textContent = isEnglishUi()
     ? "Audit after final minutes" : "终稿后审计结论";
@@ -1197,6 +1230,7 @@ function renderPlayer() {
   const b = state.bundle;
   const holder = $("#player-holder");
   holder.innerHTML = "";
+  updatePhotoCurrentButton(0);
   let el;
   const hasVisualStage = !b.has_video && (b.structure?.visuals || []).some(item => item.image);
   if (hasVisualStage) {
@@ -1220,6 +1254,7 @@ function renderPlayer() {
       : "无媒体文件，可通过时间轴定位逐字稿与纪要"}</p>`;
     buildTimeline(0);
     $("#playback-time").textContent = `00:00 / ${fmt(b.duration || 0)}`;
+    updatePhotoCurrentButton(0);
     $("#player-toggle").classList.add("hidden");
     updateFocusPresentation(true);
     return;
@@ -1234,6 +1269,7 @@ function renderPlayer() {
     // 媒体时长可能短于会议跨度(导出裁剪/音频抽离),时间轴始终覆盖逐字稿全程。
     buildTimeline(Math.max(el.duration || 0, b.duration || 0));
     $("#playback-time").textContent = `${fmt(el.currentTime)} / ${fmt(el.duration)}`;
+    updatePhotoCurrentButton(el.currentTime);
   });
   el.addEventListener("timeupdate", onTimeUpdate);
   holder.appendChild(el);
@@ -1335,13 +1371,15 @@ function updateScreenPreview(visual = null) {
   $("#screen-preview-image").src = visualImageUrl(source);
   $("#screen-preview-title").textContent = visualReadingCopy(source).title;
   $("#screen-preview-kicker").textContent = source.kind === "slide"
-    ? `第 ${source.page} 页` : source.kind === "photo"
-      ? (isEnglishUi() ? "Meeting photo" : "现场照片") : "动态画面";
+    ? (isEnglishUi() ? `Page ${source.page}` : `第 ${source.page} 页`) : source.kind === "photo"
+      ? (isEnglishUi() ? "Meeting material" : "现场资料") : (isEnglishUi() ? "Dynamic screen" : "动态画面");
   const rawAt = source.ranges?.[0]?.[0] ?? source.first;
   const at = rawAt == null ? Number.NaN : Number(rawAt);
-  $("#screen-preview-meta").textContent = `${Number.isFinite(at) ? fmt(at) : (isEnglishUi() ? "Unlocated" : "未定位")} · ${visualValueLabel(source)} · ` +
-    `${source.display_status === "discussed" ? "有对应讨论" :
-      source.display_status === "display_only" ? "仅展示" : "动态画面"}`;
+  $("#screen-preview-meta").textContent = source.kind === "photo"
+    ? `${Number.isFinite(at) ? fmt(at) : (isEnglishUi() ? "Unlocated" : "未定位")} · ${isEnglishUi() ? "Meeting material" : "现场资料"}`
+    : `${Number.isFinite(at) ? fmt(at) : (isEnglishUi() ? "Unlocated" : "未定位")} · ${visualValueLabel(source)} · ` +
+      `${source.display_status === "discussed" ? (isEnglishUi() ? "Discussed" : "有对应讨论") :
+        source.display_status === "display_only" ? (isEnglishUi() ? "Display only" : "仅展示") : (isEnglishUi() ? "Dynamic screen" : "动态画面")}`;
   const index = visuals.findIndex(item => item.id === source.id);
   $("#screen-preview-prev").disabled = index <= 0;
   $("#screen-preview-next").disabled = index < 0 || index >= visuals.length - 1;
@@ -1519,6 +1557,83 @@ async function updatePhotoAlignment(photoId, seconds) {
   }
 }
 
+async function refreshPhotoMaterials() {
+  if (!state.slug || !state.bundle) return;
+  const refreshed = await jget(`/api/meetings/${encodeURIComponent(state.slug)}/bundle`);
+  state.bundle.photos = refreshed.photos || [];
+  state.bundle.structure = state.bundle.structure || {};
+  state.bundle.structure.visuals = refreshed.structure?.visuals || [];
+  if (!(state.bundle.structure.visuals || []).some(item => item.id === state.selectedVisualId))
+    state.selectedVisualId = state.bundle.structure.visuals.find(item => item.kind === "photo")?.id
+      || state.bundle.structure.visuals[0]?.id || null;
+  buildTimeline(Number(state.bundle.duration || player()?.duration || 1));
+  if (state.viewMode === "visuals") renderVisuals(true);
+  $("#visuals-tab").disabled = false;
+}
+
+async function savePhotoTitle(photoId, title) {
+  const clean = String(title || "").trim();
+  if (!clean) return;
+  const response = await api(
+    `/api/meetings/${encodeURIComponent(state.slug)}/photos/${encodeURIComponent(photoId)}`,
+    { method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: clean }) });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.detail || response.status);
+  const visual = (state.bundle?.structure?.visuals || []).find(item => item.id === photoId);
+  if (visual) visual.title = payload.photo?.title || clean;
+  state.photoRenameId = null;
+  renderVisuals(true);
+  toast(isEnglishUi() ? "Material title updated" : "现场资料标题已更新");
+}
+
+function openPhotoDeleteDialog(photoId, title, trigger) {
+  state.photoDeleteTarget = { id: photoId, title };
+  state.photoDeleteReturnFocus = trigger || document.activeElement;
+  const description = $("#photo-delete-description");
+  if (description) description.textContent = isEnglishUi()
+    ? `“${title}” and both its protected original and reading copy will be removed. Other meeting content is not affected.`
+    : `“${title}”的受保护原图和阅读副本会一并删除，其他会议内容不受影响。`;
+  $("#photo-delete-mask")?.classList.remove("hidden");
+  $("#photo-delete-cancel")?.focus();
+}
+
+function closePhotoDeleteDialog() {
+  $("#photo-delete-mask")?.classList.add("hidden");
+  const returnFocus = state.photoDeleteReturnFocus;
+    state.photoDeleteTarget = null;
+  state.photoDeleteReturnFocus = null;
+  if (returnFocus?.isConnected) returnFocus.focus();
+}
+
+async function deletePhotoMaterial() {
+  const target = state.photoDeleteTarget;
+  if (!state.slug || !target?.id) return;
+  const button = $("#photo-delete-confirm");
+  button.disabled = true;
+  button.textContent = isEnglishUi() ? "Deleting…" : "正在删除…";
+  try {
+    const response = await api(
+      `/api/meetings/${encodeURIComponent(state.slug)}/photos/${encodeURIComponent(target.id)}`,
+      { method: "DELETE" });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.detail || response.status);
+    state.bundle.structure.visuals = (state.bundle.structure?.visuals || [])
+      .filter(item => item.id !== target.id);
+    state.bundle.photos = (state.bundle.photos || []).filter(item => item.id !== target.id);
+    state.selectedVisualId = state.bundle.structure.visuals[0]?.id || null;
+    closePhotoDeleteDialog();
+    buildTimeline(Number(state.bundle.duration || player()?.duration || 1));
+    renderVisuals();
+    toast(isEnglishUi() ? "Meeting material deleted" : "现场资料已删除");
+  } catch (error) {
+    toast(`${isEnglishUi() ? "Delete failed" : "删除失败"}：${error.message}`);
+  } finally {
+    button.disabled = false;
+    button.textContent = isEnglishUi() ? "Delete material" : "删除现场资料";
+  }
+}
+
 function renderPhotoMarkers(timeline, duration) {
   const photos = (state.bundle?.structure?.visuals || []).filter(
     visual => visual.kind === "photo" && visual.alignment?.seconds != null
@@ -1529,32 +1644,12 @@ function renderPhotoMarkers(timeline, duration) {
     marker.className = "tl-photo-marker";
     marker.dataset.photoId = photo.id;
     marker.style.left = `${Number(photo.alignment.seconds) / duration * 100}%`;
-    marker.title = `${fmt(photo.alignment.seconds)} · ${photo.title || (isEnglishUi() ? "Meeting photo" : "现场照片")} · ${isEnglishUi() ? "Drag to align" : "拖动校正时间"}`;
-    let moved = false;
-    let pendingSeconds = Number(photo.alignment.seconds);
-    marker.addEventListener("pointerdown", event => {
+    marker.title = `${fmt(photo.alignment.seconds)} · ${photo.title || (isEnglishUi() ? "Meeting material" : "现场资料")}`;
+    marker.setAttribute("aria-label", marker.title);
+    marker.addEventListener("click", event => {
       event.stopPropagation();
-      moved = false;
-      marker.classList.add("dragging");
-      marker.setPointerCapture(event.pointerId);
+      openVisual(photo.id, Number(photo.alignment.seconds));
     });
-    marker.addEventListener("pointermove", event => {
-      if (!marker.hasPointerCapture(event.pointerId)) return;
-      const bounds = timeline.getBoundingClientRect();
-      const ratio = Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width));
-      pendingSeconds = ratio * duration;
-      marker.style.left = `${ratio * 100}%`;
-      marker.title = `${fmt(pendingSeconds)} · ${isEnglishUi() ? "Release to align" : "松开完成定位"}`;
-      moved = true;
-    });
-    marker.addEventListener("pointerup", event => {
-      event.stopPropagation();
-      marker.classList.remove("dragging");
-      if (marker.hasPointerCapture(event.pointerId)) marker.releasePointerCapture(event.pointerId);
-      if (moved) updatePhotoAlignment(photo.id, pendingSeconds);
-      else openVisual(photo.id, Number(photo.alignment.seconds));
-    });
-    marker.addEventListener("click", event => event.stopPropagation());
     timeline.appendChild(marker);
   }
 }
@@ -2446,6 +2541,7 @@ function onTimeUpdate() {
   const played = $(".tl-played", tl);
   if (played && dur) played.style.width = (t / dur * 100) + "%";
   $("#playback-time").textContent = `${fmt(t)} / ${fmt(p.duration || dur)}`;
+  updatePhotoCurrentButton(t);
   if (handleSpeakerOnlyPlayback(p, t)) return;
   updateActiveChapter(t);
   syncTimeFocus(t, false);
@@ -3410,9 +3506,9 @@ function visualNavCard(visual, selected) {
     `data-visual-select="${esc(visual.id)}"><span class="visual-nav-thumb">` +
     (visualImage ? `<img src="${visualImage}" alt="">` : `<i>${isEnglishUi() ? "No frame" : "无截图"}</i>`) +
     `</span><span class="visual-nav-copy"><small>${visual.first == null ? (isEnglishUi() ? "Unlocated" : "未定位") : fmt(visual.first)} · ` +
-    `${visual.kind === "slide" ? (isEnglishUi() ? `Frame ${visual.page}` : `第${visual.page}帧`) : photo ? (isEnglishUi() ? "Meeting photo" : "现场照片") : (isEnglishUi() ? "Camera" : "摄像头")}</small>` +
+    `${visual.kind === "slide" ? (isEnglishUi() ? `Frame ${visual.page}` : `第${visual.page}帧`) : photo ? (isEnglishUi() ? "Meeting material" : "现场资料") : (isEnglishUi() ? "Camera" : "摄像头")}</small>` +
     `<b>${esc(copy.title)}</b><span>` +
-    (role ? `<i class="visual-role ${esc(role)}">${esc(mediaRoleLabel(role))}</i>` :
+    (role ? `<i class="visual-role ${esc(role)}">${esc(mediaRoleLabel(role))}</i>` : photo ? "" :
       `<i class="visual-value ${esc(visual.information_value || "unknown")}">${esc(visualValueLabel(visual))}</i>`) +
     `<em>${esc(visualStatus)}</em></span></span></button>`;
 }
@@ -3462,16 +3558,30 @@ function mediaVisualList(visuals, selected) {
 
 function renderVisuals(preserveListScroll = false) {
   const box = $("#visuals");
+  if (!state.bundle) {
+    box.innerHTML = `<p class="placeholder">${isEnglishUi()
+      ? "Select a meeting to view visuals and materials" : "选择会议后可查看画面与资料"}</p>`;
+    return;
+  }
   // 点选卡片会整棵重建 DOM，先记住左侧列表滚动位置，渲染后恢复，
   // 否则点第 N 页时列表会跳回顶部。
   const prevListScroll = preserveListScroll
     ? (box.querySelector(".visual-list")?.scrollTop || 0) : 0;
   const allVisuals = state.bundle?.structure?.visuals || [];
+  const media = contentTypeOf(state.bundle) === "media";
   if (!allVisuals.length) {
-    box.innerHTML = '<div class="structure-empty-state"><h3>没有屏幕内容</h3><p>这场会议仍可通过会议纪要和逐字稿回顾。</p></div>';
+    box.innerHTML = media
+      ? `<div class="structure-empty-state"><h3>${isEnglishUi() ? "No visual analysis" : "没有画面解析"}</h3>`
+        + `<p>${isEnglishUi() ? "This media can still be reviewed through its analysis and transcript." : "仍可通过分析纪要和逐字稿回顾这条媒体。"}</p></div>`
+      : `<div class="materials-empty"><div><h3>${isEnglishUi() ? "No visuals or meeting materials yet" : "还没有画面或现场资料"}</h3>`
+        + `<p>${isEnglishUi() ? "Add photos of whiteboards, paper notes, room displays, or physical objects that the recording did not capture clearly." : "可以补充视频中没有清楚记录的白板、纸面笔记、会议室展示或实物照片。"}</p>`
+        + `<button type="button" class="primary" data-add-materials><svg class="fluent-icon" aria-hidden="true"><use href="/static/fluent-icons.svg#fluent-add"></use></svg>`
+        + `<span>${isEnglishUi() ? "Add meeting materials" : "添加现场资料"}</span></button></div>`
+        + `<p class="materials-trust-boundary">${isEnglishUi() ? "Meeting materials supplement context; without discussion or human confirmation, they are not meeting decisions." : "现场资料用于补充上下文；未经发言或人工确认，不单独作为会议决定依据。"}</p></div>`;
+    $("[data-add-materials]", box)?.addEventListener("click", event =>
+      choosePhotoFiles("materials", event.currentTarget));
     return;
   }
-  const media = contentTypeOf(state.bundle) === "media";
   const useful = allVisuals.filter(item => item.information_value !== "low");
   if (!media && !useful.length) state.visualFilter = "all";
   const visuals = media
@@ -3485,10 +3595,12 @@ function renderVisuals(preserveListScroll = false) {
   const selectedCopy = visualReadingCopy(selected);
   const selectedPhoto = selected.kind === "photo";
   const status = selectedPhoto
-    ? (selected.alignment?.seconds == null ? "未定位"
-      : selected.alignment?.state === "suggested" ? "建议时间" : "时间已确认")
-    : selected.display_status === "discussed" ? "有对应讨论"
-    : selected.display_status === "display_only" ? "仅展示" : "动态画面";
+    ? (selected.alignment?.seconds == null ? (isEnglishUi() ? "Unlocated" : "未定位")
+      : selected.alignment?.state === "suggested" ? (isEnglishUi() ? "Suggested time" : "建议时间")
+        : (isEnglishUi() ? "Time confirmed" : "时间已确认"))
+    : selected.display_status === "discussed" ? (isEnglishUi() ? "Discussed" : "有对应讨论")
+    : selected.display_status === "display_only" ? (isEnglishUi() ? "Display only" : "仅展示")
+      : (isEnglishUi() ? "Motion" : "动态画面");
   const image = visualImageUrl(selected);
   const filters = media ? ["all", "evidence", "demo", "context", "transition"].map(role => {
     const count = role === "all" ? allVisuals.length : allVisuals.filter(
@@ -3499,36 +3611,53 @@ function renderVisuals(preserveListScroll = false) {
     `class="${state.visualFilter === "useful" ? "active" : ""}">${isEnglishUi() ? "Key" : "重点"} ${useful.length}</button>` +
     `<button type="button" data-visual-filter="all" class="${state.visualFilter === "all" ? "active" : ""}">` +
     `${isEnglishUi() ? "All" : "全部"} ${allVisuals.length}</button>`;
-  box.innerHTML = `<div class="structure-layout visual-layout"><nav class="structure-list visual-list" aria-label="${esc(contentLabel(contentTypeOf(state.bundle), "screens"))}">` +
+  const materialsHeader = media ? "" : `<div class="materials-toolbar"><p>${isEnglishUi()
+    ? "Meeting materials supplement context; without discussion or human confirmation, they are not meeting decisions."
+    : "现场资料用于补充上下文；未经发言或人工确认，不单独作为会议决定依据。"}</p>`
+    + `<button type="button" class="subtle" data-add-materials><svg class="fluent-icon" aria-hidden="true"><use href="/static/fluent-icons.svg#fluent-add"></use></svg>`
+    + `<span>${isEnglishUi() ? "Add meeting materials" : "添加现场资料"}</span></button></div>`;
+  box.innerHTML = `${materialsHeader}<div class="structure-layout visual-layout"><nav class="structure-list visual-list" aria-label="${esc(contentLabel(contentTypeOf(state.bundle), "screens"))}">` +
     `<div class="structure-list-head visual-list-head"><div><b>${esc(contentLabel(contentTypeOf(state.bundle), "screens"))}</b>` +
     `<span>${allVisuals.length} ${isEnglishUi() ? "items" : "项"}</span></div><div class="visual-filter ${media ? "media-role-filter" : ""}">` +
     filters + `</div></div>` +
     (media ? mediaVisualList(visibleVisuals, selected) : visibleVisuals.map(
       visual => visualNavCard(visual, selected)).join("")) +
     `</nav><article class="structure-detail visual-detail">` +
-    `<header class="structure-detail-head"><div><span>${selectedPhoto ? "现场照片" : "屏幕"} · ${esc(status)} · ${esc(visualValueLabel(selected))}</span>` +
+    `<header class="structure-detail-head"><div><span>${selectedPhoto ? (isEnglishUi() ? "Meeting material" : "现场资料") : (isEnglishUi() ? "Screen" : "屏幕")} · ${esc(status)}`
+    + (selectedPhoto ? "" : ` · ${esc(visualValueLabel(selected))}`) + `</span>` +
     `<h2>${esc(selectedCopy.title)}</h2>` +
     (selectedCopy.summary ? `<p>${esc(selectedCopy.summary)}</p>` : "") + `</div></header>` +
-    `<div class="visual-value-note ${esc(selected.information_value || "unknown")}"><b>${esc(visualValueLabel(selected))}</b>` +
-    `<span>${esc(selected.value_reason || "尚未判断这张画面的信息价值。")}</span></div>` +
+    (selectedPhoto ? "" : `<div class="visual-value-note ${esc(selected.information_value || "unknown")}"><b>${esc(visualValueLabel(selected))}</b>` +
+      `<span>${esc(selected.value_reason || (isEnglishUi() ? "The information value has not been assessed." : "尚未判断这张画面的信息价值。"))}</span></div>`) +
     (selected.analysis_state === "pending" ? `<div class="visual-reprocess pending">屏幕解析仍在进行，完成前不会判断这页的内容价值。</div>` :
       selected.needs_reprocess ? `<div class="visual-reprocess">页面解析没有得到可读正文，已标记为需要重新解析；当前不会将它判为低信息。</div>` : "") +
     (selectedPhoto ? `<div class="visual-photo-actions"><span>${selected.alignment?.seconds == null
       ? (isEnglishUi() ? "This photo is saved but not linked to playback." : "照片已保存，但尚未关联播放进度。")
-      : `${isEnglishUi() ? "Located at" : "定位于"} ${fmt(selected.alignment.seconds)} · ${selected.alignment.confidence === "high" ? (isEnglishUi() ? "EXIF high confidence" : "EXIF 高置信") : (isEnglishUi() ? "Manual / medium confidence" : "人工/中等置信")}`}</span>` +
+      : `${isEnglishUi() ? "Located at" : "定位于"} ${fmt(selected.alignment.seconds)} · ${selected.alignment?.state === "suggested" ? (isEnglishUi() ? "Suggested from capture time" : "依据拍摄时间建议") : (isEnglishUi() ? "Confirmed" : "已确认")}`}</span>` +
       `<button type="button" data-photo-align-current="${esc(selected.id)}">${isEnglishUi() ? "Place at current playback" : "放到当前播放位置"}</button>` +
       (selected.alignment?.seconds != null ? `<button type="button" data-photo-unlocate="${esc(selected.id)}">${isEnglishUi() ? "Remove time link" : "取消时间定位"}</button>` : "") +
+      `<button type="button" data-photo-rename="${esc(selected.id)}">${isEnglishUi() ? "Rename" : "修改标题"}</button>` +
+      `<button type="button" class="danger-text" data-photo-delete="${esc(selected.id)}">${isEnglishUi() ? "Delete" : "删除"}</button>` +
       `</div>` : "") +
+    (selectedPhoto && state.photoRenameId === selected.id ? `<form class="photo-rename-form" data-photo-rename-form="${esc(selected.id)}">`
+      + `<label><span>${isEnglishUi() ? "Display title" : "显示标题"}</span><input name="title" maxlength="120" value="${esc(selectedCopy.title)}"></label>`
+      + `<div><button type="submit" class="primary">${isEnglishUi() ? "Save" : "保存"}</button>`
+      + `<button type="button" data-photo-rename-cancel>${isEnglishUi() ? "Cancel" : "取消"}</button></div></form>` : "") +
     `<div class="visual-ranges">${(selected.ranges || []).map(([start, end]) =>
       `<button type="button" data-visual-seek="${start}">${fmt(start)}–${fmt(end)}</button>`).join("")}</div>` +
     (image ? `<img class="visual-hero" data-preview-visual="${esc(selected.id)}" src="${image}" ` +
       `alt="${esc(selectedCopy.title)}" title="${isEnglishUi() ? "Click to enlarge" : "点击放大查看"}">` :
-      `<div class="visual-no-image">该片段没有静态页面截图</div>`) +
-    `<section class="visual-description"><h3>${selectedPhoto ? "现场照片解读" : "屏幕内容解读"}</h3>` +
-    `<p class="visual-boundary">${selectedPhoto ? "照片用于补充现场资料；未经音频或人工确认，不能单独证明会议作出了决定。" : "仅说明画面展示内容，不代表会议作出了决定。"}</p>` +
-    `<div>${visualDescriptionHtml(selected)}</div></section>` +
-    structureClaimGroup("相关会议内容", selected.claim_ids) +
+      `<div class="visual-no-image">${isEnglishUi() ? "No static image is available" : "没有可用的静态图片"}</div>`) +
+    (selectedPhoto ? `<section class="visual-description photo-material-description"><h3>${isEnglishUi() ? "Material status" : "资料状态"}</h3>`
+      + (selected.description ? `<div>${visualDescriptionHtml(selected)}</div>`
+        : `<p>${isEnglishUi() ? "Not analyzed; saved only as meeting material." : "未分析，仅作为现场资料保存"}</p>`)
+      + `</section>` : `<section class="visual-description"><h3>${isEnglishUi() ? "Screen interpretation" : "屏幕内容解读"}</h3>`
+      + `<p class="visual-boundary">${isEnglishUi() ? "This describes what was shown; it does not prove a meeting decision." : "仅说明画面展示内容，不代表会议作出了决定。"}</p>`
+      + `<div>${visualDescriptionHtml(selected)}</div></section>`) +
+    structureClaimGroup(isEnglishUi() ? "Related meeting content" : "相关会议内容", selected.claim_ids) +
     `</article></div>`;
+  $$('[data-add-materials]', box).forEach(button => button.onclick = event =>
+    choosePhotoFiles("materials", event.currentTarget));
   $$('[data-visual-select]', box).forEach(button => button.onclick = () => {
     state.selectedVisualId = button.dataset.visualSelect;
     renderVisuals(true);
@@ -3549,6 +3678,23 @@ function renderVisuals(preserveListScroll = false) {
       Number(player()?.currentTime || state.focus.time || 0)));
   $$('[data-photo-unlocate]', box).forEach(button =>
     button.onclick = () => updatePhotoAlignment(button.dataset.photoUnlocate, null));
+  $$('[data-photo-rename]', box).forEach(button => button.onclick = () => {
+    state.photoRenameId = button.dataset.photoRename;
+    renderVisuals(true);
+    $(".photo-rename-form input", box)?.select();
+  });
+  $("[data-photo-rename-cancel]", box)?.addEventListener("click", () => {
+    state.photoRenameId = null;
+    renderVisuals(true);
+  });
+  $("[data-photo-rename-form]", box)?.addEventListener("submit", async event => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    try { await savePhotoTitle(form.dataset.photoRenameForm, new FormData(form).get("title")); }
+    catch (error) { toast(`${isEnglishUi() ? "Rename failed" : "修改标题失败"}：${error.message}`); }
+  });
+  $$('[data-photo-delete]', box).forEach(button => button.onclick = () =>
+    openPhotoDeleteDialog(button.dataset.photoDelete, selectedCopy.title, button));
   $$('[data-preview-visual]', box).forEach(image =>
     image.onclick = () => openScreenPreview(image.dataset.previewVisual));
   wireStructureClaims(box);
@@ -3820,80 +3966,147 @@ function qualityShortcut(event) {
   saveQualityReview(claim, label.id, $("textarea", card)?.value || "", trigger);
 }
 
-function selectedPhotoAlignmentMode() {
-  return $('input[name="photo-alignment"]:checked', $("#photo-import-mask"))?.value
-    || "current_time";
+function updatePhotoCurrentButton(seconds = 0) {
+  const button = $("#photo-import-current-btn");
+  if (!button) return;
+  const meeting = state.bundle && contentTypeOf(state.bundle) === "meeting";
+  button.classList.toggle("hidden", !meeting);
+  button.disabled = !meeting;
+  const label = $("span", button);
+  if (label) label.textContent = isEnglishUi()
+    ? `Add photo at ${fmt(seconds)}` : `在 ${fmt(seconds)} 添加照片`;
+  button.setAttribute("aria-label", label?.textContent || "");
 }
 
-function updatePhotoAlignmentDialog() {
-  const mode = selectedPhotoAlignmentMode();
-  $("#photo-meeting-start-row")?.classList.toggle("hidden", mode !== "capture_time");
-  const at = Number(player()?.currentTime || 0);
-  $("#photo-current-time").textContent = isEnglishUi()
-    ? `Current ${fmt(at)}; capture-time gaps are preserved when available`
-    : `当前 ${fmt(at)}；有拍摄时间时保留照片间隔`;
-}
-
-function openPhotoImportDialog(files) {
+function choosePhotoFiles(entry = "materials", trigger = null) {
   if (!state.slug || contentTypeOf(state.bundle) !== "meeting") return;
-  state.photoImportFiles = [...(files || [])];
-  if (!state.photoImportFiles.length) return;
+  state.pendingPhotoEntry = entry === "player" ? "player" : "materials";
+  state.pendingPhotoReturnFocus = trigger || document.activeElement;
   $(".more-menu")?.removeAttribute("open");
-  const names = state.photoImportFiles.slice(0, 8).map(file => esc(file.name)).join("、");
-  const extra = Math.max(0, state.photoImportFiles.length - 8);
-  $("#photo-import-files").innerHTML = `<b>${state.photoImportFiles.length} ${isEnglishUi() ? "photos" : "张照片"}</b> · ${names}` +
-    (extra ? ` · +${extra}` : "");
-  $("#photo-import-title").textContent = isEnglishUi() ? "Add meeting photos" : "添加现场照片";
-  $("#photo-import-summary").textContent = isEnglishUi()
-    ? "Add whiteboards, paper notes, or in-room displays to this meeting."
-    : "补充白板、纸面笔记或线下展示照片。";
+  $("#photo-file-input")?.click();
+}
+
+function renderPhotoImportDialog() {
+  renderPhotoImport({
+    root: $("#photo-import-content"),
+    state: state.photoImport,
+    language: state.uiLanguage,
+    escapeHtml: esc,
+    formatTime: fmt,
+    formatBytes: formatPhotoBytes,
+    onRemove: id => {
+      state.photoImport = removePhotoImportItem(state.photoImport, id);
+      if (!state.photoImport.items.length) return closePhotoImportDialog();
+      renderPhotoImportDialog();
+    },
+    onToggleSettings: id => {
+      state.photoImport = togglePhotoTimeSettings(state.photoImport, id);
+      renderPhotoImportDialog();
+    },
+    onMode: (id, mode) => {
+      state.photoImport = setPhotoPositionMode(
+        state.photoImport, id, mode, Number(player()?.currentTime || 0));
+      renderPhotoImportDialog();
+    },
+    onMeetingStart: value => {
+      state.photoImport = setPhotoMeetingStart(state.photoImport, value);
+      renderPhotoImportDialog();
+    },
+  });
+  const button = $("#photo-import-confirm");
+  if (button) {
+    button.disabled = state.photoImport.busy || !state.photoImport.items.length
+      || state.photoImport.items.every(item => item.result);
+    button.textContent = state.photoImport.busy
+      ? (isEnglishUi() ? "Importing…" : "正在导入…")
+      : (isEnglishUi() ? `Import ${state.photoImport.items.length} materials`
+        : `导入 ${state.photoImport.items.length} 张现场资料`);
+  }
+}
+
+async function openPhotoImportDialog(files) {
+  if (!state.slug || contentTypeOf(state.bundle) !== "meeting") return;
+  state.photoImport = beginPhotoImport(state.photoImport, files, {
+    entry: state.pendingPhotoEntry,
+    currentTime: Number(player()?.currentTime || 0),
+    returnFocus: state.pendingPhotoReturnFocus,
+  });
+  if (!state.photoImport.open) return;
   $("#photo-import-mask").classList.remove("hidden");
-  updatePhotoAlignmentDialog();
+  renderPhotoImportDialog();
+  $("#photo-import-close")?.focus();
+  const opened = state.photoImport;
+  const hydrated = await hydratePhotoCaptureTimes(opened);
+  if (state.photoImport !== opened) return;
+  state.photoImport = hydrated;
+  renderPhotoImportDialog();
 }
 
 function closePhotoImportDialog() {
+  if (state.photoImport.busy) return;
+  const returnFocus = state.photoImport.returnFocus;
+  releasePhotoImport(state.photoImport);
+  state.photoImport = createPhotoImportState();
   $("#photo-import-mask")?.classList.add("hidden");
-  state.photoImportFiles = [];
   const input = $("#photo-file-input");
   if (input) input.value = "";
+  if (returnFocus?.isConnected) returnFocus.focus();
 }
 
 async function importMeetingPhotos() {
-  if (!state.slug || !state.photoImportFiles.length) return;
-  const mode = selectedPhotoAlignmentMode();
-  const meetingStart = $("#photo-meeting-start").value;
-  if (mode === "capture_time" && !meetingStart) {
-    toast(isEnglishUi() ? "Enter the meeting start time" : "请填写会议开始时间");
-    $("#photo-meeting-start").focus();
+  if (!state.slug || !state.photoImport.items.length || state.photoImport.busy) return;
+  const specs = state.photoImport.items.map(item => ({ item,
+    spec: photoUploadSpec(item, state.photoImport.meetingStart) }));
+  const invalid = specs.find(entry => !entry.spec.valid);
+  if (invalid) {
+    state.photoImport = withPhotoImportError(state.photoImport, invalid.spec.error, invalid.item.id);
+    renderPhotoImportDialog();
+    scrollInside($("#photo-import-content"),
+      $("[data-photo-item].has-error", $("#photo-import-content")), "nearest", false);
     return;
   }
-  const button = $("#photo-import-confirm");
-  button.disabled = true;
-  button.textContent = isEnglishUi() ? "Importing…" : "正在导入…";
-  const playback = Number(player()?.currentTime || 0);
-  const form = new FormData();
-  state.photoImportFiles.forEach(file => form.append("files", file, file.name));
-  form.append("mode", mode);
-  if (mode === "capture_time") form.append("meeting_start", meetingStart);
-  if (mode === "current_time") form.append("anchor_seconds", String(playback));
-  try {
-    const response = await api(`/api/meetings/${encodeURIComponent(state.slug)}/photos`, {
-      method: "POST", body: form,
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(payload.detail || response.status);
-    const count = payload.imported?.length || state.photoImportFiles.length;
+  state.photoImport = withPhotoImportBusy(state.photoImport, true);
+  renderPhotoImportDialog();
+  let created = 0;
+  let duplicates = 0;
+  let failed = 0;
+  for (const { item, spec } of specs) {
+    if (item.result) continue;
+    const form = new FormData();
+    form.append("files", spec.file, spec.file.name);
+    form.append("mode", spec.mode);
+    if (spec.meetingStart) form.append("meeting_start", spec.meetingStart);
+    if (spec.anchorSeconds != null) form.append("anchor_seconds", String(spec.anchorSeconds));
+    try {
+      const response = await api(`/api/meetings/${encodeURIComponent(state.slug)}/photos`, {
+        method: "POST", body: form,
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.detail || String(response.status));
+      const result = payload.results?.[0] || {
+        photo: payload.imported?.[0], duplicate: Boolean(payload.duplicate_ids?.length),
+      };
+      if (result.duplicate) duplicates += 1; else created += 1;
+      state.photoImport = markPhotoImportResult(state.photoImport, item.id, result);
+    } catch (_) {
+      failed += 1;
+      state.photoImport = withPhotoImportError(state.photoImport, "import_failed", item.id);
+    }
+    renderPhotoImportDialog();
+  }
+  state.photoImport = withPhotoImportBusy(state.photoImport, false);
+  if (created || duplicates) await refreshPhotoMaterials();
+  if (!failed) {
     closePhotoImportDialog();
-    toast(isEnglishUi()
-      ? `${count} meeting photos imported. Drag the teal markers to correct time.`
-      : `已导入 ${count} 张现场照片，可拖动时间轴上的青绿色标记校正时间。`);
-    await loadMeeting(state.slug);
-    if (mode !== "unlocated" && player()) seek(playback, false);
-  } catch (error) {
-    toast(`${isEnglishUi() ? "Photo import failed" : "照片导入失败"}：${error.message}`);
-  } finally {
-    button.disabled = false;
-    button.textContent = isEnglishUi() ? "Import photos" : "导入照片";
+    const message = isEnglishUi()
+      ? `${created} materials imported${duplicates ? `; ${duplicates} duplicates skipped` : ""}.`
+      : `已导入 ${created} 张现场资料${duplicates ? `；${duplicates} 张重复内容未重复保存` : ""}。`;
+    toast(message);
+  } else {
+    state.photoImport = withPhotoImportError(state.photoImport,
+      isEnglishUi() ? "Some materials were not imported. Fix or remove the marked items, then try again."
+        : "部分现场资料没有导入。请处理或移除标记项后重试。");
+    renderPhotoImportDialog();
   }
 }
 
@@ -5634,14 +5847,19 @@ function init() {
   $("#undo-speaker-btn").onclick = undoSpeakerOperation;
   $("#rename-btn").onclick = startRename;
   $("#content-type-btn").onclick = toggleContentType;
-  $("#photo-import-btn").onclick = () => $("#photo-file-input").click();
+  $("#photo-import-btn").onclick = event => choosePhotoFiles("materials", event.currentTarget);
+  $("#photo-import-current-btn").onclick = event => choosePhotoFiles("player", event.currentTarget);
   $("#photo-file-input").addEventListener("change", event => openPhotoImportDialog(event.target.files));
-  $$('input[name="photo-alignment"]').forEach(input =>
-    input.addEventListener("change", updatePhotoAlignmentDialog));
+  $("#photo-import-close").onclick = closePhotoImportDialog;
   $("#photo-import-cancel").onclick = closePhotoImportDialog;
   $("#photo-import-confirm").onclick = importMeetingPhotos;
   $("#photo-import-mask").addEventListener("click", event => {
     if (event.target.id === "photo-import-mask") closePhotoImportDialog();
+  });
+  $("#photo-delete-cancel").onclick = closePhotoDeleteDialog;
+  $("#photo-delete-confirm").onclick = deletePhotoMaterial;
+  $("#photo-delete-mask").addEventListener("click", event => {
+    if (event.target.id === "photo-delete-mask") closePhotoDeleteDialog();
   });
   $("#transcript-search").addEventListener("input", applyTranscriptSearch);
   $("#transcript-search").addEventListener("keydown", e => {
@@ -5707,6 +5925,15 @@ function init() {
     if (event.key !== "Escape" || $("#job-detail-sheet")?.classList.contains("hidden")) return;
     event.preventDefault();
     closeProcessingDetails();
+  });
+  document.addEventListener("keydown", event => {
+    if (event.key !== "Escape") return;
+    if (!$("#photo-delete-mask")?.classList.contains("hidden")) {
+      event.preventDefault(); closePhotoDeleteDialog(); return;
+    }
+    if (!$("#photo-import-mask")?.classList.contains("hidden") && !state.photoImport.busy) {
+      event.preventDefault(); closePhotoImportDialog();
+    }
   });
 
   $("#assistant-launcher").onclick = () => openUtility("assistant");

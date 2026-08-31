@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import os
 import shutil
 import tempfile
 from pathlib import Path
@@ -10,7 +12,7 @@ import aiofiles
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from deps import _content_type, _mdir, _read_json
+from deps import MEETING_META_LOCK, _content_type, _mdir, _now, _read_json
 from meeting_core import photos as meeting_photos
 
 
@@ -21,9 +23,25 @@ class PhotoAlignmentRequest(BaseModel):
     seconds: float | None = None
 
 
+class PhotoUpdateRequest(BaseModel):
+    title: str
+
+
 def _duration(mdir: Path) -> float:
     turns = _read_json(mdir / "transcript.spk.json", [])
     return max((float(turn.get("end") or 0) for turn in turns), default=0.0)
+
+
+def _touch(mdir: Path) -> None:
+    path = mdir / "meta.json"
+    with MEETING_META_LOCK:
+        meta = _read_json(path, {})
+        if not isinstance(meta, dict):
+            meta = {}
+        meta["updated_at"] = _now()
+        temp = path.with_name(f".{path.name}.tmp-{os.getpid()}")
+        temp.write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
+        os.replace(temp, path)
 
 
 @router.post("/api/meetings/{slug}/photos")
@@ -64,6 +82,7 @@ async def add_photos(
             mdir, sources, mode=mode, duration=_duration(mdir),
             meeting_start_iso=meeting_start.strip() or None,
             anchor_seconds=anchor)
+        _touch(mdir)
         return {"ok": True, **result}
     except meeting_photos.PhotoError as exc:
         raise HTTPException(400, str(exc)) from exc
@@ -79,4 +98,27 @@ def align_photo(slug: str, photo_id: str, request: PhotoAlignmentRequest):
             mdir, photo_id, request.seconds, duration=_duration(mdir))
     except meeting_photos.PhotoError as exc:
         raise HTTPException(400, str(exc)) from exc
+    _touch(mdir)
     return {"ok": True, "photo": record}
+
+
+@router.patch("/api/meetings/{slug}/photos/{photo_id}")
+def update_photo(slug: str, photo_id: str, request: PhotoUpdateRequest):
+    mdir = _mdir(slug)
+    try:
+        record = meeting_photos.set_title(mdir, photo_id, request.title)
+    except meeting_photos.PhotoError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    _touch(mdir)
+    return {"ok": True, "photo": record}
+
+
+@router.delete("/api/meetings/{slug}/photos/{photo_id}")
+def remove_photo(slug: str, photo_id: str):
+    mdir = _mdir(slug)
+    try:
+        result = meeting_photos.delete_photo(mdir, photo_id)
+    except meeting_photos.PhotoError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    _touch(mdir)
+    return {"ok": True, **result}

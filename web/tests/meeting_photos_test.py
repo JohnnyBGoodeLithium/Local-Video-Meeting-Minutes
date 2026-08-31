@@ -64,6 +64,51 @@ with tempfile.TemporaryDirectory(prefix="meeting-photos-test-") as temp:
         meeting, [(duplicate, "another-name.webp")], mode="current_time",
         anchor_seconds=900, duration=3600)
     assert deduped["imported"][0]["id"] == "F0003"
+    assert deduped["created_ids"] == []
+    assert deduped["duplicate_ids"] == ["F0003"]
+    assert deduped["results"][0]["duplicate"] is True
     assert len(deduped["photos"]) == 3
+
+    # 改名只改变阅读标题，不触碰原始文件名和 hash。
+    original_hash = photos.load(meeting)["photos"][0]["sha256"]
+    renamed = photos.set_title(meeting, "F0001", "  Whiteboard   plan  ")
+    assert renamed["title"] == "Whiteboard plan"
+    assert renamed["original_name"] == "Whiteboard.jpg"
+    assert renamed["sha256"] == original_hash
+
+    # 删除同步清理 canonical 条目、受保护原图和阅读副本。
+    removed = photos.delete_photo(meeting, "F0002")
+    assert removed["deleted"]["id"] == "F0002"
+    assert not (meeting / "photos/original/F0002.png").exists()
+    assert not (meeting / "photos/review/F0002.jpg").exists()
+    assert [item["id"] for item in photos.load(meeting)["photos"]] == ["F0001", "F0003"]
+
+    # 被篡改为会议目录外路径的 sidecar 不得造成越界删除。
+    outside = root / "must-survive.jpg"
+    make_image(outside, (1, 2, 3))
+    document = photos.load(meeting)
+    document["photos"][0]["original_path"] = "../../must-survive.jpg"
+    photos._atomic_json(meeting / "meeting.photos.json", document)
+    try:
+        photos.delete_photo(meeting, "F0001")
+    except photos.PhotoError as exc:
+        assert "路径不安全" in str(exc)
+    else:
+        raise AssertionError("unsafe photo path was accepted")
+    assert outside.is_file()
+
+with tempfile.TemporaryDirectory(prefix="meeting-photos-invalid-") as temp:
+    root = Path(temp)
+    meeting = root / "meeting"
+    meeting.mkdir()
+    invalid = root / "broken.jpg"
+    invalid.write_bytes(b"not-an-image")
+    try:
+        photos.import_photos(meeting, [(invalid, "broken.jpg")])
+    except photos.PhotoError as exc:
+        assert "可读取的图片" in str(exc)
+    else:
+        raise AssertionError("invalid image was accepted")
+    assert photos.load(meeting)["photos"] == []
 
 print("meeting photos: OK")

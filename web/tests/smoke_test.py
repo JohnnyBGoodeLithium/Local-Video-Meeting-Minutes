@@ -143,7 +143,7 @@ cache_control = next((value for key, value in headers.items()
 check("首页显式展示结论审计和会议脉络入口且禁止缓存旧壳",
       s == 200 and b'quality-entry-btn' in page and b'quality-tab' in page
       and "结论审计".encode() in page and "会议脉络".encode() in page
-      and "屏幕内容".encode() in page and "完整纪要".encode() not in page
+      and "画面与资料".encode() in page and "完整纪要".encode() not in page
       and b'data-transcript-mode="comparison"' in page
       and b'id="translation-target"' in page
       and b'id="ui-language"' in page and b'data-ui-language="en"' in page
@@ -167,10 +167,12 @@ check("人物核对使用轻量卡片与非阻塞侧栏，旧绑定弹窗和底�
 s, _, app_js = req("GET", "/static/app.js", raw=True)
 module_statuses = []
 module_sources = []
-for module_name in ("media-source.js", "imports.js", "jobs.js", "library.js",
+for module_name in ("media-source.js", "imports.js", "jobs.js", "job-progress.js",
+                    "job-progress-view.js", "library.js",
                     "player-navigation.js", "transcript.js", "transcript-view.js",
                     "export.js", "minutes.js", "minutes-view.js",
-                    "speaker-correction.js", "speaker-correction-view.js"):
+                    "speaker-correction.js", "speaker-correction-view.js",
+                    "photo-import.js", "photo-import-view.js"):
     module_status, _, module_source = req(
         "GET", f"/static/modules/{module_name}", raw=True)
     module_statuses.append(module_status)
@@ -187,7 +189,9 @@ check("前端装配入口使用可独立加载的原生 ES modules",
       and b'export function renderTranscriptView' in app_js
       and b'export function exportSizeState' in app_js
       and b'export function resolveMinutesView' in app_js
-      and b'export function renderMinutesView' in app_js)
+      and b'export function renderMinutesView' in app_js
+      and b'export function createPhotoImportState' in app_js
+      and b'export function renderPhotoImport' in app_js)
 check("知识库入口只在服务端提供安全配置后显示",
       b'health.integrations?.knowledge_base' in app_js
       and b'knowledgeBase.configured && knowledgeBase.url' in app_js
@@ -244,11 +248,10 @@ else:
     print("SKIP  在线工作台 ES modules 浏览器启动（未安装 Chromium）")
     print("SKIP  产品介绍 ES module 浏览器启动（未安装 Chromium）")
 check("渐进纪要失败时明确等待终稿，不把空纪要误报为草稿可读",
-      s == 200 and "语音草稿生成失败".encode() in app_js
-      and "草稿失败，生成终稿".encode() in app_js
+      s == 200 and "语音草稿已就绪".encode() in app_js
       and "终稿待复核".encode() in app_js
+      and b'available_outputs' in app_js and b'voice_draft === "ready"' in app_js
       and b'unresolved_material_claims' in app_js
-      and b'(m.has_minutes ?' in app_js
       and "待核实候选".encode() in app_js)
 check("在线端以合格会议脉络为第一眼，并共享时间聚焦状态",
       b'requestedViewExplicit' in app_js and b'setTopicFocus' in app_js
@@ -511,7 +514,7 @@ check("撤销后下游证据重新成为当前版本",
       j.get("evidence", {}).get("state") == "ready"
       and j.get("transcript_review", {}).get("downstream_state") == "current")
 
-# 2b. 现场照片：固化原始副本、阅读 JPEG、无确认拖动与 bundle 视觉资料投影。
+# 2b. 现场资料：固化原始副本、阅读 JPEG、定位与 bundle 视觉资料投影。
 photo_stream = io.BytesIO()
 Image.new("RGB", (640, 360), (242, 238, 220)).save(photo_stream, format="JPEG")
 s, _, photo_result = multipart_files(
@@ -530,9 +533,28 @@ s, _, aligned_photo = req(
     "PATCH", "/api/meetings/_smoke/photos/F0001/alignment", {"seconds": 4.25})
 s2, _, _ = req(
     "GET", "/api/meetings/_smoke/file?path=photos/review/F0001.jpg", raw=True)
-check("现场照片可直接拖动校正时间并通过安全文件路由读取",
+check("现场资料可定位到明确时间并通过安全文件路由读取",
       s == 200 and aligned_photo.get("photo", {}).get("alignment", {}).get("seconds") == 4.25
       and s2 == 200)
+s, _, renamed_photo = req(
+    "PATCH", "/api/meetings/_smoke/photos/F0001", {"title": "Planning whiteboard"})
+check("现场资料可修改显示标题且保留原始名称",
+      s == 200 and renamed_photo.get("photo", {}).get("title") == "Planning whiteboard"
+      and renamed_photo.get("photo", {}).get("original_name") == "whiteboard.jpg")
+delete_stream = io.BytesIO()
+Image.new("RGB", (320, 240), (210, 225, 240)).save(delete_stream, format="PNG")
+s, _, second_photo = multipart_files(
+    "/api/meetings/_smoke/photos",
+    [("files", "temporary-note.png", delete_stream.getvalue(), "image/png")],
+    fields=[("mode", "unlocated")])
+sd, _, deleted_photo = req("DELETE", "/api/meetings/_smoke/photos/F0002")
+check("删除现场资料同步清理原图、阅读副本和 sidecar",
+      s == 200 and second_photo.get("created_ids") == ["F0002"] and sd == 200
+      and deleted_photo.get("deleted", {}).get("id") == "F0002"
+      and not (SMOKE / "photos/original/F0002.png").exists()
+      and not (SMOKE / "photos/review/F0002.jpg").exists()
+      and all(item.get("id") != "F0002" for item in
+              json.loads((SMOKE / "meeting.photos.json").read_text()).get("photos", [])))
 
 # 2c. 存储分层：母版/阅读资产受保护，智能清理仅移除可再生工作帧
 s, _, storage_before = req("GET", "/api/meetings/_smoke/storage")
@@ -1006,7 +1028,7 @@ check("viewer 为无外链、自包含且可浏览逐字稿/媒体/脉络/屏幕
       and "http://" not in viewer.replace('xmlns="http://www.w3.org/2000/svg"', '')
       and "https://" not in viewer
       and 'id="transcript"' in viewer and 'id="scrub"' in viewer
-      and "会议脉络" in viewer and "屏幕内容" in viewer
+      and "会议脉络" in viewer and "画面与资料" in viewer
       and "candidatePanel" in viewer and "navigation_segments" in viewer
       and 'id="language-switch"' in viewer
       and 'id="pack-version"' in viewer and f'"version":"{PRODUCT_VERSION}"' in viewer
