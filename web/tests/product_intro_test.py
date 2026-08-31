@@ -57,7 +57,7 @@ assert not missing_refs, f"产品介绍引用未定义 token：{missing_refs}"
 # optional local analysis look like the non-replaceable product core.
 for marker in (
     "Optional Enrichment", "MeetingPack", "AI Context", "WeKnora", "resource",
-    "product-copy.js?v=20260828p105",
+    "product-copy.js?v=20260831p106",
 ):
     assert marker in html + script + copy_source, f"产品介绍缺少当前能力标记：{marker}"
 

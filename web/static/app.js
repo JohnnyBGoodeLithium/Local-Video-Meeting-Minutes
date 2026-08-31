@@ -1,26 +1,33 @@
 import { contentTypeOf, safeSourceUrl }
-  from "./modules/media-source.js?v=20260828p105";
+  from "./modules/media-source.js?v=20260831p106";
 import { buildUploadFormData, enqueueMediaUrl, isSingleLocalVideo }
-  from "./modules/imports.js?v=20260828p105";
+  from "./modules/imports.js?v=20260831p106";
 import { jobDisplayName, selectJobPanel }
-  from "./modules/jobs.js?v=20260828p105";
+  from "./modules/jobs.js?v=20260831p106";
 import { chooseInitialItem, deepLinkSeconds, filterLibrary, sortLibrary }
-  from "./modules/library.js?v=20260828p105";
+  from "./modules/library.js?v=20260831p106";
 import { adjacentReviewUnit, defaultReviewUnits, nearestReviewUnit,
   reviewIndexesFor, reviewUnitForTurn as findReviewUnitForTurn, turnEnd }
-  from "./modules/player-navigation.js?v=20260828p105";
+  from "./modules/player-navigation.js?v=20260831p106";
 import { nextSearchCursor, pendingReviewByTurn, transcriptSearchHits }
-  from "./modules/transcript.js?v=20260828p105";
+  from "./modules/transcript.js?v=20260831p106";
 import { renderTranscriptView }
-  from "./modules/transcript-view.js?v=20260828p105";
+  from "./modules/transcript-view.js?v=20260831p106";
 import { exportSizeState, formatBytes, meetingExportHref, normalizeExportProfile,
   packExportHref }
-  from "./modules/export.js?v=20260828p105";
+  from "./modules/export.js?v=20260831p106";
 import { claimAction, claimIdsForTurn, evidenceSources, minutesState, normalizeReviewMode,
   resolveMinutesView, turnIndexAtTime, turnIndexesForSourceIds }
-  from "./modules/minutes.js?v=20260828p105";
+  from "./modules/minutes.js?v=20260831p106";
 import { renderMinutesView }
-  from "./modules/minutes-view.js?v=20260828p105";
+  from "./modules/minutes-view.js?v=20260831p106";
+import { beginExampleSelection, beginIdentity, buildCorrectionApplyPayload,
+  correctionSummary, createSpeakerCorrectionState, representativeTurns,
+  resetSpeakerCorrection, setGroupAssignment, setIncludeSuggested, setPreview,
+  toggleExample, withCorrectionError }
+  from "./modules/speaker-correction.js?v=20260831p106";
+import { renderCorrectionSheet, renderIdentityPopover }
+  from "./modules/speaker-correction-view.js?v=20260831p106";
 
 /* 会议列表 + 回顾工作台（装配入口；领域规则逐步迁往 modules/） */
 "use strict";
@@ -79,9 +86,9 @@ const state = {
   playbackScope: "meeting",
   transcriptSearch: null,
   reviewUnits: [],
-  splitMarks: new Set(),
-  splitTarget: null,
-  splitTargetName: "",
+  speakerCorrection: createSpeakerCorrectionState(),
+  speakerCorrectionReview: null,
+  speakerCorrectionChoice: "",
   visualFilter: "useful",
   uiLanguage: UI_LANGUAGES.has(workspaceState.uiLanguage) ? workspaceState.uiLanguage : "zh-CN",
   minutesTranslation: null,
@@ -755,10 +762,10 @@ async function deleteMeeting(ev, slug) {
     $("#transcript-search").disabled = true;
     $("#transcript-search-count").textContent = "";
     state.transcriptSearch = null;
-    state.splitTarget = null;
-    state.splitTargetName = "";
-    state.splitMarks.clear();
-    updateSplitBar();
+    state.speakerCorrection = resetSpeakerCorrection();
+    state.speakerCorrectionReview = null;
+    state.speakerCorrectionChoice = "";
+    renderSpeakerCorrectionUI();
     $("#meeting-meta").textContent = "阅读纪要、追问内容并修正记录";
     $("#source-link")?.classList.add("hidden");
     $("#transcript").innerHTML = '<p class="placeholder">← 选择一场会议</p>';
@@ -908,223 +915,6 @@ function stepTranscriptMatch(direction) {
   }
   const count = $("#transcript-search-count");
   if (count) count.textContent = `${search.current + 1}/${search.hits.length}`;
-}
-
-/* ---------- 声纹按轮拆分 ---------- */
-
-function startSplitMarking(voice, name) {
-  closeBind();
-  state.splitTarget = voice;
-  state.splitTargetName = name;
-  state.splitMarks.clear();
-  renderTranscript();
-  updateSplitBar();
-  toast(`标记模式：先选择不属于「${name}」的轮次；确认前会预览高置信相似发言，已确认身份不会被自动改派`);
-}
-
-function clearSplitMarking(rerender = true) {
-  state.splitTarget = null;
-  state.splitTargetName = "";
-  state.splitMarks.clear();
-  if (rerender) renderTranscript();
-  updateSplitBar();
-}
-
-function tryToggleSplitMark(i, voice) {
-  if (voice !== state.splitTarget) {
-    toast(`标记模式只针对「${state.splitTargetName}」的轮次；点底部“取消”退出`);
-    return;
-  }
-  if (state.splitMarks.has(i)) state.splitMarks.delete(i);
-  else state.splitMarks.add(i);
-  $$(`#transcript .turn[data-index="${i}"]`)
-    .forEach(el => el.classList.toggle("split-marked", state.splitMarks.has(i)));
-  updateSplitBar();
-}
-
-function updateSplitBar() {
-  const bar = $("#split-bar");
-  if (!bar) return;
-  bar.classList.toggle("hidden", !state.splitTarget);
-  if (!state.splitTarget) return;
-  const n = state.splitMarks.size;
-  $("#split-bar-text").textContent =
-    `已选 ${n} 轮（不属于「${state.splitTargetName}」）→ 点右侧「确认拆分」生效`;
-  $("#split-apply").disabled = !n;
-}
-
-async function applySplitMarks() {
-  if (!state.slug || !state.splitMarks.size || !state.bundle) return;
-  const marked = [...state.splitMarks].sort((a, b) => a - b);
-  // 绑定或上一次拆分可能已经更新了磁盘逐字稿，而当前页面仍持有旧 bundle。
-  // 提交前按时间位置读取一次最新归属，避免把“一个人”误判成多条声纹。
-  let currentBundle;
-  try {
-    currentBundle = await jget(`/api/meetings/${encodeURIComponent(state.slug)}/bundle`);
-  } catch (e) {
-    toast(`无法确认最新声纹状态: ${e?.message || e}（标记已保留，可重试）`);
-    return;
-  }
-  const stable = marked.every(i => {
-    const before = state.bundle.transcript[i];
-    const current = currentBundle.transcript?.[i];
-    return before && current
-      && Math.abs(Number(before.start || 0) - Number(current.start || 0)) < 0.05;
-  });
-  if (!stable) {
-    state.bundle = currentBundle;
-    state.splitMarks.clear();
-    renderTranscript();
-    updateSplitBar();
-    toast("逐字稿在标记后已重新生成；为避免拆错人，请重新选择轮次");
-    return;
-  }
-  const voices = new Set(marked.map(i => currentBundle.transcript[i]?.voice).filter(Boolean));
-  if (!voices.size) {
-    toast("所选轮次没有可用声纹，无法拆分（标记已保留，可重选）");
-    return;
-  }
-  if (voices.size !== 1) {
-    state.bundle = currentBundle;
-    renderTranscript();
-    toast("所选轮次的声纹归属已发生变化并涉及多人；页面已刷新，请重新选择");
-    return;
-  }
-  const currentVoice = [...voices][0];
-  const voiceRebased = currentVoice !== state.splitTarget;
-  const assign = ($("#split-name").value || "").trim();
-  // 某条声纹的轮次被全部选中时无需拆分：填了“具名为”就直接整体改派，
-  // 否则提示（典型场景：同名碎片声纹只有一两轮，拆分对它没有意义）。
-  const total = currentBundle.transcript.reduce((n, t) => n + (t.voice === currentVoice ? 1 : 0), 0);
-  const bindDirect = marked.length >= total ? [[currentVoice, marked.length]] : [];
-  const splitGroups = bindDirect.length ? {} : { [currentVoice]: marked };
-  if (bindDirect.length && !assign) {
-    toast(`选中声纹里有 ${bindDirect.length} 条在本会议只有 ${bindDirect.map(b => b[1]).join("/")} 轮` +
-      "且被全部选中，无需拆分：在“具名为”填姓名再确认即可整体改派（标记已保留）");
-    return;
-  }
-  let expandSimilar = false;
-  let splitPreview = null;
-  if (Object.keys(splitGroups).length) {
-    // 预览接口同时作为安全能力协商：旧 /split 会静默扩散，因此旧后台下禁止提交。
-    const [previewVoice, previewTurns] = Object.entries(splitGroups)[0];
-    $("#split-apply").disabled = true;
-    try {
-      const response = await api(
-        `/api/meetings/${encodeURIComponent(state.slug)}/split/preview`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ voice: previewVoice, turns: previewTurns, name: assign }),
-        });
-      splitPreview = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        if (response.status === 404) {
-          toast("当前会议任务仍在运行，安全拆分后台尚未加载；已阻止旧版自动扩散。任务完成后会升级，标记仍保留");
-        } else {
-          toast(`拆分预览失败: ${splitPreview.detail || response.status}（标记已保留）`);
-        }
-        return;
-      }
-    } catch (error) {
-      toast(`拆分预览异常: ${error?.message || error}（标记已保留）`);
-      return;
-    } finally {
-      $("#split-apply").disabled = false;
-    }
-    const suggested = splitPreview.suggested?.length || 0;
-    const protectedCount = splitPreview.protected?.length || 0;
-    const ambiguous = splitPreview.ambiguous?.length || 0;
-    if (splitPreview.direct_assignment) {
-      toast(`将只改派手选的 ${marked.length} 轮；人工确认优先，不重新猜测极短音频`);
-    }
-    if (suggested) {
-      expandSimilar = confirm(
-        `已手选 ${marked.length} 轮；另发现 ${suggested} 轮高置信相似发言。` +
-        `\n已保护 ${protectedCount} 轮，不会改派；另有 ${ambiguous} 轮存疑，保持原状。` +
-        "\n\n确定：同时处理高置信建议\n取消：只处理手选轮次");
-    }
-  }
-  const parts = [];
-  if (Object.keys(splitGroups).length) {
-    const suggested = splitPreview?.suggested?.length || 0;
-    const protectedCount = splitPreview?.protected?.length || 0;
-    parts.push(expandSimilar
-      ? `拆分手选 ${marked.length} 轮，并处理 ${suggested} 轮高置信建议`
-      : `只拆分明确手选的 ${marked.length} 轮`);
-    if (protectedCount) parts.push(`${protectedCount} 轮已确认身份保持不变`);
-    parts.push("操作完成后可撤销（可能需要几十秒）");
-  }
-  if (bindDirect.length)
-    parts.push(`${bindDirect.length} 条声纹全部被选中，直接整体改派为「${assign}」`);
-  if (!confirm(parts.join("；") + "。继续？")) return;
-  $("#split-apply").disabled = true;
-  let moved = 0, reassigned = 0, boundDirect = 0;
-  const names = [];
-  const bindFailures = [];
-  try {
-    for (const [voice] of bindDirect) {
-      const br = await api(`/api/meetings/${encodeURIComponent(state.slug)}/bind`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ voice, name: assign, create: false }),
-      });
-      if (br.ok) boundDirect += 1;
-    }
-    for (const [voice, turns] of Object.entries(splitGroups)) {
-      const r = await api(`/api/meetings/${encodeURIComponent(state.slug)}/split`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ voice, turns, name: assign, expand_similar: expandSimilar }),
-      });
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok) {
-        toast(`拆分失败: ${j.detail?.message || j.detail || r.status}（标记已保留，可重试）`);
-        return;
-      }
-      moved += j.moved;
-      reassigned += j.reassigned || 0;
-      if (j.source_voice_rebased) state.splitTarget = voice;
-      names.push(...(j.voices || []).map(v => v.name));
-      // 兼容尚未重启的旧后台：旧 /split 会忽略 name，并且不会返回
-      // name_applied。此时继续逐条调用旧 /bind，避免“拆分成功但姓名没改”。
-      if (assign && !j.name_applied) {
-        for (const splitVoice of j.voices || []) {
-          const targetVoice = splitVoice.voice || splitVoice.id;
-          if (!targetVoice) {
-            bindFailures.push(splitVoice.name || "未知声纹");
-            continue;
-          }
-          const br = await api(`/api/meetings/${encodeURIComponent(state.slug)}/bind`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ voice: targetVoice, name: assign, create: false }),
-          });
-          if (!br.ok) bindFailures.push(splitVoice.name || targetVoice);
-        }
-      }
-    }
-  } catch (e) {
-    toast(`拆分请求异常: ${e?.message || e}（标记已保留，可重试）`);
-    return;
-  } finally {
-    $("#split-apply").disabled = false;
-  }
-  clearSplitMarking(false);  // loadMeeting 会重渲染, 无需先清类
-  state.speakers = null;  // 库已变，刷新缓存
-  resetAssistant();       // 逐字稿 revision 已变化，旧引用作废
-  const done = [];
-  if (voiceRebased) done.push("已按最新声纹归属自动校正");
-  if (boundDirect) done.push(`整体改派 ${boundDirect} 条声纹为「${assign}」`);
-  if (moved) {
-    let s = `拆分 ${moved} 轮`;
-    if (reassigned) s += `（含按相似度自动重排的 ${reassigned} 轮）`;
-    if (assign && !bindFailures.length) s += `，具名为「${assign}」`;
-    else if (assign) s += `；但 ${bindFailures.length} 条姓名绑定失败，请保留页面并重试`;
-    else if (!assign) s += ` → ${[...new Set(names)].join("、")}（可点说话人 chip 具名）`;
-    done.push(s);
-  }
-  toast((done.join("；") || "未改动") + "；可在“更多”中撤销");
-  await loadMeeting(state.slug);
 }
 
 async function loadSpeakerHistoryStatus() {
@@ -1329,8 +1119,10 @@ async function loadMeeting(slug) {
   transcriptSearch.disabled = !(b.transcript?.length);
   if (changed) { transcriptSearch.value = ""; state.transcriptSearch = null;
     $("#transcript-search-count").textContent = "";
-    state.splitTarget = null; state.splitTargetName = "";
-    state.splitMarks.clear(); updateSplitBar(); }
+    state.speakerCorrection = resetSpeakerCorrection();
+    state.speakerCorrectionReview = null;
+    state.speakerCorrectionChoice = "";
+    renderSpeakerCorrectionUI(); }
   renderMeetingHeaderMeta();
   renderPlayer();
   renderTranscript(false);
@@ -2774,8 +2566,10 @@ function renderTranscript(preserveScroll = true) {
     translationTarget: state.translationTarget,
     evidenceBilingual: state.evidenceBilingual,
     expandedOriginals: state.expandedOriginals,
-    splitMarks: state.splitMarks,
-    splitTarget: state.splitTarget,
+    correctionSelected: state.speakerCorrection.selectedTurnIndexes,
+    correctionVoice: state.speakerCorrection.sourceVoice,
+    correctionMode: state.speakerCorrection.mode,
+    correctionProtected: new Set(state.speakerCorrectionReview?.protected || []),
     bundleDuration: Number(state.bundle?.duration || 0),
     preserveScroll,
     isEnglish: isEnglishUi(),
@@ -2787,8 +2581,8 @@ function renderTranscript(preserveScroll = true) {
     ui,
     turnEnd: reviewTurnEnd,
     onSelectUnit: index => selectReviewTurn(index, true),
-    onOpenBind: (voice, speaker) => openBind(voice, speaker),
-    onToggleSplit: (index, voice) => tryToggleSplitMark(index, voice),
+    onOpenBind: (voice, speaker, detail) => openSpeakerIdentity(voice, speaker, detail),
+    onToggleCorrection: (index, voice) => toggleSpeakerCorrectionExample(index, voice),
     onQuote: index => addReferenceRange(index, index),
     onEdit: (index, candidate) => openTranscriptEdit(index, candidate),
     onToggleOriginal: index => {
@@ -4115,9 +3909,16 @@ function selectedRelatedSlugs() {
 
 function updateExportConfirmLabel() {
   const count = selectedRelatedSlugs().length;
-  $("#export-confirm").textContent = count
-    ? (isEnglishUi() ? `Export content pack (${count + 1} items)` : `导出内容包（${count + 1} 个内容）`)
-    : (isEnglishUi() ? "Generate offline pack" : "生成离线查看包");
+  const profile = selectedExportProfile();
+  if (profile === "ai") {
+    $("#export-confirm").textContent = count
+      ? (isEnglishUi() ? `Generate AI / knowledge pack (${count + 1})` : `生成 AI / 知识库 Pack（${count + 1} 项）`)
+      : (isEnglishUi() ? "Generate AI / knowledge pack" : "生成 AI / 知识库 Pack");
+  } else {
+    $("#export-confirm").textContent = count
+      ? (isEnglishUi() ? `Export Viewer pack (${count + 1})` : `导出 Viewer 合集（${count + 1} 项）`)
+      : (isEnglishUi() ? "Generate offline Viewer" : "生成离线 Viewer");
+  }
 }
 
 function renderExportRelated() {
@@ -4295,30 +4096,34 @@ function updateExportSizeHint() {
       ? "Estimated size exceeds the common 30MB email attachment limit; consider the knowledge-base profile (text + media links) instead."
       : "预计大小超过常见邮件附件 30MB 限制，可改用知识库版（纯文本+媒体链接）。";
   }
+  updateExportConfirmLabel();
 }
 
 function renderExportPreflight() {
   const data = state.exportPreflight;
   if (!data) return;
   const evidenceNames = { ready: "可核证", stale: "依据已过期", partial: "部分证据" };
+  const preferredMedia = data.media.video.available ? "video"
+    : (data.media.audio.available ? "audio" : null);
   const options = [
-    ["none", "轻量包", "纪要、脉络、屏幕资料与证据", true],
-    ["audio", "分享版音频", `${data.media.audio.format || "AAC"}，可按证据跳转`, data.media.audio.available],
-    ["video", "分享版视频", `${data.media.video.format || "720p"}，保留屏幕可读性`, data.media.video.available],
+    ["none", isEnglishUi() ? "Without media" : "不附媒体",
+      isEnglishUi() ? "Smallest Viewer; minutes, map, transcript and evidence stay available" : "体积最小；仍保留纪要、脉络、逐字稿与证据", true],
+    ...(preferredMedia ? [[preferredMedia,
+      preferredMedia === "video"
+        ? (isEnglishUi() ? "Include review video" : "附带回看视频")
+        : (isEnglishUi() ? "Include review audio" : "附带回听音频"),
+      preferredMedia === "video"
+        ? `${data.media.video.format || "720p"}，${isEnglishUi() ? "screen remains readable" : "保留屏幕可读性"}`
+        : `${data.media.audio.format || "AAC"}，${isEnglishUi() ? "seekable from evidence" : "可按证据跳转"}`,
+      true]] : []),
   ];
   const profiles = [
-    ["full", isEnglishUi() ? "Full pack" : "完整包",
-     isEnglishUi() ? "Offline viewer + evidence assets" : "离线查看器 + 证据资产"],
-    ["ai", isEnglishUi() ? "AI context" : "AI 上下文",
+    ["full", isEnglishUi() ? "Offline Viewer" : "离线 Viewer",
+     isEnglishUi() ? "Open, listen and verify without a server" : "无需服务即可阅读、回听与核证"],
+    ["ai", isEnglishUi() ? "AI / knowledge pack" : "AI / 知识库 Pack",
      isEnglishUi()
-       ? "One Markdown file for a model or notebook"
-       : "单个 Markdown，可交给通用模型或 Notebook"],
-    ["kb", isEnglishUi() ? "Knowledge-base" : "知识库版",
-     isEnglishUi() ? "Markdown + online source links" : "Markdown + 在线源链接"],
-    ["kb-html", isEnglishUi() ? "Visual knowledge-base" : "知识库图文版",
-     isEnglishUi()
-       ? `One HTML + embedded key frames · about ${formatBytes(data.estimated_bytes.kb_html || 0)}`
-       : `单个 HTML + 内嵌关键画面 · 约 ${formatBytes(data.estimated_bytes.kb_html || 0)}`],
+       ? "Portable Markdown for GPT, Gemini, NotebookLM or a knowledge base"
+       : "可交给 GPT、豆包、Gemini、NotebookLM 或知识库的 Markdown"],
   ];
   const html = `<div class="export-facts">` +
     `<span><b>${esc(evidenceNames[data.evidence.state] || "部分证据")}</b>${data.evidence.linked_claims}/${data.evidence.claims} 条结论有链接</span>` +
@@ -4341,7 +4146,7 @@ function renderExportPreflight() {
       '<div class="export-warning">当前包仍可阅读，但部分结论不能回到原文核对。建议重新生成纪要后再正式分享。</div>') +
     `<p class="export-note">由 Meeting Minutes v${esc(data.product_version || "-")} 生成；文件名格式 <code>${esc(data.filename_pattern || "")}</code>。<br>` +
     '包顶层只有 <code>viewer.html</code>、<code>README.txt</code> 和 <code>assets/</code>。音视频是分享压缩版，项目中的原始母版不会被修改。' +
-    `${isEnglishUi() ? "AI context is a portable Markdown source without local links or media. Confirm policy before uploading internal content to an external service. The lightweight KB profile keeps online links; the visual KB profile embeds selected JPEG frames." : "AI 上下文是不含本机链接和媒体的可携带 Markdown；将内部内容上传外部服务前请确认公司政策。知识库轻量版保留在线链接，图文版内嵌关键画面。"}</p>`;
+    `${isEnglishUi() ? "The AI / knowledge pack is portable Markdown without local links or media. Confirm policy before uploading internal content to an external service. Advanced KB projections remain available through the publish workflow and API." : "AI / 知识库 Pack 是不含本机链接和媒体的可携带 Markdown；将内部内容上传外部服务前请确认公司政策。图文知识投影仍可通过“发布到知识库”和 API 使用。"}</p>`;
   $("#export-preflight").innerHTML = html;
   $$('input[name="export-profile"]', $("#export-preflight")).forEach(radio => {
     radio.onchange = updateExportSizeHint;
@@ -5109,65 +4914,261 @@ async function retranscribeLocal() {
   });
 }
 
-/* ---------- 说话人绑定弹框 ---------- */
+/* ---------- 渐进式人物核对 ---------- */
 
 async function ensureSpeakers() {
   if (!state.speakers) state.speakers = await jget("/api/speakers");
   return state.speakers;
 }
 
-async function openBind(voice, name) {
-  $("#bind-voice").textContent = voice;
-  $("#bind-name").textContent = name;
-  $("#bind-input").value = "";
-  $("#bind-cands").innerHTML = "";
-  const sp = await ensureSpeakers();
-  $("#person-list").innerHTML =
-    sp.persons.flatMap(p => (p.names || [{ value: p.name }])
-      .map(n => `<option value="${esc(n.value)}">${esc(p.display_name || p.name)}</option>`)).join("");
-  const sample = $("#bind-sample");
-  sample.src = `/api/speakers/${encodeURIComponent(voice)}/sample`;
-  sample.onerror = () => { sample.style.display = "none"; };
-  sample.style.display = "";
-  $("#bind-mask").classList.remove("hidden");
-  $("#bind-input").focus();
-  $("#bind-ok").onclick = () => doBind(voice);
-  $("#bind-split").onclick = () => startSplitMarking(voice, name);
+function correctionPlaybackTime() { return Number(player()?.currentTime || playbackPosition() || 0); }
+
+function correctionScrollAnchor(index = null) {
+  const box = $("#transcript");
+  const bounds = box?.getBoundingClientRect();
+  const row = Number.isInteger(index) ? $(`#turn-${index}`)
+    : [...(box?.querySelectorAll(".turn[id]") || [])]
+      .find(item => item.getBoundingClientRect().bottom > (bounds?.top || 0) + 2);
+  return row && bounds ? { id: row.id, offset: row.getBoundingClientRect().top - bounds.top } : null;
 }
 
-function closeBind() { $("#bind-mask").classList.add("hidden"); }
+function positionIdentityPopover() {
+  const root = $("#speaker-identity-popover");
+  const rect = state.speakerCorrection.anchorRect;
+  if (!root || !rect || innerWidth <= 820) return;
+  const width = Math.min(390, innerWidth - 24);
+  root.style.left = `${Math.max(12, Math.min(innerWidth - width - 12, rect.left))}px`;
+  root.style.top = `${Math.max(56, Math.min(innerHeight - root.offsetHeight - 12, rect.bottom + 8))}px`;
+}
 
-async function doBind(voice, create) {
-  const name = $("#bind-input").value.trim();
-  if (!name) return;
-  const r = await api(`/api/meetings/${encodeURIComponent(state.slug)}/bind`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ voice, name, create: !!create }),
-  });
-  const j = await r.json();
-  if (r.status === 409) {
-    // 未精确命中 → 展示候选(点击回填) + “新建此人”按钮
-    const d = j.detail || {};
-    const cands = d.candidates || [];
-    let html = cands.length
-      ? "候选：" + cands.map(c =>
-        `<button type="button" class="cand" data-name="${esc(c.name)}">${esc(c.name)}</button>`).join("")
-      : "库里没有这个名字。";
-    html += `<button type="button" id="bind-create" class="cand create">新建「${esc(name)}」</button>`;
-    $("#bind-cands").innerHTML = html;
-    $$("#bind-cands .cand[data-name]").forEach(btn =>
-      btn.onclick = () => { $("#bind-input").value = btn.dataset.name; });
-    const cb = $("#bind-create");
-    if (cb) cb.onclick = () => doBind(voice, true);
+function restoreCorrectionContext(correction, changed = []) {
+  const p = player();
+  if (p) p.currentTime = Math.max(0, Number(correction.returnPlaybackTime) || 0);
+  const anchor = correction.returnScrollAnchor;
+  if (anchor) {
+    const box = $("#transcript");
+    const row = document.getElementById(anchor.id);
+    if (box && row) {
+      const bounds = box.getBoundingClientRect();
+      box.scrollTop += row.getBoundingClientRect().top - bounds.top - Number(anchor.offset || 0);
+    }
+  }
+  changed.forEach(index => $(`#turn-${index}`)?.classList.add("speaker-change-flash"));
+}
+
+function showSpeakerChangeNotice(message) {
+  const box = $("#speaker-change-notice");
+  box.innerHTML = `<span>${esc(message)}</span><button type="button" aria-label="撤销本次人物修改">撤销</button>`;
+  box.querySelector("button").onclick = async () => {
+    box.classList.add("hidden");
+    await undoSpeakerOperation();
+  };
+  box.classList.remove("hidden");
+  clearTimeout(state.speakerNoticeTimer);
+  state.speakerNoticeTimer = setTimeout(() => box.classList.add("hidden"), 9000);
+}
+
+function closeSpeakerCorrection(force = false) {
+  const correction = state.speakerCorrection;
+  if (!force && correction.mode !== "identify" && correction.selectedTurnIndexes.size
+      && !String(correction.error).startsWith("再次点击")) {
+    state.speakerCorrection = withCorrectionError(correction,
+      `退出会放弃已选择的 ${correction.selectedTurnIndexes.size} 段发言。`);
+    renderSpeakerCorrectionUI();
     return;
   }
-  if (!r.ok) { toast(`绑定失败: ${j.detail || r.status}`); return; }
-  closeBind();
-  state.speakers = null;  // 库已变，刷新缓存
-  resetAssistant();       // 逐字稿 revision 已变化，旧引用作废
-  toast(`已绑定为 ${j.name}（${j.turns} 轮）`);
-  await loadMeeting(state.slug);  // 逐字稿立即更新
+  state.speakerCorrection = resetSpeakerCorrection(correction);
+  state.speakerCorrectionReview = null;
+  state.speakerCorrectionChoice = "";
+  renderSpeakerCorrectionUI();
+  renderTranscript();
+}
+
+function playCorrectionTurn(index) {
+  const turn = state.bundle?.transcript?.[index];
+  if (turn) seek(Number(turn.start) || 0, true);
+}
+
+function renderSpeakerCorrectionUI() {
+  const correction = state.speakerCorrection;
+  const transcript = state.bundle?.transcript || [];
+  const persons = state.speakers?.persons || [];
+  renderIdentityPopover({
+    root: $("#speaker-identity-popover"), correction, transcript, persons,
+    representatives: state.speakerCorrectionReview?.summary?.representative_turns
+      || representativeTurns(transcript, correction.sourceVoice, 3),
+    formatTime: fmt, escapeHtml: esc, onClose: () => closeSpeakerCorrection(true),
+    onSelectPerson: name => { state.speakerCorrectionChoice = name; },
+    onConfirm: confirmSpeakerIdentity, onRepair: beginSpeakerRepair,
+    onPlay: playCorrectionTurn,
+  });
+  const summary = correctionSummary(correction, transcript);
+  renderCorrectionSheet({
+    root: $("#speaker-correction-sheet"), correction, transcript, persons,
+    locked: new Set(state.speakerCorrectionReview?.protected || []),
+    formatTime: fmt, formatDuration: fmt, escapeHtml: esc, summary,
+    onExit: () => closeSpeakerCorrection(false),
+    onDiscard: () => closeSpeakerCorrection(true),
+    onContinueExit: () => {
+      state.speakerCorrection = withCorrectionError(state.speakerCorrection, "");
+      renderSpeakerCorrectionUI();
+    },
+    onToggleExample: toggleSpeakerCorrectionExample,
+    onNext: previewSpeakerCorrection,
+    onBack: () => {
+      state.speakerCorrection = { ...correction, mode: "select_examples", error: "" };
+      renderSpeakerCorrectionUI(); renderTranscript();
+    },
+    onIncludeSuggested: include => {
+      state.speakerCorrection = setIncludeSuggested(state.speakerCorrection, include);
+      renderSpeakerCorrectionUI();
+    },
+    onAssignment: (key, assignment) => {
+      state.speakerCorrection = setGroupAssignment(state.speakerCorrection, key, assignment);
+      renderSpeakerCorrectionUI();
+    },
+    onApply: applySpeakerCorrection,
+    onPlay: playCorrectionTurn,
+  });
+  requestAnimationFrame(positionIdentityPopover);
+}
+
+async function openSpeakerIdentity(voice, name, detail = {}) {
+  if (!state.slug || !voice) return;
+  const rect = detail.anchor?.getBoundingClientRect?.();
+  state.speakerCorrection = beginIdentity(state.speakerCorrection, {
+    voice, displayName: name, playbackTime: correctionPlaybackTime(),
+    scrollAnchor: correctionScrollAnchor(detail.index),
+    anchorRect: rect ? { left: rect.left, bottom: rect.bottom } : null,
+  });
+  state.speakerCorrectionReview = null;
+  state.speakerCorrectionChoice = "";
+  renderSpeakerCorrectionUI();
+  try {
+    const [speakers, review] = await Promise.all([
+      ensureSpeakers(),
+      jget(`/api/meetings/${encodeURIComponent(state.slug)}/speakers/${encodeURIComponent(voice)}/review`),
+    ]);
+    state.speakers = speakers;
+    state.speakerCorrectionReview = review;
+    renderSpeakerCorrectionUI();
+  } catch (error) {
+    state.speakerCorrection = withCorrectionError(state.speakerCorrection,
+      `暂时无法读取代表片段：${error.message}`);
+    renderSpeakerCorrectionUI();
+  }
+}
+
+async function confirmSpeakerIdentity(name, create = false) {
+  name = String(name || state.speakerCorrectionChoice || "").trim();
+  if (!name) {
+    state.speakerCorrection = withCorrectionError(state.speakerCorrection, "请先选择或输入一个人员姓名。");
+    renderSpeakerCorrectionUI(); return;
+  }
+  const correction = state.speakerCorrection;
+  state.speakerCorrection = { ...correction, mode: "applying", error: "" };
+  renderSpeakerCorrectionUI();
+  const response = await api(`/api/meetings/${encodeURIComponent(state.slug)}/bind`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ voice: correction.sourceVoice, name, create: Boolean(create) }),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const candidates = result.detail?.candidates?.map(item => item.name).filter(Boolean) || [];
+    state.speakerCorrection = withCorrectionError({ ...correction, mode: "identify" },
+      response.status === 409
+        ? `没有精确找到「${name}」。${candidates.length ? `候选：${candidates.join("、")}。` : ""}可选择候选，或点击“新建人员并确认”。`
+        : `确认失败：${result.detail?.detail || result.detail || response.status}`);
+    state.speakerCorrectionChoice = name;
+    renderSpeakerCorrectionUI(); return;
+  }
+  const changed = state.speakerCorrectionReview?.indexes || [];
+  state.speakers = null; resetAssistant();
+  state.speakerCorrection = resetSpeakerCorrection();
+  state.speakerCorrectionReview = null;
+  renderSpeakerCorrectionUI();
+  await loadMeeting(state.slug);
+  restoreCorrectionContext(correction, changed);
+  showSpeakerChangeNotice(`已将 ${result.turns || changed.length} 段发言确认给「${result.name || name}」。`);
+}
+
+function beginSpeakerRepair() {
+  state.speakerCorrection = beginExampleSelection(state.speakerCorrection);
+  renderSpeakerCorrectionUI();
+  renderTranscript();
+}
+
+function toggleSpeakerCorrectionExample(index, voice = state.speakerCorrection.sourceVoice) {
+  if (state.speakerCorrection.mode !== "select_examples"
+      || voice !== state.speakerCorrection.sourceVoice
+      || new Set(state.speakerCorrectionReview?.protected || []).has(index)) return;
+  state.speakerCorrection = toggleExample(state.speakerCorrection, index);
+  renderSpeakerCorrectionUI();
+  renderTranscript();
+}
+
+async function previewSpeakerCorrection() {
+  const correction = state.speakerCorrection;
+  if (!correction.selectedTurnIndexes.size) return;
+  state.speakerCorrection = { ...correction, error: "" };
+  renderSpeakerCorrectionUI();
+  try {
+    const response = await api(
+      `/api/meetings/${encodeURIComponent(state.slug)}/split/preview`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ voice: correction.sourceVoice,
+          turns: [...correction.selectedTurnIndexes] }),
+      });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.detail?.message || result.detail || response.status);
+    state.speakerCorrection = setPreview(state.speakerCorrection, result,
+      state.bundle?.transcript || []);
+    renderSpeakerCorrectionUI();
+    renderTranscript();
+  } catch (error) {
+    state.speakerCorrection = withCorrectionError(state.speakerCorrection,
+      `无法生成结果预览：${error.message}。已选片段仍然保留，可重试。`);
+    renderSpeakerCorrectionUI();
+  }
+}
+
+async function applySpeakerCorrection() {
+  const correction = state.speakerCorrection;
+  const payload = buildCorrectionApplyPayload(correction);
+  state.speakerCorrection = { ...correction, mode: "applying", error: "" };
+  renderSpeakerCorrectionUI();
+  try {
+    const current = await jget(`/api/meetings/${encodeURIComponent(state.slug)}/bundle`);
+    const stable = payload.turns.every(index => {
+      const before = state.bundle?.transcript?.[index];
+      const after = current.transcript?.[index];
+      return before && after && Math.abs(Number(before.start || 0) - Number(after.start || 0)) < .05;
+    });
+    if (!stable) throw new Error("逐字稿已变化，请返回后重新选择样例");
+    const response = await api(`/api/meetings/${encodeURIComponent(state.slug)}/split`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.detail?.message || result.detail || response.status);
+    const changed = result.turn_indexes || result.voices?.flatMap(group => group.turn_indexes || []) || [];
+    const assignments = Object.values(correction.groupAssignments || {})
+      .map(item => item.name).filter(Boolean);
+    state.speakers = null; resetAssistant();
+    state.speakerCorrection = resetSpeakerCorrection();
+    state.speakerCorrectionReview = null;
+    renderSpeakerCorrectionUI();
+    await loadMeeting(state.slug);
+    restoreCorrectionContext(correction, changed);
+    const target = [...new Set(assignments)];
+    showSpeakerChangeNotice(target.length === 1
+      ? `已将 ${result.moved || changed.length} 段发言从「${correction.sourceDisplayName}」调整为「${target[0]}」。`
+      : `已重新核对 ${result.moved || changed.length} 段发言，并形成 ${result.clusters || target.length} 个结果组。`);
+  } catch (error) {
+    state.speakerCorrection = withCorrectionError({ ...correction, mode: "preview" },
+      `应用失败：${error.message}。你的选择和人员指定仍然保留。`);
+    renderSpeakerCorrectionUI();
+  }
 }
 
 /* ---------- 上传与作业 ---------- */
@@ -5650,8 +5651,6 @@ function init() {
     e.preventDefault();
     stepTranscriptMatch(e.shiftKey ? -1 : 1);
   });
-  $("#split-apply").onclick = applySplitMarks;
-  $("#split-clear").onclick = () => clearSplitMarking();
   $("#transcript-edit-cancel").onclick = closeTranscriptEdit;
   $("#transcript-edit-save").onclick = saveTranscriptEdit;
   $("#transcript-edit-play").onclick = () => {
@@ -5701,8 +5700,11 @@ function init() {
       applySpeakerFocus();
     }, 180);
   });
-  $("#bind-cancel").onclick = closeBind;
-  $("#bind-mask").addEventListener("click", e => { if (e.target.id === "bind-mask") closeBind(); });
+  document.addEventListener("keydown", event => {
+    if (event.key !== "Escape" || state.speakerCorrection.mode === "idle") return;
+    event.preventDefault();
+    closeSpeakerCorrection(state.speakerCorrection.mode === "identify");
+  });
 
   $("#assistant-launcher").onclick = () => openUtility("assistant");
   $("#utility-close").onclick = closeUtility;

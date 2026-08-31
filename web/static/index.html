@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>会议纪要</title>
-<link rel="stylesheet" href="/static/fluent-foundation.css?v=20260828p105">
-<link rel="stylesheet" href="/static/style.css?v=20260828p105">
-<link rel="stylesheet" href="/static/theme.css?v=20260828p105">
+<link rel="stylesheet" href="/static/fluent-foundation.css?v=20260831p106">
+<link rel="stylesheet" href="/static/style.css?v=20260831p106">
+<link rel="stylesheet" href="/static/theme.css?v=20260831p106">
 </head>
 <body class="page-index">
 <header class="topbar">
@@ -74,20 +74,25 @@
       </div>
       <div class="meeting-head-actions">
         <button id="quality-entry-btn" class="quality-entry" type="button" disabled>审计会议结论</button>
+        <button id="export-btn" class="header-export fluent-button" type="button" disabled title="导出离线 Viewer 或 AI / 知识库 Pack">导出</button>
         <details class="more-menu">
           <summary><svg class="fluent-icon" aria-hidden="true"><use href="/static/fluent-icons.svg#fluent-more-horizontal"></use></svg><span>更多</span></summary>
           <div class="more-menu-pop">
-            <button id="regen-btn" type="button" disabled>重新生成纪要</button>
-            <button id="retranscribe-btn" type="button" disabled title="保留母版与旧版本，使用当前 ASR 配置重建">使用最新上下文重新转写</button>
-            <button id="content-type-btn" type="button" disabled title="只改变库内分类，不重新处理内容">标记为媒体视频</button>
             <button id="photo-import-btn" type="button" disabled title="补充白板、纸面笔记或现场展示照片">添加现场照片…</button>
             <input id="photo-file-input" type="file" accept="image/jpeg,image/png,image/webp" multiple hidden>
-            <button id="undo-speaker-btn" type="button" disabled>撤销上次说话人修改</button>
-            <button id="refine-btn" type="button" disabled title="使用更强的本地模型优化全文">优化全文</button>
-            <button id="export-btn" type="button" disabled title="导出前检查证据、媒体和预计大小">分享 / 导出…</button>
             <button id="knowledge-publish-btn" type="button" disabled title="将当前版本发布或更新到已配置的知识库">发布到知识库…</button>
-            <button id="storage-btn" type="button" disabled title="查看原始母版、阅读资产和可再生缓存">存储与清理…</button>
-            <a href="/admin">人员与高级设置</a>
+            <details class="more-advanced">
+              <summary>重新处理与维护</summary>
+              <div>
+                <button id="regen-btn" type="button" disabled>重新生成纪要</button>
+                <button id="retranscribe-btn" type="button" disabled title="保留母版与旧版本，使用当前 ASR 配置重建">使用最新上下文重新转写</button>
+                <button id="refine-btn" type="button" disabled title="使用更强的本地模型优化全文">优化全文</button>
+                <button id="content-type-btn" type="button" disabled title="只改变库内分类，不重新处理内容">标记为媒体视频</button>
+                <button id="undo-speaker-btn" type="button" disabled>撤销上次说话人修改</button>
+                <button id="storage-btn" type="button" disabled title="查看原始母版、阅读资产和可再生缓存">存储与清理…</button>
+                <a href="/admin">人员与高级设置</a>
+              </div>
+            </details>
           </div>
         </details>
       </div>
@@ -141,13 +146,6 @@
         </div>
         <div id="transcript-review-bar" class="transcript-review-bar hidden" aria-live="polite"></div>
         <div id="transcript" class="transcript"><p class="placeholder">← 选择一场会议</p></div>
-        <div id="split-bar" class="split-bar hidden">
-          <span id="split-bar-text"></span>
-          <input id="split-name" list="person-list" placeholder="具名为（可留空）"
-                 title="拆分后直接把新声纹具名为此人；留空则保持未绑定，可事后点说话人 chip 具名">
-          <button id="split-apply" type="button">确认拆分</button>
-          <button id="split-clear" type="button">取消</button>
-        </div>
         </section>
 
         <div id="pane-resizer" class="pane-resizer" role="separator" aria-label="调整逐字稿与纪要宽度" aria-orientation="vertical" tabindex="0"></div>
@@ -236,32 +234,16 @@
   </div>
 </div>
 
-<!-- 说话人绑定弹框 -->
-<div id="bind-mask" class="mask hidden">
-  <div class="dialog">
-    <h3>绑定说话人</h3>
-    <p class="dim">声纹 <code id="bind-voice"></code> · 当前显示名 <b id="bind-name"></b></p>
-    <audio id="bind-sample" controls preload="none"></audio>
-    <input id="bind-input" list="person-list" placeholder="输入任一已确认名称；相似名称只显示候选" autocomplete="off">
-    <datalist id="person-list"></datalist>
-    <div id="bind-cands" class="cands"></div>
-    <div class="dialog-btns">
-      <button id="bind-ok" type="button">绑定（该声音全部语句）</button>
-      <button id="bind-cancel" type="button">取消</button>
-    </div>
-    <div class="dialog-btns bind-split-row">
-      <button id="bind-split" type="button" title="声音相近被并入此人时，逐轮标记不属于 TA 的语句并拆分">
-        有些轮次不是 TA → 逐轮标记拆分</button>
-    </div>
-  </div>
-</div>
+<div id="speaker-identity-popover" class="speaker-identity-popover hidden" role="dialog" aria-label="确认人物身份"></div>
+<aside id="speaker-correction-sheet" class="speaker-correction-sheet hidden" aria-label="修复混入的说话人"></aside>
+<div id="speaker-change-notice" class="speaker-change-notice hidden" role="status" aria-live="polite"></div>
 
 <div id="export-mask" class="mask hidden">
   <div class="dialog export-dialog" role="dialog" aria-modal="true" aria-labelledby="export-title">
     <div class="export-dialog-head">
       <div>
         <h3 id="export-title">分享 / 导出会议</h3>
-        <p class="dim">先检查证据与媒体，再生成可离线打开的 MeetingPack。</p>
+        <p class="dim">选择给人回看的离线 Viewer，或交给 AI / 知识库的可携带 Pack。</p>
       </div>
       <button id="export-close" type="button" aria-label="关闭">×</button>
     </div>
@@ -359,6 +341,6 @@
 
 <div id="tl-tip" class="tl-tip hidden"></div>
 
-<script type="module" src="/static/app.js?v=20260828p105"></script>
+<script type="module" src="/static/app.js?v=20260831p106"></script>
 </body>
 </html>

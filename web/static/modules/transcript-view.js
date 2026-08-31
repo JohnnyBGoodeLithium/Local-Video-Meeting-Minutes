@@ -1,6 +1,6 @@
 /* Transcript DOM projection. All application state and side effects arrive as callbacks. */
 
-import { splitTurnChunks, turnReviewUnits } from "./transcript.js?v=20260828p105";
+import { splitTurnChunks, turnReviewUnits } from "./transcript.js?v=20260831p106";
 
 export function transcriptScrollAnchor(box) {
   const bounds = box.getBoundingClientRect();
@@ -19,11 +19,12 @@ export function renderTranscriptView(options) {
   const {
     box, transcript = [], pendingByTurn = new Map(), translations = new Map(),
     sourceLanguages = new Map(), transcriptMode = "original", translationTarget,
-    evidenceBilingual = new Set(), expandedOriginals = new Set(), splitMarks = new Set(),
-    splitTarget = null, bundleDuration = 0, preserveScroll = true, isEnglish = false,
+    evidenceBilingual = new Set(), expandedOriginals = new Set(),
+    correctionSelected = new Set(), correctionVoice = null, correctionMode = "idle",
+    correctionProtected = new Set(), bundleDuration = 0, preserveScroll = true, isEnglish = false,
     translationActive = false,
     sourceNeedsTranslation, formatTime, escapeHtml, speakerColor, ui, turnEnd,
-    onSelectUnit, onOpenBind, onToggleSplit, onQuote, onEdit, onToggleOriginal,
+    onSelectUnit, onOpenBind, onToggleCorrection, onQuote, onEdit, onToggleOriginal,
   } = options;
   const anchor = preserveScroll ? transcriptScrollAnchor(box) : null;
   const reviewUnits = [];
@@ -76,23 +77,30 @@ export function renderTranscriptView(options) {
     div.innerHTML =
       `<span class="tc" title="点击跳转">[${formatTime(turn.start)}]</span>`
       + `<span class="${chipClass}" style="border-left: 3px solid ${speakerColor(turn.speaker)}" `
-      + `title="${escapeHtml(turn.speaker)} · ${turn.voice ? "点击绑定说话人" : "无对应声纹"}" `
+      + `title="${escapeHtml(turn.speaker)} · ${turn.voice ? "点击核对人物身份" : "暂无可核对身份"}" `
       + `aria-label="说话人：${escapeHtml(turn.speaker)}">${escapeHtml(turn.speaker)}</span>`
       + textHtml
       + `<button type="button" class="edit-turn" title="${isEnglish ? "Listen and correct original transcript" : "核听并修正原语言逐字稿"}">${isEnglish ? "Correct" : "修正"}</button>`
       + '<button type="button" class="quote-turn" title="引用这一轮到会议助手">引用</button>';
-    if (splitMarks.has(turnIndex)) div.classList.add("split-marked");
-    if (splitTarget && turn.voice === splitTarget) div.classList.add("split-candidate");
+    const correctionActive = correctionMode === "select_examples";
+    if (correctionSelected.has(turnIndex)) div.classList.add("speaker-correction-selected");
+    if (correctionActive && turn.voice === correctionVoice)
+      div.classList.add(correctionProtected.has(turnIndex)
+        ? "speaker-correction-protected" : "speaker-correction-candidate");
+    else if (correctionActive) div.classList.add("speaker-correction-muted");
     div.querySelector(".tc").onclick = event => {
       event.stopPropagation();
       onSelectUnit(firstUnitIndex);
     };
     div.querySelector(".chip").onclick = event => {
       event.stopPropagation();
-      if (turn.voice) onOpenBind(turn.voice, turn.speaker);
+      if (correctionActive) onToggleCorrection(turnIndex, turn.voice);
+      else if (turn.voice) onOpenBind(turn.voice, turn.speaker, {
+        index: turnIndex, anchor: event.currentTarget,
+      });
     };
     div.addEventListener("click", () => clickWithoutSelection(() => {
-      if (splitTarget) onToggleSplit(turnIndex, turn.voice);
+      if (correctionActive) onToggleCorrection(turnIndex, turn.voice);
       else onSelectUnit(firstUnitIndex);
     }));
     div.querySelector(".quote-turn").onclick = event => {
@@ -130,7 +138,7 @@ export function renderTranscriptView(options) {
           onSelectUnit(unitIndex);
         };
         continuation.addEventListener("click", () => clickWithoutSelection(() => {
-          if (splitTarget) onToggleSplit(turnIndex, turn.voice);
+          if (correctionActive) onToggleCorrection(turnIndex, turn.voice);
           else onSelectUnit(unitIndex);
         }));
         box.appendChild(continuation);

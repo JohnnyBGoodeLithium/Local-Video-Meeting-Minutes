@@ -11,7 +11,9 @@ from voice_enroll import (cluster_embeddings, reassign_by_centroids,
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from routers.speakers import (_existing_voice_for_person,
-                              _resolve_current_split_voice)  # noqa: E402
+                              _representative_indexes,
+                              _resolve_current_split_voice,
+                              _turns_summary)  # noqa: E402
 
 DIM = 192
 
@@ -98,7 +100,7 @@ try:
     _resolve_current_split_voice(turns, [0, 2], "v_old")
 except Exception as exc:
     assert getattr(exc, "status_code", None) == 400
-    assert "多条声纹" in str(getattr(exc, "detail", ""))
+    assert "多个声音组" in str(getattr(exc, "detail", ""))
 else:
     raise AssertionError("mixed current voices must be rejected")
 
@@ -117,5 +119,17 @@ target = _existing_voice_for_person(
 assert target["id"] == "v_target_here"
 assert _existing_voice_for_person(
     bank, synthetic_turns, "p_missing", source_voice="v_source", slug="synthetic") is None
+
+# 14. 身份卡代表片段优先选择前/中/后分布中的长发言，摘要不暴露正文。
+review_turns = [
+    {"start": 0, "end": 1}, {"start": 3, "end": 9},
+    {"start": 20, "end": 22}, {"start": 40, "end": 50},
+    {"start": 60, "end": 63}, {"start": 80, "end": 92},
+]
+representatives = _representative_indexes(review_turns, list(range(6)))
+assert representatives == [1, 3, 5], representatives
+summary = _turns_summary(review_turns, list(range(6)))
+assert summary == {"turns": 6, "duration": 34.0,
+                   "representative_turns": [1, 3, 5]}
 
 print("voice split clustering: synthetic partitions passed")

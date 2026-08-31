@@ -158,12 +158,19 @@ check("首页显式展示结论审计和会议脉络入口且禁止缓存旧壳"
       and b'id="knowledge-publish-btn"' in page
       and b'id="knowledge-publish-mask"' in page
       and "no-store" in cache_control)
+check("人物核对使用轻量卡片与非阻塞侧栏，旧绑定弹窗和底部标记条已移除",
+      b'id="speaker-identity-popover"' in page
+      and b'id="speaker-correction-sheet"' in page
+      and b'id="speaker-change-notice"' in page
+      and b'id="bind-mask"' not in page and b'id="split-bar"' not in page
+      and b'id="split-name"' not in page)
 s, _, app_js = req("GET", "/static/app.js", raw=True)
 module_statuses = []
 module_sources = []
 for module_name in ("media-source.js", "imports.js", "jobs.js", "library.js",
                     "player-navigation.js", "transcript.js", "transcript-view.js",
-                    "export.js", "minutes.js", "minutes-view.js"):
+                    "export.js", "minutes.js", "minutes-view.js",
+                    "speaker-correction.js", "speaker-correction-view.js"):
     module_status, _, module_source = req(
         "GET", f"/static/modules/{module_name}", raw=True)
     module_statuses.append(module_status)
@@ -172,7 +179,7 @@ app_js = b"\n".join([app_js, *module_sources])
 check("前端装配入口使用可独立加载的原生 ES modules",
       all(status == 200 for status in module_statuses)
       and b'type="module"' in page
-      and b'./modules/media-source.js?v=20260828p105' in app_js
+      and b'./modules/media-source.js?v=20260831p106' in app_js
       and b'export function selectJobPanel' in app_js
       and b'export function sortLibrary' in app_js
       and b'export function nearestReviewUnit' in app_js
@@ -199,12 +206,12 @@ if chrome:
         "--window-size=1600,900", "--virtual-time-budget=8000", "--dump-dom", BASE,
     ], capture_output=True, text=True, timeout=90)
     check("在线工作台 ES modules 在 Headless Chromium 完整启动",
-          browser.returncode == 0 and "20260828p105" in browser.stdout
+          browser.returncode == 0 and "20260831p106" in browser.stdout
           and 'class="meeting-item active"' in browser.stdout
           and 'id="turn-0"' in browser.stdout
           and 'id="minutes-heading-0"' in browser.stdout
           and "Uncaught" not in browser.stderr,
-          f"rc={browser.returncode}, build={'20260828p105' in browser.stdout}, "
+          f"rc={browser.returncode}, build={'20260831p106' in browser.stdout}, "
           f"active={'class=\"meeting-item active\"' in browser.stdout}, "
           f"transcript={'id=\"turn-0\"' in browser.stdout}, "
           f"minutes={'id=\"minutes-heading-0\"' in browser.stdout}, "
@@ -217,13 +224,22 @@ if chrome:
     check("产品介绍 ES module 在 Headless Chromium 完整启动",
           product_browser.returncode == 0
           and 'data-ui-language="zh-CN"' in product_browser.stdout
-          and '>v0.14.0</em>' in product_browser.stdout
+          and '>v0.14.1</em>' in product_browser.stdout
           and "Uncaught" not in product_browser.stderr,
           f"rc={product_browser.returncode}, "
           f"language={'data-ui-language=\"zh-CN\"' in product_browser.stdout}, "
-          f"version={'>v0.14.0</em>' in product_browser.stdout}, "
+          f"version={'>v0.14.1</em>' in product_browser.stdout}, "
           f"uncaught={'Uncaught' in product_browser.stderr}, "
           f"stderr={product_browser.stderr[-500:]!r}")
+    correction_browser = subprocess.run([
+        str(Path(__file__).resolve().parent.parent.parent / ".venv/bin/python"),
+        str(Path(__file__).resolve().parent / "chromium_speaker_correction_test.py"),
+    ], capture_output=True, text=True, timeout=90, env=os.environ)
+    check("Headless Chromium 完成人物确认、撤销与混声修复预览",
+          correction_browser.returncode == 0
+          and "identity/undo and advanced preview/apply passed" in correction_browser.stdout,
+          f"rc={correction_browser.returncode}, out={correction_browser.stdout[-300:]!r}, "
+          f"err={correction_browser.stderr[-300:]!r}")
 else:
     print("SKIP  在线工作台 ES modules 浏览器启动（未安装 Chromium）")
     print("SKIP  产品介绍 ES module 浏览器启动（未安装 Chromium）")
@@ -251,18 +267,19 @@ check("时间码跳转只滚动内容面板，不带动整页丢失播放器",
 check("在线屏幕舞台支持放大、缩放和相邻屏幕键盘导航",
       b'id="screen-preview-mask"' in page and b'openScreenPreview' in app_js
       and b'navigateScreenPreview' in app_js and b'SCREEN_PREVIEW_ZOOMS' in app_js
-      and b'20260828p105' in page)
+      and b'20260831p106' in page)
 check("会议深链 ?meeting=<slug>&t=<秒> 定位播放且忽略非法/超界 t",
       b'params.get("t")' in app_js and b'deepLinkSeek' in app_js
       and b'deepLinkSeconds' in app_js
       and b'!Number.isFinite(value) || value < 0' in app_js
       and b'value > maximum' in app_js
       and b'seek(deepLinkSeek)' in app_js)
-check("导出弹窗提供 AI 上下文与轻量/图文知识库形态",
+check("普通导出收束为离线 Viewer 与 AI / 知识库 Pack",
       b'name="export-profile"' in app_js
-      and "AI 上下文".encode() in app_js and b'profile === "ai"' in app_js
-      and "知识库图文版".encode() in app_js
-      and b'kb-html' in app_js and b'embedded key frames' in app_js
+      and "离线 Viewer".encode() in app_js
+      and "AI / 知识库 Pack".encode() in app_js
+      and b'profile === "ai"' in app_js
+      and "图文知识投影仍可通过".encode() in app_js
       and "超过常见邮件附件 30MB 限制".encode() in app_js
       and b"knowledge-base profile" in app_js
       and b'profile=' in app_js)
@@ -333,7 +350,7 @@ check("产品介绍页同步当前能力、双语与设计 token",
       and '多模态证据核心'.encode() in product_page
       and b'data-product-content-version="0.14"' in product_page
       and b'data-ui-language="en"' in product_page
-      and b'/static/fluent-foundation.css?v=20260828p105' in product_page
+      and b'/static/fluent-foundation.css?v=20260831p106' in product_page
       and b'Optional Enrichment' in product_page
       and b'AI Context' in product_page
       and b'WeKnora' in product_page
@@ -1108,6 +1125,12 @@ s, _, _ = req("GET", "/api/meetings/_smoke/samples/v_9001.wav", raw=True)
 check("samples/v_9001.wav（voice→显示名映射）→ 200", s == 200)
 s, _, _ = req("GET", "/api/speakers/v_9001/sample", raw=True)
 check("后台声纹试听接口 → 200", s == 200)
+s, _, review = req("GET", "/api/meetings/_smoke/speakers/v_9001/review")
+check("轻量身份卡获得段数、时长与分布式代表片段",
+      s == 200 and review.get("indexes") == [0, 2]
+      and review.get("summary", {}).get("turns") == 2
+      and len(review.get("summary", {}).get("representative_turns", [])) == 2
+      and review.get("protected") == [])
 
 # 6. speakers（绑定前）
 s, _, j = req("GET", "/api/speakers")

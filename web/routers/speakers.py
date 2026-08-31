@@ -42,7 +42,7 @@ def _bind_voice(voice_id: str, name: str, create: bool = False):
         bank = vb.load_bank(BANK_DIR)
         voice = next((v for v in bank["voices"] if v["id"] == voice_id), None)
         if not voice:
-            raise HTTPException(404, "没有这条声纹")
+            raise HTTPException(404, "找不到这个声音组")
         if create:
             person, how = vb.resolve_person(bank, name)
             if person is None:
@@ -325,12 +325,58 @@ class SplitReq(BaseModel):
     turns: list[int]
     name: str = ""
     expand_similar: bool = False
+    group_assignments: dict[str, dict] = Field(default_factory=dict)
 
 
 class SplitPreviewReq(BaseModel):
     voice: str
     turns: list[int]
     name: str = ""
+
+
+def _turn_duration(turn: dict) -> float:
+    return max(0.0, float(turn.get("end", 0) or 0) - float(turn.get("start", 0) or 0))
+
+
+def _representative_indexes(turns: list, indexes: list[int], limit: int = 3) -> list[int]:
+    """Choose clear-enough long samples distributed across the meeting."""
+    valid = sorted({index for index in indexes if 0 <= index < len(turns)},
+                   key=lambda index: float(turns[index].get("start", 0) or 0))
+    if len(valid) <= limit:
+        return valid
+    thirds = [
+        valid[:max(1, (len(valid) + 2) // 3)],
+        valid[len(valid) // 3:max(len(valid) // 3 + 1, (len(valid) * 2 + 2) // 3)],
+        valid[(len(valid) * 2) // 3:],
+    ]
+    result = []
+    for part in thirds:
+        if not part:
+            continue
+        chosen = max(part, key=lambda index: (_turn_duration(turns[index]), -index))
+        if chosen not in result:
+            result.append(chosen)
+    return result[:limit]
+
+
+def _turns_summary(turns: list, indexes: list[int]) -> dict:
+    stable = sorted({index for index in indexes if 0 <= index < len(turns)})
+    return {"turns": len(stable),
+            "duration": round(sum(_turn_duration(turns[index]) for index in stable), 3),
+            "representative_turns": _representative_indexes(turns, stable)}
+
+
+@router.get("/api/meetings/{slug}/speakers/{voice_id}/review")
+def speaker_review_summary(slug: str, voice_id: str):
+    """Read-only projection for the identity card and example-selection step."""
+    mdir = _mdir(slug)
+    turns = _read_json(mdir / "transcript.spk.json", [])
+    indexes = [index for index, turn in enumerate(turns) if turn.get("voice") == voice_id]
+    if not indexes:
+        raise HTTPException(404, "当前会议没有这组发言")
+    protected = sorted(sc.locked_indexes(mdir, turns) & set(indexes))
+    return {"ok": True, "voice": voice_id, "indexes": indexes, "protected": protected,
+            "summary": _turns_summary(turns, indexes)}
 
 
 def _resolve_current_split_voice(turns: list, indexes: list[int], requested: str):
@@ -342,9 +388,9 @@ def _resolve_current_split_voice(turns: list, indexes: list[int], requested: str
     """
     voices = {str(turns[i].get("voice") or "").strip() for i in indexes}
     if "" in voices:
-        raise HTTPException(400, "所选轮次缺少可用声纹，请刷新后重新选择")
+        raise HTTPException(400, "所选片段缺少可导航的说话人信息，请刷新后重新选择")
     if len(voices) != 1:
-        raise HTTPException(400, "所选轮次当前属于多条声纹，请刷新后重新选择")
+        raise HTTPException(400, "所选片段当前属于多个声音组，请刷新后重新选择")
     current = next(iter(voices))
     return current, current != requested
 
@@ -367,6 +413,21 @@ def _existing_voice_for_person(bank: dict, turns: list, person_id: str, *,
         slug in set(voice.get("sources") or []),
         str(voice.get("id") or ""),
     ))
+
+
+def _resolve_group_person(bank: dict, assignment: dict | None, legacy_name: str = ""):
+    assignment = assignment or {}
+    name = str(assignment.get("name") or legacy_name or "").strip()
+    if not name:
+        return None
+    create = bool(assignment.get("create"))
+    if create:
+        person, _how = vb.resolve_person(bank, name)
+        if person is None:
+            person = vb.add_person(bank, name, display_name=name)
+        return person
+    person, _how = _resolve_or_409(bank, name, orgchart=vb.load_orgchart(BANK_DIR))
+    return person
 
 
 @router.post("/api/meetings/{slug}/split/preview")
@@ -402,15 +463,22 @@ def preview_split_voice_turns(slug: str, req: SplitPreviewReq):
                     "target_voice": target["id"]}
     wav = _audio_path(mdir)
     if wav is None:
-        raise HTTPException(400, "会议没有可用音频，无法预览声纹拆分")
+        raise HTTPException(400, "会议没有可用录音，无法分析这些片段")
     picked = ve.embed_ranges(wav, [(float(turns[i].get("start", 0)),
                                     float(turns[i].get("end", 0))) for i in selected])
     if not len(picked):
-        raise HTTPException(500, "所选轮次声纹嵌入提取失败")
+        return {"ok": True, "voice": source_voice,
+                "source_voice_rebased": voice_rebased,
+                "selected": selected, "suggested": [], "protected": protected,
+                "ambiguous": [], "threshold": None, "margin": None,
+                "direct_only": True, "source_summary": _turns_summary(turns, source_indexes),
+                "groups": [{"group_key": "group-1", "selected": selected,
+                            "suggested": [], **_turns_summary(turns, selected),
+                            "evidence_limited": True, "suggested_person": ""}]}
     clusters = ve.cluster_embeddings(picked)
     centroids = [picked[[pos for pos, value in enumerate(clusters) if value == cluster]].mean(axis=0)
                  for cluster in range(max(clusters) + 1)]
-    suggested, ambiguous = [], []
+    suggested, ambiguous, suggested_by_group = [], [], {index: [] for index in range(len(centroids))}
     if candidates:
         rest = ve.embed_ranges(wav, [(float(turns[i].get("start", 0)),
                                       float(turns[i].get("end", 0))) for i in candidates])
@@ -418,10 +486,31 @@ def preview_split_voice_turns(slug: str, req: SplitPreviewReq):
             base = rest.mean(axis=0).astype(np.float32)
             moves, uncertain = ve.suggest_reassignments(rest, base, centroids)
             suggested = [candidates[pos] for pos, move in enumerate(moves) if move is not None]
+            for pos, move in enumerate(moves):
+                if move is not None and int(move) in suggested_by_group:
+                    suggested_by_group[int(move)].append(candidates[pos])
             ambiguous = [candidates[pos] for pos, value in enumerate(uncertain) if value]
+    groups = []
+    with BANK_LOCK:
+        bank = vb.load_bank(BANK_DIR)
+        for cluster, centroid in enumerate(centroids):
+            chosen = [selected[pos] for pos, value in enumerate(clusters) if value == cluster]
+            suggested_person = ""
+            match, _similarity = _match_voice_excluding(
+                BANK_DIR, bank, centroid, source_voice, 0.70)
+            if match is not None and match.get("person_id"):
+                suggested_person = vb.display_name(bank, match)
+            members = chosen + suggested_by_group.get(cluster, [])
+            groups.append({"group_key": f"group-{cluster + 1}", "selected": chosen,
+                           "suggested": suggested_by_group.get(cluster, []),
+                           **_turns_summary(turns, members),
+                           "evidence_limited": sum(_turn_duration(turns[i]) for i in chosen) < 1.0,
+                           "suggested_person": suggested_person})
     return {"ok": True, "voice": source_voice, "source_voice_rebased": voice_rebased,
             "selected": selected, "suggested": suggested, "protected": protected,
-            "ambiguous": ambiguous, "threshold": 0.78, "margin": 0.08}
+            "ambiguous": ambiguous, "threshold": 0.78, "margin": 0.08,
+            "direct_only": False, "source_summary": _turns_summary(turns, source_indexes),
+            "groups": groups}
 
 
 def _match_voice_excluding(bank_dir: Path, bank: dict, vec, exclude: str, threshold: float):
@@ -465,16 +554,17 @@ def _split_voice_turns(slug: str, req: SplitReq, mdir: Path):
                  if t.get("voice") == source_voice and i not in picked_set]
     if not remaining:
         raise HTTPException(
-            400, f"这条声纹在本会议只有 {len(idx)} 轮且全部被选中，无需拆分："
-                 "点该轮的说话人 chip 直接绑定姓名即可整体改派")
+            400, f"这个声音组在本会议只有 {len(idx)} 段且已全部选中，无需单独修复："
+                 "点击该片段的人物标签，直接确认整组是谁")
     # 用户明确标记具体轮次并选择一个已有人员时，人工判断优先于声纹相似度。
     # 尤其 0 时长或极短的边界轮次没有可靠 embedding；强制重提声纹会让用户
     # 明明知道是谁却无法改正。这里只改手选轮次，不扩散、不改目标声纹质心。
-    if req.name.strip() and not req.expand_similar:
+    group_one = req.group_assignments.get("group-1") or {}
+    direct_name = str(group_one.get("name") or req.name or "").strip()
+    if direct_name and not req.expand_similar:
         with BANK_LOCK:
             bank = vb.load_bank(BANK_DIR)
-            assigned_person, _how = _resolve_or_409(
-                bank, req.name.strip(), orgchart=vb.load_orgchart(BANK_DIR))
+            assigned_person = _resolve_group_person(bank, group_one, req.name)
             target = _existing_voice_for_person(
                 bank, turns, assigned_person["id"], source_voice=source_voice, slug=slug)
             if target is not None:
@@ -500,14 +590,15 @@ def _split_voice_turns(slug: str, req: SplitReq, mdir: Path):
                     "clusters": 1,
                     "voices": [{"voice": target["id"], "name": new_name,
                                 "turns": len(idx), "matched": True,
-                                "similarity": None}],
+                                "similarity": None, "group_key": "group-1",
+                                "turn_indexes": idx}],
                     "source_voice_rebased": voice_rebased,
                     "name_applied": True, "expanded_similar": False,
                     "protected": len(sc.locked_indexes(mdir, turns) & set(remaining)),
-                    "direct_assignment": True}
+                    "direct_assignment": True, "turn_indexes": idx}
     wav = _audio_path(mdir)
     if wav is None:
-        raise HTTPException(400, "会议没有可用音频，无法重提声纹")
+        raise HTTPException(400, "会议没有可用录音，无法分析这些片段")
 
     # 嵌入提取可能耗时几十秒，在 BANK_LOCK 外做
     ranges_of = lambda ids: [(float(turns[i].get("start", 0)),  # noqa: E731
@@ -515,7 +606,7 @@ def _split_voice_turns(slug: str, req: SplitReq, mdir: Path):
     picked = ve.embed_ranges(wav, ranges_of(idx))
     rest = ve.embed_ranges(wav, ranges_of(remaining))
     if not len(picked) or not len(rest):
-        raise HTTPException(500, "声纹嵌入提取失败")
+        raise HTTPException(422, "这些片段的声音证据不足，无法可靠形成新分组")
     clusters = ve.cluster_embeddings(picked)
     n_clusters = max(clusters) + 1
     # 半监督重排：以标记轮次建立新簇质心，再把该声纹其余轮次按“离谁近归谁”
@@ -535,20 +626,23 @@ def _split_voice_turns(slug: str, req: SplitReq, mdir: Path):
             moves[pos] = cluster
     keep_rest = [n for n, mk in enumerate(moves) if mk is None]
     if not keep_rest:
-        raise HTTPException(400, "重排后原声纹在本会议不再剩轮次；若它整体属于别人请改用绑定")
+        raise HTTPException(400, "调整后原声音组不再剩余发言；若整组都属于别人，请直接确认人物")
 
     moved, reassigned, results, lock_groups = 0, 0, [], []
+    any_name_applied = False
     with BANK_LOCK:
         bank = vb.load_bank(BANK_DIR)
         src = next((v for v in bank["voices"] if v["id"] == source_voice), None)
         if src is None:
-            raise HTTPException(404, "没有这条声纹")
-        assigned_person = None
-        if req.name.strip():
-            assigned_person, _how = _resolve_or_409(
-                bank, req.name.strip(), orgchart=vb.load_orgchart(BANK_DIR))
+            raise HTTPException(404, "找不到当前声音组")
         src_label = str(turns[idx[0]].get("speaker") or src.get("label_hint") or source_voice)
         for k in range(n_clusters):
+            key = f"group-{k + 1}"
+            assignment_provided = key in req.group_assignments
+            assigned_person = _resolve_group_person(
+                bank, req.group_assignments.get(key), req.name)
+            keep_unnamed = assignment_provided and assigned_person is None and not req.name.strip()
+            any_name_applied = any_name_applied or assigned_person is not None
             member_pos = [n for n, c in enumerate(clusters) if c == k]
             moved_pos = [n for n, mk in enumerate(moves) if mk == k]
             members = [idx[n] for n in member_pos] + [remaining[n] for n in moved_pos]
@@ -557,6 +651,8 @@ def _split_voice_turns(slug: str, req: SplitReq, mdir: Path):
                 mats.append(rest[moved_pos])
             centroid = np.vstack(mats).mean(axis=0)
             match, sim = _match_voice_excluding(BANK_DIR, bank, centroid, source_voice, 0.70)
+            if keep_unnamed and match is not None and match.get("person_id"):
+                match = None
             if match is not None and assigned_person is not None:
                 same_person = match.get("person_id") == assigned_person["id"]
                 meeting_local_unbound = (not match.get("person_id")
@@ -580,10 +676,11 @@ def _split_voice_turns(slug: str, req: SplitReq, mdir: Path):
                 turns[i]["speaker"] = new_name
             moved += len(members)
             reassigned += len(moved_pos)
-            lock_groups.append((members, match["id"]))
-            results.append({"voice": match["id"], "name": new_name,
+            lock_groups.append((members, match["id"],
+                                assigned_person["id"] if assigned_person else None))
+            results.append({"group_key": key, "voice": match["id"], "name": new_name,
                             "turns": len(members), "matched": matched,
-                            "similarity": round(sim, 3)})
+                            "similarity": round(sim, 3), "turn_indexes": members})
         # 原声纹质心用重排后剩余的轮次重算，避免继续被混入的发音污染
         # 已确认且跨会议复用的声纹不能被单场剩余音频覆盖全局质心。
         if not (src.get("person_id") and len(src.get("sources", [])) > 1):
@@ -596,9 +693,9 @@ def _split_voice_turns(slug: str, req: SplitReq, mdir: Path):
     tmp.write_text(json.dumps(turns, ensure_ascii=False, indent=1), encoding="utf-8")
     tmp.replace(tp)
     _rewrite_spk_md(mdir, slug, turns)
-    for members, voice_id in lock_groups:
+    for members, voice_id, person_id in lock_groups:
         sc.lock_turns(mdir, turns, members,
-                      person_id=assigned_person["id"] if assigned_person else None,
+                      person_id=person_id,
                       voice_id=voice_id, operation="split")
     _refresh_evidence(mdir)
     subprocess.run([str(PY), str(ROOT / "bin" / "voice_tool.py"), "sample", str(mdir)],
@@ -606,6 +703,8 @@ def _split_voice_turns(slug: str, req: SplitReq, mdir: Path):
     return {"ok": True, "moved": moved, "reassigned": reassigned,
             "clusters": n_clusters, "voices": results,
             "source_voice_rebased": voice_rebased,
-            "name_applied": bool(assigned_person),
+            "name_applied": any_name_applied,
             "expanded_similar": bool(req.expand_similar),
-            "protected": len(protected_indexes & set(remaining))}
+            "protected": len(protected_indexes & set(remaining)),
+            "turn_indexes": sorted({index for members, _voice, _person in lock_groups
+                                    for index in members})}
