@@ -2,6 +2,7 @@
 /recordings/
 /meetings/
 /evaluations/
+/private_reports/
 
 # Voiceprints, identities, and organization data are private.
 /speaker_bank/*
