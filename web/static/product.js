@@ -1,4 +1,4 @@
-import { EN_COPY, EN_META } from "./product-copy.js?v=20260831p107";
+import { EN_COPY, EN_META } from "./product-copy.js?v=20260831p108";
 
 "use strict";
 

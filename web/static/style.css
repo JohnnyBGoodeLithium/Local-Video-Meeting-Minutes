@@ -12,6 +12,7 @@
   --accent: #4f7cff;
   --success: #22a06b;
   --danger: #c25050;
+  --workspace-sheet-width: min(470px, 46vw);
 
   /* ---- 设计 token：可被 theme.css 整体覆盖 ---- */
   --font-sans: -apple-system, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
@@ -466,7 +467,7 @@ body.page-index { overflow: hidden; }
   bottom: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  width: min(470px, 46vw);
+  width: var(--workspace-sheet-width);
   min-width: 390px;
   border-left: 1px solid var(--border);
   background: var(--panel);
@@ -660,7 +661,7 @@ body.resizing-panes { cursor: col-resize; user-select: none; }
 
 .speaker-correction-sheet {
   position: fixed; z-index: 78; top: 45px; right: 0; bottom: 0; display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto; width: min(470px, 46vw); min-width: 390px;
+  grid-template-rows: auto minmax(0, 1fr) auto; width: var(--workspace-sheet-width); min-width: 390px;
   border-left: 1px solid var(--border); background: var(--panel); box-shadow: -12px 0 34px rgba(0, 0, 0, .4);
 }
 .speaker-sheet-head { padding: var(--sp-14); border-bottom: 1px solid var(--border); }
@@ -1315,12 +1316,32 @@ button.danger-text { border-color: transparent; background: transparent; color: 
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   min-height: 0;
-  width: min(430px, calc(100% - 20px));
+  width: min(var(--workspace-sheet-width), calc(100% - 20px));
   border-left: 1px solid var(--border);
   background: rgba(28, 31, 38, .99);
   box-shadow: -12px 0 30px rgba(0, 0, 0, .32);
 }
-.utility-head { display: flex; align-items: center; justify-content: space-between; min-height: 45px; padding: var(--sp-6) var(--sp-8) var(--sp-6) var(--sp-12); border-bottom: 1px solid var(--border); }
+.utility-panel,
+.speaker-correction-sheet,
+.workspace-side-sheet {
+  border-left-color: var(--colorNeutralStroke2);
+  background: var(--colorNeutralBackground1);
+  box-shadow: var(--shadow16);
+}
+.utility-head,
+.speaker-sheet-head,
+.workspace-side-sheet > header {
+  min-height: 52px;
+  border-bottom-color: var(--colorNeutralStroke2);
+}
+.speaker-sheet-actions,
+.workspace-side-sheet > footer {
+  min-height: 56px;
+  align-items: center;
+  border-top-color: var(--colorNeutralStroke2);
+  background: var(--colorNeutralBackground2);
+}
+.utility-head { display: flex; align-items: center; justify-content: space-between; min-height: 52px; padding: var(--sp-6) var(--sp-8) var(--sp-6) var(--sp-12); border-bottom: 1px solid var(--border); }
 .utility-tabs { display: flex; gap: var(--sp-4); }
 .utility-tabs button { border-color: transparent; background: transparent; color: var(--dim); }
 .utility-tabs button.active { color: var(--text); border-color: var(--border); background: var(--panel2); }

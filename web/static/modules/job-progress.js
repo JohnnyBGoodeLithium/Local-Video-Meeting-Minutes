@@ -36,6 +36,20 @@ const FAILURE_COPY = {
   unknown_internal: ["系统未能安全判断具体原因", "The exact cause could not be classified safely"],
 };
 
+const FAILURE_CODE_COPY = {
+  VISUAL_MODEL_START_FAILED: ["本地视觉服务未能启动", "The local visual service could not start"],
+  ASR_SERVICE_UNAVAILABLE: ["本地语音识别服务暂时不可用", "The local speech recognition service is unavailable"],
+  ASR_TIMESTAMPS_MISSING: ["语音识别结果没有提供可靠时间码", "Speech recognition did not return reliable timestamps"],
+  TEAMS_TRANSCRIPT_INVALID: ["Teams 文稿无法安全读取", "The Teams transcript could not be read safely"],
+  MEDIA_INVALID: ["媒体文件损坏或缺少可用音视频轨道", "The media is damaged or has no usable audio or video track"],
+  DISK_SPACE_INSUFFICIENT: ["磁盘空间不足", "There is not enough disk space"],
+  RESOURCE_INSUFFICIENT: ["本机内存、显存或磁盘资源不足", "Local memory, graphics memory, or disk resources were insufficient"],
+  REVISION_CONFLICT: ["会议内容已在任务开始后发生变化", "The meeting changed after this task started"],
+  DOWNLOAD_FAILED: ["媒体下载没有完成", "The media download did not finish"],
+  PROCESS_INTERRUPTED: ["任务在安全检查点被中断", "The task was interrupted at a safe checkpoint"],
+  STAGE_PROCESSING_FAILED: ["这一处理步骤没有完成", "This processing step did not finish"],
+};
+
 const RETRY_ORDER = {
   resume: 1, retry_stage: 2, low_resource: 3, degraded_continue: 4,
   resume_high: 5, restart: 6, reimport: 7,
@@ -90,6 +104,13 @@ export function availableOutputLabels(progress, language = "zh-CN") {
 
 export function outputLabel(output, language = "zh-CN") {
   return pick(OUTPUT_COPY[output] || [output, output], language);
+}
+
+export function failureReason(failure, language = "zh-CN") {
+  const code = String(failure?.code || "").toUpperCase();
+  return pick(FAILURE_CODE_COPY[code]
+    || FAILURE_COPY[failure?.category]
+    || FAILURE_COPY.unknown_internal, language);
 }
 
 export function sortedRetryOptions(progress) {
@@ -149,7 +170,7 @@ export function jobPresentation(job, displayName, language = "zh-CN") {
     primary = { id: "check", label: language === "en" ? "Check now" : "立即再检查" };
   } else if (state === "failed") {
     headline = language === "en" ? `${phase} did not finish` : `${phase}没有完成`;
-    const reason = pick(FAILURE_COPY[failure?.category] || FAILURE_COPY.unknown_internal, language);
+    const reason = failureReason(failure, language);
     detail = outputs.length
       ? `${reason}${language === "en" ? ". Kept: " : "。已保留："}${outputs.join(language === "en" ? ", " : "、")}`
       : reason;

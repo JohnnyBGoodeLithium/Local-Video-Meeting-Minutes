@@ -41,6 +41,8 @@
 - 知识库导出保持职责分离：本应用负责音视频分析、证据 linkage、图片筛选与导出；WeKnora 等外部系统负责文档分块、索引、检索和问答。默认推荐 `profile=kb`；需要保留截图时用 `profile=kb-html`，消费方 VLM 默认关闭、按“文字解读未覆盖的关键图表”需求显式开启。ASR 不参与 HTML/Markdown 导入。
 - AI Context 是面向用户自选通用模型/Notebook 的本地导出，不是内置远程调用。`profile=ai` 必须保留时间码与证据编号，不带本机深链或媒体二进制，必须声明逐字稿为不可信来源内容并提示外部上传前人工复核。不在本产品内复制 NotebookLM/WeKnora 的通用笔记、Wiki 或问答 UI；历史会议 Lens、汇报演练和联网研究优先由下游消费方完成。
 - 普通导出 UI 只呈现“离线 Viewer”和“AI / 知识库 Pack”两个消费意图；`kb` / `kb-html` 等技术 profile 可继续用于 CLI、HTTP 和直接发布，但不得重新平铺为普通用户需要理解的格式选择。
+- 新处理路径必须通过 `job-progress/v2` 和受控 `[progress]` / `[phase_done]` / `[output_ready]` / `[failure]` / `[recovery]` 事件发布用户状态；自然语言日志只能作为旧作业 fallback，前后端不得各自把日志关键词重新解释成另一套权威阶段。阶段 ID、输出可用性、失败 code、恢复范围和 attempt 必须持久化，刷新后不得丢失。
+- 普通失败界面只投影业务阶段、已保留结果、被阻塞结果和具体恢复动作；原始 stdout/stderr、traceback、脚本、端口、完整 provider 输出不得进入普通 API。可复制诊断信息采用白名单，禁止会议标题、正文、人名、文件名、绝对路径、原始 URL、prompt 与凭据。
 - WeKnora 是受支持的知识消费下游和完整用户旅程的一部分，但不是 canonical 数据真源。涉及该边界时同步维护 `docs/WEKNORA_INTEGRATION.md`、`deploy/weknora/`、KB 导出和时间深链验收；不得把其凭据、数据库或真实知识库数据复制进仓库。直连必须走 provider-neutral、revision 幂等的 `KnowledgeSink`，不能从知识库反写逐字稿/身份/证据。
 - 统一内存机器默认只允许一个重型阶段并发。健康时至多两个文本模型常驻；ASR/说话人/VL/知识库增强前必须经过 `meeting_core.resource_policy` 准入，120B 量级精修独占。不得在业务脚本里另写一套模型卸载判断或绕过低内存等待。
 
@@ -59,6 +61,7 @@
 - 产品介绍页与工作台、Viewer 共用 `fluent-foundation.css` 的基础 token；介绍页专有色彩只能通过 `--product*` 语义角色扩展，不在组件选择器里建立第二套无命名色板。新增引用必须由静态 token 回归验证可解析。
 - 发布产品版本时，同步更新 `VERSION`、`CHANGELOG.md` 和需要设版本基线的文档；验证、commit 与 push 后创建并推送 annotated Git tag。详见 `docs/RELEASES.md`。
 - 现场照片的原图属于受保护母版，统一 JPEG 只是阅读投影；时间只能来自可信 EXIF 或用户明确对齐，文件 mtime 不得冒充拍摄时间。照片可补充屏幕/现场语境，但不能单独升级为会议决定证据。
+- 现场资料导入必须先展示缩略图、逐项读取状态和建议位置，再渐进询问定位；从资料页进入默认未定位，从播放器入口进入才默认当前时间。EXIF 只是建议，修改标题不改原文件名/hash，删除必须用产品内确认并原子同步母版、阅读副本与 sidecar；全部新增文案与键盘路径须中英同批验证。
 - 外部知识库只消费 canonical 数据的只读 projection。新增 provider 必须实现 `KnowledgeSink`，以正文 revision 幂等发布，凭据只留服务端，回执不得保存正文或密钥，远端知识不得反写逐字稿、身份、纪要 evidence 或 Org Chart。会议默认文字知识，媒体关键画面及含现场照片的会议可默认图文知识。
 
 ## 排障与验证模式（真实事故沉淀）

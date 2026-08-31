@@ -1,6 +1,6 @@
 /* DOM projection for processing, failure, and recovery. No API or global state. */
 
-import { diagnosticText, formatDuration, outputLabel, phaseLabel, recoveryPreview }
+import { diagnosticText, failureReason, formatDuration, outputLabel, phaseLabel, recoveryPreview }
   from "./job-progress.js";
 
 const button = (label, action, primary = false) => {
@@ -187,7 +187,9 @@ export function renderJobSheet(sheet, model, options = {}, handlers = {}) {
       const mark = document.createElement("span");
       mark.className = "job-phase-mark";
       mark.textContent = phase.state === "done" ? "✓" : phase.state === "failed" ? "×"
-        : ["running", "recovering"].includes(phase.state) ? "●" : "○";
+        : ["running", "recovering"].includes(phase.state) ? "●"
+        : ["waiting_resource", "paused"].includes(phase.state) ? "Ⅱ"
+        : phase.state === "degraded" ? "!" : phase.state === "cancelled" ? "–" : "○";
       const label = document.createElement("span");
       label.textContent = phaseLabel(phase.id, language);
       const value = document.createElement("span");
@@ -201,7 +203,7 @@ export function renderJobSheet(sheet, model, options = {}, handlers = {}) {
     if (model.progress.failure) {
       const explanation = document.createElement("p");
       explanation.className = "job-failure-explanation";
-      explanation.textContent = model.detail;
+      explanation.textContent = failureReason(model.progress.failure, language);
       body.appendChild(explanation);
       const next = document.createElement("p");
       next.className = "job-recommended-action";
@@ -227,7 +229,17 @@ export function renderJobSheet(sheet, model, options = {}, handlers = {}) {
       history.appendChild(title);
       model.job.attempt_history.forEach(attempt => {
         const row = document.createElement("p");
-        row.textContent = `${english ? "Attempt" : "尝试"} ${attempt.attempt} · ${phaseLabel(attempt.phase, language)} · ${attempt.status}`;
+        const status = {
+          done: english ? "Completed" : "已完成",
+          failed: english ? "Stopped" : "已停止",
+          running: english ? "Running" : "处理中",
+          recovering: english ? "Recovering" : "恢复中",
+          paused: english ? "Paused" : "已暂停",
+          cancelled: english ? "Cancelled" : "已取消",
+        }[attempt.status] || (english ? "Waiting" : "等待中");
+        const units = attempt.done != null && attempt.total != null
+          ? ` · ${attempt.done} / ${attempt.total}` : "";
+        row.textContent = `${english ? "Attempt" : "尝试"} ${attempt.attempt} · ${phaseLabel(attempt.phase, language)} · ${status}${units}`;
         history.appendChild(row);
       });
       body.appendChild(history);

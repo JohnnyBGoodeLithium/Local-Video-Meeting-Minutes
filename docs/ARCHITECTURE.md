@@ -200,6 +200,16 @@ Web 与 MeetingPack 的常规纪要通过 `minutes_reading_markdown()` 从 canon
 
 ## Web 作业模型
 
+`web/job_progress.py` 为新作业生成并正规化持久化的 `job-progress/v2`；`bin/meeting_core/progress_events.py` 是处理脚本唯一的受控事件出口。事件只允许稳定阶段 ID、枚举、计数、耗时和安全错误分类，不允许正文、人名、标题、路径、原始 URL、prompt 或 traceback。`web/job_store.py` 消费事件并原子更新作业 JSON；`web/routers/jobs.py` 投影 progress、恢复能力和 attempt history。无 v2 对象的历史作业由 legacy adapter 从既有状态生成低精度视图，并显式标记 `source=legacy_estimate`。
+
+前端 `job-progress.js` 只负责状态正规化、阶段/失败文案、ETA 和恢复排序；`job-progress-view.js` 只渲染紧凑任务卡、标题 banner、阶段详情、恢复预览、尝试历史和脱敏诊断。`app.js` 保留 API、副作用、播放器/滚动状态和全局装配。任何新的业务阶段必须先在后端 phase plan 和事件协议中出现，不能只靠前端匹配日志文字。
+
+ETA 使用当前阶段真实吞吐或同 route 最近最多五个成功样本的阶段中位数，并扩大为 low/high 区间；样本不足、剩余不足一分钟、等待、暂停或失败时不显示。第一份可读结果由 transcript/voice draft/final minutes 的 ready 状态决定，完整结果由当前 route 的必要阶段决定。
+
+失败合同使用稳定 code、category、recoverability、保留/阻塞输出、检查点和有限 retry options。普通 API 不返回 raw traceback。恢复链沿用 `retry_of`、`recovered_by`、`recovery_attempt`、`recovery_plan` 和 checkpoint，并在投影层合并为同一任务的多次尝试。
+
+现场资料由 `meeting.photos.json`、`photos/original/` 和 `photos/review/` 组成，不改变会议 canonical 主 schema。`web/routers/photos.py` 提供导入、显示标题 PATCH、alignment PATCH 和 DELETE；删除先把受管路径改名为 tombstone，再原子更新 sidecar，失败回滚，成功后删除 tombstone。`photo-import.js` 管理文件、object URL 和逐项定位，`photo-import-view.js` 只渲染 DOM；导入入口的当前播放时间仍由 `app.js` 注入。
+
 - GPU/重模型管线统一进入单 worker `SerialPriorityExecutor`，避免互相争抢模型资源，同时允许尚未开始的任务重排。默认顺序为“用户置顶 > 新会议处理 > 纪要/脉络/组织图 > 逐字稿翻译”；同级保持提交顺序。普通“优先”只把等待项排到当前任务之后；“立即处理”只在当前 upload/regen 已进入后半程、canonical 逐字稿与 `slides.json` 均存在时开放。后者先验证 `minutes_by_page` 白名单续跑命令，再暂停当前进程组，把急件和自动续跑项依次置于用户优先队列。逐页 VL 结果原子落盘，因此续跑只补缺页，不重跑 ASR、说话人和已完成页面；语音转写、说话人分离、重转写及无页面检查点任务拒绝抢占。
 - 每个外部管线运行在独立进程组，取消时先发 `SIGTERM`，5 秒后仍未退出则 `SIGKILL`。
 - 作业 JSON 只保存状态和以 `[` 开头的元数据行，不保存任意 stderr 或会议正文。

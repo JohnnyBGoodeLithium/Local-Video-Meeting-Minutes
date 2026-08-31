@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import {
   availableOutputLabels, diagnosticText, formatDuration, formatEtaRange,
-  jobPresentation, normalizeProgress, phaseLabel, recoveryPreview, sortedRetryOptions,
+  failureReason, jobPresentation, normalizeProgress, phaseLabel, recoveryPreview,
+  sortedRetryOptions,
 } from "../static/modules/job-progress.js";
 
 const progress = {
@@ -52,6 +53,8 @@ const failedJob = { ...job, status: "failed", recovery: { state: "available", mo
   progress: failedProgress, content_type: "meeting" };
 const failed = jobPresentation(failedJob, "Synthetic Review", "zh-CN");
 assert.equal(failed.primary.label, "从第 13 个画面继续");
+assert.equal(failureReason(failedProgress.failure, "zh-CN"), "本地视觉服务未能启动");
+assert.equal(failureReason(failedProgress.failure, "en"), "The local visual service could not start");
 assert.deepEqual(sortedRetryOptions(failedProgress).map(option => option.action),
   ["resume", "degraded_continue", "resume_high"]);
 const preview = recoveryPreview(failedJob, "en");
