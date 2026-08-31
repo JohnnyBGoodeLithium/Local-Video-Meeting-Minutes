@@ -4,6 +4,10 @@ import { buildUploadFormData, enqueueMediaUrl, isSingleLocalVideo }
   from "./modules/imports.js?v=20260831p107";
 import { jobDisplayName, selectJobPanel }
   from "./modules/jobs.js?v=20260831p107";
+import { jobPresentation }
+  from "./modules/job-progress.js?v=20260831p107";
+import { closeJobSheet, renderCompactJob, renderJobSheet, renderProcessingBanner }
+  from "./modules/job-progress-view.js?v=20260831p107";
 import { chooseInitialItem, deepLinkSeconds, filterLibrary, sortLibrary }
   from "./modules/library.js?v=20260831p107";
 import { adjacentReviewUnit, defaultReviewUnits, nearestReviewUnit,
@@ -135,6 +139,7 @@ const state = {
   jobPreemptionAvailable: false,
   jobRecoveryAvailable: false,
   jobHideAvailable: false,
+  jobSheet: { jobId: null, mode: null, returnFocus: null, options: {} },
   bundleLoadedAt: 0,
   refreshedArtifactJobs: new Set(),
   bundleRefreshInFlight: false,
@@ -166,7 +171,7 @@ const UI_COPY = {
     skipVl: "快速处理，不分析共享画面", ignoreTranscript: "忽略附带逐字稿，改用本地语音识别",
     search: "搜索会议…", sortImported: "最近导入", sortMeeting: "会议时间", sortUpdated: "最近更新", transcript: "逐字稿",
     original: "原文", translated: "译文", comparison: "对照", translateTo: "译为", follow: "跟随",
-    outline: "会议脉络", minutes: "会议纪要", screens: "屏幕内容", audit: "结论审计",
+    outline: "会议脉络", minutes: "会议纪要", screens: "画面与资料", audit: "结论审计",
     assistant: "AI 对话", evidence: "证据", send: "发送", restructure: "✦ 重组纪要",
     restructurePlaceholder: "描述你希望的栏目、顺序、读者和详略，例如：先给管理层结论，再按项目列进展、分歧、风险和有依据的待办。",
     ask: "问这场会议，或告诉我如何修改纪要…", launcher: "问这场会议，或修改纪要…",
@@ -200,7 +205,7 @@ const UI_COPY = {
     skipVl: "Fast processing; skip shared-screen analysis", ignoreTranscript: "Ignore attached transcript and use local speech recognition",
     search: "Search meetings…", sortImported: "Recently imported", sortMeeting: "Meeting time", sortUpdated: "Recently updated", transcript: "Transcript",
     original: "Original", translated: "Translation", comparison: "Side by side", translateTo: "Translate to", follow: "Follow",
-    outline: "Meeting map", minutes: "Minutes", screens: "Screen content", audit: "Conclusion audit",
+    outline: "Meeting map", minutes: "Minutes", screens: "Visuals & Materials", audit: "Conclusion audit",
     assistant: "AI chat", evidence: "Evidence", send: "Send", restructure: "✦ Restructure",
     restructurePlaceholder: "Describe the sections, order, audience, and level of detail you want, for example: executive decisions first, then progress, disagreements, risks, and evidenced actions by project.",
     ask: "Ask about this meeting or request a minutes edit…", launcher: "Ask about or edit this meeting…",
@@ -238,10 +243,10 @@ const CONTENT_TYPE_LABELS = {
   meeting: {
     "zh-CN": { recordNoun: "会议记录", speakerCount: n => `${n} 位发言人`,
                renameTitle: "修改会议名称", markAction: "标记为媒体视频",
-               outline: "会议脉络", minutes: "会议纪要", screens: "屏幕内容", audit: "结论审计" },
+               outline: "会议脉络", minutes: "会议纪要", screens: "画面与资料", audit: "结论审计" },
     en: { recordNoun: "Meeting record", speakerCount: n => `${n} speakers`,
           renameTitle: "Rename meeting", markAction: "Mark as media",
-          outline: "Meeting map", minutes: "Minutes", screens: "Screen content", audit: "Conclusion audit" },
+          outline: "Meeting map", minutes: "Minutes", screens: "Visuals & Materials", audit: "Conclusion audit" },
   },
   media: {
     "zh-CN": { recordNoun: "媒体记录", speakerCount: n => `${n} 位出镜`,
@@ -952,11 +957,6 @@ async function undoSpeakerOperation() {
 
 function player() { return $("#player-holder video") || $("#player-holder audio"); }
 
-function statusChip(label, value, tone = "neutral", title = "") {
-  return `<span class="meeting-status tone-${tone}"${title ? ` title="${esc(title)}"` : ""}>` +
-    `<b>${esc(label)}</b>${esc(value)}</span>`;
-}
-
 function voiceDraftFailureCopy(rc) {
   const code = Number(rc || 0);
   if (code === 3) return isEnglishUi()
@@ -1001,27 +1001,43 @@ function renderMeetingStatuses() {
   const evidenceTone = evidenceState === "ready" ? "good"
     : evidenceState === "stale" ? "warn" : "neutral";
   const shareReady = Boolean(b.transcript?.length);
-  box.innerHTML = [
-    statusChip(isEnglishUi() ? "Document" : "资料",
-      voiceDraft ? (isEnglishUi() ? "Voice draft ready" : "语音草稿可读")
-      : voiceDraftFailed ? (isEnglishUi() ? "Draft failed; final running" : "草稿失败，生成终稿")
-      : active ? (active.stage || (isEnglishUi() ? "Processing" : "处理中"))
-      : finalNeedsReview ? (isEnglishUi() ? "Final needs review" : "终稿待复核")
-      : (documentReady ? (isEnglishUi() ? "Ready" : "可阅读") : (isEnglishUi() ? "Processing" : "处理中")),
-      voiceDraftFailed || finalNeedsReview ? "warn" : voiceDraft || active ? "working" : (documentReady ? "good" : "neutral"),
-      voiceDraft ? "口头内容已经可读，屏幕表格、数字和画面资料仍在补充"
-        : voiceDraftFailed ? draftFailure.title : qualityTitle),
-    statusChip(isEnglishUi() ? "Evidence" : "证据", evidenceLabel, evidenceTone,
-      evidenceState === "ready" ? "结论可回到逐字稿或共享画面核对" : "重新生成纪要后可补齐结构化依据"),
-    statusChip(isEnglishUi() ? "Share" : "分享",
-      shareReady ? (voiceDraft
-        ? (isEnglishUi() ? "Review snapshot ready" : "可导出核听版")
-        : (isEnglishUi() ? "Export ready" : "可导出"))
-        : (isEnglishUi() ? "Transcript pending" : "等待逐字稿"),
-      shareReady ? "good" : "neutral",
-      voiceDraft ? "逐字稿、说话人和跳播可用；终稿完成后可重新导出正式版"
-        : b.has_video || b.has_audio ? "可选择是否随包包含媒体" : "当前只能导出文字与屏幕内容"),
-  ].join("");
+  if (active) {
+    box.replaceChildren();
+    return;
+  }
+  let text = "";
+  let tone = "neutral";
+  let title = "";
+  if (voiceDraft) {
+    text = isEnglishUi()
+      ? "Voice draft readable · transcript and speaker playback available"
+      : "语音草稿可读 · 逐字稿与说话人跳播已经可用";
+    tone = "working";
+  } else if (voiceDraftFailed) {
+    text = draftFailure.title;
+    title = draftFailure.detail;
+    tone = "warn";
+  } else if (finalNeedsReview) {
+    text = isEnglishUi() ? "Final minutes need review · evidence remains traceable"
+      : "终稿待复核 · 结论仍可回到原声与画面";
+    title = qualityTitle;
+    tone = "warn";
+  } else if (documentReady && evidenceState === "ready" && shareReady) {
+    text = isEnglishUi()
+      ? "Final minutes readable · conclusions trace back to source audio and visuals · ready to export"
+      : "正式纪要可读 · 结论可以回到原声与画面 · 可以导出";
+    tone = "good";
+  } else if (documentReady) {
+    text = isEnglishUi() ? `Final minutes readable · ${evidenceLabel}`
+      : `正式纪要可读 · ${evidenceLabel}`;
+    tone = evidenceTone;
+  } else if (shareReady) {
+    text = isEnglishUi() ? "Transcript readable · minutes are not ready"
+      : "逐字稿可读 · 纪要尚未完成";
+  }
+  box.innerHTML = text
+    ? `<span class="meeting-readiness tone-${esc(tone)}"${title ? ` title="${esc(title)}"` : ""}>${esc(text)}</span>`
+    : "";
 }
 
 function renderTranscriptReviewBar() {
@@ -3039,6 +3055,7 @@ async function setUiLanguage(language) {
     }
   }
   renderMeetingList();
+  renderJobs(state.jobs);
   renderMeetingHeaderMeta();
   renderMeetingStatuses();
   renderTranscript();
@@ -5304,7 +5321,154 @@ async function pollJobs() {
   } catch (e) { /* 忽略 */ }
 }
 
-function renderJobs(jobs) {
+function currentJobForMeeting() {
+  if (!state.slug) return null;
+  const matches = state.jobs.filter(job => job.meeting === state.slug);
+  return matches.find(job => ["running", "recovering", "waiting_resource"].includes(job.progress?.state))
+    || matches.find(job => job.status === "queued")
+    || matches.find(job => ["failed", "paused"].includes(job.status))
+    || matches.find(job => job.progress?.state === "degraded")
+    || null;
+}
+
+function closeProcessingDetails() {
+  closeJobSheet($("#job-detail-sheet"));
+  const returnFocus = state.jobSheet.returnFocus;
+  state.jobSheet = { jobId: null, mode: null, returnFocus: null, options: {} };
+  if (returnFocus?.isConnected) returnFocus.focus();
+}
+
+function openProcessingDetails(job, mode = "details", trigger = null, options = {}) {
+  const sheet = $("#job-detail-sheet");
+  if (!sheet || !job) return;
+  const model = jobPresentation(job, jobDisplayName(job, state.meetings, contentTypeOf), state.uiLanguage);
+  const returnFocus = trigger || state.jobSheet.returnFocus || document.activeElement;
+  state.jobSheet = { jobId: job.id, mode, returnFocus, options };
+  renderJobSheet(sheet, model, { mode, ...options }, {
+    language: state.uiLanguage,
+    onClose: closeProcessingDetails,
+    onRecovery: () => openProcessingDetails(job, "recovery", trigger),
+    onStartRecovery: async (_model, button) => {
+      button.disabled = true;
+      const response = await api(`/api/jobs/${encodeURIComponent(job.id)}/retry?quality=standard`, { method: "POST" });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        button.disabled = false;
+        toast(`${isEnglishUi() ? "Recovery failed" : "恢复失败"}：${body.detail || response.status}`);
+        return;
+      }
+      closeProcessingDetails();
+      toast(isEnglishUi() ? "Recovery queued" : "恢复任务已排队");
+      pollJobs();
+    },
+    onStartDegraded: async (_model, button) => {
+      button.disabled = true;
+      const response = await api(`/api/jobs/${encodeURIComponent(job.id)}/retry?quality=standard&strategy=degraded`, { method: "POST" });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        button.disabled = false;
+        toast(`${isEnglishUi() ? "Could not create the voice-only result" : "无法生成语音版结果"}：${body.detail || response.status}`);
+        return;
+      }
+      closeProcessingDetails();
+      toast(isEnglishUi() ? "Voice-only completion queued; visual material can be added later"
+        : "语音版结果已排队；后续仍可单独补充画面");
+      pollJobs();
+    },
+    onStartPreempt: async (_model, button) => {
+      button.disabled = true;
+      const response = await api(`/api/jobs/${encodeURIComponent(job.id)}/force-prioritize`, { method: "POST" });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        button.disabled = false;
+        toast(`${isEnglishUi() ? "Could not process now" : "立即处理失败"}：${body.detail || response.status}`);
+        return;
+      }
+      closeProcessingDetails();
+      toast(isEnglishUi() ? "Urgent item queued; the current task will resume afterward"
+        : "急件将优先处理，原任务随后自动续跑");
+      pollJobs();
+    },
+    onCopyDiagnostics: async modelValue => {
+      const text = JSON.stringify({
+        product_version: $("#product-version")?.textContent || null,
+        web_build: SCRIPT_BUILD || null,
+        diagnostic_id: modelValue.progress.failure?.diagnostic_id || null,
+        error_code: modelValue.progress.failure?.code || null,
+        exception_type: modelValue.progress.failure?.technical?.exception_type || null,
+        phase: modelValue.progress.phase || null,
+        attempt: modelValue.progress.attempt || 1,
+        route: modelValue.progress.route || null,
+        content_type: modelValue.job.content_type || null,
+        done: modelValue.progress.done ?? null,
+        total: modelValue.progress.total ?? null,
+      }, null, 2);
+      await navigator.clipboard.writeText(text);
+      toast(isEnglishUi() ? "Diagnostics copied" : "诊断信息已复制");
+    },
+  });
+}
+
+async function handleJobAction(action, model, trigger) {
+  const job = model.job;
+  if (action === "details") return openProcessingDetails(job, "details", trigger);
+  if (action === "recovery") return openProcessingDetails(job, "recovery", trigger);
+  if (action === "preempt") {
+    const running = state.activeJobs.find(item => item.status === "running");
+    return openProcessingDetails(job, "preempt", trigger, {
+      runningName: running ? jobDisplayName(running, state.meetings, contentTypeOf) : "",
+    });
+  }
+  if (action === "open_draft") {
+    if (job.meeting && state.slug !== job.meeting) await loadMeeting(job.meeting);
+    setReviewMode("minutes");
+    $("#minutes")?.focus?.();
+    return;
+  }
+  if (action === "open_result") {
+    if (job.meeting) await loadMeeting(job.meeting);
+    return;
+  }
+  if (action === "reimport") {
+    closeMeetingLibrary();
+    $("#pick-btn")?.focus();
+    $("#file-input")?.click();
+    return;
+  }
+  if (action === "reimport_url") {
+    state.workspace.contentType = "media";
+    saveWorkspaceState();
+    applyUiLanguage();
+    $("#media-url-input")?.focus();
+    return;
+  }
+  if (action === "storage") {
+    if (job.meeting && state.slug !== job.meeting) await loadMeeting(job.meeting);
+    if (state.slug) await openStorageDialog();
+    return;
+  }
+  if (action === "settings") {
+    location.href = "/admin";
+    return;
+  }
+  if (action === "check") return pollJobs();
+  if (action === "priority") {
+    const response = await api(`/api/jobs/${encodeURIComponent(job.id)}/prioritize`, { method: "POST" });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) toast(`${isEnglishUi() ? "Could not reprioritize" : "调整失败"}：${body.detail || response.status}`);
+    return pollJobs();
+  }
+  if (action === "cancel") {
+    await api(`/api/jobs/${encodeURIComponent(job.id)}/cancel`, { method: "POST" });
+    return pollJobs();
+  }
+  if (action === "hide") {
+    await api(`/api/jobs/${encodeURIComponent(job.id)}/hide`, { method: "POST" });
+    return pollJobs();
+  }
+}
+
+function renderJobsStructured(jobs) {
   const ul = $("#jobs-list");
   if (!ul) return;
   const { allActiveJobs, activeJobs, runningJob, visibleJobs } = selectJobPanel(
@@ -5313,231 +5477,45 @@ function renderJobs(jobs) {
   $("#jobs-panel").classList.toggle("hidden", visibleJobs.length === 0);
   $(".jobs-head").textContent = activeJobs.length
     ? (isEnglishUi() ? "Processing" : "正在处理") : (isEnglishUi() ? "Needs attention" : "需要处理");
-  ul.innerHTML = "";
-  for (const j of visibleJobs.slice(0, 8)) {
-    const li = document.createElement("li");
-    const active = j.status === "queued" || j.status === "running";
-    const meeting = state.meetings.find(item => item.slug === j.meeting);
-    const name = jobDisplayName(j, state.meetings, contentTypeOf);
-    const kindLabel = j.kind === "translation"
-      ? `${translationTargetLabel(j.target_language)} ${j.translation_artifact === "minutes"
-        ? (j.translation_source_state === "draft"
-          ? (isEnglishUi() ? "voice-draft minutes" : "语音草稿纪要")
-          : (isEnglishUi() ? "minutes" : "纪要"))
-        : (isEnglishUi() ? "transcript" : "逐字稿")} ${isEnglishUi() ? "translation" : "翻译"}`
-      : j.kind === "regen" ? "生成纪要" : j.kind === "topic_map" ? "生成会议脉络"
-      : j.kind === "upload" ? (contentTypeOf(j) === "media" ? "媒体处理" : "会议处理") : "";
-    const progress = j.progress?.total
-      ? ` ${j.progress.done || 0}/${j.progress.total}` : "";
-    const lastLog = String(j.log?.at(-1) || "");
-    const voiceDraftFailed = (j.log || []).some(line => String(line).includes("语音草稿生成失败"));
-    const stepMatch = lastLog.match(/^\[(\d+)\/(\d+)\]/);
-    const step = stepMatch ? ` ${stepMatch[1]}/${stepMatch[2]}` : "";
-    const vlPage = lastLog.match(/^\[meta\] VL 第(\d+)页/);
-    const vlTotal = [...(j.log || [])].reverse()
-      .map(line => String(line).match(/逻辑页\s+(\d+)\s+页/)).find(Boolean);
-    const liveProgress = vlPage && vlTotal ? ` ${vlPage[1]}/${vlTotal[1]}` : (progress || step);
-    const liveStage = /语音草稿|voice draft/i.test(lastLog) ? "生成语音草稿"
-      : /多模态纪要|升级多模态|补充屏幕资料/i.test(lastLog) ? "升级多模态纪要"
-      : /topic map|会议脉络|议题/i.test(lastLog) ? "构建会议脉络"
-      : /抽屏幕|逻辑页/.test(lastLog) ? "提取共享画面"
-      : /生成按页纪要|生成.*纪要|结构化输入|总体摘要|页块|分页详情/.test(lastLog) ? "生成会议纪要"
-      : /声纹库|声纹/.test(lastLog) ? "确认人员身份"
-      : /解析 (?:VTT|Teams 逐字稿)|对齐姓名/.test(lastLog) ? "对齐参会者"
-      : j.stage;
-    const elapsed = j.status === "running" && j.started
-      ? ` · 已运行 ${fmt(Date.now() / 1000 - j.started)}` : "";
-    const queueLabel = j.status === "queued" && j.queue_position
-      ? (j.priority_boost ? "优先 · 下一项" : `队列第 ${j.queue_position}`) : "";
-    const status = j.status === "queued" ? `${kindLabel ? `${kindLabel} · ` : ""}等待处理` +
-        `${queueLabel ? ` · ${queueLabel}` : ""}`
-      : j.status === "failed" ? `失败 · ${liveStage || "处理阶段"}`
-      : j.status === "paused" ? `已暂停 · ${liveStage || "可从检查点恢复"}`
-      : `${kindLabel ? `${kindLabel} · ` : ""}${liveStage || "处理中"}${liveProgress}` +
-        `${voiceDraftFailed ? " · 草稿未生成" : ""}${elapsed}`;
-    li.classList.toggle("job-failed", j.status === "failed");
-    li.classList.toggle("job-paused", j.status === "paused");
-    li.innerHTML =
-      `<span class="j-name" title="${esc(j.id)}">${esc(name)}</span>` +
-      `<span class="j-st st-${esc(j.status)}">${esc(status)}</span>`;
-    if (active) {
-      const actions = document.createElement("div");
-      actions.className = "j-actions";
-      if (state.jobPriorityAvailable && j.status === "queued"
-          && (!j.priority_boost || Number(j.queue_position) > 1)) {
-        const priority = document.createElement("button");
-        priority.type = "button";
-        priority.className = "j-priority";
-        priority.textContent = "优先";
-        priority.title = "排到当前运行任务之后；不会中断正在运行的任务";
-        priority.onclick = async () => {
-          const response = await api(`/api/jobs/${j.id}/prioritize`, { method: "POST" });
-          if (!response.ok) {
-            const detail = await response.json();
-            toast(`调整失败：${detail.detail || response.status}`);
-          } else {
-            toast(`${name} 已设为下一项`);
-          }
-          pollJobs();
-        };
-        actions.appendChild(priority);
-      }
-      if (state.jobPreemptionAvailable && j.status === "queued"
-          && runningJob?.preemptible && runningJob.id !== j.id) {
-        const force = document.createElement("button");
-        force.type = "button";
-        force.className = "j-preempt";
-        force.textContent = isEnglishUi() ? "Now" : "立即";
-        force.title = isEnglishUi()
-          ? "Pause the current checkpointed task, process this item, then resume automatically"
-          : "暂停当前已有检查点的任务，先处理此项，完成后自动续跑";
-        force.onclick = async () => {
-          const confirmed = window.confirm(isEnglishUi()
-            ? "Pause the current task and process this urgent item now? Completed transcript, speaker identity and per-page screen cache will be retained, and the paused task will resume automatically afterward."
-            : "暂停当前任务并立即处理这项急件？已完成的逐字稿、说话人和逐页画面缓存会保留；急件完成后系统会自动续跑原任务。");
-          if (!confirmed) return;
-          force.disabled = true;
-          const response = await api(`/api/jobs/${j.id}/force-prioritize`, { method: "POST" });
-          const body = await response.json().catch(() => ({}));
-          if (!response.ok) {
-            toast(`${isEnglishUi() ? "Could not preempt" : "立即处理失败"}：${body.detail || response.status}`);
-          } else {
-            toast(isEnglishUi()
-              ? "Current task paused; urgent item will run now and the original task will resume automatically"
-              : "当前任务已让路；急件将立即处理，原任务随后自动续跑");
-          }
-          pollJobs();
-        };
-        actions.appendChild(force);
-      }
-      const cancel = document.createElement("button");
-      cancel.type = "button";
-      cancel.className = "j-cancel";
-      cancel.textContent = "取消";
-      cancel.onclick = async () => {
-        await api(`/api/jobs/${j.id}/cancel`, { method: "POST" });
-        pollJobs();
-      };
-      actions.appendChild(cancel);
-      li.appendChild(actions);
-    } else if (["failed", "paused"].includes(j.status) && j.recovery) {
-      const recovery = j.recovery;
-      const retainedLabels = {
-        source_media: isEnglishUi() ? "source media" : "源媒体",
-        source_transcript: isEnglishUi() ? "source transcript" : "官方逐字稿",
-        asr_timestamps: isEnglishUi() ? "completed ASR timestamps" : "已完成的语音转写",
-        transcript: isEnglishUi() ? "transcript" : "逐字稿",
-        visual_cache: isEnglishUi() ? "screen cache" : "画面缓存",
-        minutes: isEnglishUi() ? "existing minutes" : "现有纪要",
-      };
-      const categoryLabels = {
-        interrupted: isEnglishUi() ? "The service stopped before this stage finished." : "服务中断时，此阶段尚未完成。",
-        resource: isEnglishUi() ? "The task stopped because local resources were insufficient." : "任务因本机资源不足而中断。",
-        transient: isEnglishUi() ? "The model request was temporarily unavailable." : "模型请求暂时不可用。",
-        format: isEnglishUi() ? "The model output did not pass structural validation." : "模型输出未通过结构校验。",
-        empty_output: isEnglishUi() ? "The model returned no readable result." : "模型没有返回可读结果。",
-        pipeline: isEnglishUi() ? "This processing stage did not finish." : "这一处理阶段没有完成。",
-      };
-      const actionLabels = {
-        translation: isEnglishUi() ? "Retry translation" : "重试翻译",
-        topic_map: isEnglishUi() ? "Rebuild topic map" : "重建会议脉络",
-        retranscribe: isEnglishUi() ? "Retry transcription" : "重跑转写",
-        speaker_resume: isEnglishUi() ? "Resume speaker detection" : "从说话人识别继续",
-        minutes: isEnglishUi() ? "Resume from saved assets" : "从现有资料续跑",
-      };
-      const detail = document.createElement("div");
-      detail.className = "j-recovery";
-      const explanation = document.createElement("span");
-      explanation.className = "j-recovery-note";
-      explanation.textContent = j.status === "paused"
-        ? (isEnglishUi()
-          ? "Paused at a safe checkpoint; completed assets will not be repeated."
-          : "任务已在安全检查点暂停，已经完成的资产不会重跑。")
-        : (categoryLabels[recovery.category] || categoryLabels.pipeline);
-      detail.appendChild(explanation);
-      const retained = (recovery.retained || []).map(id => retainedLabels[id]).filter(Boolean);
-      if (retained.length) {
-        const assets = document.createElement("span");
-        assets.className = "j-retained";
-        assets.textContent = `${isEnglishUi() ? "Kept" : "已保留"}：${retained.join("、")}`;
-        detail.appendChild(assets);
-      }
-      const recoveryActions = document.createElement("div");
-      recoveryActions.className = "j-recovery-actions";
-      if (state.jobRecoveryAvailable && recovery.state === "available") {
-        const retry = document.createElement("button");
-        retry.type = "button";
-        retry.className = "j-retry";
-        retry.textContent = actionLabels[recovery.mode] || (isEnglishUi() ? "Resume" : "恢复处理");
-        retry.title = isEnglishUi()
-          ? "Reuse completed assets and run only the recoverable stage"
-          : "复用已经完成的资产，只运行可恢复的阶段";
-        retry.onclick = async () => {
-          retry.disabled = true;
-          const response = await api(`/api/jobs/${j.id}/retry?quality=standard`, { method: "POST" });
-          const body = await response.json().catch(() => ({}));
-          if (!response.ok) toast(`${isEnglishUi() ? "Recovery failed" : "恢复失败"}：${body.detail || response.status}`);
-          else toast(isEnglishUi() ? "Recovery task queued" : "恢复任务已排队");
-          pollJobs();
-        };
-        recoveryActions.appendChild(retry);
-        if (recovery.high_quality_available) {
-          const high = document.createElement("button");
-          high.type = "button";
-          high.className = "j-retry-high";
-          high.textContent = isEnglishUi() ? "High-quality retry" : "高质量重试";
-          high.title = isEnglishUi()
-            ? "Uses the configured refinement model and may require more memory"
-            : "使用已配置的优化模型，可能占用更多内存";
-          high.onclick = async () => {
-            high.disabled = true;
-            const response = await api(`/api/jobs/${j.id}/retry?quality=high`, { method: "POST" });
-            const body = await response.json().catch(() => ({}));
-            if (!response.ok) toast(`${isEnglishUi() ? "Recovery failed" : "恢复失败"}：${body.detail || response.status}`);
-            else toast(isEnglishUi() ? "High-quality recovery queued" : "高质量恢复已排队");
-            pollJobs();
-          };
-          recoveryActions.appendChild(high);
+  ul.replaceChildren();
+  visibleJobs.slice(0, 8).forEach(job => {
+    const model = jobPresentation(job, jobDisplayName(job, state.meetings, contentTypeOf), state.uiLanguage);
+    const node = renderCompactJob(model, {
+      language: state.uiLanguage,
+      allowHide: state.jobHideAvailable && ["failed", "paused", "cancelled"].includes(job.status),
+      extraActions: () => {
+        const actions = [];
+        if (state.jobPriorityAvailable && job.status === "queued"
+            && (!job.priority_boost || Number(job.queue_position) > 1)) {
+          actions.push({ id: "priority", label: isEnglishUi() ? "Next" : "优先",
+            title: isEnglishUi() ? "Move after the current task" : "排到当前任务之后" });
         }
-      } else if (j.meeting && meeting) {
-        const manual = document.createElement("span");
-        manual.className = "j-manual-note";
-        manual.textContent = isEnglishUi()
-          ? "No safe checkpoint for this stage; re-import the source file."
-          : "该阶段没有安全检查点，请重新导入源文件。";
-        detail.appendChild(manual);
-        const open = document.createElement("button");
-        open.type = "button";
-        open.textContent = isEnglishUi() ? "Open retained result" : "查看已保留内容";
-        open.onclick = () => loadMeeting(j.meeting);
-        recoveryActions.appendChild(open);
-      }
-      if (state.jobHideAvailable) {
-        const hide = document.createElement("button");
-        hide.type = "button";
-        hide.className = "j-hide";
-        hide.textContent = isEnglishUi() ? "Hide" : "隐藏";
-        hide.title = isEnglishUi()
-          ? "Hide this task card without deleting retained files"
-          : "只隐藏这张任务卡，不删除已保留文件";
-        hide.onclick = async () => {
-          hide.disabled = true;
-          const response = await api(`/api/jobs/${j.id}/hide`, { method: "POST" });
-          if (!response.ok) {
-            const body = await response.json().catch(() => ({}));
-            toast(`${isEnglishUi() ? "Could not hide" : "隐藏失败"}：${body.detail || response.status}`);
-          }
-          pollJobs();
-        };
-        recoveryActions.appendChild(hide);
-      }
-      if (recoveryActions.childElementCount) detail.appendChild(recoveryActions);
-      li.appendChild(detail);
-    }
-    li.title = (j.log || []).slice(-1)[0] || j.id;
-    ul.appendChild(li);
+        if (state.jobPreemptionAvailable && job.status === "queued"
+            && runningJob?.preemptible && runningJob.id !== job.id) {
+          actions.push({ id: "preempt", label: isEnglishUi() ? "Now" : "立即",
+            title: isEnglishUi() ? "Pause safely and process this item" : "安全暂停当前任务并先处理此项" });
+        }
+        return actions;
+      },
+      onAction: handleJobAction,
+    });
+    ul.appendChild(node);
+  });
+  const current = currentJobForMeeting();
+  renderProcessingBanner($("#processing-banner"), current
+    ? jobPresentation(current, jobDisplayName(current, state.meetings, contentTypeOf), state.uiLanguage)
+    : null, { language: state.uiLanguage, onAction: handleJobAction });
+  if (state.jobSheet.jobId && !$("#job-detail-sheet")?.classList.contains("hidden")) {
+    const openJob = jobs.find(job => job.id === state.jobSheet.jobId);
+    if (openJob) openProcessingDetails(openJob, state.jobSheet.mode,
+      state.jobSheet.returnFocus, { ...state.jobSheet.options, focus: false });
+    else closeProcessingDetails();
   }
   renderMeetingStatuses();
+}
+
+function renderJobs(jobs) {
+  return renderJobsStructured(jobs);
 }
 
 /* ---------- 事件 ---------- */
@@ -5724,6 +5702,11 @@ function init() {
     if (event.key !== "Escape" || state.speakerCorrection.mode === "idle") return;
     event.preventDefault();
     closeSpeakerCorrection(state.speakerCorrection.mode === "identify");
+  });
+  document.addEventListener("keydown", event => {
+    if (event.key !== "Escape" || $("#job-detail-sheet")?.classList.contains("hidden")) return;
+    event.preventDefault();
+    closeProcessingDetails();
   });
 
   $("#assistant-launcher").onclick = () => openUtility("assistant");

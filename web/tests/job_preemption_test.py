@@ -81,4 +81,23 @@ with tempfile.TemporaryDirectory(prefix="meeting-preemption-") as tmp:
     assert successor["queue_priority"] == 0 and successor["inbox"] == running["inbox"]
     assert running["recovered_by"] == successor["id"]
 
+    degraded_meeting = root / "meetings" / "synthetic-degraded"
+    degraded_meeting.mkdir()
+    (degraded_meeting / "transcript.spk.json").write_text("[]", encoding="utf-8")
+    (degraded_meeting / "slides.json").write_text("[]", encoding="utf-8")
+    (degraded_meeting / "source_video.mp4").write_bytes(b"fictional protected video")
+    failed = {
+        "id": "failed001", "kind": "upload", "route": "video", "status": "failed",
+        "created": 4.0, "started": 5.0, "finished": 6.0, "rc": 1,
+        "meeting": "synthetic-degraded", "stage": "理解共享画面", "log": [],
+        "cmd": ["python", "synthetic.py"],
+    }
+    job_store.JOBS[failed["id"]] = failed
+    response = job_routes.retry_job(failed["id"], quality="standard", strategy="degraded")
+    degraded = fake_executor.submitted[-1]
+    assert response["status"] == "queued" and degraded["kind"] == "regen"
+    assert degraded["degraded_requested"] is True
+    assert degraded["recovery_scope"] == "minutes_without_visuals"
+    assert "--no-vl" in degraded["cmd"]
+
 print("Job preemption: safe pause, urgent order, and automatic resume passed")

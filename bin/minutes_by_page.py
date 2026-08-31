@@ -772,7 +772,9 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
     workload = "exclusive" if any(token in requested_model.lower()
                                       for token in ("120b", "122b")) \
         else ("visual" if vl and not reuse_vl_cache_only else "text")
-    prepare_stage(workload, keep=[requested_model])
+    prepare_stage(workload, keep=[requested_model],
+                  progress_phase="visual_understanding" if vl and not reuse_vl_cache_only
+                  else "final_minutes")
     profile = minutes_profile(mdir)
     turns, pages = load_inputs(mdir)
     if not pages:

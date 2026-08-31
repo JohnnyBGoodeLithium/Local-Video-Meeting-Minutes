@@ -6,6 +6,8 @@ from __future__ import annotations
 import sys
 import tempfile
 import os
+import io
+from contextlib import redirect_stdout
 from pathlib import Path
 
 
@@ -65,9 +67,15 @@ try:
     rp.router_models = lambda: ["minutes"]
     rp.model_busy = lambda model: True
     removed.clear()
-    result = rp.prepare_stage("audio", keep=["minutes"], policy=policy)
+    captured = io.StringIO()
+    with redirect_stdout(captured):
+        result = rp.prepare_stage("audio", keep=["minutes"], policy=policy,
+                                  progress_phase="speech_processing")
     assert result["target_text_models"] == 1
     assert "minutes" in removed  # 紧急线下即使请求在途也以保护整机为先。
+    events = captured.getvalue()
+    assert '"state":"waiting_resource"' in events
+    assert '"state":"running"' in events
 
     rp.mem_available = lambda: 20 * rp.GIB
     rp.router_models = lambda: ["minutes", "draft"]

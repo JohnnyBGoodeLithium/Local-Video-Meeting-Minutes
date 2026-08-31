@@ -22,6 +22,8 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
+from meeting_core.progress_events import progress as progress_event
+
 
 GIB = 1024 ** 3
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
@@ -167,7 +169,8 @@ def _target_count(workload: str, policy: ResourcePolicy) -> int:
 
 
 def prepare_stage(workload: str, *, keep: list[str] | None = None,
-                  policy: ResourcePolicy | None = None) -> dict:
+                  policy: ResourcePolicy | None = None,
+                  progress_phase: str | None = None) -> dict:
     """重阶段准入：收缩文本模型，并在安全内存恢复前有限等待。"""
     policy = policy or ResourcePolicy()
     target = _target_count(str(workload).lower(), policy)
@@ -177,6 +180,7 @@ def prepare_stage(workload: str, *, keep: list[str] | None = None,
     removed = trim_text_models(target, keep=keep)
     started = time.monotonic()
     last_notice = 0.0
+    waiting_emitted = False
     while mem_available() < policy.stop_bytes:
         available = mem_available()
         emergency = available < policy.emergency_bytes
@@ -187,10 +191,15 @@ def prepare_stage(workload: str, *, keep: list[str] | None = None,
             print(f"[meta] 等待计算资源 | 可用内存 {available / GIB:.1f} GiB"
                   f" | 目标驻留文本模型 {0 if emergency else target}", flush=True)
             last_notice = now
+        if progress_phase and not waiting_emitted:
+            progress_event(progress_phase, state="waiting_resource")
+            waiting_emitted = True
         if now - started >= policy.wait_seconds:
             raise ResourceUnavailableError(
                 "可用内存长期低于安全线；已保留处理检查点，可释放其他模型后重试")
         time.sleep(policy.poll_seconds)
+    if progress_phase and waiting_emitted:
+        progress_event(progress_phase, state="running")
     return {"available_bytes": mem_available(), "unloaded": list(dict.fromkeys(removed)),
             "target_text_models": target}
 

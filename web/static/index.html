@@ -98,6 +98,8 @@
       </div>
     </header>
 
+    <section id="processing-banner" class="processing-banner hidden" aria-live="polite"></section>
+
     <div id="content-shell" class="content-shell">
       <div id="review-grid" class="review-grid">
         <section class="transcript-pane">
@@ -154,7 +156,7 @@
           <div class="col-header minutes-mode-tabs fluent-tablist" role="tablist" aria-label="会议内容">
             <button id="chapters-tab" class="mode-tab fluent-tab" role="tab" aria-selected="false" type="button" disabled>会议脉络</button>
             <button id="minutes-tab" class="mode-tab active fluent-tab" role="tab" aria-selected="true" type="button">会议纪要</button>
-            <button id="visuals-tab" class="mode-tab fluent-tab" role="tab" aria-selected="false" type="button" disabled>屏幕内容</button>
+            <button id="visuals-tab" class="mode-tab fluent-tab" role="tab" aria-selected="false" type="button" disabled>画面与资料</button>
             <button id="quality-tab" class="mode-tab fluent-tab" role="tab" aria-selected="false" type="button" disabled>
               结论审计 <span id="quality-badge" class="quality-badge hidden"></span>
             </button>
@@ -168,7 +170,7 @@
           </div>
           <div id="minutes" class="minutes"><p class="placeholder">纪要内容</p></div>
           <div id="chapters" class="structure-view hidden"><p class="placeholder">选择会议后可查看会议脉络</p></div>
-          <div id="visuals" class="structure-view hidden"><p class="placeholder">选择会议后可查看屏幕内容</p></div>
+          <div id="visuals" class="structure-view hidden"><p class="placeholder">选择会议后可查看画面与资料</p></div>
           <div id="quality" class="quality-view hidden">
             <p class="placeholder">选择会议后可审计结论与依据</p>
           </div>
@@ -236,6 +238,8 @@
 
 <div id="speaker-identity-popover" class="speaker-identity-popover hidden" role="dialog" aria-label="确认人物身份"></div>
 <aside id="speaker-correction-sheet" class="speaker-correction-sheet hidden" aria-label="修复混入的说话人"></aside>
+<aside id="job-detail-sheet" class="workspace-side-sheet hidden" role="dialog" aria-modal="false"
+       aria-labelledby="job-detail-title" aria-hidden="true"></aside>
 <div id="speaker-change-notice" class="speaker-change-notice hidden" role="status" aria-live="polite"></div>
 
 <div id="export-mask" class="mask hidden">

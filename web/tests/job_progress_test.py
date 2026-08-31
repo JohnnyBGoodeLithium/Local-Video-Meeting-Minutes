@@ -11,7 +11,7 @@ from pathlib import Path
 PROJECT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT / "web"))
 
-from job_progress import (SCHEMA, apply_event, initial_progress,  # noqa: E402
+from job_progress import (SCHEMA, apply_event, attempt_history, initial_progress,  # noqa: E402
                           normalize_job_progress, parse_event, phase_ids_for)
 
 
@@ -107,6 +107,14 @@ for category in categories:
     assert failure["retry_options"][0]["reuses_existing_outputs"] is True
     assert "/secret" not in json.dumps(failure)
 
+blocked = apply_event(initial_progress(base_job, 100.0), "failure", {
+    "phase": "prepare", "code": "BAD_INPUT", "category": "input_invalid",
+    "recoverability": "requires_user_action",
+}, 150.0)
+blocked = normalize_job_progress({**base_job, "status": "failed", "progress": blocked}, (),
+                                 recovery={"state": "manual"}, now=150.0)
+assert blocked["failure"]["recommended_action"] == "replace_input"
+
 legacy = normalize_job_progress(job(
     kind="translation", status="running", stage="翻译逐字稿",
     progress={"done": 7, "total": 20}, started=100.0), (), now=120.0)
@@ -120,5 +128,30 @@ degraded = apply_event(degraded, "progress", {
 degraded = normalize_job_progress(job(
     kind="topic_map", status="done", progress=degraded, finished=130.0), (), now=130.0)
 assert degraded["state"] == "degraded"
+
+voice_only = initial_progress(job(kind="regen", route="video",
+                                  cmd=["python", "minutes_by_page.py", "--no-vl"]), 100.0)
+voice_only = normalize_job_progress(job(
+    kind="regen", route="video", status="done", degraded_requested=True,
+    progress=voice_only, finished=130.0), (), now=130.0)
+assert voice_only["state"] == "degraded"
+assert voice_only["available_outputs"]["visuals"] == "skipped"
+assert voice_only["degradation"]["code"] == "VOICE_ONLY_RESULT"
+
+first = job(id="first", status="failed", recovered_by="second", finished=130.0)
+first["progress"] = apply_event(initial_progress(first, 100.0), "failure", {
+    "phase": "visual_understanding", "code": "VISUAL_STOPPED",
+    "category": "service_unavailable", "recoverability": "resume_from_checkpoint",
+    "done": 12, "total": 36,
+}, 130.0)
+second = job(id="second", status="running", retry_of="first", recovery_attempt=1,
+             started=140.0)
+second["progress"] = apply_event(initial_progress(second, 140.0), "progress", {
+    "phase": "visual_understanding", "state": "recovering", "done": 18, "total": 36,
+}, 150.0)
+history = attempt_history(second, [first, second])
+assert [item["attempt"] for item in history] == [1, 2]
+assert history[0]["failure"]["code"] == "VISUAL_STOPPED"
+assert "id" not in history[0]
 
 print("Job progress: schema, plans, ETA, failures, degradation, and fallback passed")

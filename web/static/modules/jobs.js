@@ -15,7 +15,9 @@ export function selectJobPanel(jobs, contentType, contentTypeOf, now = Date.now(
     && !activeMeetings.has(job.meeting)
     && (job.recovery?.state === "available"
       || now - Number(job.finished || job.created || 0) < 60 * 60)).slice(0, 2);
-  const visibleJobs = [...activeJobs, ...recoverableStops]
+  const degradedStops = jobsOfType.filter(job => job.progress?.state === "degraded"
+    && now - Number(job.finished || job.created || 0) < 60 * 60).slice(0, 1);
+  const visibleJobs = [...activeJobs, ...recoverableStops, ...degradedStops]
     .filter((job, index, visible) => visible.findIndex(item => item.id === job.id) === index);
   return { allActiveJobs, activeJobs, runningJob, visibleJobs };
 }

@@ -181,7 +181,7 @@ body.page-index { overflow: hidden; }
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   overflow: hidden;
 }
 .col-header {
@@ -284,7 +284,11 @@ body.page-index { overflow: hidden; }
 .meeting-meta { color: var(--dim); font-size: var(--fs-12); margin-top: 2px; }
 .source-link { display: inline-flex; margin-top: var(--sp-4); color: var(--accent); font-size: var(--fs-12); text-decoration: none; }
 .source-link:hover { text-decoration: underline; }
-.meeting-statuses { display: flex; flex-wrap: wrap; gap: var(--sp-5); min-height: 19px; margin-top: var(--sp-5); }
+.meeting-statuses { min-height: 19px; margin-top: var(--sp-5); }
+.meeting-readiness { color: var(--dim); font-size: var(--fs-12); }
+.meeting-readiness.tone-good { color: var(--success); }
+.meeting-readiness.tone-warn { color: var(--colorStatusWarningForeground1); }
+.meeting-readiness.tone-working { color: var(--colorBrandForeground1); }
 .meeting-status {
   display: inline-flex;
   gap: var(--sp-4);
@@ -396,6 +400,17 @@ body.page-index { overflow: hidden; }
 #jobs-list li:hover { background: var(--panel2); }
 #jobs-list li.job-failed { border: 1px solid rgba(194, 80, 80, .45); background: rgba(194, 80, 80, .08); }
 #jobs-list li.job-paused { border: 1px solid rgba(226, 161, 60, .45); background: rgba(226, 161, 60, .08); }
+#jobs-list li.job-card { grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); padding: var(--sp-8) var(--sp-4); border-bottom: 1px solid var(--border); border-radius: 0; }
+#jobs-list li.job-card:hover { background: transparent; }
+#jobs-list li.job-card--danger { border-left: 3px solid var(--danger); padding-left: var(--sp-8); }
+#jobs-list li.job-card--warning { border-left: 3px solid var(--colorStatusWarningForeground1); padding-left: var(--sp-8); }
+#jobs-list li.job-card--working { border-left: 3px solid var(--accent); padding-left: var(--sp-8); }
+.job-card .j-st { grid-column: auto; grid-row: auto; white-space: normal; }
+.job-card .j-detail { color: var(--dim); line-height: 1.4; }
+.job-card .j-actions { grid-column: auto; grid-row: auto; justify-content: flex-start; }
+.job-card .j-actions button { min-height: 26px; padding: 2px var(--sp-8); }
+.job-progress-track { width: 100%; height: 3px; overflow: hidden; border-radius: 999px; background: var(--panel2); }
+.job-progress-track i { display: block; height: 100%; border-radius: inherit; background: var(--accent); transition: width .2s ease; }
 .j-name { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .j-st { grid-column: 1 / -1; grid-row: 2; min-width: 0; overflow: hidden; color: var(--dim); white-space: nowrap; text-overflow: ellipsis; }
 .st-running { color: var(--accent); }
@@ -423,6 +438,60 @@ body.page-index { overflow: hidden; }
 .j-recovery-actions button { padding: 1px var(--sp-7); font-size: var(--fs-11); }
 .j-retry { border-color: rgba(80, 125, 245, .7); color: var(--accent); }
 .j-retry-high { border-color: rgba(217, 164, 91, .65); color: #d9a45b; }
+
+/* 标题下唯一处理状态：内容可继续使用，详情按需展开。 */
+.processing-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-16);
+  padding: var(--sp-12) var(--sp-18);
+  border-bottom: 1px solid var(--border);
+  background: var(--panel2);
+}
+.processing-banner > div:first-child { min-width: 0; }
+.processing-banner strong { display: block; color: var(--text); font-size: var(--fs-14); }
+.processing-banner p { margin: var(--sp-4) 0 0; color: var(--dim); font-size: var(--fs-12); }
+.processing-banner--working { box-shadow: inset 3px 0 var(--accent); }
+.processing-banner--warning { box-shadow: inset 3px 0 var(--colorStatusWarningForeground1); }
+.processing-banner--danger { box-shadow: inset 3px 0 var(--danger); }
+.processing-banner--success { box-shadow: inset 3px 0 var(--success); }
+.processing-banner__actions { display: flex; flex: 0 0 auto; gap: var(--sp-8); }
+
+.workspace-side-sheet {
+  position: fixed;
+  z-index: 78;
+  top: 45px;
+  right: 0;
+  bottom: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  width: min(470px, 46vw);
+  min-width: 390px;
+  border-left: 1px solid var(--border);
+  background: var(--panel);
+  box-shadow: -12px 0 34px rgba(0, 0, 0, .4);
+}
+.workspace-side-sheet > header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-12); padding: var(--sp-16); border-bottom: 1px solid var(--border); }
+.workspace-side-sheet h2 { margin: 0; font-size: var(--fs-20); }
+.workspace-side-sheet header p { margin: var(--sp-4) 0 0; color: var(--dim); font-size: var(--fs-12); }
+.workspace-side-sheet__close { min-width: 32px; padding: 0; border: 0; background: transparent; box-shadow: none; font-size: var(--fs-20); }
+.workspace-side-sheet__body { overflow-y: auto; padding: var(--sp-16); }
+.workspace-side-sheet__body h3 { margin: 0 0 var(--sp-8); font-size: var(--fs-16); }
+.workspace-side-sheet__body h4 { margin: var(--sp-20) 0 var(--sp-8); font-size: var(--fs-14); }
+.workspace-side-sheet__body ul { margin: 0; padding-left: var(--sp-20); color: var(--dim); }
+.workspace-side-sheet__body pre { max-height: 240px; overflow: auto; padding: var(--sp-12); border-radius: var(--r-8); background: var(--bg); color: var(--dim); font-size: var(--fs-12); white-space: pre-wrap; }
+.workspace-side-sheet > footer { display: flex; justify-content: flex-end; gap: var(--sp-8); padding: var(--sp-12) var(--sp-16); border-top: 1px solid var(--border); background: var(--panel2); }
+.job-phase-list { display: grid; gap: var(--sp-4); list-style: none; padding: 0; }
+.job-phase-list li { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; align-items: baseline; gap: var(--sp-8); min-height: 32px; padding: var(--sp-4) 0; color: var(--dim); }
+.job-phase-list li > span:last-child { font-variant-numeric: tabular-nums; font-size: var(--fs-12); }
+.job-phase-list .phase-done .job-phase-mark { color: var(--success); }
+.job-phase-list .phase-running, .job-phase-list .phase-recovering { color: var(--text); }
+.job-phase-list .phase-running .job-phase-mark, .job-phase-list .phase-recovering .job-phase-mark { color: var(--accent); }
+.job-phase-list .phase-failed .job-phase-mark { color: var(--danger); }
+.job-phase-list .phase-waiting_resource .job-phase-mark, .job-phase-list .phase-paused .job-phase-mark { color: var(--colorStatusWarningForeground1); }
+.recovery-intro p, .recovery-warning { color: var(--dim); }
+.recovery-warning { padding: var(--sp-12); border-left: 3px solid var(--colorStatusWarningForeground1); background: color-mix(in srgb, var(--colorStatusWarningForeground1) 10%, transparent); }
 .cand.create { border-color: var(--accent); color: var(--accent); }
 #meeting-list { list-style: none; margin: 0; padding: 0; }
 .meeting-item {
@@ -1496,6 +1565,7 @@ body.resizing-panes { cursor: col-resize; user-select: none; }
   .turn .turn-text { grid-column: 1 / -1; }
   .col-header > span { white-space: nowrap; }
   .speaker-correction-sheet { top: 45px; left: 0; width: 100%; min-width: 0; }
+  .workspace-side-sheet { top: 45px; left: 0; width: 100%; min-width: 0; }
   .speaker-identity-popover { left: var(--sp-8) !important; right: var(--sp-8) !important; bottom: var(--sp-8); top: auto !important; width: auto; max-height: 76vh; border-radius: var(--r-14) var(--r-14) var(--r-10) var(--r-10); }
 }
 
@@ -1503,6 +1573,8 @@ body.resizing-panes { cursor: col-resize; user-select: none; }
   .topbar { padding-left: var(--sp-10); padding-right: var(--sp-10); }
   .layout { height: calc(100vh - 45px); }
   .meeting-head { gap: var(--sp-8); padding: var(--sp-8) var(--sp-10); }
+  .processing-banner { align-items: flex-start; padding: var(--sp-10); }
+  .processing-banner__actions { flex-direction: column; }
   .meeting-head h1 { max-width: 64vw; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: var(--fs-16); }
   .quality-entry { display: none; }
   .player-box { padding: var(--sp-5) var(--sp-8) var(--sp-15); }

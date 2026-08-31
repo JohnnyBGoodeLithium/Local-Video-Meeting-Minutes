@@ -412,7 +412,16 @@ def _apply_recovery_contract(failure: dict, recovery: dict | None, outputs: dict
     failure["blocked_outputs"] = [key for key in OUTPUTS
                                    if outputs.get(key) == "pending"]
     if not recovery or recovery.get("state") != "available":
-        failure["recommended_action"] = "resolve_or_reimport"
+        failure["recommended_action"] = {
+            "input_invalid": "replace_input",
+            "resource_insufficient": "free_resources",
+            "service_unavailable": "restore_service",
+            "capability_missing": "change_provider",
+            "revision_conflict": "review_latest_revision",
+            "download_or_network_failed": "edit_source",
+            "cancelled_or_paused": "resume_stage",
+            "unknown_internal": "copy_diagnostics",
+        }.get(str(failure.get("category") or ""), "resolve_or_reimport")
         return
     action = str(recovery.get("action") or "resume_from_assets")
     failure["recommended_action"] = action
@@ -428,6 +437,17 @@ def _apply_recovery_contract(failure: dict, recovery: dict | None, outputs: dict
         "enabled": True,
     }
     failure["retry_options"] = [option]
+    if (failure.get("failed_phase") == "visual_understanding"
+            and outputs.get("transcript") == "ready"):
+        failure["retry_options"].append({
+            "id": "finish_without_visuals",
+            "label_key": "retry.finish_voice_only",
+            "action": "degraded_continue",
+            "scope": "minutes_without_remaining_visuals",
+            "reuses_existing_outputs": True,
+            "estimated_remaining": None,
+            "enabled": True,
+        })
     if recovery.get("high_quality_available"):
         failure["retry_options"].append({
             "id": "resume_high", "label_key": "retry.high_quality", "action": "resume_high",
@@ -445,8 +465,15 @@ def normalize_job_progress(job: dict, jobs: Iterable[dict] = (), *,
         else _legacy_progress(job, now)
     status = str(job.get("status") or value.get("state") or "queued")
     if status == "done":
-        value["state"] = "degraded" if any(
-            phase.get("state") == "degraded" for phase in value.get("phases", [])) else "done"
+        degraded = bool(job.get("degraded_requested")) or any(
+            phase.get("state") == "degraded" for phase in value.get("phases", []))
+        value["state"] = "degraded" if degraded else "done"
+        if job.get("degraded_requested"):
+            value["degradation"] = {
+                "code": "VOICE_ONLY_RESULT",
+                "missing_outputs": ["visuals"],
+            }
+            value["available_outputs"]["visuals"] = "skipped"
         for phase in value.get("phases", []):
             if phase.get("state") in {"pending", "running", "recovering"}:
                 phase["state"] = "done"
@@ -479,3 +506,35 @@ def normalize_job_progress(job: dict, jobs: Iterable[dict] = (), *,
         value, job, jobs, now, until_phase=first_phase)
     _apply_recovery_contract(value.get("failure"), recovery, outputs)
     return value
+
+
+def attempt_history(original: dict, jobs: Iterable[dict]) -> list[dict]:
+    """把 retry 链投影为不含 job id、日志和私有内容的尝试历史。"""
+    items = {str(item.get("id") or ""): item for item in jobs if isinstance(item, dict)}
+    current = original
+    visited = set()
+    while current and current.get("retry_of") and str(current.get("id")) not in visited:
+        visited.add(str(current.get("id")))
+        current = items.get(str(current.get("retry_of") or ""))
+    visited.clear()
+    history = []
+    while current and str(current.get("id")) not in visited:
+        visited.add(str(current.get("id")))
+        progress = normalize_job_progress(current, items.values())
+        failure = progress.get("failure") or {}
+        history.append({
+            "attempt": len(history) + 1,
+            "status": current.get("status"),
+            "started_at": current.get("started"),
+            "finished_at": current.get("finished"),
+            "phase": progress.get("phase"),
+            "done": progress.get("done"),
+            "total": progress.get("total"),
+            "failure": ({
+                "code": failure.get("code"),
+                "category": failure.get("category"),
+                "diagnostic_id": failure.get("diagnostic_id"),
+            } if failure else None),
+        })
+        current = items.get(str(current.get("recovered_by") or ""))
+    return history

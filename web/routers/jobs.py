@@ -20,7 +20,7 @@ from deps import (AUDIO_EXT, BANK_LOCK, CONTENT_TYPES, DATA_ROOT, DOCX_EXT, INBO
                   VIDEO_EXT, VTT_EXT, _meeting_identity, _now, _safe, _slugify,
                   _video_path)
 from job_store import EXEC, JOBS, PROCS, _new_job, _run_pipeline, _save_job, _set_status
-from job_progress import apply_event, normalize_job_progress
+from job_progress import apply_event, attempt_history, normalize_job_progress
 from job_recovery import (build_minutes_command, build_retranscribe_command,
                           build_speaker_resume_command, build_topic_map_command,
                           meeting_dir_for_job, preemption_resume_spec, recovery_plan)
@@ -57,6 +57,9 @@ def _job_with_recovery(original: dict) -> dict:
                     "successor_status": successor.get("status")}
         job["recovery"] = plan
     job["progress"] = normalize_job_progress(job, JOBS.values(), recovery=plan)
+    history = attempt_history(original, JOBS.values())
+    if len(history) > 1:
+        job["attempt_history"] = history
     return job
 
 
@@ -213,6 +216,10 @@ def list_jobs():
     for original in JOBS.values():
         if original.get("hidden"):
             continue
+        successor = JOBS.get(str(original.get("recovered_by") or ""))
+        if successor is not None:
+            # 一条恢复链在列表中只显示最后一次尝试；历史仍附在当前卡片中。
+            continue
         job = _job_with_recovery(original)
         if job.get("status") == "running":
             job["queue_position"] = 0
@@ -230,7 +237,8 @@ def list_jobs():
         "jobs": sorted(jobs, key=lambda j: j["created"], reverse=True),
         "capabilities": {"job_priority": True, "running_preemption": True,
                          "checkpointed_preemption": True,
-                         "job_recovery": True, "job_hide": True},
+                         "job_recovery": True, "job_hide": True,
+                         "job_progress_v2": True, "attempt_history": True},
         "queue_policy": ["用户优先", "会议处理", "纪要与脉络", "逐字稿翻译"],
     }
 
@@ -244,7 +252,8 @@ def get_job(jid: str):
 
 
 @router.post("/api/jobs/{jid}/retry")
-def retry_job(jid: str, quality: str = Query("standard", pattern="^(standard|high)$")):
+def retry_job(jid: str, quality: str = Query("standard", pattern="^(standard|high)$"),
+              strategy: str = Query("resume", pattern="^(resume|degraded)$")):
     """从已保留资产恢复失败阶段；绝不直接重放作业 JSON 中的旧命令。"""
     source = JOBS.get(jid)
     if not source:
@@ -256,6 +265,8 @@ def retry_job(jid: str, quality: str = Query("standard", pattern="^(standard|hig
         raise HTTPException(409, "现有资产不足以安全续跑，请按卡片提示重新导入")
     if quality == "high" and not plan.get("high_quality_available"):
         raise HTTPException(409, "当前没有配置高质量恢复模型")
+    if strategy == "degraded" and plan.get("mode") != "minutes":
+        raise HTTPException(409, "当前失败阶段不能生成降级结果")
 
     successor = JOBS.get(str(source.get("recovered_by") or ""))
     if successor and successor.get("status") in {"queued", "running", "done"}:
@@ -291,6 +302,10 @@ def retry_job(jid: str, quality: str = Query("standard", pattern="^(standard|hig
                 refine = (os.environ.get("MEETING_RECOVERY_REFINE_MODEL", "").strip()
                           if quality == "high" else "")
                 command = build_minutes_command(mdir, refine)
+                if strategy == "degraded":
+                    if not any(str(item).endswith("minutes_by_page.py") for item in command):
+                        raise ValueError("degraded_not_applicable")
+                    command.append("--no-vl")
                 kind = "regen"
             elif mode == "topic_map":
                 command = build_topic_map_command(mdir)
@@ -307,10 +322,12 @@ def retry_job(jid: str, quality: str = Query("standard", pattern="^(standard|hig
             raise HTTPException(409, "会议资产已经变化，当前无法继续恢复") from exc
         new_job = _new_job(kind, route="video" if _video_path(mdir) else "audio",
                            meeting=slug, cmd=command,
-                           recovery_scope=plan.get("scope"))
+                           recovery_scope=("minutes_without_visuals" if strategy == "degraded"
+                                           else plan.get("scope")),
+                           degraded_requested=strategy == "degraded")
         EXEC.submit(_run_pipeline, new_job)
 
-    _link_recovery(source, new_job, quality)
+    _link_recovery(source, new_job, "degraded" if strategy == "degraded" else quality)
     return _job_with_recovery(new_job)
 
 

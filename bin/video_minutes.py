@@ -139,7 +139,7 @@ def main() -> int:
 
     print("[2/6] 转写 ∥ 说话人分离 ...", flush=True)
     progress_event("speech_processing")
-    prepare_stage("audio", keep=[DEFAULT_DRAFT_MODEL])
+    prepare_stage("audio", keep=[DEFAULT_DRAFT_MODEL], progress_phase="speech_processing")
     tr_cmd = [str(PY), str(BIN / "transcribe.py"), str(wav), "--out", str(mdir),
               "--context-title", args.slug or slug]
     if args.reuse_asr:
@@ -219,9 +219,11 @@ def main() -> int:
     print("[4/6] 先生成语音草稿纪要 ...", flush=True)
     progress_event("voice_draft")
     draft_ready = meeting_generation.generate_voice_draft(mdir, python=sys.executable)
-    phase_done("voice_draft")
     if draft_ready:
+        phase_done("voice_draft")
         output_ready("voice_draft")
+    else:
+        progress_event("voice_draft", state="degraded")
     meeting_generation.begin_visual_enrichment(mdir)
 
     progress_event("visual_extraction")
@@ -240,7 +242,8 @@ def main() -> int:
     phase_done("visual_extraction", done=len(pages), total=len(pages), unit="pages")
 
     print("[6/6] 用 VL 屏幕资料升级多模态纪要 ...", flush=True)
-    prepare_stage("visual", keep=[DEFAULT_MINUTES_MODEL])
+    prepare_stage("visual", keep=[DEFAULT_MINUTES_MODEL],
+                  progress_phase="visual_understanding")
     out_path, mstats = generate_minutes(
         mdir, video=source_mp4, vl=not args.no_vl,
         reuse_vl_cache_only=args.reuse_visuals)

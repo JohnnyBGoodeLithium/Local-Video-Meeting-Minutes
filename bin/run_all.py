@@ -82,7 +82,7 @@ def main() -> int:
 
     print(f"[1/3] 并行：转写 + 说话人分离 → {folder}", flush=True)
     progress_event("speech_processing")
-    prepare_stage("audio", keep=[DEFAULT_DRAFT_MODEL])
+    prepare_stage("audio", keep=[DEFAULT_DRAFT_MODEL], progress_phase="speech_processing")
     p_tr = subprocess.Popen(tr_cmd, env=env)
     p_dz = subprocess.Popen(dz_cmd, env=env)
     rc_tr, rc_dz = p_tr.wait(), p_dz.wait()
