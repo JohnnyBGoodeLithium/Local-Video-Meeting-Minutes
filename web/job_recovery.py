@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import os
+import json
 from pathlib import Path
 
 from deps import MEETINGS, PY, ROOT, _audio_path, _minutes_file, _video_path
@@ -60,6 +61,53 @@ def build_minutes_command(mdir: Path, refine: str = "") -> list[str]:
         raise ValueError("missing_transcript_text")
     return [str(PY), str(ROOT / "bin" / "summarize.py"), str(transcript_text),
             "--spk", str(mdir / "transcript.spk.json"), "--max-tokens", "8192"]
+
+
+def visual_cache_coverage(mdir: Path) -> dict:
+    """只用缓存元数据判断快速同步能否安全复用全部逻辑页。"""
+    try:
+        pages = json.loads((mdir / "slides.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        pages = []
+    try:
+        cache = json.loads((mdir / "page_desc.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        cache = {}
+    required = set()
+    for item in pages if isinstance(pages, list) else []:
+        if not isinstance(item, dict):
+            continue
+        try:
+            number = int(item.get("page") or 0)
+        except (TypeError, ValueError):
+            continue
+        if number > 0:
+            required.add(number)
+    available = {int(key) for key, value in (cache.get("desc") or {}).items()
+                 if str(key).isdigit() and str(value or "").strip()}
+    missing = sorted(required - available)
+    return {"required": len(required), "available": len(required & available),
+            "missing": missing, "complete": bool(required) and not missing}
+
+
+def build_fast_sync_command(mdir: Path) -> list[str]:
+    """逐字稿修改后的保守快速同步：只更新文字结果，不调用视觉模型。"""
+    if not (mdir / "transcript.spk.json").is_file():
+        raise ValueError("missing_transcript")
+    if (mdir / "slides.json").is_file():
+        coverage = visual_cache_coverage(mdir)
+        if not coverage["complete"]:
+            raise ValueError("incomplete_visual_cache")
+        return [str(PY), str(ROOT / "bin" / "minutes_by_page.py"), str(mdir),
+                "--publish", "--reuse-vl-cache-only", "--skip-topic-map"]
+    if _video_path(mdir) is not None:
+        raise ValueError("missing_visual_cache")
+    transcript_text = mdir / "transcript.txt"
+    if not transcript_text.is_file():
+        raise ValueError("missing_transcript_text")
+    return [str(PY), str(ROOT / "bin" / "summarize.py"), str(transcript_text),
+            "--spk", str(mdir / "transcript.spk.json"), "--max-tokens", "8192",
+            "--skip-topic-map"]
 
 
 def build_topic_map_command(mdir: Path) -> list[str]:

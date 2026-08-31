@@ -42,6 +42,11 @@ assert phase_ids_for(job(route="audio")) == [
 ]
 assert phase_ids_for(job(route="media_url"))[0] == "download"
 assert phase_ids_for(job(kind="regen", route="audio")) == ["prepare", "final_minutes"]
+fast_sync = job(kind="regen", route="video", available_outputs={"transcript": "ready"},
+                cmd=["python", "minutes_by_page.py", "--reuse-vl-cache-only",
+                     "--skip-topic-map"])
+assert phase_ids_for(fast_sync) == ["prepare", "final_minutes"]
+assert initial_progress(fast_sync, 100.0)["available_outputs"]["transcript"] == "ready"
 assert phase_ids_for(job(kind="retranscribe", route="audio")) == [
     "retranscribe_prepare", "speech_processing", "final_minutes",
 ]

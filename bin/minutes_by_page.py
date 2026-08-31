@@ -782,7 +782,7 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
 
     descs = {}
     vl_review = {"candidates": 0, "reviewed": 0, "failed": 0, "model": None}
-    if vl:
+    if vl and not reuse_vl_cache_only:
         progress_event("visual_understanding", done=0, total=len(pages), unit="pages")
     if vl and reuse_vl_cache_only:
         cache = json.loads((mdir / "page_desc.json").read_text(encoding="utf-8")) \
@@ -795,6 +795,10 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
                           if str(value).isdigit()]
         vl_review = {"candidates": 0, "reviewed": len(reviewed_pages), "failed": 0,
                      "model": cache.get("models", {}).get("review")}
+        missing = sorted(int(page["page"]) for page in pages
+                         if not descs.get(int(page["page"]), "").strip())
+        if missing:
+            raise RuntimeError("incomplete_visual_cache")
         print(f"[meta] 复用 VL 页面解读缓存 {len(descs)} 页，不重跑视觉模型", flush=True)
     elif vl:
         api, _proc = ensure_vl_server()
@@ -822,10 +826,12 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
                         stop_local_model(review_proc)
                         print(f"[meta] 疑难页视觉复核完成 {vl_review['reviewed']} 页"
                               f" | 本轮失败 {vl_review['failed']}", flush=True)
-    if vl:
+    if vl and not reuse_vl_cache_only:
         phase_done("visual_understanding", done=len(descs), total=len(pages), unit="pages")
         if descs:
             output_ready("visuals", state="ready" if len(descs) >= len(pages) else "partial")
+    elif vl and descs:
+        output_ready("visuals", state="ready")
 
     # VL can take tens of minutes. Speaker corrections are intentionally allowed
     # while it runs, so the transcript loaded before VL is only a page-extraction
@@ -994,6 +1000,8 @@ def main() -> int:
                     help="大模型精修重写(如 qwen3.5-122b-a10b-planner; 首次调用需加载, 分钟级)")
     ap.add_argument("--publish", action="store_true",
                     help="成功后发布 ready 状态（Web 重生成/失败恢复使用）")
+    ap.add_argument("--skip-topic-map", action="store_true",
+                    help="先发布纪要；会议脉络由独立低优先级作业更新")
     args = ap.parse_args()
     if not (args.mdir / "transcript.spk.json").is_file() or not (args.mdir / "slides.json").is_file():
         print("会议目录缺 transcript.spk.json 或 slides.json", file=sys.stderr)
@@ -1004,7 +1012,8 @@ def main() -> int:
     if args.publish:
         meeting_generation.finalize(
             args.mdir, pages=stats["pages"], vl_pages=stats["vl_pages"])
-    meeting_topic_map.generate_for_pipeline(args.mdir)
+    if not args.skip_topic_map:
+        meeting_topic_map.generate_for_pipeline(args.mdir)
     if args.publish:
         print(f"[meta] 多模态终稿已发布 | VL {stats['vl_pages']}/{stats['pages']} 页",
               flush=True)

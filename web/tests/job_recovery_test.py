@@ -17,8 +17,9 @@ with tempfile.TemporaryDirectory(prefix="meeting-recovery-") as tmp:
     os.environ["MEETING_DATA_ROOT"] = str(root)
     os.environ["MEETING_WEB_JOBS"] = str(root / "jobs")
 
-    from job_recovery import (meeting_dir_for_job, preemption_resume_spec,
-                              recovery_plan)  # noqa: E402
+    from job_recovery import (build_fast_sync_command, meeting_dir_for_job,
+                              preemption_resume_spec, recovery_plan,
+                              visual_cache_coverage)  # noqa: E402
     from teams_minutes import slugify  # noqa: E402
 
     meeting = root / "meetings" / "synthetic"
@@ -71,6 +72,30 @@ with tempfile.TemporaryDirectory(prefix="meeting-recovery-") as tmp:
 
     topic = recovery_plan({**base, "kind": "topic_map", "stage": "构建会议脉络"})
     assert topic["state"] == "available" and topic["mode"] == "topic_map"
+
+    (meeting / "slides.json").write_text(
+        '[{"page":1,"first":0,"last":10,"image":"page_001.jpg"}]',
+        encoding="utf-8")
+    try:
+        build_fast_sync_command(meeting)
+    except ValueError as exc:
+        assert str(exc) == "incomplete_visual_cache"
+    else:
+        raise AssertionError("快速同步不得接受缺页的视觉缓存")
+    (meeting / "page_desc.json").write_text(
+        '{"desc":{"1":"Synthetic visual description"}}', encoding="utf-8")
+    coverage = visual_cache_coverage(meeting)
+    assert coverage == {"required": 1, "available": 1, "missing": [], "complete": True}
+    fast = build_fast_sync_command(meeting)
+    assert "--reuse-vl-cache-only" in fast and "--skip-topic-map" in fast
+    assert "--video" not in fast
+
+    audio_meeting = root / "meetings" / "synthetic-audio"
+    audio_meeting.mkdir()
+    (audio_meeting / "transcript.spk.json").write_text("[]", encoding="utf-8")
+    (audio_meeting / "transcript.txt").write_text("synthetic audio", encoding="utf-8")
+    audio_fast = build_fast_sync_command(audio_meeting)
+    assert audio_fast[1].endswith("summarize.py") and "--skip-topic-map" in audio_fast
 
     translated = recovery_plan({**base, "kind": "translation",
                                 "translation_artifact": "minutes",

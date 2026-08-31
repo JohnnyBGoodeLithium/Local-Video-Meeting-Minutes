@@ -87,6 +87,34 @@ def _record_meeting_activity(job: dict) -> None:
         os.replace(tmp, meta_path)
 
 
+def _queue_topic_map_followup(job: dict) -> dict | None:
+    """快速同步先发布纪要，再以较低优先级更新脉络；失败不回滚主结果。"""
+    if not job.get("followup_topic_map") or job.get("followup_topic_map_job"):
+        return None
+    slug = str(job.get("meeting") or "")
+    mdir = (MEETINGS / slug).resolve()
+    if not slug or mdir.parent != MEETINGS.resolve() or not mdir.is_dir():
+        return None
+    active = next((item for item in JOBS.values()
+                   if item.get("meeting") == slug and item.get("kind") == "topic_map"
+                   and item.get("status") in {"queued", "running"}), None)
+    if active:
+        return active
+    from job_recovery import build_topic_map_command
+    followup = _new_job(
+        "topic_map", meeting=slug, cmd=build_topic_map_command(mdir),
+        queue_priority=25, triggered_by=job.get("id"), sync_followup=True,
+        available_outputs={"transcript": "ready", "speaker_navigation": "ready",
+                           "visuals": "ready", "final_minutes": "ready"},
+    )
+    with BANK_LOCK:
+        job["followup_topic_map_job"] = followup["id"]
+        job["log"].append("[meta] 正式纪要已发布；会议脉络已排队更新")
+        _save_job(job)
+    EXEC.submit(_run_pipeline, followup)
+    return followup
+
+
 def _scheduler_error(job: dict, exc: Exception) -> None:
     """未知异常不能杀死唯一调度线程；日志只保存异常类型，不保存潜在正文。"""
     job.setdefault("log", []).append(f"[error] 后台调度异常 ({type(exc).__name__})")
@@ -288,6 +316,13 @@ def _run_pipeline(job: dict):
                 with BANK_LOCK:
                     job["log"].append(
                         f"[error] 会议时间元数据更新失败 ({type(exc).__name__})")
+                    _save_job(job)
+            try:
+                _queue_topic_map_followup(job)
+            except Exception as exc:
+                with BANK_LOCK:
+                    job["log"].append(
+                        f"[error] 会议脉络排队失败 ({type(exc).__name__})")
                     _save_job(job)
             # translations 路由依赖 job_store；这里只能运行时延迟导入，避免模块循环。
             # 自动补翻是低优先级附加作业，失败绝不能反向改坏主作业的 done 状态。

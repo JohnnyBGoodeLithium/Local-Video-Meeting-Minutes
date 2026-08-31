@@ -23,8 +23,8 @@ from deps import (BANK_DIR, BANK_LOCK, CONTENT_TYPES, DRY_RUN, EVALUATIONS_DIR, 
                   _meeting_identity, _meeting_storage, _mdir, _minutes_file, _now,
                   _minutes_html, _read_json, _source, _video_path)
 from job_store import EXEC, JOBS, _new_job, _run_pipeline
-from job_recovery import (build_minutes_command, build_retranscribe_command,
-                          build_topic_map_command)
+from job_recovery import (build_fast_sync_command, build_minutes_command,
+                          build_retranscribe_command, build_topic_map_command)
 
 router = APIRouter()
 
@@ -359,6 +359,39 @@ def regen_minutes(slug: str, refine: str = Query("")):
         raise HTTPException(400, messages.get(str(exc), "现有资产不足，无法重生成")) from exc
     job = _new_job("regen", route="video" if _video_path(mdir) else "audio",
                    meeting=slug, cmd=cmd)
+    resp = dict(job)
+    EXEC.submit(_run_pipeline, job)
+    return resp
+
+
+@router.post("/api/meetings/{slug}/sync_minutes")
+def sync_minutes(slug: str):
+    """把人工修正后的逐字稿快速同步到纪要；严格复用完整 VL 缓存。"""
+    mdir = _mdir(slug)
+    active = any(job.get("meeting") == slug and job.get("status") in {"queued", "running"}
+                 for job in JOBS.values())
+    if active:
+        raise HTTPException(409, "这场会议仍有处理作业，不能并发同步纪要")
+    if meeting_generation.document_state(mdir, _minutes_file(mdir) is not None) == "draft":
+        raise HTTPException(409, "语音草稿仍在升级，暂不能同步纪要")
+    try:
+        cmd = build_fast_sync_command(mdir)
+    except ValueError as exc:
+        messages = {
+            "missing_transcript": "没有逐字稿，无法同步纪要",
+            "missing_transcript_text": "缺少逐字稿阅读副本，无法同步纪要",
+            "missing_visual_cache": "视频会议缺少可复用的画面资料，请使用标准重新生成",
+            "incomplete_visual_cache": "现有画面资料不完整，快速同步不会冒险漏掉画面；请使用标准重新生成补齐资料",
+        }
+        raise HTTPException(409, messages.get(str(exc), "现有资产不足，无法快速同步")) from exc
+    available = {"transcript": "ready", "speaker_navigation": "ready"}
+    if (mdir / "slides.json").is_file():
+        available["visuals"] = "ready"
+    job = _new_job(
+        "regen", route="video" if _video_path(mdir) else "audio",
+        meeting=slug, cmd=cmd, sync_mode="fast", followup_topic_map=True,
+        available_outputs=available,
+    )
     resp = dict(job)
     EXEC.submit(_run_pipeline, job)
     return resp

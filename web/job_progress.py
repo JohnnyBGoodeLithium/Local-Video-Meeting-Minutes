@@ -82,10 +82,12 @@ def phase_ids_for(job: dict) -> list[str]:
         return ["retranscribe_prepare", "speech_processing", "voice_draft",
                 "visual_understanding", "final_minutes", "topic_map"]
     if kind == "regen":
+        reuse_visuals = _has_arg(job, "--reuse-vl-cache-only")
+        skip_topic_map = _has_arg(job, "--skip-topic-map")
         if route == "audio":
             return ["prepare", "final_minutes"]
-        return ["prepare", *([] if no_vl else ["visual_understanding"]),
-                "final_minutes", "topic_map"]
+        return ["prepare", *([] if no_vl or reuse_visuals else ["visual_understanding"]),
+                "final_minutes", *([] if skip_topic_map else ["topic_map"])]
     if route == "audio":
         return ["prepare", "speech_processing", "final_minutes"]
     if route == "teams":
@@ -116,7 +118,10 @@ def initial_progress(job: dict, now: float | None = None) -> dict:
         "done": None,
         "total": None,
         "unit": None,
-        "available_outputs": {item: "pending" for item in OUTPUTS},
+        "available_outputs": {
+            item: str((job.get("available_outputs") or {}).get(item) or "pending")
+            for item in OUTPUTS
+        },
         "estimated_first_usable": None,
         "estimated_remaining": None,
         "phases": phases,
