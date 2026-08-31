@@ -9,7 +9,7 @@
    命令不同，修改 `WorkingDirectory`/`ExecStart` 后执行 `systemctl --user daemon-reload` 和
    `systemctl --user enable --now weknora-compose.service`。
 4. 在 Meeting Minutes 的私有环境文件设置 `MEETING_KB_URL` 和 `MEETING_KB_HEALTH_URL`。
-5. 运行 `bin/weknora_health.py`，再按 `docs/WEKNORA_INTEGRATION.md` 完成一份脱敏 KB 文档验收。
+5. 运行 `bin/weknora_health.py`，再按 [WeKnora runbook](../../docs/runbooks/WEKNORA.md) 完成一份脱敏 KB 文档验收。
 
 默认不要为 Meeting Minutes 导出的 Markdown/HTML 开启 ASR；图片 VLM 也默认关闭。后台 Wiki、
 问题生成和批量重解析属于低优先级增强，不应与急件会议的 ASR/说话人/VL 阶段并行跑满。

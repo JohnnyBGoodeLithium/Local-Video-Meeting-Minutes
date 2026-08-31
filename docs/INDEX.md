@@ -30,7 +30,7 @@
 | 功能是否存在 | [PRODUCT_FUNCTIONS.md](PRODUCT_FUNCTIONS.md) + 代码 |
 | 数据、schema 与 provider 边界 | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | 稳定 UX 原则 | [UX.md](UX.md) |
-| 运维 | [OPERATIONS.md](OPERATIONS.md) / [runbooks](runbooks/) |
+| 运维 | [OPERATIONS.md](OPERATIONS.md) / [部署 runbook](runbooks/DEPLOYMENT.md) |
 | 知识库与 RAG 合同 | [KNOWLEDGE_RAG.md](KNOWLEDGE_RAG.md) |
 | 开放风险 | [RISKS.md](RISKS.md) |
 | 版本用户变化 | [CHANGELOG.md](../CHANGELOG.md) |

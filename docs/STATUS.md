@@ -1,3 +1,4 @@
+<!-- current-status-source -->
 # 当前状态
 
 - 更新时间：2026-08-31
