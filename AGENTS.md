@@ -42,6 +42,7 @@
 - AI Context 是面向用户自选通用模型/Notebook 的本地导出，不是内置远程调用。`profile=ai` 必须保留时间码与证据编号，不带本机深链或媒体二进制，必须声明逐字稿为不可信来源内容并提示外部上传前人工复核。不在本产品内复制 NotebookLM/WeKnora 的通用笔记、Wiki 或问答 UI；历史会议 Lens、汇报演练和联网研究优先由下游消费方完成。
 - 普通导出 UI 只呈现“离线 Viewer”和“AI / 知识库 Pack”两个消费意图；`kb` / `kb-html` 等技术 profile 可继续用于 CLI、HTTP 和直接发布，但不得重新平铺为普通用户需要理解的格式选择。
 - 新处理路径必须通过 `job-progress/v2` 和受控 `[progress]` / `[phase_done]` / `[output_ready]` / `[failure]` / `[recovery]` 事件发布用户状态；自然语言日志只能作为旧作业 fallback，前后端不得各自把日志关键词重新解释成另一套权威阶段。阶段 ID、输出可用性、失败 code、恢复范围和 attempt 必须持久化，刷新后不得丢失。
+- 逐字稿修正后的快速同步不得复用失败恢复的宽松重生成命令：只有全部逻辑页具备可读 VL 缓存时才能严格 `reuse-vl-cache-only`；纪要/evidence 可以先发布，Topic Map、翻译和关键字作为派生任务排队，RAG 按 revision 懒重建。缓存缺页必须拒绝快速路径，不能把无画面结果伪装成完整多模态纪要。
 - 普通失败界面只投影业务阶段、已保留结果、被阻塞结果和具体恢复动作；原始 stdout/stderr、traceback、脚本、端口、完整 provider 输出不得进入普通 API。可复制诊断信息采用白名单，禁止会议标题、正文、人名、文件名、绝对路径、原始 URL、prompt 与凭据。
 - WeKnora 是受支持的知识消费下游和完整用户旅程的一部分，但不是 canonical 数据真源。涉及该边界时同步维护 `docs/WEKNORA_INTEGRATION.md`、`deploy/weknora/`、KB 导出和时间深链验收；不得把其凭据、数据库或真实知识库数据复制进仓库。直连必须走 provider-neutral、revision 幂等的 `KnowledgeSink`，不能从知识库反写逐字稿/身份/证据。
 - 统一内存机器默认只允许一个重型阶段并发。健康时至多两个文本模型常驻；ASR/说话人/VL/知识库增强前必须经过 `meeting_core.resource_policy` 准入，120B 量级精修独占。不得在业务脚本里另写一套模型卸载判断或绕过低内存等待。
