@@ -141,4 +141,3 @@ jobs:
             gh release edit "$RELEASE_TAG" --draft=false
           fi
           trap - ERR
-

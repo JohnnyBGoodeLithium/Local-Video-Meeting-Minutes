@@ -10,4 +10,3 @@ This directory contains the delivery notes used as the body of future GitHub Rel
 - While the major version is `0`, releases are published as pre-releases.
 
 Creating this file does not authorize a tag or a GitHub Release. Both remain explicit maintainer actions.
-
