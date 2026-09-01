@@ -4,10 +4,21 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "local-meeting-minutes"
-version = "0.1.0"
-description = "Local-only meeting transcription, diarization, slide analysis, and minutes Web UI"
+version = "0.15.1"
+description = "Local-first meeting and video context workflow with evidence-linked review and portable knowledge outputs."
 readme = "README.md"
 requires-python = ">=3.11"
+authors = [
+  { name = "JohnnyBGoodeLithium" },
+]
+keywords = [
+  "local-ai",
+  "meeting-intelligence",
+  "multimodal",
+  "rag",
+  "knowledge-management",
+  "edge-ai",
+]
 dependencies = [
   "aiofiles>=23",
   "fastapi>=0.110",
@@ -32,6 +43,16 @@ pipeline = [
   "qwen-asr",
   "soundfile>=0.12",
 ]
+
+lock = [
+  "pip-tools==7.6.1",
+]
+
+[project.urls]
+Repository = "https://github.com/JohnnyBGoodeLithium/Local-Video-Meeting-Minutes"
+Documentation = "https://github.com/JohnnyBGoodeLithium/Local-Video-Meeting-Minutes/tree/main/docs"
+Changelog = "https://github.com/JohnnyBGoodeLithium/Local-Video-Meeting-Minutes/blob/main/CHANGELOG.md"
+Issues = "https://github.com/JohnnyBGoodeLithium/Local-Video-Meeting-Minutes/issues"
 
 [tool.setuptools]
 packages = []

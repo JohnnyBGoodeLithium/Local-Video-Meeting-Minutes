@@ -1,6 +1,6 @@
 PY := .venv/bin/python
 
-.PHONY: run doctor check smoke assistant-live retrieval-live rag-index
+.PHONY: run doctor check package-check smoke assistant-live retrieval-live rag-index lock lock-check install-runtime install-ci
 
 run:
 	$(PY) web/server.py
@@ -8,8 +8,11 @@ run:
 doctor:
 	$(PY) bin/doctor.py --profile all
 
-check: export MEETING_RESOURCE_GUARD=0
-check:
+check: package-check
+	git diff --check
+
+package-check: export MEETING_RESOURCE_GUARD=0
+package-check:
 	$(PY) -c 'import ast,pathlib; files=list(pathlib.Path("bin").rglob("*.py"))+list(pathlib.Path("web").rglob("*.py")); [ast.parse(p.read_text(encoding="utf-8"), filename=str(p)) for p in files]; print(f"Python syntax: {len(files)} files OK")'
 	$(PY) web/tests/orgchart_extract_test.py
 	$(PY) web/tests/minutes_markdown_test.py
@@ -21,6 +24,7 @@ check:
 	$(PY) web/tests/minutes_degenerate_test.py
 	$(PY) web/tests/design_tokens_test.py
 	$(PY) web/tests/product_version_test.py
+	$(PY) web/tests/release_metadata_test.py
 	$(PY) web/tests/product_intro_test.py
 	$(PY) web/tests/documentation_structure_test.py
 	$(PY) web/tests/summarize_request_test.py
@@ -64,7 +68,6 @@ check:
 	$(PY) web/tests/content_type_test.py
 	$(PY) web/tests/viewer_boot_test.py
 	@if command -v node >/dev/null 2>&1; then node --check web/static/app.js && node --check web/static/admin.js && node web/tests/frontend_modules_test.mjs && node web/tests/job_progress_frontend_test.mjs && node web/tests/photo_import_frontend_test.mjs && node web/tests/speaker_correction_frontend_test.mjs && node web/tests/assistant_intent_test.mjs; else echo "Node unavailable: skipped JS syntax check"; fi
-	git diff --check
 
 smoke: export MEETING_RESOURCE_GUARD=0
 smoke:
@@ -78,3 +81,17 @@ retrieval-live:
 
 rag-index:
 	$(PY) bin/build_rag_indexes.py
+
+lock:
+	$(PY) scripts/compile_locks.py
+
+lock-check:
+	$(PY) scripts/compile_locks.py --check
+
+install-runtime:
+	$(PY) -m pip install -r requirements/runtime.lock
+	$(PY) -m pip install -e . --no-deps
+
+install-ci:
+	$(PY) -m pip install -r requirements/ci.lock
+	$(PY) -m pip install -e . --no-deps
