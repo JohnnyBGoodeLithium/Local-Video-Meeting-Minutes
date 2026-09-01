@@ -13,10 +13,9 @@
 产品介绍页、MeetingPack Viewer、发布 manifest 和默认导出文件名从它读取或由测试约束投影；
 `pyproject.toml`、README、`docs/STATUS.md` 与 CHANGELOG 不得形成独立版本事实。
 
-当前发布基线为 `v0.15.1`（2026-08-31，Web p109）：在 v0.15.0 的结构化进度、失败恢复和现场资料
-旅程之上，逐字稿修正可以严格复用完整 VL 缓存快速同步纪要；正式纪要与 evidence 先发布，Topic Map、
-翻译和关键字作为派生任务继续排队。缓存缺页时不会伪装成快速完成。人工结论评测保留为本地数据，
-工作台只在有重点待核对、已发现问题或 evidence 过期时显示“核对关键结论”，不再长期占用一级页签。
+当前发布基线为 `v0.15.2`（2026-09-01，Web p109）：保留 v0.15.1 的产品能力和运行合同，
+新增完整中英文仓库入口、轻量依赖锁、脱敏 Application Release Bundle 与 tag 驱动的 GitHub Release
+验证流程。本次是分发和仓库治理 patch，不改变产品 UI、canonical schema、模型管线或 RAG 行为。
 
 ## 版本节奏
 

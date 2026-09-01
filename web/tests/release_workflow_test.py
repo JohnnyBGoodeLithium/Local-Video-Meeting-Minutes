@@ -27,6 +27,8 @@ def main() -> int:
         "fetch-depth: 0",
         "persist-credentials: false",
         'test "$RELEASE_TAG" = "v$(cat VERSION)"',
+        "release/authorized-tag.txt",
+        'test "$authorized_tag" = "$RELEASE_TAG"',
         'docs/releases/$RELEASE_TAG.md',
         "make lock-check",
         "make check",

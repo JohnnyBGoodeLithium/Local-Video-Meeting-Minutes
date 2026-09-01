@@ -78,6 +78,8 @@ jobs:
         run: |
           set -euo pipefail
           test "$RELEASE_TAG" = "v$(cat VERSION)"
+          authorized_tag="$(tr -d '[:space:]' < release/authorized-tag.txt)"
+          test "$authorized_tag" = "$RELEASE_TAG"
           test -f "docs/releases/$RELEASE_TAG.md"
           grep -Eq "^## $RELEASE_TAG([[:space:]]|$)" CHANGELOG.md
           RELEASE_TAG="$RELEASE_TAG" .venv/bin/python web/tests/release_metadata_test.py

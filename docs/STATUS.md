@@ -1,10 +1,10 @@
 <!-- current-status-source -->
 # 当前状态
 
-- 更新时间：2026-08-31
-- 产品版本：v0.15.1
+- 更新时间：2026-09-01
+- 产品版本：v0.15.2
 - Web 构建号：20260831p109
-- 源代码基线：`c47d3a0`
+- 源代码基线：以不可移动的 `v0.15.2` tag 所指 commit 为准
 - Owner：Local AI PoC maintainer
 - 当前阶段：受控 PoC 验证（Controlled PoC validation）
 
