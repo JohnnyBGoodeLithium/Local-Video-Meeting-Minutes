@@ -15,7 +15,9 @@ from urllib.parse import unquote
 ROOT = Path(__file__).resolve().parents[2]
 
 REQUIRED = {
-    "README.md", "AGENTS.md", "HANDOFF.md", "CHANGELOG.md", "VERSION",
+    "README.md", "README.zh-CN.md", "SECURITY.md", "CONTRIBUTING.md",
+    ".github/pull_request_template.md",
+    "AGENTS.md", "HANDOFF.md", "CHANGELOG.md", "VERSION",
     "docs/INDEX.md", "docs/STATUS.md", "docs/PRODUCT.md",
     "docs/ARCHITECTURE.md", "docs/UX.md", "docs/OPERATIONS.md",
     "docs/KNOWLEDGE_RAG.md", "docs/RISKS.md", "docs/PRODUCT_FUNCTIONS.md",
@@ -101,8 +103,41 @@ for source in markdown_files():
 assert not broken, "broken Markdown links:\n" + "\n".join(broken)
 
 readme = (ROOT / "README.md").read_text(encoding="utf-8")
+readme_zh = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
+assert "[简体中文](README.zh-CN.md)" in readme
+assert "[English](README.md)" in readme_zh
+
+english_sections = [
+    "Overview", "Why it exists", "Core capabilities", "How it works",
+    "Current maturity", "Quick start", "Privacy and trust boundary",
+    "Documentation", "Release and installation status", "License status",
+]
+chinese_sections = [
+    "项目概览", "为什么做", "核心能力", "工作方式", "当前成熟度", "快速开始",
+    "隐私与可信边界", "文档导航", "发布与安装状态", "许可证状态",
+]
+assert re.findall(r"^## (.+)$", readme, re.MULTILINE) == english_sections
+assert re.findall(r"^## (.+)$", readme_zh, re.MULTILINE) == chinese_sections
+assert len(re.findall(r"[\u4e00-\u9fff]", readme)) < 40, "English README contains a Chinese body"
+assert len(readme_zh) > 3_000 and len(re.findall(r"[\u4e00-\u9fff]", readme_zh)) > 800
+assert "<!-- maturity: controlled-single-machine-poc -->" in readme
+assert "<!-- maturity: controlled-single-machine-poc -->" in readme_zh
+
+quick_start_commands = [
+    "git clone <repository-url> meeting-minutes", "cd meeting-minutes",
+    "python3 -m venv .venv", ".venv/bin/pip install --upgrade pip",
+    ".venv/bin/pip install -e .", "make doctor", "make check", "make run",
+]
+for command in quick_start_commands:
+    assert command in readme and command in readme_zh, f"README quick start drift: {command}"
+
 for target in ("docs/INDEX.md", "docs/STATUS.md", "docs/PRODUCT_FUNCTIONS.md"):
-    assert target in readme, f"README must link to {target}"
+    assert target in readme, f"English README must link to {target}"
+    assert target in readme_zh, f"Chinese README must link to {target}"
+assert "未来 30 天" not in readme_zh and "30-day plan" not in readme.lower()
+
+pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+assert 'readme = "README.md"' in pyproject
 
 status = (ROOT / "docs/STATUS.md").read_text(encoding="utf-8")
 version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()

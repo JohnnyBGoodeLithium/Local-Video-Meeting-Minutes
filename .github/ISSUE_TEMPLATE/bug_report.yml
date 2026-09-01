@@ -1,0 +1,101 @@
+name: Bug report / 缺陷报告
+description: Report a reproducible problem using sanitized metadata and synthetic data.
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not upload meetings, media, transcripts, minutes, names, internal screenshots, .env files, API keys, complete logs, internal URLs, voiceprints, or organization data.
+        请勿上传会议文件、音视频、逐字稿、纪要、人名、内部截图、.env、API key、完整日志、内部 URL、声纹或组织数据。
+  - type: input
+    id: product_version
+    attributes:
+      label: Product version / 产品版本
+      placeholder: "0.15.1"
+    validations:
+      required: true
+  - type: input
+    id: web_build
+    attributes:
+      label: Web build
+      placeholder: "20260831p109"
+    validations:
+      required: true
+  - type: input
+    id: git_commit
+    attributes:
+      label: Git commit
+      description: A public commit SHA only.
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      placeholder: "Ubuntu 24.04"
+    validations:
+      required: true
+  - type: input
+    id: hardware
+    attributes:
+      label: Hardware profile / 硬件配置
+      description: Sanitized CPU, memory, and accelerator summary only.
+    validations:
+      required: true
+  - type: dropdown
+    id: route
+    attributes:
+      label: Processing route / 处理路径
+      options:
+        - Meeting audio
+        - Meeting video
+        - First-party media
+        - Teams transcript
+        - Export or knowledge projection
+        - Web review
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: stage
+    attributes:
+      label: Business stage / 发生阶段
+      placeholder: "Import, transcription, identity review, minutes, export..."
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior / 预期行为
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior / 实际行为
+      description: Describe the behavior without private content or raw logs.
+    validations:
+      required: true
+  - type: input
+    id: diagnostic_id
+    attributes:
+      label: Sanitized diagnostic ID / 脱敏诊断 ID
+      description: Optional identifier only; do not paste complete logs.
+  - type: dropdown
+    id: synthetic_reproduction
+    attributes:
+      label: Reproducible with fictional data? / 能否用虚构数据复现？
+      options:
+        - "Yes"
+        - "No"
+        - "Not tested"
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy confirmation / 隐私确认
+      options:
+        - label: I confirm this report contains no real meeting content, credentials, internal URLs, private screenshots, or complete logs.
+          required: true

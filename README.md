@@ -1,36 +1,54 @@
 # Local Video Meeting Minutes
 
-## English summary
+English | [简体中文](README.zh-CN.md)
 
-Local Video Meeting Minutes is a local-first workflow for turning meetings and first-party videos into evidence-linked, reusable context. It combines configurable speech recognition, speaker separation, visual understanding, and text generation while keeping the transcript, confirmed identities, revisions, and source links independent from any single model. Users can review who said what, return from a claim to the original audio or screen, correct source material, and export an offline MeetingPack, portable AI Context, or knowledge-base projection. Providers can run locally or through explicitly approved endpoints; the system never silently changes the privacy boundary. The current release is a controlled, single-machine proof of concept—not a production multi-user service—and meeting review is more validated than video analysis or cross-content RAG.
+<!-- maturity: controlled-single-machine-poc -->
+<!-- product-version: v0.15.1 -->
 
-## 中文摘要
+## Overview
 
-Local Video Meeting Minutes 是一个本地优先的会议与第一手视频上下文工作流。它把语音识别、人物区分、画面理解和纪要生成连接起来，但不把任何单一模型的输出直接当作事实真源。用户可以按人物核听，修正逐字稿与身份，从结论回到原声和画面，并把同一份可信来源交付为离线 MeetingPack、可交给通用 AI 的 AI Context，或知识库投影。系统默认在本机处理，远端 provider 必须显式配置，不会静默改变隐私边界。当前版本是单机受控 PoC：会议回顾主旅程已有真实验证，视频理解和跨内容 RAG 仍在持续评测，不是正式多人生产服务。
+Local Video Meeting Minutes is a local-first workflow that turns meetings and first-party videos into evidence-linked, reusable context. It connects configurable speech recognition, speaker separation, visual understanding, and text generation while keeping transcripts, confirmed identities, revisions, and source links independent from any one model.
 
-## 当前产品定位
+The application can deliver an offline MeetingPack, portable AI Context, and knowledge-base (KB) projection for downstream RAG. It is model-agnostic: providers may run locally or through explicitly approved endpoints, and the system does not silently cross the configured privacy boundary.
 
-- **Identity**：把“谁说了什么”变成可核听、可人工确认、可撤销的身份上下文。
-- **Evidence**：纪要结论绑定逐字稿、原声和画面，页面内容不能单独证明会议决定。
-- **Multimodal Review**：先让逐字稿和语音草稿可用，再补充共享画面、现场资料与正式纪要。
-- **Portable Context**：以 MeetingPack、AI Context 和 KB projection 交给人、通用 AI 或知识库继续消费。
+## Why it exists
 
-这不是 Teams 替代品、第二套 NotebookLM、通用多 Agent 平台，也不承诺无需人工核对的全自动结论。
+Meeting summaries are useful only when people can check where a statement came from and correct the source when it is wrong. This project keeps review close to the original audio, transcript, speaker identity, screen evidence, and first-party material. Model output assists interpretation; it is not the source of truth.
 
-## 当前成熟度
+The project also explores how one controlled local machine can compile trusted context for humans, general-purpose AI tools, and knowledge systems without requiring private meetings to become cloud training or troubleshooting material.
 
-| 能力 | 成熟度 | 当前判断 |
+## Core capabilities
+
+- **Identity correction:** review who said what, confirm or correct identities, and preserve reversible history.
+- **Source-linked review:** move from a conclusion back to the relevant transcript, audio, screen, or supplied material.
+- **Progressive meeting processing:** make transcript and voice draft outputs available before optional visual enrichment finishes.
+- **MeetingPack:** export an offline, reviewable meeting package.
+- **AI Context:** produce portable context for explicitly chosen AI tools without binding the meeting to one model.
+- **KB projection and RAG:** project validated material into a knowledge-base-friendly form and retrieve evidence-linked context.
+- **Meeting and first-party video routes:** support controlled meeting review and videos supplied or authorized by the operator.
+
+## How it works
+
+The workflow imports local or explicitly authorized media, builds transcript and speaker context, adds visual and supplied material when available, and projects the result into review and export views. Canonical meeting artifacts stay separate from model-specific outputs. Human corrections create new revisions instead of silently rewriting the evidence history.
+
+The default Web workflow runs on one controlled host. Local providers are preferred; any remote provider must be configured deliberately. The application never treats a page description, generated summary, or model answer as independent proof of a meeting decision.
+
+## Current maturity
+
+Current product version: **v0.15.1**.
+
+| Area | Maturity | Current boundary |
 |---|---|---|
-| 会议导入、核听、逐字稿/身份修正、证据回跳、MeetingPack | 已真实验证（Validated） | 已在受控真实使用中驱动多轮改进 |
-| 视频分析、AI Context、KB 发布、本机 RAG | 已实现，仍在验证（Implemented, under validation） | 可运行，仍缺稳定质量与规模基线 |
-| 跨内容序列比较、视觉疑难页路由、新检索组合 | 实验中（Experimental） | 先进入实验记录，不作为稳定承诺 |
-| SSO、ACL、租户隔离和正式多人服务 | 当前不在范围（Out of scope） | 不能把本机端口直接视为生产部署 |
+| Meeting import, transcript and identity correction, evidence navigation, MeetingPack | Validated | Used in controlled real workflows with synthetic CI coverage |
+| First-party video understanding, AI Context, KB projection, local RAG | Implemented, under validation | Functional, but quality and scale baselines are still developing |
+| Cross-content comparison and experimental retrieval routes | Experimental | Not a stable product commitment |
+| SSO, ACLs, tenant isolation, and multi-user production service | Out of scope | A local port must not be treated as production deployment |
 
-完整状态与未来 30 天只在 [docs/STATUS.md](docs/STATUS.md) 维护。
+This is a controlled single-machine proof of concept, not a production multi-user service. Meeting review is validated more deeply than video understanding and cross-content RAG. See [current status](docs/STATUS.md) for the maintained validation state.
 
-## 快速开始
+## Quick start
 
-需要 Linux、Python 3.11+、`ffmpeg/ffprobe`；完整 AI 管线还需要与机器匹配的 PyTorch、模型和 `llama-server`。先阅读[部署 runbook](docs/runbooks/DEPLOYMENT.md)，避免安装过程覆盖可用的 CUDA/ROCm 环境。
+Linux, Python 3.11+, and `ffmpeg/ffprobe` are required. Full model execution also requires hardware-compatible PyTorch, model services, and model files; consult the [deployment runbook](docs/runbooks/DEPLOYMENT.md) before changing a working CUDA or ROCm environment.
 
 ```bash
 git clone <repository-url> meeting-minutes
@@ -44,22 +62,36 @@ make check
 make run
 ```
 
-浏览器打开 `http://127.0.0.1:8899/`。完整管线依赖、环境变量、模型角色与安全停止方式见 [OPERATIONS.md](docs/OPERATIONS.md)。`make smoke` 使用隔离临时数据根，不应读取真实会议。
+Open `http://127.0.0.1:8899/`. `make smoke` uses an isolated temporary data root and synthetic fixtures; it must not read real meetings.
 
-## 文档入口
+## Privacy and trust boundary
 
-| 想回答的问题 | 文档 |
+The public repository contains code, synthetic fixtures, templates, and sanitized documentation only. Do not commit real meetings, transcripts, minutes, names, voiceprints, organization structures, credentials, internal URLs, raw logs, exports, or private reports.
+
+Local-first does not mean every configured provider is local. Remote endpoints are allowed only when the operator explicitly approves and configures them. The application must fail clearly rather than silently changing the privacy boundary. See [SECURITY.md](SECURITY.md) and [open risks](docs/RISKS.md).
+
+## Documentation
+
+| Question | Authoritative document |
 |---|---|
-| 我应该先读什么？ | [文档导航](docs/INDEX.md) |
-| 现在做到哪里？ | [当前状态](docs/STATUS.md) |
-| 管理层或技术评审怎么介绍？ | [管理层摘要](docs/reporting/EXECUTIVE_BRIEF.md) · [技术摘要](docs/reporting/TECHNICAL_BRIEF.md) · [演示脚本](docs/reporting/DEMO_SCRIPT.md) |
-| 产品长期定义和边界是什么？ | [产品说明](docs/PRODUCT.md) |
-| 完整功能是否存在？ | [产品功能表](docs/PRODUCT_FUNCTIONS.md) |
-| 数据、revision 和 provider 如何工作？ | [架构](docs/ARCHITECTURE.md) |
-| 稳定交互原则是什么？ | [UX 合同](docs/UX.md) |
-| 如何运行、恢复和维护？ | [运维入口](docs/OPERATIONS.md) |
-| MeetingPack、AI Context、KB 和 RAG 如何分工？ | [知识库与 RAG](docs/KNOWLEDGE_RAG.md) |
-| 当前还有哪些风险？ | [开放风险](docs/RISKS.md) |
-| 每个版本改变了什么？ | [CHANGELOG](CHANGELOG.md) |
+| Where should I start? | [Documentation index](docs/INDEX.md) |
+| What is validated now? | [Current status](docs/STATUS.md) |
+| What is the product boundary? | [Product definition](docs/PRODUCT.md) |
+| Which capabilities exist? | [Product functions](docs/PRODUCT_FUNCTIONS.md) |
+| How do canonical data, revisions, and providers work? | [Architecture](docs/ARCHITECTURE.md) |
+| What interaction contracts are stable? | [UX](docs/UX.md) |
+| How is the application operated and recovered? | [Operations](docs/OPERATIONS.md) |
+| How do MeetingPack, AI Context, KB projection, and RAG relate? | [Knowledge and RAG](docs/KNOWLEDGE_RAG.md) |
+| What remains risky or unresolved? | [Risks](docs/RISKS.md) |
+| What changed by version? | [Changelog](CHANGELOG.md) |
 
-公开仓库只保存代码、虚构测试资料和脱敏文档。真实会议、人员、组织关系、导出物、凭据和个性化私有报告不得进入 Git。
+## Release and installation status
+
+The current distribution model is a source checkout. The repository is being prepared to build a verified **Application Release Bundle** containing the application scripts, Web assets, prompts, deployment examples, locked lightweight dependencies, and required documentation.
+
+This is not a PyPI package. `pip install -e .` currently installs base dependencies and project metadata while the application continues to run from the repository or bundle directory. There is no stable public Python import API and no promise that a pip installation can be launched from an arbitrary directory.
+
+## License status
+
+This repository currently does not include an open-source license.  
+Review ownership and company policy before redistribution or commercial use.
