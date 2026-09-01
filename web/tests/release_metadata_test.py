@@ -26,6 +26,15 @@ assert project["version"] == version
 assert project["readme"] == "README.md"
 assert pyproject["tool"]["setuptools"]["packages"] == []
 
+bundle_allowlist = {
+    line.strip()
+    for line in (ROOT / "release" / "bundle-include.txt").read_text(
+        encoding="utf-8"
+    ).splitlines()
+    if line.strip() and not line.lstrip().startswith("#")
+}
+assert "release/authorized-tag.txt" in bundle_allowlist
+
 changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
 assert re.search(rf"^## v{re.escape(version)} — \d{{4}}-\d{{2}}-\d{{2}}$", changelog, re.MULTILINE)
 
