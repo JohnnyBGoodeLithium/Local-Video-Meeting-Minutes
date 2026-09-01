@@ -72,18 +72,15 @@ jobs:
       - name: Run isolated smoke
         env:
           MEETING_RESOURCE_GUARD: "0"
+          MM_PRODUCT_SCREENSHOT_DIR: artifacts/product-site/screenshots
         run: make smoke
 
-      - name: Capture temporary product art direction studies
-        if: github.event_name == 'pull_request'
-        run: .venv/bin/python web/tests/capture_product_direction_studies.py
-
-      - name: Upload temporary product art direction studies
+      - name: Upload final product site screenshots
         if: github.event_name == 'pull_request'
         uses: actions/upload-artifact@v7
         with:
-          name: product-site-direction-study-${{ github.sha }}
-          path: artifacts/product-site-directions/screenshots/
+          name: product-site-final-${{ github.sha }}
+          path: artifacts/product-site/screenshots/
           if-no-files-found: error
           retention-days: 7
 

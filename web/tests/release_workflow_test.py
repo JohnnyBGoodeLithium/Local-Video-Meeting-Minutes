@@ -65,6 +65,23 @@ def main() -> int:
     ):
         require(ci, marker, str(ci_path))
 
+    pages_path = ROOT / ".github" / "workflows" / "pages.yml"
+    pages = pages_path.read_text(encoding="utf-8")
+    for marker in (
+        "workflow_run:",
+        "workflows:",
+        "github.event.workflow_run.conclusion == 'success'",
+        "github.event.workflow_run.head_sha",
+        "actions/configure-pages@v5",
+        "scripts/build_product_pages.py --output _site",
+        "actions/upload-pages-artifact@v4",
+        "pages: write",
+        "id-token: write",
+        "actions/deploy-pages@v4",
+    ):
+        require(pages, marker, str(pages_path))
+    assert "pull_request_target" not in pages
+
     dependabot_path = ROOT / ".github" / "dependabot.yml"
     dependabot = dependabot_path.read_text(encoding="utf-8")
     require(dependabot, "package-ecosystem: github-actions", str(dependabot_path))

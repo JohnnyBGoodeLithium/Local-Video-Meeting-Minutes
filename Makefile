@@ -1,6 +1,6 @@
 PY := .venv/bin/python
 
-.PHONY: run doctor check package-check smoke assistant-live retrieval-live rag-index lock lock-check install-runtime install-ci release-bundle release-verify
+.PHONY: run doctor check package-check smoke assistant-live retrieval-live rag-index lock lock-check install-runtime install-ci product-site-build release-bundle release-verify
 
 run:
 	$(PY) web/server.py
@@ -28,6 +28,7 @@ package-check:
 	$(PY) web/tests/release_metadata_test.py
 	$(PY) web/tests/release_bundle_test.py
 	$(PY) web/tests/product_intro_test.py
+	$(PY) web/tests/product_pages_test.py
 	$(PY) web/tests/documentation_structure_test.py
 	$(PY) web/tests/summarize_request_test.py
 	$(PY) web/tests/voice_draft_test.py
@@ -97,6 +98,9 @@ install-runtime:
 install-ci:
 	$(PY) -m pip install -r requirements/ci.lock
 	$(PY) -m pip install -e . --no-deps
+
+product-site-build:
+	$(PY) scripts/build_product_pages.py
 
 release-bundle:
 	$(PY) scripts/build_release_bundle.py

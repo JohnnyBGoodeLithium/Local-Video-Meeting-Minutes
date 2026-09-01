@@ -15,6 +15,7 @@
 | RAG / 知识库 | [当前状态](STATUS.md) + [知识与 RAG 合同](KNOWLEDGE_RAG.md) |
 | 功能盘点 | [产品功能表](PRODUCT_FUNCTIONS.md) |
 | 版本发布与应用分发 | [当前状态](STATUS.md) + [版本摘要](../CHANGELOG.md) + [发布规范](runbooks/RELEASES.md) + [分发与发布包](runbooks/DISTRIBUTION.md) |
+| 产品介绍站部署 | [产品介绍站 runbook](runbooks/PRODUCT_SITE.md) |
 | 历史事故 | [工程变化](history/ENGINEERING_CHANGES.md) 的目标章节 |
 | 研究实验 | [实验记录](research/EXPERIMENT_LOG.md) 的目标章节 |
 | Coding agent | [AGENTS.md](../AGENTS.md) + [当前状态](STATUS.md) + 本文 + 一份目标文档 |
@@ -35,6 +36,7 @@
 | 开放风险 | [RISKS.md](RISKS.md) |
 | 版本用户变化 | [CHANGELOG.md](../CHANGELOG.md) |
 | 应用分发与发布包 | [DISTRIBUTION.md](runbooks/DISTRIBUTION.md) |
+| 产品介绍站 | [PRODUCT_SITE.md](runbooks/PRODUCT_SITE.md) |
 | 重大工程事故 | [ENGINEERING_CHANGES.md](history/ENGINEERING_CHANGES.md) |
 | 实验结果 | [EXPERIMENT_LOG.md](research/EXPERIMENT_LOG.md) |
 

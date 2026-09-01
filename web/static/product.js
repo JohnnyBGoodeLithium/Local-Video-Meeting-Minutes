@@ -1,5 +1,5 @@
-import { EN_COPY, EN_META } from "./product-copy.js?v=20260901p110";
-import { enhanceProductDemo } from "./product-demo.js?v=20260901p110";
+import { EN_COPY, EN_META } from "./product-copy.js?v=20260901p111";
+import { enhanceProductDemo } from "./product-demo.js?v=20260901p111";
 
 "use strict";
 
@@ -130,16 +130,22 @@ document.querySelector("[data-correction-toggle]")?.addEventListener("click", ()
 applyLanguage(readWorkspaceLanguage());
 document.documentElement.dataset.productReady = "true";
 
-fetch("/api/health", {cache: "no-store"})
-  .then(response => response.ok ? response.json() : Promise.reject(new Error("health unavailable")))
-  .then(health => {
-    const version = document.querySelector("#product-version");
-    const value = health.product?.version;
-    if (!version || !value) return;
-    version.textContent = `v${value}`;
-    version.hidden = false;
-  })
-  .catch(() => {});
+const staticProductVersion = document.documentElement.dataset.staticProductVersion;
+const versionNode = document.querySelector("#product-version");
+if (staticProductVersion && versionNode) {
+  versionNode.textContent = `v${staticProductVersion}`;
+  versionNode.hidden = false;
+} else {
+  fetch("/api/health", {cache: "no-store"})
+    .then(response => response.ok ? response.json() : Promise.reject(new Error("health unavailable")))
+    .then(health => {
+      const value = health.product?.version;
+      if (!versionNode || !value) return;
+      versionNode.textContent = `v${value}`;
+      versionNode.hidden = false;
+    })
+    .catch(() => {});
+}
 
 if (location.hash) {
   const target = document.querySelector(location.hash);

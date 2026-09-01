@@ -1,44 +1,44 @@
 import { contentTypeOf, safeSourceUrl }
-  from "./modules/media-source.js?v=20260901p110";
+  from "./modules/media-source.js?v=20260901p111";
 import { buildUploadFormData, enqueueMediaUrl, isSingleLocalVideo }
-  from "./modules/imports.js?v=20260901p110";
+  from "./modules/imports.js?v=20260901p111";
 import { jobDisplayName, selectJobPanel }
-  from "./modules/jobs.js?v=20260901p110";
+  from "./modules/jobs.js?v=20260901p111";
 import { jobPresentation }
-  from "./modules/job-progress.js?v=20260901p110";
+  from "./modules/job-progress.js?v=20260901p111";
 import { closeJobSheet, renderCompactJob, renderJobSheet, renderProcessingBanner }
-  from "./modules/job-progress-view.js?v=20260901p110";
+  from "./modules/job-progress-view.js?v=20260901p111";
 import { chooseInitialItem, deepLinkSeconds, filterLibrary, sortLibrary }
-  from "./modules/library.js?v=20260901p110";
+  from "./modules/library.js?v=20260901p111";
 import { adjacentReviewUnit, defaultReviewUnits, nearestReviewUnit,
   reviewIndexesFor, reviewUnitForTurn as findReviewUnitForTurn, turnEnd }
-  from "./modules/player-navigation.js?v=20260901p110";
+  from "./modules/player-navigation.js?v=20260901p111";
 import { nextSearchCursor, pendingReviewByTurn, transcriptSearchHits }
-  from "./modules/transcript.js?v=20260901p110";
+  from "./modules/transcript.js?v=20260901p111";
 import { renderTranscriptView }
-  from "./modules/transcript-view.js?v=20260901p110";
+  from "./modules/transcript-view.js?v=20260901p111";
 import { availableViewerMedia, exportSizeState, formatBytes, meetingExportHref, normalizeExportProfile,
   packExportHref }
-  from "./modules/export.js?v=20260901p110";
+  from "./modules/export.js?v=20260901p111";
 import { claimAction, claimIdsForTurn, evidenceSources, minutesState, normalizeReviewMode,
   resolveMinutesView, turnIndexAtTime, turnIndexesForSourceIds }
-  from "./modules/minutes.js?v=20260901p110";
+  from "./modules/minutes.js?v=20260901p111";
 import { renderMinutesView }
-  from "./modules/minutes-view.js?v=20260901p110";
+  from "./modules/minutes-view.js?v=20260901p111";
 import { beginExampleSelection, beginIdentity, buildCorrectionApplyPayload,
   correctionSummary, createSpeakerCorrectionState, representativeTurns,
   resetSpeakerCorrection, setGroupAssignment, setIncludeSuggested, setPreview,
   toggleExample, withCorrectionError }
-  from "./modules/speaker-correction.js?v=20260901p110";
+  from "./modules/speaker-correction.js?v=20260901p111";
 import { renderCorrectionSheet, renderIdentityPopover }
-  from "./modules/speaker-correction-view.js?v=20260901p110";
+  from "./modules/speaker-correction-view.js?v=20260901p111";
 import { beginPhotoImport, createPhotoImportState, hydratePhotoCaptureTimes,
   markPhotoImportResult, photoUploadSpec, releasePhotoImport, removePhotoImportItem,
   setPhotoMeetingStart, setPhotoPositionMode, togglePhotoTimeSettings,
   withPhotoImportBusy, withPhotoImportError, formatPhotoBytes }
-  from "./modules/photo-import.js?v=20260901p110";
+  from "./modules/photo-import.js?v=20260901p111";
 import { renderPhotoImport }
-  from "./modules/photo-import-view.js?v=20260901p110";
+  from "./modules/photo-import-view.js?v=20260901p111";
 
 /* 会议列表 + 回顾工作台（装配入口；领域规则逐步迁往 modules/） */
 "use strict";

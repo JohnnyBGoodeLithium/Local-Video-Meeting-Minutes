@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN" data-fluent-theme="light" data-product-content-version="0.15">
+<html lang="zh-CN" data-fluent-theme="light" data-product-content-version="0.15" data-design-direction="source-fold">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -12,9 +12,10 @@
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="Meeting Context｜从重点回到会议与视频的原始证据">
 <meta name="twitter:description" content="按人物或议题回顾会议与产品视频，从重要结论返回原声和画面，再将核对后的上下文交给同事、AI 或知识库。">
+<meta name="theme-color" content="#f4f7fb">
 <title>Meeting Context｜从重点回到会议与视频的原始证据</title>
-<link rel="stylesheet" href="/static/fluent-foundation.css?v=20260901p110">
-<link rel="stylesheet" href="/static/product.css?v=20260901p110">
+<link rel="stylesheet" href="/static/fluent-foundation.css?v=20260901p111">
+<link rel="stylesheet" href="/static/product.css?v=20260901p111">
 </head>
 <body>
 <header class="product-header">
@@ -43,11 +44,6 @@
       <p class="eyebrow" data-i18n="heroEyebrow">Meeting &amp; Video Review</p>
       <h1 data-i18n="heroTitle">两小时会议，不该再花两小时复盘。</h1>
       <p class="hero-lead" data-i18n="heroLead">按关键人物和议题进入会议，或按主题定位发布会、产品讲解和第一手视频资料。点击一条重要结论，直接回到原声和当时画面；核对后的上下文还可以继续交给同事、常用 AI 或知识库。</p>
-      <ol class="hero-steps" data-i18n-aria="heroStepsAria" aria-label="产品的三个主要动作">
-        <li><span>01</span><b data-i18n="heroStep1">选一个人，回顾他的发言。</b></li>
-        <li><span>02</span><b data-i18n="heroStep2">选一个议题，查看相关片段。</b></li>
-        <li><span>03</span><b data-i18n="heroStep3">选一条结论，回到来源。</b></li>
-      </ol>
       <div class="hero-actions">
         <a class="primary-link fluent-button fluent-button--primary" href="#find" data-i18n="seeHow">查看产品如何工作</a>
         <a class="secondary-link fluent-button" href="/" data-i18n="openWorkspace">打开工作台</a>
@@ -60,7 +56,7 @@
     </div>
 
     <div class="product-demo" data-product-demo data-i18n-aria="demoAria" aria-label="使用虚构数据展示会议与视频回顾流程">
-      <div class="demo-window-bar"><span><i></i><i></i><i></i></span><b>Meeting Context</b><small data-i18n="fictionalData">虚构演示数据</small></div>
+      <div class="demo-window-bar"><small data-i18n="fictionalData">虚构演示数据</small><b>Northstar Source Review</b><span>PERSON · TOPIC · 42:18</span></div>
       <div class="demo-mode" role="tablist" data-i18n-aria="demoModeAria" aria-label="选择会议或视频演示">
         <button id="meeting-demo-tab" type="button" role="tab" aria-selected="true" aria-controls="meeting-demo" data-demo-mode="meeting" data-i18n="meeting">会议</button>
         <button id="video-demo-tab" type="button" role="tab" aria-selected="false" aria-controls="video-demo" data-demo-mode="video" data-i18n="video">视频</button>
@@ -104,7 +100,7 @@
   </section>
 
   <section id="find" class="content-section section-shell" data-product-section>
-    <div class="section-heading"><span class="section-index" data-i18n="findIndex">01 · 找到重点</span><h2 data-i18n="findTitle">不从 00:00 开始，从真正重要的人或议题开始。</h2><p data-i18n="findBody">会议按人物进入，视频按主题进入。选择以后，时间线、原文和播放控制只突出真正相关的部分，不必在线性录像中反复拖动。</p></div>
+    <div class="section-heading"><span class="section-index" data-i18n="findIndex">找到重点</span><h2 data-i18n="findTitle">不从 00:00 开始，从真正重要的人或议题开始。</h2><p data-i18n="findBody">会议按人物进入，视频按主题进入。选择以后，时间线、原文和播放控制只突出真正相关的部分，不必在线性录像中反复拖动。</p></div>
     <div class="focus-comparison">
       <article class="focus-story meeting-focus"><header><span data-i18n="meeting">会议</span><b data-i18n="meetingFocusTitle">点一个人，只听他的相关发言。</b></header><div class="focus-timeline" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div><div class="focus-result"><span>Maya Chen</span><p data-i18n="meetingFocusBody">选择关键人物，连续回听相关发言，同时保留议题、逐字稿和画面。</p></div></article>
       <article class="focus-story video-focus"><header><span data-i18n="video">视频</span><b data-i18n="videoFocusTitle">点一个议题，只看相关片段。</b></header><div class="focus-timeline" aria-hidden="true"><i></i><i></i><i></i><i></i></div><div class="focus-result"><span data-i18n="thermalTopic">电池与散热设计</span><p data-i18n="videoFocusBody">选择产品主题，聚焦相应讲解片段，同时保留讲解原文和关键画面。</p></div></article>
@@ -113,7 +109,7 @@
 
   <section id="verify" class="content-section verify-section" data-product-section>
     <div class="section-shell">
-      <div class="section-heading"><span class="section-index" data-i18n="verifyIndex">02 · 核对事实</span><h2 data-i18n="verifyTitle">每一条重要结论，都能回到原始证据。</h2><p data-i18n="verifyBody">会议决定、风险、行动项和视频中的产品信息，不只是无来源的摘要。打开依据，立即看到谁说了什么、发生在什么时间，以及当时展示了什么。</p></div>
+      <div class="section-heading"><span class="section-index" data-i18n="verifyIndex">核对事实</span><h2 data-i18n="verifyTitle">每一条重要结论，都能回到原始证据。</h2><p data-i18n="verifyBody">会议决定、风险、行动项和视频中的产品信息，不只是无来源的摘要。打开依据，立即看到谁说了什么、发生在什么时间，以及当时展示了什么。</p></div>
       <div class="evidence-workbench">
         <article class="claim-card"><small data-i18n="meetingConclusion">会议结论</small><h3 data-i18n="verifyClaim">试点发布仍以十月为目标，等待供应商验证。</h3><button class="evidence-button" type="button" data-verify-toggle aria-expanded="false"><span data-i18n="viewEvidence">查看依据</span><b>42:18</b></button><p class="trust-note" data-i18n="proposalBoundary">提议不会被自动写成决定。画面出现某项内容，也不等于会议已经确认。</p></article>
         <div class="evidence-source" data-verify-source data-i18n-aria="evidenceSourceAria" aria-label="人物、逐字稿、时间与画面的证据关系"><div class="source-person"><span>MC</span><b>Maya Chen</b><time>42:18</time></div><blockquote data-i18n="verifyTranscript">“试点发布仍以十月为目标，前提是供应商验证通过。”</blockquote><div class="source-screen"><span data-i18n="sharedScreen">共享画面</span><b data-i18n="supplierValidation">供应商验证</b><em data-i18n="pendingStatus">状态：待确认</em></div></div>
@@ -123,7 +119,7 @@
   </section>
 
   <section id="correct" class="content-section section-shell correction-section" data-product-section>
-    <div class="section-heading"><span class="section-index" data-i18n="correctIndex">03 · 修正来源</span><h2 data-i18n="correctTitle">发现错误，不必从头再来。</h2><p data-i18n="correctBody">改正人物、逐字稿或产品术语后，系统同步相关结果。已经完成的画面分析在条件允许时继续复用，其他内容在后台更新；操作可以预览，也可以撤销。</p></div>
+    <div class="section-heading"><span class="section-index" data-i18n="correctIndex">修正来源</span><h2 data-i18n="correctTitle">发现错误，不必从头再来。</h2><p data-i18n="correctBody">改正人物、逐字稿或产品术语后，系统同步相关结果。已经完成的画面分析在条件允许时继续复用，其他内容在后台更新；操作可以预览，也可以撤销。</p></div>
     <div class="correction-demo" data-correction-demo>
       <div class="correction-source"><small data-i18n="sourceCanChange">来源可以修改</small><p><del>supply validation</del><ins>supplier validation</ins></p></div><span class="flow-arrow" aria-hidden="true">→</span>
       <div class="correction-result"><small data-i18n="resultCanSync">结果可以同步</small><p data-i18n="correctionResult">纪要和信息摘要正在同步新术语。</p><span><i></i><em data-i18n="visualReused">画面资料已复用</em></span><span><i></i><em data-i18n="backgroundUpdating">其他内容正在后台更新</em></span></div><span class="flow-arrow" aria-hidden="true">→</span>
@@ -134,7 +130,7 @@
 
   <section id="reuse" class="content-section reuse-section" data-product-section>
     <div class="section-shell">
-      <div class="section-heading"><span class="section-index" data-i18n="reuseIndex">04 · 继续使用</span><h2 data-i18n="reuseTitle">核对过的会议和视频，可以继续交给下一步。</h2><p data-i18n="reuseBody">同一份可信来源可以交给同事、常用 AI 或知识库。使用方式不同，但人物、时间和证据不会随着导出而丢失。</p></div>
+      <div class="section-heading"><span class="section-index" data-i18n="reuseIndex">继续使用</span><h2 data-i18n="reuseTitle">核对过的会议和视频，可以继续交给下一步。</h2><p data-i18n="reuseBody">同一份可信来源可以交给同事、常用 AI 或知识库。使用方式不同，但人物、时间和证据不会随着导出而丢失。</p></div>
       <div class="context-flow"><div class="verified-context"><span>✓</span><b data-i18n="verifiedContext">已核对内容</b><small data-i18n="verifiedContextBody">人物 · 时间 · 原文 · 画面 · 结论</small></div><div class="context-line" aria-hidden="true"></div>
         <div class="destination-grid"><article><small data-i18n="forColleague">给同事</small><h3>MeetingPack</h3><p data-i18n="meetingPackBody">无需模型或在线服务，也能阅读、播放和核对来源。</p></article><article><small data-i18n="forAi">给常用 AI</small><h3>AI Context</h3><p data-i18n="aiContextBody">将逐字稿、画面说明、结论和来源约束放入可携带文件。</p></article><article><small data-i18n="forKnowledge">进入知识库</small><h3>Knowledge Base &amp; RAG</h3><p data-i18n="knowledgeBody">在获准内容中继续搜索，并随时返回原始会议或视频核对。</p></article></div>
       </div>
@@ -142,15 +138,15 @@
   </section>
 
   <section id="use-cases" class="content-section section-shell use-cases-section" data-product-section>
-    <div class="section-heading"><span class="section-index" data-i18n="useCasesIndex">05 · 使用场景</span><h2 data-i18n="useCasesTitle">一个核心流程，三个阶段性场景。</h2><p data-i18n="useCasesBody">先把会议回顾做深，再验证视频理解与知识复用。成熟度反映当前证据，不把工作原型包装成生产系统。</p></div>
+    <div class="section-heading"><span class="section-index" data-i18n="useCasesIndex">使用场景</span><h2 data-i18n="useCasesTitle">一个核心流程，三个阶段性场景。</h2><p data-i18n="useCasesBody">先把会议回顾做深，再验证视频理解与知识复用。成熟度反映当前证据，不把工作原型包装成生产系统。</p></div>
     <div class="maturity-grid"><article><span class="maturity-state validated" data-maturity="validated" data-i18n="validated">已真实验证</span><h3 data-i18n="meetingReviewTitle">会议回顾与汇报准备</h3><p data-i18n="meetingReviewBody">按关键人物和议题回听，核对决定、风险、负责人和原始证据。</p></article><article><span class="maturity-state working" data-maturity="working" data-i18n="workingPoc">工作原型</span><h3 data-i18n="videoUseTitle">发布会、产品讲解与第一手视频</h3><p data-i18n="videoUseBody">按主题整理讲解、片段和关键画面，形成可查阅、可引用的产品上下文。</p></article><article><span class="maturity-state early" data-maturity="early" data-i18n="earlyValidation">早期验证</span><h3 data-i18n="knowledgeUseTitle">个人或团队知识库</h3><p data-i18n="knowledgeUseBody">将核对后的会议和视频材料用于搜索与 RAG，检索质量和团队边界仍需系统评测。</p></article></div>
     <p class="poc-boundary" data-i18n="pocBoundary">当前为单机或受控环境 PoC，不是正式多人生产服务。</p>
   </section>
 
   <section id="trust" class="trust-final-section" data-product-section>
     <div class="section-shell trust-content">
-      <div class="section-heading"><span class="section-index" data-i18n="trustIndex">06 · 可信边界</span><h2 data-i18n="trustTitle">重要内容需要的不只是智能，还需要边界。</h2><p data-i18n="trustBody">产品不会用流畅结果掩盖不确定性。人物、来源、处理状态和失败影响都应该清楚可见。</p></div>
-      <div class="trust-principles"><article><span>01</span><div><h3 data-i18n="trustLocalTitle">默认本机处理</h3><p data-i18n="trustLocalBody">内容留在本机或显式批准的服务边界内。</p></div></article><article><span>02</span><div><h3 data-i18n="trustHumanTitle">人物由人确认</h3><p data-i18n="trustHumanBody">系统可以给出建议，但不会静默写入模糊身份。</p></div></article><article><span>03</span><div><h3 data-i18n="trustEvidenceTitle">结论回到来源</h3><p data-i18n="trustEvidenceBody">重要结论可以返回原话、时间和当时画面。</p></div></article><article><span>04</span><div><h3 data-i18n="trustRecoveryTitle">中断后继续处理</h3><p data-i18n="trustRecoveryBody">已有结果和检查点会被保留，不必每次从头开始。</p></div></article></div>
+      <div class="section-heading"><span class="section-index" data-i18n="trustIndex">可信边界</span><h2 data-i18n="trustTitle">重要内容需要的不只是智能，还需要边界。</h2><p data-i18n="trustBody">产品不会用流畅结果掩盖不确定性。人物、来源、处理状态和失败影响都应该清楚可见。</p></div>
+      <div class="trust-principles"><article><span data-i18n="trustLocalMark">本机</span><div><h3 data-i18n="trustLocalTitle">默认本机处理</h3><p data-i18n="trustLocalBody">内容留在本机或显式批准的服务边界内。</p></div></article><article><span data-i18n="trustHumanMark">人工</span><div><h3 data-i18n="trustHumanTitle">人物由人确认</h3><p data-i18n="trustHumanBody">系统可以给出建议，但不会静默写入模糊身份。</p></div></article><article><span data-i18n="trustEvidenceMark">来源</span><div><h3 data-i18n="trustEvidenceTitle">结论回到来源</h3><p data-i18n="trustEvidenceBody">重要结论可以返回原话、时间和当时画面。</p></div></article><article><span data-i18n="trustRecoveryMark">恢复</span><div><h3 data-i18n="trustRecoveryTitle">中断后继续处理</h3><p data-i18n="trustRecoveryBody">已有结果和检查点会被保留，不必每次从头开始。</p></div></article></div>
     </div>
     <div class="final-cta"><div class="section-shell"><span data-i18n="finalEyebrow">MEETING &amp; VIDEO → VERIFIED CONTEXT</span><h2 data-i18n="finalTitle">下一次，从真正重要的地方开始。</h2><p data-i18n="finalBody">无论是一场会议，还是一段产品视频，先找到关键人物、议题和结论，再决定如何核证、分享和继续使用。</p><div class="final-actions"><a class="final-primary" href="/" data-i18n="openWorkspace">打开工作台</a><a href="#find" data-i18n="reviewFlow">回到产品流程</a></div></div></div>
   </section>
@@ -160,6 +156,6 @@
   <div><b>Meeting Context</b><span>Meeting &amp; Video Review</span></div>
   <nav><a href="https://github.com/JohnnyBGoodeLithium/Local-Video-Meeting-Minutes/blob/main/docs/reporting/TECHNICAL_BRIEF.md" data-i18n="technicalBrief">技术实现与数据边界</a><a href="#overview" data-i18n="backToTop">返回顶部</a></nav>
 </footer>
-<script type="module" src="/static/product.js?v=20260901p110"></script>
+<script type="module" src="/static/product.js?v=20260901p111"></script>
 </body>
 </html>

@@ -105,18 +105,23 @@ assert "github.com/JohnnyBGoodeLithium/Local-Video-Meeting-Minutes/blob/main/" i
 assert '<meta property="og:type" content="website">' in html
 assert '<meta name="twitter:card" content="summary">' in html
 
-# Quiet Precision tokens and all bare CSS references must remain resolved.
+# Source Fold tokens and its product-derived structure must remain resolved.
 expected_tokens = {
-    "--productInk": "#191c20", "--productInkMuted": "#66707c",
-    "--productCanvas": "#f6f6f2", "--productSurface": "#ffffff",
-    "--productStroke": "#e2e5e9", "--productBrand": "#275bd7",
-    "--productBrandHover": "#1f49b2", "--productIdentity": "#2f887c",
-    "--productEvidence": "#b97916", "--productSuccess": "#347653",
+    "--productInk": "#18263a", "--productInkMuted": "#5c6b7e",
+    "--productCanvas": "#f4f7fb", "--productSurface": "#ffffff",
+    "--productStroke": "#c9d4e2", "--productBrand": "#a3384a",
+    "--productBrandHover": "#852b3b", "--productIdentity": "#32705a",
+    "--productEvidence": "#a3384a", "--productSuccess": "#32705a",
 }
 for token, value in expected_tokens.items():
     assert re.search(rf"{re.escape(token)}:\s*{re.escape(value)}\b", product_css, re.I), (
-        f"Quiet Precision token 漂移：{token}"
+        f"Source Fold token 漂移：{token}"
     )
+assert 'data-design-direction="source-fold"' in html
+assert "--foldShadow" in product_css and "clip-path: polygon" in product_css
+assert "grid-column: 1 / 9" in product_css, "主标题与副标题必须共享左侧栅格"
+assert ".demo-window-bar i" not in product_css, "不得恢复浏览器三圆点装饰"
+assert "hero-steps" not in html + product_css, "不得恢复装饰编号步骤"
 defined = set(re.findall(r"(--[\w-]+)\s*:", foundation + product_css))
 bare_refs = set(re.findall(r"var\(\s*(--[\w-]+)\s*\)", product_css))
 missing_refs = sorted(bare_refs - defined - {"--wave", "--at", "--length", "--start"})
