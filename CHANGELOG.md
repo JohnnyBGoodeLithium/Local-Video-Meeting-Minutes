@@ -13,6 +13,11 @@
 
 重要的未发布用户变化才写入本节；普通实现细节留在 Git。
 
+- 仓库入口拆分为结构一致的完整英文与中文 README，并补充隐私安全、贡献、Pull Request 和 Issue 入口。
+- 产品版本元数据统一投影自 `VERSION`，基础运行与 CI 依赖通过 Python 3.11 的 pip-tools lock 固定。
+- 新增 allowlist 驱动、带 manifest 与 SHA256 的脱敏 Application Release Bundle，以及全新目录验证。
+- 新增严格校验 tag、版本、变更摘要、发布说明与制品的 GitHub Release workflow；本次不创建 tag 或真实 Release。
+
 ## v0.15.1 — 2026-08-31
 
 - 逐字稿完成多处修正后，可以一次快速同步正式纪要与 evidence；完整 VL 缓存被严格复用，不重跑 ASR、说话人或视觉分析。

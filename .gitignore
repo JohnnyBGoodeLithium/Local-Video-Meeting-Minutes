@@ -32,3 +32,6 @@ __pycache__/
 .vscode/
 *.log
 *.meetingpack.zip
+
+# Reproducible release outputs
+/dist/
