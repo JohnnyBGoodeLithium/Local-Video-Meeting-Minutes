@@ -14,26 +14,34 @@ from urllib.parse import unquote
 
 
 ROOT = Path(__file__).resolve().parents[2]
+IN_REPOSITORY = (ROOT / ".git").exists()
 
 REQUIRED = {
     "README.md", "README.zh-CN.md", "SECURITY.md", "CONTRIBUTING.md",
-    ".github/pull_request_template.md",
-    "AGENTS.md", "HANDOFF.md", "CHANGELOG.md", "VERSION",
+    "CHANGELOG.md", "VERSION",
     "docs/INDEX.md", "docs/STATUS.md", "docs/PRODUCT.md",
     "docs/ARCHITECTURE.md", "docs/UX.md", "docs/OPERATIONS.md",
     "docs/KNOWLEDGE_RAG.md", "docs/RISKS.md", "docs/PRODUCT_FUNCTIONS.md",
+    "docs/runbooks/DEPLOYMENT.md",
+    "docs/runbooks/PROCESSING_AND_RECOVERY.md",
+    "docs/runbooks/WEKNORA.md", "docs/runbooks/DEVELOPMENT.md",
+    "docs/runbooks/RELEASES.md", "docs/runbooks/DISTRIBUTION.md",
+    "docs/releases/README.md", "docs/releases/TEMPLATE.md",
+    "docs/reference/DESIGN_SYSTEM.md", "docs/reference/MODELS.md",
+    "docs/reference/COST_MODEL.md",
+}
+
+REPOSITORY_ONLY = {
+    ".github/pull_request_template.md",
+    ".github/ISSUE_TEMPLATE/bug_report.yml",
+    ".github/ISSUE_TEMPLATE/config.yml",
+    "AGENTS.md", "HANDOFF.md",
     "docs/reporting/EXECUTIVE_BRIEF.md",
     "docs/reporting/TECHNICAL_BRIEF.md",
     "docs/reporting/DEMO_SCRIPT.md",
     "docs/history/ENGINEERING_CHANGES.md",
     "docs/research/EXPERIMENT_LOG.md", "docs/research/RAG_STUDY.md",
     "docs/research/UX_REFERENCES.md",
-    "docs/runbooks/DEPLOYMENT.md",
-    "docs/runbooks/PROCESSING_AND_RECOVERY.md",
-    "docs/runbooks/WEKNORA.md", "docs/runbooks/DEVELOPMENT.md",
-    "docs/runbooks/RELEASES.md", "docs/runbooks/DISTRIBUTION.md",
-    "docs/reference/DESIGN_SYSTEM.md", "docs/reference/MODELS.md",
-    "docs/reference/COST_MODEL.md",
 }
 
 COMPATIBILITY = {
@@ -65,12 +73,13 @@ EXPECTED_FUNCTION_IDS = """
 """.split()
 
 
-for relative in REQUIRED | COMPATIBILITY:
+required_paths = REQUIRED | (REPOSITORY_ONLY | COMPATIBILITY if IN_REPOSITORY else set())
+for relative in required_paths:
     assert (ROOT / relative).exists(), f"required documentation missing: {relative}"
 
 
 def tracked_paths() -> list[str]:
-    if (ROOT / ".git").exists():
+    if IN_REPOSITORY:
         return subprocess.run(
             ["git", "ls-files"], cwd=ROOT, text=True,
             capture_output=True, check=True,
@@ -80,9 +89,11 @@ def tracked_paths() -> list[str]:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     return [str(item.get("path") or "") for item in manifest.get("files", [])]
 
+AVAILABLE_PATHS = set(tracked_paths())
+
 
 def markdown_files() -> list[Path]:
-    paths = {ROOT / item for item in tracked_paths() if item.endswith(".md")}
+    paths = {ROOT / item for item in AVAILABLE_PATHS if item.endswith(".md")}
     paths.update((ROOT / "docs").rglob("*.md"))
     paths.update(ROOT.glob("*.md"))
     return sorted(path for path in paths if path.is_file() and "private_reports" not in path.parts)
@@ -108,6 +119,16 @@ for source in markdown_files():
         target = target.split(maxsplit=1)[0]
         resolved = (source.parent / unquote(target)).resolve()
         if not resolved.exists():
+            if not IN_REPOSITORY:
+                try:
+                    relative = resolved.relative_to(ROOT).as_posix()
+                except ValueError:
+                    pass
+                else:
+                    if relative not in AVAILABLE_PATHS:
+                        # Some repository governance, research, history, and reporting
+                        # documents are intentionally outside the application bundle.
+                        continue
             broken.append(f"{source.relative_to(ROOT)} -> {target}")
 assert not broken, "broken Markdown links:\n" + "\n".join(broken)
 
@@ -131,6 +152,10 @@ assert len(re.findall(r"[\u4e00-\u9fff]", readme)) < 40, "English README contain
 assert len(readme_zh) > 2_500 and len(re.findall(r"[\u4e00-\u9fff]", readme_zh)) > 800
 assert "<!-- maturity: controlled-single-machine-poc -->" in readme
 assert "<!-- maturity: controlled-single-machine-poc -->" in readme_zh
+assert "This repository currently does not include an open-source license." in readme
+assert "Review ownership and company policy before redistribution or commercial use." in readme
+assert "本仓库当前未附带开源许可证。" in readme_zh
+assert "转载、再分发或商业使用前，应先确认代码归属与公司政策。" in readme_zh
 
 quick_start_commands = [
     "git clone <repository-url> meeting-minutes", "cd meeting-minutes",
@@ -157,21 +182,22 @@ for marker in (
 ):
     assert marker in status, f"STATUS missing marker: {marker}"
 
-reporting = [
-    ROOT / "docs/reporting/EXECUTIVE_BRIEF.md",
-    ROOT / "docs/reporting/TECHNICAL_BRIEF.md",
-    ROOT / "docs/reporting/DEMO_SCRIPT.md",
-]
-metadata_values: list[tuple[str, str, str]] = []
-for path in reporting:
-    text = path.read_text(encoding="utf-8")
-    assert "## English" in text and "## 中文" in text, f"bilingual sections missing: {path.name}"
-    date = re.search(r"(?:Prepared date|准备日期)：?\s*`?([^`\n]+)`?", text)
-    product = re.search(r"(?:Product version|产品版本)：?\s*`?([^`\n]+)`?", text)
-    commit = re.search(r"(?:Source Git commit|Git commit|源代码提交)：?\s*`?([^`\n]+)`?", text)
-    assert date and product and commit, f"reporting metadata incomplete: {path.name}"
-    metadata_values.append((date.group(1).strip(), product.group(1).strip(), commit.group(1).strip()))
-assert len(set(metadata_values)) == 1, f"reporting metadata mismatch: {metadata_values}"
+if IN_REPOSITORY:
+    reporting = [
+        ROOT / "docs/reporting/EXECUTIVE_BRIEF.md",
+        ROOT / "docs/reporting/TECHNICAL_BRIEF.md",
+        ROOT / "docs/reporting/DEMO_SCRIPT.md",
+    ]
+    metadata_values: list[tuple[str, str, str]] = []
+    for path in reporting:
+        text = path.read_text(encoding="utf-8")
+        assert "## English" in text and "## 中文" in text, f"bilingual sections missing: {path.name}"
+        date = re.search(r"(?:Prepared date|准备日期)：?\s*`?([^`\n]+)`?", text)
+        product = re.search(r"(?:Product version|产品版本)：?\s*`?([^`\n]+)`?", text)
+        commit = re.search(r"(?:Source Git commit|Git commit|源代码提交)：?\s*`?([^`\n]+)`?", text)
+        assert date and product and commit, f"reporting metadata incomplete: {path.name}"
+        metadata_values.append((date.group(1).strip(), product.group(1).strip(), commit.group(1).strip()))
+    assert len(set(metadata_values)) == 1, f"reporting metadata mismatch: {metadata_values}"
 
 changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
 release_headers = list(re.finditer(r"^## (v\d+\.\d+\.\d+) — ([0-9-]+)$", changelog, re.MULTILINE))
@@ -187,25 +213,31 @@ function_ids = re.findall(r"^\| (\d+\.\d+\.\d+\.\d+) \|", function_text, re.MULT
 assert function_ids == EXPECTED_FUNCTION_IDS, "PRODUCT_FUNCTIONS IDs changed, reordered, or were reused"
 assert "最近重大增强版本" in function_text and "当前成熟度" in function_text
 
-agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
-assert "默认禁止读取 `docs/archive/`" in agents
-assert "8,000 tokens" in agents
-default_context_bytes = sum(
-    (ROOT / item).stat().st_size for item in ("AGENTS.md", "docs/STATUS.md", "docs/INDEX.md")
-)
-assert default_context_bytes <= 32_000, f"default documentation context exceeds approximate 8k-token budget: {default_context_bytes} bytes"
+default_context_bytes = 0
+if IN_REPOSITORY:
+    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    assert "默认禁止读取 `docs/archive/`" in agents
+    assert "8,000 tokens" in agents
+    default_context_bytes = sum(
+        (ROOT / item).stat().st_size for item in ("AGENTS.md", "docs/STATUS.md", "docs/INDEX.md")
+    )
+    assert default_context_bytes <= 32_000, (
+        f"default documentation context exceeds approximate 8k-token budget: "
+        f"{default_context_bytes} bytes"
+    )
 
-handoff_lines = (ROOT / "HANDOFF.md").read_text(encoding="utf-8").splitlines()
-assert len(handoff_lines) <= 30, f"HANDOFF must stay <=30 lines, got {len(handoff_lines)}"
+    handoff_lines = (ROOT / "HANDOFF.md").read_text(encoding="utf-8").splitlines()
+    assert len(handoff_lines) <= 30, f"HANDOFF must stay <=30 lines, got {len(handoff_lines)}"
 
-gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
-assert "/private_reports/" in gitignore, "private_reports must be ignored"
-tracked = tracked_paths()
-assert not any(path.startswith("private_reports/") for path in tracked), "private report content is tracked"
+    gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+    assert "/private_reports/" in gitignore, "private_reports must be ignored"
+    assert not any(
+        path.startswith("private_reports/") for path in AVAILABLE_PATHS
+    ), "private report content is tracked"
 
-for relative in COMPATIBILITY:
-    lines = (ROOT / relative).read_text(encoding="utf-8").splitlines()
-    assert len(lines) <= 20, f"compatibility entry must stay <=20 lines: {relative}"
+    for relative in COMPATIBILITY:
+        lines = (ROOT / relative).read_text(encoding="utf-8").splitlines()
+        assert len(lines) <= 20, f"compatibility entry must stay <=20 lines: {relative}"
 
 status_markers = sum(
     path.read_text(encoding="utf-8").count("<!-- current-status-source -->")

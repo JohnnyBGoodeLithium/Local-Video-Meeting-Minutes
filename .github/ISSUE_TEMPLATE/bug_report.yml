@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Do not upload meetings, media, transcripts, minutes, names, internal screenshots, .env files, API keys, complete logs, internal URLs, voiceprints, or organization data.
+        Do not upload meeting files, media, transcripts, minutes, names, internal screenshots, .env files, API keys, complete logs, internal URLs, voiceprints, or organization data.
         请勿上传会议文件、音视频、逐字稿、纪要、人名、内部截图、.env、API key、完整日志、内部 URL、声纹或组织数据。
   - type: input
     id: product_version

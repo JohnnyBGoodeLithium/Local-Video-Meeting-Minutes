@@ -10,7 +10,8 @@
 | 数据 schema | `meetingpack/v5` | 机器可读格式兼容 | 字段或语义不兼容变化 |
 
 产品版本的单一真源是仓库根目录 `VERSION`。Web 健康端点、在线工作台、
-产品介绍页、MeetingPack Viewer、README、manifest 和默认导出文件名均从它读取。
+产品介绍页、MeetingPack Viewer、发布 manifest 和默认导出文件名从它读取或由测试约束投影；
+`pyproject.toml`、README、`docs/STATUS.md` 与 CHANGELOG 不得形成独立版本事实。
 
 当前发布基线为 `v0.15.1`（2026-08-31，Web p109）：在 v0.15.0 的结构化进度、失败恢复和现场资料
 旅程之上，逐字稿修正可以严格复用完整 VL 缓存快速同步纪要；正式纪要与 evidence 先发布，Topic Map、
@@ -30,11 +31,21 @@
 
 ## 发布流程
 
-1. 开发期间把变更记到 `CHANGELOG.md` 的“未发布”。
-2. 决定交付时，一次性修改 `VERSION`，把本批变更归入带日期的版本段。
-3. 运行 `make check`、`make smoke` 和 `git diff --check`；确认 Web 与 Viewer 语义一致。
-4. 以完整正文提交并 push，再为发布提交创建并推送 annotated tag，如 `v0.8.1`。
-5. 对外沟通使用产品版本；排查缓存/部署时同时提供前端构建号与 commit。
+当前正式分发对象是 [Application Release Bundle](DISTRIBUTION.md)，不是 PyPI wheel。
+
+1. 开发期间把重要交付变化记到 `CHANGELOG.md` 的“Unreleased”。
+2. 获得发布授权后，一次性修改 `VERSION` 及其受约束投影，把 Unreleased 收敛为带日期的正式版本段。
+3. 从 [Release Notes 模板](../releases/TEMPLATE.md) 建立 `docs/releases/vX.Y.Z.md`，英文在前、中文在后。
+4. 通过 Pull Request 合入发布准备提交，并确认 `make check`、`make smoke` 和
+   `make release-verify` 全部通过。
+5. 在该准确提交上创建不可移动的 annotated tag `vX.Y.Z` 并推送。不要复用或移动历史 tag。
+6. `.github/workflows/release.yml` 会重新校验 tag、`VERSION`、`pyproject.toml`、
+   CHANGELOG 和 Release Notes；随后在干净 runner 上运行检查、smoke、正式 bundle 构建与全新目录 smoke。
+7. 只有全部验证通过后，workflow 才使用 `gh release create` 发布 ZIP、tar.gz、
+   `release-manifest.json` 和 `SHA256SUMS`。主版本为 `0` 时自动标记 pre-release。
+
+`workflow_dispatch` 只接受已经存在的 tag，并 checkout 该 tag 的准确 commit。普通分支或 Pull Request
+只生成短期 dev 候选制品，不创建 GitHub Release。Make target 不会隐式创建 tag 或发布。
 
 旧 MeetingPack 不会自动变更。同一会议重新导出时，文件名带当前产品版本和导出时间，
 因此可以并存、比较和回溯。

@@ -72,6 +72,8 @@ assert bundle.forbidden_reason("speaker_bank/orgchart.template.json") is None
 assert bundle.forbidden_reason("docs/runbooks/DISTRIBUTION.md") is None
 assert bundle.allowed("web/static/app.js", ["web/static/**"])
 assert not bundle.allowed("meetings/a.wav", ["web/static/**"])
+assert bundle.allowed("web/server.py", ["web/*.py"])
+assert not bundle.allowed("web/private/server.py", ["web/*.py"])
 
 with tempfile.TemporaryDirectory(prefix="release-bundle-test-") as temp:
     repo = repository(Path(temp))

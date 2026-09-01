@@ -48,6 +48,8 @@ def extract_zip(archive_path: Path, destination: Path) -> set[str]:
                 raise VerificationError(f"ZIP symlink is forbidden: {path}")
             if info.is_dir():
                 continue
+            if path.as_posix() in names:
+                raise VerificationError(f"duplicate ZIP entry is forbidden: {path}")
             target = destination.joinpath(*path.parts)
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(archive.read(info))
@@ -64,6 +66,8 @@ def extract_tar(archive_path: Path, destination: Path) -> set[str]:
                 continue
             if not member.isfile():
                 raise VerificationError(f"tar symlink or special entry is forbidden: {path}")
+            if path.as_posix() in names:
+                raise VerificationError(f"duplicate tar entry is forbidden: {path}")
             source = archive.extractfile(member)
             if source is None:
                 raise VerificationError(f"tar entry cannot be read: {path}")

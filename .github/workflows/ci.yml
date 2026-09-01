@@ -81,3 +81,39 @@ jobs:
           else
             git show --check --oneline --no-renames "${{ github.sha }}"
           fi
+
+  release-candidate:
+    name: release-candidate
+    needs: check-and-smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Build development application bundle
+        run: python scripts/build_release_bundle.py
+
+      - name: Verify bundle structure
+        run: python scripts/verify_release_bundle.py
+
+      - name: Upload short-lived release candidate
+        uses: actions/upload-artifact@v7
+        with:
+          name: application-release-candidate-${{ github.sha }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/release-manifest.json
+            dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 7

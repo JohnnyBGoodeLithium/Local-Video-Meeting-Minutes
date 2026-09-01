@@ -61,6 +61,8 @@ dirty 本地构建会在名称和 manifest 中明确标记，不能用于正式 
 
 - 普通 PR 的 release-candidate：构建 dev bundle 并做结构、hash 与隐私边界验证。
 - `make release-verify`：在全新临时目录中创建 venv，按 `ci.lock` 安装，运行 `package-check` 与 `make smoke`。
+  `package-check` 保留包内可运行的 Python、Node、文档、静态资源和版本测试；只跳过 Git 工作区与未进入发布包的
+  `.github` 仓库治理合同。
 - tag Release workflow：重新执行正式 CI、构建 official bundle、完成全新目录验证，最后才创建 GitHub Release。
 
 任何 Make target 都不会隐式创建 tag 或 GitHub Release。

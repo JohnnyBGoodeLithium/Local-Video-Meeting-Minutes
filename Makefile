@@ -9,6 +9,7 @@ doctor:
 	$(PY) bin/doctor.py --profile all
 
 check: package-check
+	$(PY) web/tests/release_workflow_test.py
 	git diff --check
 
 package-check: export MEETING_RESOURCE_GUARD=0

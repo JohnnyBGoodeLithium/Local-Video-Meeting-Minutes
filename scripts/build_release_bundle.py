@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import fnmatch
 import gzip
 import hashlib
 import json
@@ -82,7 +81,7 @@ def allowed(path: str, rules: list[str]) -> bool:
             if path == prefix or path.startswith(prefix + "/"):
                 return True
         elif any(char in rule for char in "*?["):
-            if fnmatch.fnmatchcase(path, rule):
+            if PurePosixPath(path).match(rule):
                 return True
         elif path == rule:
             return True
