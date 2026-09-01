@@ -3,7 +3,7 @@
 [English](README.md) | 简体中文
 
 <!-- maturity: controlled-single-machine-poc -->
-<!-- product-version: v0.15.1 -->
+<!-- product-version: v0.15.2 -->
 
 ## 项目概览
 
@@ -35,7 +35,7 @@ Local Video Meeting Minutes 是一个本地优先的会议与第一手视频上�
 
 ## 当前成熟度
 
-当前产品版本：**v0.15.1**。
+当前产品版本：**v0.15.2**。
 
 | 范围 | 成熟度 | 当前边界 |
 |---|---|---|

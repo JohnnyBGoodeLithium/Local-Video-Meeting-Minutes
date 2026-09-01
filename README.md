@@ -3,7 +3,7 @@
 English | [简体中文](README.zh-CN.md)
 
 <!-- maturity: controlled-single-machine-poc -->
-<!-- product-version: v0.15.1 -->
+<!-- product-version: v0.15.2 -->
 
 ## Overview
 
@@ -35,7 +35,7 @@ The default Web workflow runs on one controlled host. Local providers are prefer
 
 ## Current maturity
 
-Current product version: **v0.15.1**.
+Current product version: **v0.15.2**.
 
 | Area | Maturity | Current boundary |
 |---|---|---|

@@ -48,5 +48,13 @@ if release_tag:
     assert release_tag == f"v{version}", (
         f"release tag {release_tag!r} must equal VERSION v{version}"
     )
+    release_notes = ROOT / "docs" / "releases" / f"{release_tag}.md"
+    assert release_notes.is_file(), f"release notes missing: {release_notes}"
+    authorization = (ROOT / "release" / "authorized-tag.txt").read_text(
+        encoding="utf-8"
+    ).strip()
+    assert authorization == release_tag, (
+        f"release authorization {authorization!r} must equal {release_tag!r}"
+    )
 
 print(f"release metadata: VERSION, pyproject, changelog, status and README agree on v{version}")
