@@ -2,6 +2,8 @@
 
 English | [简体中文](README.zh-CN.md)
 
+[Product site](https://johnnybgoodlithium.github.io/Local-Video-Meeting-Minutes/)
+
 <!-- maturity: controlled-single-machine-poc -->
 <!-- product-version: v0.15.3 -->
 

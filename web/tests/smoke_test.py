@@ -181,7 +181,7 @@ app_js = b"\n".join([app_js, *module_sources])
 check("前端装配入口使用可独立加载的原生 ES modules",
       all(status == 200 for status in module_statuses)
       and b'type="module"' in page
-      and b'./modules/media-source.js?v=20260831p109' in app_js
+      and b'./modules/media-source.js?v=20260901p111' in app_js
       and b'export function selectJobPanel' in app_js
       and b'export function sortLibrary' in app_js
       and b'export function nearestReviewUnit' in app_js
@@ -209,7 +209,7 @@ if chrome:
         chrome, "--headless=new", "--disable-gpu", "--no-sandbox",
         "--window-size=1600,900", "--virtual-time-budget=8000", "--dump-dom", BASE,
     ], capture_output=True, text=True, timeout=90)
-    browser_build_present = "20260831p109" in browser.stdout
+    browser_build_present = "20260901p111" in browser.stdout
     browser_active_present = 'class="meeting-item active"' in browser.stdout
     browser_transcript_present = 'id="turn-0"' in browser.stdout
     browser_minutes_present = 'id="minutes-heading-0"' in browser.stdout
@@ -240,6 +240,16 @@ if chrome:
           f"version={product_version_present}, "
           f"uncaught={product_uncaught}, "
           f"stderr={product_browser.stderr[-500:]!r}")
+    product_journey = subprocess.run([
+        str(Path(__file__).resolve().parent.parent.parent / ".venv/bin/python"),
+        str(Path(__file__).resolve().parent / "chromium_product_site_test.py"),
+    ], capture_output=True, text=True, timeout=90, env=os.environ)
+    check("Headless Chromium 完成产品站双语、证据与响应式旅程",
+          product_journey.returncode == 0
+          and "bilingual journey, evidence, responsive and reduced motion passed"
+          in product_journey.stdout,
+          f"rc={product_journey.returncode}, out={product_journey.stdout[-500:]!r}, "
+          f"err={product_journey.stderr[-500:]!r}")
     correction_browser = subprocess.run([
         str(Path(__file__).resolve().parent.parent.parent / ".venv/bin/python"),
         str(Path(__file__).resolve().parent / "chromium_speaker_correction_test.py"),
@@ -261,6 +271,7 @@ if chrome:
 else:
     print("SKIP  在线工作台 ES modules 浏览器启动（未安装 Chromium）")
     print("SKIP  产品介绍 ES module 浏览器启动（未安装 Chromium）")
+    print("SKIP  产品站双语、证据与响应式浏览器旅程（未安装 Chromium）")
 check("渐进纪要失败时明确等待终稿，不把空纪要误报为草稿可读",
       s == 200 and "语音草稿已就绪".encode() in app_js
       and "终稿待复核".encode() in app_js
@@ -284,7 +295,7 @@ check("时间码跳转只滚动内容面板，不带动整页丢失播放器",
 check("在线屏幕舞台支持放大、缩放和相邻屏幕键盘导航",
       b'id="screen-preview-mask"' in page and b'openScreenPreview' in app_js
       and b'navigateScreenPreview' in app_js and b'SCREEN_PREVIEW_ZOOMS' in app_js
-      and b'20260831p109' in page)
+      and b'20260901p111' in page)
 check("会议深链 ?meeting=<slug>&t=<秒> 定位播放且忽略非法/超界 t",
       b'params.get("t")' in app_js and b'deepLinkSeek' in app_js
       and b'deepLinkSeconds' in app_js
@@ -361,17 +372,22 @@ check("结论审计默认聚焦重点结论并保留全部证据入口",
 s, product_headers, product_page = req("GET", "/product", raw=True)
 product_cache = next((value for key, value in product_headers.items()
                       if key.lower() == "cache-control"), "")
-check("产品介绍页同步当前能力、双语与设计 token",
-      s == 200 and b'Meeting Identity Core' in product_page
-      and '人员身份核心'.encode() in product_page
-      and '多模态证据核心'.encode() in product_page
+check("产品介绍页使用七段双语用户旅程与虚构演示",
+      s == 200 and product_page.count(b'data-product-section') == 7
+      and '两小时会议，不该再花两小时复盘。'.encode() in product_page
+      and '虚构演示数据'.encode() in product_page
+      and b'Northstar Launch Review' in product_page
+      and b'Northstar Product Launch' in product_page
       and b'data-product-content-version="0.15"' in product_page
       and b'data-ui-language="en"' in product_page
-      and b'/static/fluent-foundation.css?v=20260831p109' in product_page
-      and b'Optional Enrichment' in product_page
+      and b'/static/fluent-foundation.css?v=20260901p111' in product_page
+      and b'data-demo-mode="meeting"' in product_page
+      and b'data-demo-mode="video"' in product_page
+      and b'data-demo-evidence' in product_page
+      and b'MeetingPack' in product_page
       and b'AI Context' in product_page
-      and b'WeKnora' in product_page
-      and b'id="architecture"' in product_page
+      and b'id="architecture"' not in product_page
+      and b'/api/meetings' not in product_page
       and b'href="/"' in product_page and "no-store" in product_cache)
 s, _, j = req("GET", "/api/meetings")
 n = len(j.get("meetings", []))

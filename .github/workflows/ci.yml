@@ -43,7 +43,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ffmpeg poppler-utils
+          sudo apt-get install -y --no-install-recommends ffmpeg fonts-noto-cjk poppler-utils
 
       - name: Create virtual environment
         run: |
@@ -61,6 +61,8 @@ jobs:
           command -v google-chrome \
             || command -v chromium \
             || command -v chromium-browser
+          fc-match "Noto Sans CJK SC" | grep -qi "NotoSansCJK"
+          fc-match "Noto Serif CJK SC" | grep -qi "NotoSerifCJK"
 
       - name: Run checks
         env:
@@ -70,7 +72,17 @@ jobs:
       - name: Run isolated smoke
         env:
           MEETING_RESOURCE_GUARD: "0"
+          MM_PRODUCT_SCREENSHOT_DIR: artifacts/product-site/screenshots
         run: make smoke
+
+      - name: Upload final product site screenshots
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v7
+        with:
+          name: product-site-final-${{ github.sha }}
+          path: artifacts/product-site/screenshots/
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Check committed whitespace
         shell: bash

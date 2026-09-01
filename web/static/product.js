@@ -1,4 +1,5 @@
-import { EN_COPY, EN_META } from "./product-copy.js?v=20260831p109";
+import { EN_COPY, EN_META } from "./product-copy.js?v=20260901p111";
+import { enhanceProductDemo } from "./product-demo.js?v=20260901p111";
 
 "use strict";
 
@@ -15,6 +16,9 @@ const originalMeta = Object.freeze({
   title: document.title,
   description: document.querySelector('meta[name="description"]')?.content || "",
 });
+
+let currentLanguage = "zh-CN";
+let correctionUndone = false;
 
 function readWorkspaceLanguage() {
   try {
@@ -39,9 +43,36 @@ function translated(key, fallback) {
   return EN_COPY[key] ?? fallback;
 }
 
-function applyLanguage(language, { persist = false } = {}) {
+function setMeta(selector, value) {
+  const node = document.querySelector(selector);
+  if (node) node.content = value;
+}
+
+const demo = enhanceProductDemo(document.querySelector("[data-product-demo]"));
+
+function renderCorrectionState() {
+  const root = document.querySelector("[data-correction-demo]");
+  const button = document.querySelector("[data-correction-toggle]");
+  const status = document.querySelector("[data-correction-status]");
+  if (!root || !button || !status) return;
+  root.classList.toggle("undone", correctionUndone);
+  if (correctionUndone) {
+    button.textContent = currentLanguage === "en" ? EN_COPY.restoreChange : "恢复更改";
+    status.textContent = currentLanguage === "en"
+      ? EN_COPY.changeUndone
+      : "更改已撤销，原始来源已恢复。";
+  } else {
+    button.textContent = currentLanguage === "en" ? EN_COPY.undo : originalText.get(button);
+    status.textContent = currentLanguage === "en"
+      ? EN_COPY.changePreviewed
+      : originalText.get(status);
+  }
+}
+
+function applyLanguage(language, {persist = false} = {}) {
   const next = supportedLanguages.has(language) ? language : "zh-CN";
   const english = next === "en";
+  currentLanguage = next;
   document.documentElement.lang = next;
   document.documentElement.dataset.uiLanguage = next;
 
@@ -61,69 +92,62 @@ function applyLanguage(language, { persist = false } = {}) {
       : originalAria.get(node));
   }
 
-  document.title = english ? EN_META.title : originalMeta.title;
-  const description = document.querySelector('meta[name="description"]');
-  if (description) description.content = english ? EN_META.description : originalMeta.description;
+  const title = english ? EN_META.title : originalMeta.title;
+  const description = english ? EN_META.description : originalMeta.description;
+  document.title = title;
+  setMeta('meta[name="description"]', description);
+  setMeta('meta[property="og:title"]', title);
+  setMeta('meta[property="og:description"]', description);
+  setMeta('meta[name="twitter:title"]', title);
+  setMeta('meta[name="twitter:description"]', description);
 
   for (const button of languageButtons) {
     const active = button.dataset.uiLanguage === next;
     button.classList.toggle("active", active);
     button.setAttribute("aria-pressed", String(active));
-    button.setAttribute("aria-selected", String(active));
   }
+  demo.setLanguage(next);
+  renderCorrectionState();
   if (persist) writeWorkspaceLanguage(next);
 }
 
 languageButtons.forEach(button => button.addEventListener("click", () => {
-  applyLanguage(button.dataset.uiLanguage, { persist: true });
+  applyLanguage(button.dataset.uiLanguage, {persist: true});
 }));
+
+document.querySelector("[data-verify-toggle]")?.addEventListener("click", event => {
+  const button = event.currentTarget;
+  const expanded = button.getAttribute("aria-expanded") !== "true";
+  button.setAttribute("aria-expanded", String(expanded));
+  document.querySelector("[data-verify-source]")?.classList.toggle("focused", expanded);
+});
+
+document.querySelector("[data-correction-toggle]")?.addEventListener("click", () => {
+  correctionUndone = !correctionUndone;
+  renderCorrectionState();
+});
+
 applyLanguage(readWorkspaceLanguage());
+document.documentElement.dataset.productReady = "true";
 
-fetch("/api/health", { cache: "no-store" })
-  .then(response => response.ok ? response.json() : Promise.reject(new Error("health unavailable")))
-  .then(health => {
-    const version = document.querySelector("#product-version");
-    const value = health.product?.version;
-    if (!version || !value) return;
-    version.textContent = `v${value}`;
-    version.hidden = false;
-  })
-  .catch(() => {});
-
-const revealItems = [...document.querySelectorAll(".reveal")];
-const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-if (reduceMotion || !("IntersectionObserver" in window)) {
-  revealItems.forEach(item => item.classList.add("visible"));
+const staticProductVersion = document.documentElement.dataset.staticProductVersion;
+const versionNode = document.querySelector("#product-version");
+if (staticProductVersion && versionNode) {
+  versionNode.textContent = `v${staticProductVersion}`;
+  versionNode.hidden = false;
 } else {
-  const revealObserver = new IntersectionObserver(entries => {
-    for (const entry of entries) {
-      if (!entry.isIntersecting) continue;
-      entry.target.classList.add("visible");
-      revealObserver.unobserve(entry.target);
-    }
-  }, { rootMargin: "0px 0px -8%", threshold: 0.08 });
-  revealItems.forEach(item => revealObserver.observe(item));
-}
-
-const navLinks = [...document.querySelectorAll("#product-nav a")];
-const sections = navLinks.map(link => document.querySelector(link.getAttribute("href"))).filter(Boolean);
-
-if ("IntersectionObserver" in window) {
-  const navObserver = new IntersectionObserver(entries => {
-    const visible = entries.filter(entry => entry.isIntersecting)
-      .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
-    if (!visible) return;
-    navLinks.forEach(link => link.classList.toggle(
-      "active", link.getAttribute("href") === `#${visible.target.id}`));
-  }, { rootMargin: "-25% 0px -60%", threshold: [0, 0.1, 0.4] });
-  sections.forEach(section => navObserver.observe(section));
+  fetch("/api/health", {cache: "no-store"})
+    .then(response => response.ok ? response.json() : Promise.reject(new Error("health unavailable")))
+    .then(health => {
+      const value = health.product?.version;
+      if (!versionNode || !value) return;
+      versionNode.textContent = `v${value}`;
+      versionNode.hidden = false;
+    })
+    .catch(() => {});
 }
 
 if (location.hash) {
   const target = document.querySelector(location.hash);
-  if (target) {
-    target.querySelectorAll(".reveal").forEach(item => item.classList.add("visible"));
-    requestAnimationFrame(() => target.scrollIntoView());
-  }
+  if (target) requestAnimationFrame(() => target.scrollIntoView());
 }
