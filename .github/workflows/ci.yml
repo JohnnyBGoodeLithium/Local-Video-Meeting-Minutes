@@ -72,6 +72,19 @@ jobs:
           MEETING_RESOURCE_GUARD: "0"
         run: make smoke
 
+      - name: Capture temporary product art direction studies
+        if: github.event_name == 'pull_request'
+        run: .venv/bin/python web/tests/capture_product_direction_studies.py
+
+      - name: Upload temporary product art direction studies
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v7
+        with:
+          name: product-site-direction-study-${{ github.sha }}
+          path: artifacts/product-site-directions/screenshots/
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Check committed whitespace
         shell: bash
         run: |
