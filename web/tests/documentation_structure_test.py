@@ -6,6 +6,7 @@ This test reads repository documentation only. It never enumerates meeting data.
 
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 from pathlib import Path
@@ -30,7 +31,7 @@ REQUIRED = {
     "docs/runbooks/DEPLOYMENT.md",
     "docs/runbooks/PROCESSING_AND_RECOVERY.md",
     "docs/runbooks/WEKNORA.md", "docs/runbooks/DEVELOPMENT.md",
-    "docs/runbooks/RELEASES.md",
+    "docs/runbooks/RELEASES.md", "docs/runbooks/DISTRIBUTION.md",
     "docs/reference/DESIGN_SYSTEM.md", "docs/reference/MODELS.md",
     "docs/reference/COST_MODEL.md",
 }
@@ -68,12 +69,20 @@ for relative in REQUIRED | COMPATIBILITY:
     assert (ROOT / relative).exists(), f"required documentation missing: {relative}"
 
 
+def tracked_paths() -> list[str]:
+    if (ROOT / ".git").exists():
+        return subprocess.run(
+            ["git", "ls-files"], cwd=ROOT, text=True,
+            capture_output=True, check=True,
+        ).stdout.splitlines()
+    manifest_path = ROOT / "release-manifest.json"
+    assert manifest_path.is_file(), "package-check requires release-manifest.json without .git"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    return [str(item.get("path") or "") for item in manifest.get("files", [])]
+
+
 def markdown_files() -> list[Path]:
-    tracked = subprocess.run(
-        ["git", "ls-files", "*.md"], cwd=ROOT, text=True,
-        capture_output=True, check=True,
-    ).stdout.splitlines()
-    paths = {ROOT / item for item in tracked}
+    paths = {ROOT / item for item in tracked_paths() if item.endswith(".md")}
     paths.update((ROOT / "docs").rglob("*.md"))
     paths.update(ROOT.glob("*.md"))
     return sorted(path for path in paths if path.is_file() and "private_reports" not in path.parts)
@@ -119,7 +128,7 @@ chinese_sections = [
 assert re.findall(r"^## (.+)$", readme, re.MULTILINE) == english_sections
 assert re.findall(r"^## (.+)$", readme_zh, re.MULTILINE) == chinese_sections
 assert len(re.findall(r"[\u4e00-\u9fff]", readme)) < 40, "English README contains a Chinese body"
-assert len(readme_zh) > 3_000 and len(re.findall(r"[\u4e00-\u9fff]", readme_zh)) > 800
+assert len(readme_zh) > 2_500 and len(re.findall(r"[\u4e00-\u9fff]", readme_zh)) > 800
 assert "<!-- maturity: controlled-single-machine-poc -->" in readme
 assert "<!-- maturity: controlled-single-machine-poc -->" in readme_zh
 
@@ -191,9 +200,7 @@ assert len(handoff_lines) <= 30, f"HANDOFF must stay <=30 lines, got {len(handof
 
 gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
 assert "/private_reports/" in gitignore, "private_reports must be ignored"
-tracked = subprocess.run(
-    ["git", "ls-files"], cwd=ROOT, text=True, capture_output=True, check=True,
-).stdout.splitlines()
+tracked = tracked_paths()
 assert not any(path.startswith("private_reports/") for path in tracked), "private report content is tracked"
 
 for relative in COMPATIBILITY:

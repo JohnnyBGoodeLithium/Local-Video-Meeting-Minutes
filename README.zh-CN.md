@@ -87,7 +87,7 @@ make run
 
 ## 发布与安装状态
 
-当前分发方式是源码 checkout。仓库正在建立经过验证的 **Application Release Bundle（应用发布包）**，其中包含应用脚本、Web 资源、prompts、部署样例、锁定的轻量依赖和必要文档。
+当前分发方式是源码 checkout。仓库可以构建经过验证的 **Application Release Bundle（应用发布包）**，其中包含应用脚本、Web 资源、prompts、部署样例、锁定的轻量依赖和必要文档。
 
 它不是 PyPI package。`pip install -e .` 当前主要安装基础依赖和项目元数据；应用仍从仓库或发布包目录运行。项目目前没有稳定的 Python public import API，也不承诺通过 pip 安装后可以在任意目录直接启动。
 

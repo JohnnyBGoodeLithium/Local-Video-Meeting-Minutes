@@ -87,7 +87,7 @@ Local-first does not mean every configured provider is local. Remote endpoints a
 
 ## Release and installation status
 
-The current distribution model is a source checkout. The repository is being prepared to build a verified **Application Release Bundle** containing the application scripts, Web assets, prompts, deployment examples, locked lightweight dependencies, and required documentation.
+The current distribution model is a source checkout. The repository can build a verified **Application Release Bundle** containing the application scripts, Web assets, prompts, deployment examples, locked lightweight dependencies, and required documentation.
 
 This is not a PyPI package. `pip install -e .` currently installs base dependencies and project metadata while the application continues to run from the repository or bundle directory. There is no stable public Python import API and no promise that a pip installation can be launched from an arbitrary directory.
 

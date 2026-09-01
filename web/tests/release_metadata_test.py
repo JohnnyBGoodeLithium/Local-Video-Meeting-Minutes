@@ -5,13 +5,20 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 import tomllib
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "scripts"))
+
+from build_release_bundle import RELEASE_SCHEMA, read_version  # noqa: E402
+
 version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
 assert re.fullmatch(r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)", version)
+assert read_version(ROOT) == version
+assert RELEASE_SCHEMA == "local-meeting-minutes-release/v1"
 
 pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 project = pyproject["project"]

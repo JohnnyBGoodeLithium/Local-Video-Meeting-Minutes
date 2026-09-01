@@ -89,3 +89,14 @@
 - Owner：Runtime maintainer
 - 下一次检查时间：每次资源策略变更后
 - 相关文档：[OPERATIONS.md](OPERATIONS.md)、[runbooks/PROCESSING_AND_RECOVERY.md](runbooks/PROCESSING_AND_RECOVERY.md)
+
+## R-009 许可证与再分发授权尚未确认
+
+- 等级：P1
+- 影响：仓库公开可见不等于获得开源、转载、再分发或商业使用授权；错误添加许可证或发布资产可能扩大法律与公司政策风险。
+- 触发条件：未经代码归属与公司政策核对就添加开源许可证、对外再分发或用于商业部署。
+- 当前缓解：README 明确说明当前没有开源许可证；发布流程不自动添加 license 字段或许可证文件。
+- 仍缺少：Owner 对代码归属、第三方材料与公司政策的正式确认。
+- Owner：Repository owner
+- 下一次检查时间：第一次正式 GitHub Application Release 前
+- 相关文档：[README.md](../README.md)、[SECURITY.md](../SECURITY.md)、[runbooks/DISTRIBUTION.md](runbooks/DISTRIBUTION.md)
