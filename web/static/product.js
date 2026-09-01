@@ -57,9 +57,9 @@ function renderCorrectionState() {
   if (!root || !button || !status) return;
   root.classList.toggle("undone", correctionUndone);
   if (correctionUndone) {
-    button.textContent = currentLanguage === "en" ? "Restore change" : "恢复更改";
+    button.textContent = currentLanguage === "en" ? EN_COPY.restoreChange : "恢复更改";
     status.textContent = currentLanguage === "en"
-      ? "The correction was undone; the previous source is restored."
+      ? EN_COPY.changeUndone
       : "更改已撤销，原始来源已恢复。";
   } else {
     button.textContent = currentLanguage === "en" ? EN_COPY.undo : originalText.get(button);
@@ -128,6 +128,7 @@ document.querySelector("[data-correction-toggle]")?.addEventListener("click", ()
 });
 
 applyLanguage(readWorkspaceLanguage());
+document.documentElement.dataset.productReady = "true";
 
 fetch("/api/health", {cache: "no-store"})
   .then(response => response.ok ? response.json() : Promise.reject(new Error("health unavailable")))

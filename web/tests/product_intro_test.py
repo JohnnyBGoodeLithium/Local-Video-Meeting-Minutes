@@ -61,9 +61,11 @@ for marker in required_journey:
 html_keys = set(re.findall(r'data-i18n(?:-html|-aria)?="([A-Za-z][A-Za-z0-9]*)"', html))
 copy_body = copy_source.split("export const EN_META", 1)[0]
 english_keys = set(re.findall(r"^\s{2}([A-Za-z][A-Za-z0-9]*):", copy_body, re.MULTILINE))
-assert html_keys == english_keys, (
-    f"双语词典不完整：missing={sorted(html_keys - english_keys)}, "
-    f"unused={sorted(english_keys - html_keys)}"
+runtime_keys = set(re.findall(r"EN_COPY\.([A-Za-z][A-Za-z0-9]*)", script))
+used_english_keys = html_keys | runtime_keys
+assert used_english_keys == english_keys, (
+    f"双语词典不完整：missing={sorted(used_english_keys - english_keys)}, "
+    f"unused={sorted(english_keys - used_english_keys)}"
 )
 assert len(html_keys) >= 100, "产品页双语投影意外缩水"
 assert 'data-ui-language="zh-CN"' in html and 'data-ui-language="en"' in html
