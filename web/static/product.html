@@ -3,23 +3,29 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="把会议与媒体整理成身份明确、证据可追溯、可交给人或任意模型继续使用的上下文包。">
-<meta name="product-content-version" content="0.14">
-<title>产品介绍 · 会议纪要</title>
+<meta name="description" content="按人物或议题回顾会议与产品视频，从重要结论返回原声和画面，再将核对后的上下文交给同事、AI 或知识库。">
+<meta name="product-content-version" content="0.15">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Meeting Context">
+<meta property="og:title" content="Meeting Context｜从重点回到会议与视频的原始证据">
+<meta property="og:description" content="按人物或议题回顾会议与产品视频，从重要结论返回原声和画面，再将核对后的上下文交给同事、AI 或知识库。">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Meeting Context｜从重点回到会议与视频的原始证据">
+<meta name="twitter:description" content="按人物或议题回顾会议与产品视频，从重要结论返回原声和画面，再将核对后的上下文交给同事、AI 或知识库。">
+<title>Meeting Context｜从重点回到会议与视频的原始证据</title>
 <link rel="stylesheet" href="/static/fluent-foundation.css?v=20260831p109">
 <link rel="stylesheet" href="/static/product.css?v=20260831p109">
 </head>
 <body>
 <header class="product-header">
   <a class="product-brand" href="/" data-i18n-aria="brandBackAria" aria-label="返回会议工作台">
-    <span class="brand-mark">M</span>
-    <span><b>Meeting Context <em id="product-version" class="product-version" hidden></em></b><small data-i18n="brandSubtitle">本地会议上下文编译器</small></span>
+    <span><b>Meeting Context <em id="product-version" class="product-version" hidden></em></b><small>Meeting &amp; Video Review</small></span>
   </a>
   <nav id="product-nav" class="product-nav" data-i18n-aria="navAria" aria-label="产品介绍导航">
-    <a href="#identity" data-i18n="navIdentity">人员身份</a>
-    <a href="#capabilities" data-i18n="navCapabilities">核心能力</a>
-    <a href="#experience" data-i18n="navExperience">使用体验</a>
-    <a href="#architecture" data-i18n="navArchitecture">技术架构</a>
+    <a href="#find" data-i18n="navReview">回顾</a>
+    <a href="#verify" data-i18n="navVerify">核证</a>
+    <a href="#reuse" data-i18n="navReuse">继续使用</a>
+    <a href="#use-cases" data-i18n="navUseCases">使用场景</a>
     <a href="#trust" data-i18n="navTrust">可信边界</a>
   </nav>
   <div class="header-actions">
@@ -27,89 +33,133 @@
       <button class="fluent-button fluent-tab language-button" type="button" data-ui-language="zh-CN" aria-pressed="true">中文</button>
       <button class="fluent-button fluent-tab language-button" type="button" data-ui-language="en" aria-pressed="false">EN</button>
     </div>
-    <a class="header-cta" href="/"><span data-i18n="openWorkspace">打开工作台</span> <i>→</i></a>
+    <a class="header-cta" href="/"><span data-i18n="openWorkspace">打开工作台</span><i aria-hidden="true">↗</i></a>
   </div>
 </header>
 
 <main>
-  <section id="overview" class="hero section-shell">
-    <div class="hero-copy reveal">
-      <div class="eyebrow"><span></span> Identity-aware · Evidence-native · Local-first</div>
-      <h1 data-i18n-html="heroTitle">把会议编译成<em>人和任意模型都能继续使用的上下文。</em></h1>
-      <p class="hero-lead" data-i18n="heroLead">接收录音、录屏或已有文稿，整理人员、原话、画面与结论证据，再导出给同事、通用模型、Notebook 或知识库。处理模型可以替换，会议上下文不被锁在某个供应商里。</p>
+  <section id="overview" class="hero section-shell" data-product-section>
+    <div class="hero-copy">
+      <p class="eyebrow" data-i18n="heroEyebrow">Meeting &amp; Video Review</p>
+      <h1 data-i18n="heroTitle">两小时会议，不该再花两小时复盘。</h1>
+      <p class="hero-lead" data-i18n="heroLead">按关键人物和议题进入会议，或按主题定位发布会、产品讲解和第一手视频资料。点击一条重要结论，直接回到原声和当时画面；核对后的上下文还可以继续交给同事、常用 AI 或知识库。</p>
+      <ol class="hero-steps" data-i18n-aria="heroStepsAria" aria-label="产品的三个主要动作">
+        <li><span>01</span><b data-i18n="heroStep1">选一个人，回顾他的发言。</b></li>
+        <li><span>02</span><b data-i18n="heroStep2">选一个议题，查看相关片段。</b></li>
+        <li><span>03</span><b data-i18n="heroStep3">选一条结论，回到来源。</b></li>
+      </ol>
       <div class="hero-actions">
-        <a class="primary-link fluent-button fluent-button--primary" href="#identity" data-i18n="heroPrimary">了解人员身份核心</a>
-        <a class="secondary-link fluent-button" href="#architecture" data-i18n="heroSecondary">查看处理与知识闭环</a>
+        <a class="primary-link fluent-button fluent-button--primary" href="#find" data-i18n="seeHow">查看产品如何工作</a>
+        <a class="secondary-link fluent-button" href="/" data-i18n="openWorkspace">打开工作台</a>
       </div>
-      <div class="hero-points" data-i18n-aria="heroPointsAria" aria-label="产品核心价值">
-        <div><span class="point-number">01</span><b data-i18n="heroPoint1Title">识别人</b><small data-i18n="heroPoint1Body">会议机声音关联真实人员</small></div>
-        <div><span class="point-number">02</span><b data-i18n="heroPoint2Title">还原事实</b><small data-i18n="heroPoint2Body">结论回到原话与共享画面</small></div>
-        <div><span class="point-number">03</span><b data-i18n="heroPoint3Title">带走上下文</b><small data-i18n="heroPoint3Body">Viewer · AI Context · KB</small></div>
+      <div class="trust-tags" data-i18n-aria="trustTagsAria" aria-label="产品可信标签">
+        <span data-i18n="tagLocal">默认本机处理</span>
+        <span data-i18n="tagCorrectable">可以人工修正</span>
+        <span data-i18n="tagEvidence">结论可以回证</span>
       </div>
     </div>
-    <div class="hero-visual reveal" data-i18n-aria="identityVisualAria" aria-label="会议机多人身份解析示意">
-      <div class="visual-label">MEETING IDENTITY CORE</div>
-      <div class="room-source"><div class="device-icon"><i></i><i></i><i></i></div><div><b>ThinkSmart Meeting Room</b><small data-i18n="roomSourceBody">一个设备账号 · 多位现场参会者</small></div><span class="live-dot">LIVE</span></div>
-      <div class="voice-stage"><div class="voice-row"><span>VOICE A</span><i style="--wave: 76%"></i><small>00:14</small></div><div class="voice-row"><span>VOICE B</span><i style="--wave: 54%"></i><small>00:31</small></div><div class="voice-row"><span>VOICE C</span><i style="--wave: 88%"></i><small>01:08</small></div></div>
-      <div class="identity-arrow"><span data-i18n="voiceMatch">声纹匹配</span><i>↓</i><span data-i18n="listenConfirm">试听确认</span></div>
-      <div class="person-stage">
-        <article><span class="avatar tone-a">A</span><div><b data-i18n="personA">真实人员 A</b><small data-i18n="personAInfo">英文名 · 中文名 · 全拼</small></div><strong data-i18n="confirmed">已确认</strong></article>
-        <article><span class="avatar tone-b">B</span><div><b data-i18n="personB">真实人员 B</b><small data-i18n="personBInfo">岗位 · 团队 · 直属上级</small></div><strong data-i18n="confirmed">已确认</strong></article>
-        <article class="candidate"><span class="avatar tone-c">?</span><div><b data-i18n="candidatePerson">候选人员</b><small data-i18n="candidateInfo">先试听，不自动强行绑定</small></div><strong data-i18n="pending">待确认</strong></article>
+
+    <div class="product-demo" data-product-demo data-i18n-aria="demoAria" aria-label="使用虚构数据展示会议与视频回顾流程">
+      <div class="demo-window-bar"><span><i></i><i></i><i></i></span><b>Meeting Context</b><small data-i18n="fictionalData">虚构演示数据</small></div>
+      <div class="demo-mode" role="tablist" data-i18n-aria="demoModeAria" aria-label="选择会议或视频演示">
+        <button id="meeting-demo-tab" type="button" role="tab" aria-selected="true" aria-controls="meeting-demo" data-demo-mode="meeting" data-i18n="meeting">会议</button>
+        <button id="video-demo-tab" type="button" role="tab" aria-selected="false" aria-controls="video-demo" data-demo-mode="video" data-i18n="video">视频</button>
       </div>
-      <div class="visual-foot" data-i18n="identityVisualFoot">会议机是声音入口，不再是所有现场参会者共同的错误姓名。</div>
+
+      <div id="meeting-demo" class="demo-panel" role="tabpanel" aria-labelledby="meeting-demo-tab" data-demo-panel="meeting">
+        <div class="demo-source"><div><small data-i18n="meetingLabel">会议</small><b>Northstar Launch Review</b></div><time>01:56:24</time></div>
+        <div class="people-selector" data-i18n-aria="peopleSelectorAria" aria-label="选择虚构会议人物">
+          <button type="button" class="person-chip active" data-demo-choice="maya" aria-pressed="true"><span>MC</span>Maya Chen</button>
+          <button type="button" class="person-chip" data-demo-choice="alex" aria-pressed="false"><span>AM</span>Alex Morgan</button>
+          <button type="button" class="person-chip" data-demo-choice="jordan" aria-pressed="false"><span>JL</span>Jordan Lee</button>
+        </div>
+        <div class="timeline" data-i18n-aria="meetingTimelineAria" aria-label="时间线突出 Maya Chen 的相关发言区间">
+          <span class="timeline-base"></span><i style="--start:8%;--length:10%" data-demo-segment="alex"></i><i style="--start:21%;--length:14%" data-demo-segment="maya"></i><i style="--start:39%;--length:8%" data-demo-segment="jordan"></i><i style="--start:52%;--length:18%" data-demo-segment="maya"></i><i style="--start:75%;--length:9%" data-demo-segment="alex"></i><i style="--start:88%;--length:7%" data-demo-segment="maya"></i><span class="timeline-cursor" style="--at:57%"></span>
+        </div>
+        <div class="demo-controls" data-i18n-aria="playbackControlsAria" aria-label="虚构播放控制">
+          <button type="button" data-demo-control="previous" data-i18n="previousSegment">上一段</button><button type="button" data-demo-control="replay" data-i18n="replaySegment">重播</button><button type="button" data-demo-control="next" data-i18n="nextSegment">下一段</button>
+        </div>
+        <div class="demo-context-grid">
+          <div class="demo-transcript"><small><span data-i18n="selectedPerson">已选人物</span> · <b data-demo-bind="selection">Maya Chen</b></small><p data-demo-bind="transcript">“试点发布仍以十月为目标，前提是供应商验证通过。”</p></div>
+          <div class="demo-visual" data-i18n-aria="demoVisualAria" aria-label="与发言关联的当时画面"><small data-i18n="screenAtMoment">当时画面</small><b data-demo-bind="visual">供应商验证</b><span><i></i><em data-demo-bind="status">状态：待确认</em></span></div>
+        </div>
+        <article class="demo-conclusion"><small data-i18n="keyConclusion">关键结论</small><p data-demo-bind="conclusion">试点发布仍以十月为目标，等待供应商验证。</p><button type="button" class="evidence-button" data-demo-evidence aria-expanded="false"><span data-i18n="evidence">依据</span> · <b data-demo-bind="evidence">Maya Chen · 42:18</b></button><div class="evidence-detail" data-demo-evidence-detail hidden><span data-i18n="evidenceLinked">逐字稿、时间和画面已关联</span><time data-demo-bind="time">42:18</time></div></article>
+      </div>
+
+      <div id="video-demo" class="demo-panel" role="tabpanel" aria-labelledby="video-demo-tab" data-demo-panel="video" hidden>
+        <div class="demo-source"><div><small data-i18n="videoLabel">视频</small><b>Northstar Product Launch</b></div><time>28:44</time></div>
+        <div class="topic-selector" data-i18n-aria="topicSelectorAria" aria-label="选择虚构视频主题">
+          <button type="button" class="topic-chip active" data-demo-choice="thermal" aria-pressed="true" data-i18n="thermalTopic">电池与散热设计</button><button type="button" class="topic-chip" data-demo-choice="materials" aria-pressed="false" data-i18n="materialsTopic">材料与结构</button>
+        </div>
+        <div class="timeline video-timeline" data-i18n-aria="videoTimelineAria" aria-label="时间线只突出所选主题的相关视频片段"><span class="timeline-base"></span><i style="--start:13%;--length:11%" data-demo-segment="materials"></i><i style="--start:33%;--length:24%" data-demo-segment="thermal"></i><i style="--start:72%;--length:10%" data-demo-segment="materials"></i><span class="timeline-cursor" style="--at:43%"></span></div>
+        <div class="segment-range"><span data-i18n="relevantSegment">相关片段</span><time data-demo-bind="range">09:32–12:08</time></div>
+        <div class="demo-context-grid">
+          <div class="demo-transcript"><small><span data-i18n="selectedTopic">已选议题</span> · <b data-demo-bind="selection">电池与散热设计</b></small><p data-demo-bind="transcript">“新的散热设计可在目标功耗范围内维持持续性能。”</p></div>
+          <div class="demo-visual"><small data-i18n="keyFrame">关键画面</small><b data-demo-bind="visual">散热架构</b><span class="thermal-lines"><i></i><i></i><i></i></span></div>
+        </div>
+        <article class="demo-conclusion"><small data-i18n="keyInformation">关键信息</small><p data-demo-bind="conclusion">新的散热设计支持目标功耗范围内的持续性能。</p><button type="button" class="evidence-button" data-demo-evidence aria-expanded="false"><span data-i18n="evidence">依据</span> · <b data-demo-bind="evidence">讲解 · 10:14</b></button><div class="evidence-detail" data-demo-evidence-detail hidden><span data-i18n="evidenceLinked">逐字稿、时间和画面已关联</span><time data-demo-bind="time">10:14</time></div></article>
+      </div>
+      <p class="sr-only" aria-live="polite" data-demo-live></p>
     </div>
   </section>
 
-  <section class="problem-band"><div class="section-shell problem-grid">
-    <div class="section-intro reveal"><span class="section-index">01 · THE PROBLEM</span><h2 data-i18n-html="problemTitle">传统会议工具识别了设备，<br>却没有识别会议中的人。</h2><p data-i18n="problemBody">远程参会者通常有独立账号；会议室内的多人却共用一台设备。只有解决真实人员身份，具名纪要、行动归属和跨会议知识才有可靠基础。</p></div>
-    <div class="comparison reveal">
-      <article class="comparison-before"><header><span data-i18n="beforeTitle">传统结果</span><small>ACCOUNT-BASED</small></header><div class="quote-line"><b data-i18n="meetingRoom">会议室账号</b><p data-i18n="beforeQuote1">“我建议下周完成。”</p></div><div class="quote-line"><b data-i18n="meetingRoom">会议室账号</b><p data-i18n="beforeQuote2">“这个方案还没有批准。”</p></div><div class="quote-line"><b data-i18n="meetingRoom">会议室账号</b><p data-i18n="beforeQuote3">“预算由我来确认。”</p></div><footer data-i18n="beforeFoot">人员、权限和责任全部混在一个设备名称下</footer></article>
-      <div class="comparison-switch">→</div>
-      <article class="comparison-after"><header><span>Identity Core</span><small>PERSON-BASED</small></header><div class="quote-line"><b data-i18n="realPersonA">真实人员 A</b><p data-i18n="proposal">提出建议</p><i>PROPOSAL</i></div><div class="quote-line"><b data-i18n="realPersonB">真实人员 B</b><p data-i18n="notApproved">说明尚未批准</p><i>STATUS</i></div><div class="quote-line"><b data-i18n="realPersonC">真实人员 C</b><p data-i18n="confirmOwner">确认预算责任</p><i>OWNER</i></div><footer data-i18n="afterFoot">谁提出、谁确认、谁负责，都可回到声音证据</footer></article>
+  <section id="find" class="content-section section-shell" data-product-section>
+    <div class="section-heading"><span class="section-index" data-i18n="findIndex">01 · 找到重点</span><h2 data-i18n="findTitle">不从 00:00 开始，从真正重要的人或议题开始。</h2><p data-i18n="findBody">会议按人物进入，视频按主题进入。选择以后，时间线、原文和播放控制只突出真正相关的部分，不必在线性录像中反复拖动。</p></div>
+    <div class="focus-comparison">
+      <article class="focus-story meeting-focus"><header><span data-i18n="meeting">会议</span><b data-i18n="meetingFocusTitle">点一个人，只听他的相关发言。</b></header><div class="focus-timeline" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div><div class="focus-result"><span>Maya Chen</span><p data-i18n="meetingFocusBody">选择关键人物，连续回听相关发言，同时保留议题、逐字稿和画面。</p></div></article>
+      <article class="focus-story video-focus"><header><span data-i18n="video">视频</span><b data-i18n="videoFocusTitle">点一个议题，只看相关片段。</b></header><div class="focus-timeline" aria-hidden="true"><i></i><i></i><i></i><i></i></div><div class="focus-result"><span data-i18n="thermalTopic">电池与散热设计</span><p data-i18n="videoFocusBody">选择产品主题，聚焦相应讲解片段，同时保留讲解原文和关键画面。</p></div></article>
     </div>
-  </div></section>
-
-  <section id="identity" class="identity-section section-shell">
-    <div class="section-heading reveal"><div><span class="section-index">02 · OUR DIFFERENTIATOR</span><h2 data-i18n="identityTitle">人员身份核心，不只是“说话人 1/2/3”</h2></div><p data-i18n="identityBody">把一次会议里的匿名声音连接成可跨会议使用的真实人员身份。声音证据、规范姓名和组织关系各自独立，又通过稳定 Person ID 建立联系。</p></div>
-    <div class="identity-core-grid reveal">
-      <div class="identity-model"><div class="model-orbit orbit-voices"><span data-i18n="orbitVoices">多条声纹</span><small>Voice A · Voice F</small></div><div class="model-orbit orbit-names"><span data-i18n="orbitNames">多语言姓名</span><small data-i18n="orbitNamesBody">中文 · 全拼 · 英文</small></div><div class="model-center"><small>STABLE</small><b>PERSON<br>ID</b><span data-i18n="realPerson">真实人员</span></div><div class="model-orbit orbit-org"><span data-i18n="orbitOrg">组织节点</span><small data-i18n="orbitOrgBody">岗位 · 团队 · 上级</small></div><div class="model-orbit orbit-proof"><span data-i18n="orbitProof">人工确认</span><small data-i18n="orbitProofBody">试听 · 候选 · 新建</small></div></div>
-      <div class="identity-steps"><article><span>01</span><div><h3 data-i18n="identityStep1Title">区分同一设备里的声音</h3><p data-i18n="identityStep1Body">先做发言人分离，明确哪些语句来自不同声音，不急于猜测姓名。</p></div></article><article><span>02</span><div><h3 data-i18n="identityStep2Title">把声纹变成可试听证据</h3><p data-i18n="identityStep2Body">当前声音与候选人员支持试听；匹配是建议，确认权留给用户。</p></div></article><article><span>03</span><div><h3 data-i18n="identityStep3Title">统一国际化姓名</h3><p data-i18n="identityStep3Body">中文名、全拼、英文名加姓氏属于同一人员，并独立选择纪要显示名。</p></div></article><article><span>04</span><div><h3 data-i18n="identityStep4Title">保护人工确认结果</h3><p data-i18n="identityStep4Body">轮次修正先预览，可撤销；已确认身份不会被后续相似匹配静默覆盖。</p></div></article></div>
-    </div>
-    <div class="identity-value-strip reveal"><div><b data-i18n="identityValue1Title">准确归属</b><span data-i18n="identityValue1Body">建议、决定、保留意见和行动项</span></div><div><b data-i18n="identityValue2Title">跨会连续</b><span data-i18n="identityValue2Body">同一个人不再被多个名字割裂</span></div><div><b data-i18n="identityValue3Title">组织语境</b><span data-i18n="identityValue3Body">理解职责，但不把职级当成事实</span></div><div><b data-i18n="identityValue4Title">可信确认</b><span data-i18n="identityValue4Body">模糊匹配只给候选，不自动误绑</span></div></div>
   </section>
 
-  <section id="capabilities" class="cores-section"><div class="section-shell">
-    <div class="section-heading light reveal"><div><span class="section-index">03 · THREE CORES</span><h2 data-i18n="coresTitle">从人员身份，到证据，再到可携带上下文</h2></div><p data-i18n="coresBody">三个核心共享同一份 canonical 会议事实；本地处理是可替换输入能力，稳定输出不会被某个模型或知识库锁定。</p></div>
-    <div class="core-cards reveal">
-      <article class="core-card identity-card"><span class="core-code">01 / IDENTITY</span><h3 data-i18n="coreIdentityTitle">人员身份核心</h3><p data-i18n="coreIdentityBody">解决“谁在说”。将会议机中的声音连接到真实人员、多语言姓名和组织节点。</p><ul><li data-i18n="coreIdentity1">发言人分离与跨会议声纹</li><li data-i18n="coreIdentity2">试听、候选、人工锁与撤销</li><li data-i18n="coreIdentity3">国际化姓名与首选显示名</li><li data-i18n="coreIdentity4">图形化组织架构</li></ul></article>
-      <article class="core-card evidence-card"><span class="core-code">02 / EVIDENCE</span><h3 data-i18n="coreEvidenceTitle">多模态证据核心</h3><p data-i18n="coreEvidenceBody">解决“依据是什么”。结论连接逐字稿、播放时间和当时展示的页面。</p><ul><li data-i18n="coreEvidence1">语音、逐字稿和页面统一时间线</li><li data-i18n="coreEvidence2">决定、提议与风险保持表达强度</li><li data-i18n="coreEvidence3">会议脉络与屏幕画面联动</li><li data-i18n="coreEvidence4">证据过期与待核实状态可见</li></ul></article>
-      <article class="core-card knowledge-card"><span class="core-code">03 / CONTEXT</span><h3 data-i18n="coreKnowledgeTitle">可携带上下文核心</h3><p data-i18n="coreKnowledgeBody">解决“下一步交给谁使用”。同一事实可以投影为离线 Viewer、通用模型 Markdown 或知识库文档。</p><ul><li data-i18n="coreKnowledge1">单文件 AI Context，保留时间与证据</li><li data-i18n="coreKnowledge2">无需模型的 MeetingPack 核听查看器</li><li data-i18n="coreKnowledge3">轻量与图文知识库投影</li><li data-i18n="coreKnowledge4">按 revision 更新 WeKnora，不绑定消费端</li></ul></article>
+  <section id="verify" class="content-section verify-section" data-product-section>
+    <div class="section-shell">
+      <div class="section-heading"><span class="section-index" data-i18n="verifyIndex">02 · 核对事实</span><h2 data-i18n="verifyTitle">每一条重要结论，都能回到原始证据。</h2><p data-i18n="verifyBody">会议决定、风险、行动项和视频中的产品信息，不只是无来源的摘要。打开依据，立即看到谁说了什么、发生在什么时间，以及当时展示了什么。</p></div>
+      <div class="evidence-workbench">
+        <article class="claim-card"><small data-i18n="meetingConclusion">会议结论</small><h3 data-i18n="verifyClaim">试点发布仍以十月为目标，等待供应商验证。</h3><button class="evidence-button" type="button" data-verify-toggle aria-expanded="false"><span data-i18n="viewEvidence">查看依据</span><b>42:18</b></button><p class="trust-note" data-i18n="proposalBoundary">提议不会被自动写成决定。画面出现某项内容，也不等于会议已经确认。</p></article>
+        <div class="evidence-source" data-verify-source data-i18n-aria="evidenceSourceAria" aria-label="人物、逐字稿、时间与画面的证据关系"><div class="source-person"><span>MC</span><b>Maya Chen</b><time>42:18</time></div><blockquote data-i18n="verifyTranscript">“试点发布仍以十月为目标，前提是供应商验证通过。”</blockquote><div class="source-screen"><span data-i18n="sharedScreen">共享画面</span><b data-i18n="supplierValidation">供应商验证</b><em data-i18n="pendingStatus">状态：待确认</em></div></div>
+      </div>
+      <div class="evidence-paths"><p><b data-i18n="meetingEvidencePath">会议证据链</b><span data-i18n="meetingEvidenceSteps">会议结论 → 发言人 → 原始逐字稿 → 播放时间 → 共享画面</span></p><p><b data-i18n="videoEvidencePath">视频证据链</b><span data-i18n="videoEvidenceSteps">产品信息 → 讲解原文 → 原视频片段 → 播放时间 → 关键画面</span></p></div>
     </div>
-    <div class="capability-strip reveal"><article><b data-i18n="capabilityMediaTitle">会议 + 媒体</b><span data-i18n="capabilityMediaBody">本地文件、Teams DOCX/VTT、公开视频链接共用分析内核，按场景调整叙事。</span></article><article><b data-i18n="capabilityProgressTitle">渐进 + 可恢复</b><span data-i18n="capabilityProgressBody">当前步骤、已可用结果和可信 ETA 一眼可见；失败默认从最近检查点继续，不重复前面的工作。</span></article><article><b data-i18n="capabilityResourceTitle">资源保护</b><span data-i18n="capabilityResourceBody">会议、知识库与本地模型共享内存护栏，重阶段自动收缩，避免整机 OOM。</span></article></div>
-  </div></section>
-
-  <section class="journey-section section-shell"><div class="section-heading reveal"><div><span class="section-index">04 · USER JOURNEY</span><h2 data-i18n="journeyTitle">从来源整理，到核听，再到自由交付</h2></div><p data-i18n="journeyBody">已有 DOCX/VTT 可以直接进入，ASR、说话人和 VL 是可替换的本地增强；稳定核心是身份、证据与供应商中立的导出。</p></div><ol class="journey reveal"><li><span>01</span><b data-i18n="journey1Title">导入来源</b><small data-i18n="journey1Body">会议文件 · 已有文稿 · 媒体链接</small></li><li><span>02</span><b data-i18n="journey2Title">可选增强</b><small data-i18n="journey2Body">ASR · 人员 · 画面</small></li><li><span>03</span><b data-i18n="journey3Title">形成事实</b><small data-i18n="journey3Body">决定 · 提议 · 行动 · 风险</small></li><li><span>04</span><b data-i18n="journey4Title">阅读核听</b><small data-i18n="journey4Body">脉络 · 原文 · 翻译 · 回放</small></li><li><span>05</span><b data-i18n="journey5Title">确认修正</b><small data-i18n="journey5Body">身份 · 原文 · 结论 · 证据</small></li><li><span>06</span><b data-i18n="journey6Title">导出上下文</b><small data-i18n="journey6Body">Viewer · AI Context · KB</small></li></ol></section>
-
-  <section id="experience" class="experience-section"><div class="section-shell experience-grid">
-    <div class="experience-copy reveal"><span class="section-index">05 · READING EXPERIENCE</span><h2 data-i18n-html="experienceTitle">真正花时间的是核听，<br>所以证据始终在场。</h2><p data-i18n="experienceBody">播放器、人物时间轴、逐字稿、纪要和屏幕画面保持在同一上下文。AI 是辅助层，不会遮住正文，也不会未经确认修改正式记录。</p><div class="experience-list"><article><b data-i18n="experience1Title">证据不离场</b><span data-i18n="experience1Body">点击纪要依据，直接回到原话、录音和共享页面。</span></article><article><b data-i18n="experience2Title">关注说话人</b><span data-i18n="experience2Body">选择人员、仅听此人、上一段、重播与下一段，快速核对关键发言。</span></article><article><b data-i18n="experience3Title">多语言阅读</b><span data-i18n="experience3Body">界面、纪要、脉络、画面与逐字稿可在中文、English 和对照间切换。</span></article><article><b data-i18n="experience4Title">离线也能核证</b><span data-i18n="experience4Body">收件人无需模型，解压 MeetingPack 即可阅读、播放和回证。</span></article></div></div>
-    <div class="workspace-mock reveal" data-i18n-aria="workspaceMockAria" aria-label="会议阅读工作台示意"><div class="mock-top"><span></span><span></span><span></span><b data-i18n="mockTitle">会议阅读工作台</b><small data-i18n="mockStatus">资料可阅读 · 证据可核证</small></div><div class="mock-body"><aside><div class="mock-player"><i></i><b>18:42 / 49:56</b></div><div class="mock-timeline"><i></i></div><div class="mock-turn active"><small>18:42</small><b data-i18n="realPersonA">真实人员 A</b><span></span><span></span></div><div class="mock-turn"><small>19:08</small><b data-i18n="realPersonB">真实人员 B</b><span></span><span></span></div><div class="mock-turn"><small>19:36</small><b data-i18n="realPersonA">真实人员 A</b><span></span><span></span></div></aside><section><nav><b data-i18n="minutesTab">会议纪要</b><span data-i18n="auditTab">核对关键结论</span></nav><h4 data-i18n="mockConfirmed">本次确认事项</h4><p></p><p></p><h4 data-i18n="mockActions">行动项与负责人</h4><p></p><p class="short"></p><div class="evidence-pill" data-i18n="mockEvidence">依据 · 18:42</div></section><div class="mock-rail"><header><b data-i18n="aiChat">AI 对话</b><span data-i18n="evidence">证据</span></header><p data-i18n="mockQuestion1">这次确认了什么？</p><p data-i18n="mockQuestion2">有哪些行动项和负责人？</p><div class="mock-answer"><i></i><i></i><i></i><small data-i18n="mockAnswer">回答附带可点击来源</small></div></div></div></div>
-  </div></section>
-
-  <section id="architecture" class="architecture-section section-shell">
-    <div class="section-heading reveal"><div><span class="section-index">06 · ARCHITECTURE</span><h2 data-i18n="architectureTitle">本地优先、供应商中立的上下文架构</h2></div><p data-i18n="architectureBody">ASR、文本模型、VL 与知识库通过 provider/adapter 接入；canonical 事实、稳定 ID、revision 和导出投影由确定性代码管理。处理端和消费端都可以替换。</p></div>
-    <div class="architecture-map reveal"><div class="arch-layer input-layer"><header><span>01</span><b data-i18n="archInputTitle">内容输入层</b></header><div><i data-i18n="archAudio">音频</i><i data-i18n="archVideo">视频</i><i>VTT/DOCX</i><i data-i18n="archPhotos">现场资料</i><i data-i18n="archUrl">媒体链接</i></div></div><span class="arch-arrow">↓</span><div class="arch-layer process-layer"><header><span>02</span><b>Optional Enrichment</b></header><div><i>ASR</i><i data-i18n="archDiarization">发言人分离</i><i data-i18n="archVoiceprint">声纹</i><i data-i18n="archFrames">页面/镜头</i><i data-i18n="archVisual">VL 理解</i></div></div><span class="arch-arrow">↓</span><div class="arch-highlight"><header><span>CORE A</span><b>Meeting Identity Core</b><small>Voice ID → Person ID → Org Node</small></header><div><i data-i18n="archVoiceEvidence">声音证据</i><i data-i18n="archTypedNames">类型化姓名</i><i data-i18n="archHumanConfirm">人工确认</i><i data-i18n="archOrg">组织关系</i></div></div><span class="arch-arrow">↓</span><div class="arch-split"><div class="arch-layer"><header><span>CORE B</span><b>Evidence Core</b></header><div><i>Turn ID</i><i>Page ID</i><i>Claim ID</i><i>Revision</i></div></div><div class="arch-layer"><header><span>CORE C</span><b>Portable Context</b></header><div><i>Facts</i><i>Minutes</i><i>Topic Map</i><i>Source Contract</i></div></div></div><span class="arch-arrow">↓</span><div class="arch-layer output-layer"><header><span>05</span><b data-i18n="archOutputTitle">使用与交付层</b></header><div><i data-i18n="archWorkspace">在线工作台</i><i>MeetingPack</i><i>AI Context</i><i>KB / WeKnora</i></div></div></div>
-    <div class="architecture-notes reveal"><article><span data-i18n="archNote1Title">确定性事实层</span><p data-i18n="archNote1Body">逐字稿、人员、页面、事实、纪要和 evidence 以 revision 关联，派生内容失效可见。</p></article><article><span data-i18n="archNote2Title">可移植模型边界</span><p data-i18n="archNote2Body">支持本地或兼容端点；特殊 Context 能力可降级，默认不会静默把私有内容发往远端。</p></article><article><span data-i18n="archNote3Title">统一资源调度</span><p data-i18n="archNote3Body">会议、知识库与模型共用内存准入；重任务串行、检查点恢复、急件安全插队。</p></article></div>
   </section>
 
-  <section id="trust" class="trust-section"><div class="section-shell trust-grid"><div class="trust-copy reveal"><span class="section-index">07 · TRUST BY DESIGN</span><h2 data-i18n-html="trustTitle">可信不是一句承诺，<br>而是一组产品边界。</h2><p data-i18n="trustBody">系统主动暴露证据不足、匹配不确定、内容过期和处理失败，而不是用流畅结果掩盖风险。</p></div><div class="trust-rules reveal"><article><span>LOCAL</span><div><b data-i18n="trust1Title">默认本地运行</b><p data-i18n="trust1Body">ASR、VL、纪要与检索默认使用本机和 loopback 端点。</p></div></article><article><span>HUMAN</span><div><b data-i18n="trust2Title">模糊身份不自动写入</b><p data-i18n="trust2Body">相似姓名和声纹只给候选，由试听与人工确认完成绑定。</p></div></article><article><span>PROOF</span><div><b data-i18n="trust3Title">页面不能单独证明决定</b><p data-i18n="trust3Body">职级和 PPT 只提供语境，结论仍需会议发言证据。</p></div></article><article><span>STATE</span><div><b data-i18n="trust4Title">状态诚实可见</b><p data-i18n="trust4Body">语音草稿、待复核终稿、处理中快照和正式版不会混成同一状态。</p></div></article><article><span>SHARE</span><div><b data-i18n="trust5Title">离线分享不要求模型</b><p data-i18n="trust5Body">MeetingPack 收件人可以直接阅读、播放并核对来源。</p></div></article><article><span>RESOURCE</span><div><b data-i18n="trust6Title">保护机器，也保护进度</b><p data-i18n="trust6Body">低内存先卸载与等待，任务资产和检查点保留，不让桌面随模型一起崩溃。</p></div></article></div></div></section>
+  <section id="correct" class="content-section section-shell correction-section" data-product-section>
+    <div class="section-heading"><span class="section-index" data-i18n="correctIndex">03 · 修正来源</span><h2 data-i18n="correctTitle">发现错误，不必从头再来。</h2><p data-i18n="correctBody">改正人物、逐字稿或产品术语后，系统同步相关结果。已经完成的画面分析在条件允许时继续复用，其他内容在后台更新；操作可以预览，也可以撤销。</p></div>
+    <div class="correction-demo" data-correction-demo>
+      <div class="correction-source"><small data-i18n="sourceCanChange">来源可以修改</small><p><del>supply validation</del><ins>supplier validation</ins></p></div><span class="flow-arrow" aria-hidden="true">→</span>
+      <div class="correction-result"><small data-i18n="resultCanSync">结果可以同步</small><p data-i18n="correctionResult">纪要和信息摘要正在同步新术语。</p><span><i></i><em data-i18n="visualReused">画面资料已复用</em></span><span><i></i><em data-i18n="backgroundUpdating">其他内容正在后台更新</em></span></div><span class="flow-arrow" aria-hidden="true">→</span>
+      <div class="correction-undo"><small data-i18n="actionCanUndo">操作可以撤销</small><button type="button" data-correction-toggle data-i18n="undo">撤销</button><p data-correction-status aria-live="polite" data-i18n="changePreviewed">更改已预览，尚可撤销。</p></div>
+    </div>
+    <p class="section-footnote" data-i18n="correctionBoundary">系统会明确说明哪些结果已经更新、哪些仍在同步，不会把旧结果继续当作最新结果。</p>
+  </section>
 
-  <section class="roadmap-section section-shell"><div class="section-heading reveal"><div><span class="section-index">08 · PRODUCT MATURITY</span><h2 data-i18n="maturityTitle">当前已经形成完整单会议闭环</h2></div><p data-i18n="maturityBody">先把人、事实和证据做可靠，再扩展协作与跨会议利用；不以模板数量或自动生成长度代替质量。</p></div><div class="roadmap-grid reveal"><article class="ready"><span data-i18n="nowLabel">NOW · 已可使用</span><ul><li data-i18n="now1">会议机多人身份、逐字稿、画面与现场资料融合</li><li data-i18n="now2">双语阅读、证据回跳、流式问答与可逆修改</li><li data-i18n="now3">MeetingPack 与按修订一键发布知识库</li></ul></article><article class="building"><span data-i18n="operatingLabel">OPERATING MODEL · 当前工程边界</span><ul><li data-i18n="operating1">Meeting / Media 共用分析核心，不复制流水线</li><li data-i18n="operating2">Web / Viewer / KB 是同一 canonical 数据的投影</li><li data-i18n="operating3">模型供应商、GPU 与操作系统通过适配层隔离</li></ul></article><article class="future"><span data-i18n="nextLabel">NEXT · 下一阶段</span><ul><li data-i18n="next1">跨会议搜索、对比和行动项生命周期</li><li data-i18n="next2">局域网服务、会议级权限与团队交付</li><li data-i18n="next3">处理耗时基线与恢复策略持续校准</li></ul></article></div></section>
+  <section id="reuse" class="content-section reuse-section" data-product-section>
+    <div class="section-shell">
+      <div class="section-heading"><span class="section-index" data-i18n="reuseIndex">04 · 继续使用</span><h2 data-i18n="reuseTitle">核对过的会议和视频，可以继续交给下一步。</h2><p data-i18n="reuseBody">同一份可信来源可以交给同事、常用 AI 或知识库。使用方式不同，但人物、时间和证据不会随着导出而丢失。</p></div>
+      <div class="context-flow"><div class="verified-context"><span>✓</span><b data-i18n="verifiedContext">已核对内容</b><small data-i18n="verifiedContextBody">人物 · 时间 · 原文 · 画面 · 结论</small></div><div class="context-line" aria-hidden="true"></div>
+        <div class="destination-grid"><article><small data-i18n="forColleague">给同事</small><h3>MeetingPack</h3><p data-i18n="meetingPackBody">无需模型或在线服务，也能阅读、播放和核对来源。</p></article><article><small data-i18n="forAi">给常用 AI</small><h3>AI Context</h3><p data-i18n="aiContextBody">将逐字稿、画面说明、结论和来源约束放入可携带文件。</p></article><article><small data-i18n="forKnowledge">进入知识库</small><h3>Knowledge Base &amp; RAG</h3><p data-i18n="knowledgeBody">在获准内容中继续搜索，并随时返回原始会议或视频核对。</p></article></div>
+      </div>
+    </div>
+  </section>
 
-  <section class="final-cta"><div class="section-shell reveal"><span class="section-index">MEETING → PORTABLE CONTEXT</span><h2 data-i18n-html="finalTitle">让每一个声音有身份，<br>让完整上下文可以被带走。</h2><p data-i18n="finalBody">先核对人员、原话和证据，再把结果交给同事、任意模型或知识库。</p><a class="primary-link fluent-button" href="/"><span data-i18n="openWorkspace">打开会议工作台</span> <i>→</i></a></div></section>
+  <section id="use-cases" class="content-section section-shell use-cases-section" data-product-section>
+    <div class="section-heading"><span class="section-index" data-i18n="useCasesIndex">05 · 使用场景</span><h2 data-i18n="useCasesTitle">一个核心流程，三个阶段性场景。</h2><p data-i18n="useCasesBody">先把会议回顾做深，再验证视频理解与知识复用。成熟度反映当前证据，不把工作原型包装成生产系统。</p></div>
+    <div class="maturity-grid"><article><span class="maturity-state validated" data-maturity="validated" data-i18n="validated">已真实验证</span><h3 data-i18n="meetingReviewTitle">会议回顾与汇报准备</h3><p data-i18n="meetingReviewBody">按关键人物和议题回听，核对决定、风险、负责人和原始证据。</p></article><article><span class="maturity-state working" data-maturity="working" data-i18n="workingPoc">工作原型</span><h3 data-i18n="videoUseTitle">发布会、产品讲解与第一手视频</h3><p data-i18n="videoUseBody">按主题整理讲解、片段和关键画面，形成可查阅、可引用的产品上下文。</p></article><article><span class="maturity-state early" data-maturity="early" data-i18n="earlyValidation">早期验证</span><h3 data-i18n="knowledgeUseTitle">个人或团队知识库</h3><p data-i18n="knowledgeUseBody">将核对后的会议和视频材料用于搜索与 RAG，检索质量和团队边界仍需系统评测。</p></article></div>
+    <p class="poc-boundary" data-i18n="pocBoundary">当前为单机或受控环境 PoC，不是正式多人生产服务。</p>
+  </section>
+
+  <section id="trust" class="trust-final-section" data-product-section>
+    <div class="section-shell trust-content">
+      <div class="section-heading"><span class="section-index" data-i18n="trustIndex">06 · 可信边界</span><h2 data-i18n="trustTitle">重要内容需要的不只是智能，还需要边界。</h2><p data-i18n="trustBody">产品不会用流畅结果掩盖不确定性。人物、来源、处理状态和失败影响都应该清楚可见。</p></div>
+      <div class="trust-principles"><article><span>01</span><div><h3 data-i18n="trustLocalTitle">默认本机处理</h3><p data-i18n="trustLocalBody">内容留在本机或显式批准的服务边界内。</p></div></article><article><span>02</span><div><h3 data-i18n="trustHumanTitle">人物由人确认</h3><p data-i18n="trustHumanBody">系统可以给出建议，但不会静默写入模糊身份。</p></div></article><article><span>03</span><div><h3 data-i18n="trustEvidenceTitle">结论回到来源</h3><p data-i18n="trustEvidenceBody">重要结论可以返回原话、时间和当时画面。</p></div></article><article><span>04</span><div><h3 data-i18n="trustRecoveryTitle">中断后继续处理</h3><p data-i18n="trustRecoveryBody">已有结果和检查点会被保留，不必每次从头开始。</p></div></article></div>
+    </div>
+    <div class="final-cta"><div class="section-shell"><span data-i18n="finalEyebrow">MEETING &amp; VIDEO → VERIFIED CONTEXT</span><h2 data-i18n="finalTitle">下一次，从真正重要的地方开始。</h2><p data-i18n="finalBody">无论是一场会议，还是一段产品视频，先找到关键人物、议题和结论，再决定如何核证、分享和继续使用。</p><div class="final-actions"><a class="final-primary" href="/" data-i18n="openWorkspace">打开工作台</a><a href="#find" data-i18n="reviewFlow">回到产品流程</a></div></div></div>
+  </section>
 </main>
 
-<footer class="product-footer section-shell"><div><b>Meeting Intelligence</b><span data-i18n="footerTagline">本地优先 · 人员身份感知 · 证据原生</span></div><nav><a href="/" data-i18n="footerWorkspace">会议工作台</a><a href="/admin" data-i18n="footerAdmin">人员与组织设置</a><a href="#overview" data-i18n="footerTop">返回顶部</a></nav></footer>
+<footer class="product-footer section-shell">
+  <div><b>Meeting Context</b><span>Meeting &amp; Video Review</span></div>
+  <nav><a href="https://github.com/JohnnyBGoodeLithium/Local-Video-Meeting-Minutes/blob/main/docs/reporting/TECHNICAL_BRIEF.md" data-i18n="technicalBrief">技术实现与数据边界</a><a href="#overview" data-i18n="backToTop">返回顶部</a></nav>
+</footer>
 <script type="module" src="/static/product.js?v=20260831p109"></script>
 </body>
 </html>
