@@ -43,7 +43,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ffmpeg poppler-utils
+          sudo apt-get install -y --no-install-recommends ffmpeg fonts-noto-cjk poppler-utils
 
       - name: Create virtual environment
         run: |
@@ -61,6 +61,8 @@ jobs:
           command -v google-chrome \
             || command -v chromium \
             || command -v chromium-browser
+          fc-match "Noto Sans CJK SC" | grep -qi "NotoSansCJK"
+          fc-match "Noto Serif CJK SC" | grep -qi "NotoSerifCJK"
 
       - name: Run checks
         env:

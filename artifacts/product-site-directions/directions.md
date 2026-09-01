@@ -57,7 +57,7 @@ Evidence Needle：唯一的红色证据针贯穿时间线并落到时间码。�
 
 ### Typography
 
-- 中文展示：系统宋体优先（`Songti SC / STSong / SimSun`），正常字宽和 `0.015em` 字距，行高 `1.2`。
+- 中文展示：系统宋体优先（`Songti SC / STSong / Noto Serif CJK SC / SimSun`），正常字宽和 `0.015em` 字距，行高 `1.2`。
 - 英文展示：`Georgia`，紧凑字距 `-0.035em`，行高 `1.07`。
 - 正文：系统无衬线；中文 `16px / 1.75`，英文 `16–17px / 1.65`。
 - 时间码：系统等宽字体，不使用印章式全大写。

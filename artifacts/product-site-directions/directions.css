@@ -144,7 +144,7 @@ button:focus-visible, a:focus-visible { outline: 3px solid currentColor; outline
 [data-direction="dossier"] .hero { padding-top: 88px; }
 [data-direction="dossier"] .thesis { display: block; position: relative; padding-left: 8%; }
 [data-direction="dossier"] .thesis .kicker { margin: 0 0 22px; }
-[data-direction="dossier"] h1, [data-direction="dossier"] h2 { font-family: Georgia, "Songti SC", STSong, SimSun, serif; font-weight: 600; }
+[data-direction="dossier"] h1, [data-direction="dossier"] h2 { font-family: Georgia, "Songti SC", STSong, "Noto Serif CJK SC", SimSun, serif; font-weight: 600; }
 [data-direction="dossier"] h1 { max-width: 940px; font-size: clamp(48px, 5vw, 66px); line-height: 1.07; letter-spacing: -.035em; }
 [data-direction="dossier"][lang="zh-CN"] h1 { max-width: 790px; font-size: clamp(46px, 4.6vw, 60px); line-height: 1.2; letter-spacing: .015em; }
 [data-direction="dossier"] .lead { max-width: 610px; margin: 34px 0 0 38%; color: #526176; font-size: 17px; line-height: 1.75; }
@@ -166,7 +166,7 @@ button:focus-visible, a:focus-visible { outline: 3px solid currentColor; outline
 [data-direction="dossier"] .evidence-needle time { color: var(--annotation); }
 [data-direction="dossier"] .hero-claim { grid-column: 2; padding: 24px 34px 10px 36px; }
 [data-direction="dossier"] .hero-claim small, [data-direction="dossier"] .hero-frame small { color: #69788c; }
-[data-direction="dossier"] .hero-claim p { max-width: 560px; font-family: Georgia, "Songti SC", STSong, SimSun, serif; font-size: 24px; line-height: 1.45; }
+[data-direction="dossier"] .hero-claim p { max-width: 560px; font-family: Georgia, "Songti SC", STSong, "Noto Serif CJK SC", SimSun, serif; font-size: 24px; line-height: 1.45; }
 [data-direction="dossier"] [data-evidence-toggle] { color: var(--annotation); }
 [data-direction="dossier"] .hero-frame { grid-column: 3; padding: 24px 0 10px 32px; border-left: 1px solid var(--margin); }
 [data-direction="dossier"] .hero-frame > b { font-size: 18px; }.hero-frame > span > i { background: var(--annotation); }
@@ -180,11 +180,11 @@ button:focus-visible, a:focus-visible { outline: 3px solid currentColor; outline
 [data-direction="dossier"] .evidence-composition::before { position: absolute; top: 29px; bottom: 52px; left: calc(27% - 15px); width: 17px; border-top: 2px solid var(--annotation); border-bottom: 2px solid var(--annotation); border-left: 2px solid var(--annotation); content: ""; }
 [data-direction="dossier"] .evidence-claim, [data-direction="dossier"] .source-audio, [data-direction="dossier"] .source-visual { padding: 22px 26px; }
 [data-direction="dossier"] .evidence-claim { padding-left: 0; border-right: 1px solid var(--margin); }
-[data-direction="dossier"] .evidence-claim h3 { font-family: Georgia, "Songti SC", STSong, SimSun, serif; font-size: 21px; line-height: 1.52; }
+[data-direction="dossier"] .evidence-claim h3 { font-family: Georgia, "Songti SC", STSong, "Noto Serif CJK SC", SimSun, serif; font-size: 21px; line-height: 1.52; }
 [data-direction="dossier"] .source-audio { padding-left: 44px; border-right: 1px solid var(--margin); }
 [data-direction="dossier"] .source-audio .avatar { background: #dcefe8; color: var(--stamp); }
 [data-direction="dossier"] .waveform i { background: var(--stamp); }
-[data-direction="dossier"] .source-audio blockquote { padding: 17px 0 0; border-top: 1px solid var(--margin); font-family: Georgia, "Songti SC", STSong, SimSun, serif; font-size: 17px; line-height: 1.72; }
+[data-direction="dossier"] .source-audio blockquote { padding: 17px 0 0; border-top: 1px solid var(--margin); font-family: Georgia, "Songti SC", STSong, "Noto Serif CJK SC", SimSun, serif; font-size: 17px; line-height: 1.72; }
 [data-direction="dossier"] .screen-lines i { background: #dce3eb; }
 [data-direction="dossier"] .source-visual > span > i { background: var(--annotation); }
 [data-direction="dossier"] .evidence-label { grid-column: 1 / 4; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--margin); color: #5c6b7e; }
