@@ -37,7 +37,11 @@ def main() -> int:
         return 0
     base = os.environ.get("MM_TEST_BASE", "http://127.0.0.1:8899")
     capture_dir = os.environ.get("MM_WORKSPACE_SCREENSHOT_DIR", "").strip()
-    with tempfile.TemporaryDirectory(prefix="mm-chromium-workspace-") as tmp:
+    # Chromium children can finish touching the profile just after the parent exits.
+    # The browser assertions must remain strict; only this runner-cleanup race is ignored.
+    with tempfile.TemporaryDirectory(
+        prefix="mm-chromium-workspace-", ignore_cleanup_errors=True,
+    ) as tmp:
         profile = Path(tmp)
         process = subprocess.Popen([
             CHROME, "--headless=new", "--disable-gpu", "--no-sandbox",
