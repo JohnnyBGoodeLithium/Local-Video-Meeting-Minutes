@@ -209,31 +209,36 @@ if chrome:
         chrome, "--headless=new", "--disable-gpu", "--no-sandbox",
         "--window-size=1600,900", "--virtual-time-budget=8000", "--dump-dom", BASE,
     ], capture_output=True, text=True, timeout=90)
+    browser_build_present = "20260831p109" in browser.stdout
+    browser_active_present = 'class="meeting-item active"' in browser.stdout
+    browser_transcript_present = 'id="turn-0"' in browser.stdout
+    browser_minutes_present = 'id="minutes-heading-0"' in browser.stdout
+    browser_uncaught = "Uncaught" in browser.stderr
     check("在线工作台 ES modules 在 Headless Chromium 完整启动",
-          browser.returncode == 0 and "20260831p109" in browser.stdout
-          and 'class="meeting-item active"' in browser.stdout
-          and 'id="turn-0"' in browser.stdout
-          and 'id="minutes-heading-0"' in browser.stdout
-          and "Uncaught" not in browser.stderr,
-          f"rc={browser.returncode}, build={'20260831p109' in browser.stdout}, "
-          f"active={'class=\"meeting-item active\"' in browser.stdout}, "
-          f"transcript={'id=\"turn-0\"' in browser.stdout}, "
-          f"minutes={'id=\"minutes-heading-0\"' in browser.stdout}, "
-          f"uncaught={'Uncaught' in browser.stderr}, stderr={browser.stderr[-500:]!r}")
+          browser.returncode == 0 and browser_build_present
+          and browser_active_present and browser_transcript_present
+          and browser_minutes_present and not browser_uncaught,
+          f"rc={browser.returncode}, build={browser_build_present}, "
+          f"active={browser_active_present}, "
+          f"transcript={browser_transcript_present}, "
+          f"minutes={browser_minutes_present}, "
+          f"uncaught={browser_uncaught}, stderr={browser.stderr[-500:]!r}")
     product_browser = subprocess.run([
         chrome, "--headless=new", "--disable-gpu", "--no-sandbox",
         "--window-size=1440,1000", "--virtual-time-budget=5000", "--dump-dom",
         f"{BASE}/product",
     ], capture_output=True, text=True, timeout=90)
+    product_language_present = 'data-ui-language="zh-CN"' in product_browser.stdout
+    product_version_present = f'>v{PRODUCT_VERSION}</em>' in product_browser.stdout
+    product_uncaught = "Uncaught" in product_browser.stderr
     check("产品介绍 ES module 在 Headless Chromium 完整启动",
           product_browser.returncode == 0
-          and 'data-ui-language="zh-CN"' in product_browser.stdout
-          and f'>v{PRODUCT_VERSION}</em>' in product_browser.stdout
-          and "Uncaught" not in product_browser.stderr,
+          and product_language_present and product_version_present
+          and not product_uncaught,
           f"rc={product_browser.returncode}, "
-          f"language={'data-ui-language=\"zh-CN\"' in product_browser.stdout}, "
-          f"version={f'>v{PRODUCT_VERSION}</em>' in product_browser.stdout}, "
-          f"uncaught={'Uncaught' in product_browser.stderr}, "
+          f"language={product_language_present}, "
+          f"version={product_version_present}, "
+          f"uncaught={product_uncaught}, "
           f"stderr={product_browser.stderr[-500:]!r}")
     correction_browser = subprocess.run([
         str(Path(__file__).resolve().parent.parent.parent / ".venv/bin/python"),

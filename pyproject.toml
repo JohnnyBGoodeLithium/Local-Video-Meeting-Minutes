@@ -11,6 +11,7 @@ requires-python = ">=3.11"
 dependencies = [
   "aiofiles>=23",
   "fastapi>=0.110",
+  "linkify-it-py>=2.0",
   "markdown-it-py>=3",
   "python-multipart>=0.0.9",
   "uvicorn>=0.29",
@@ -18,6 +19,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+ci = [
+  "numpy>=1.26",
+  "Pillow>=10",
+  "soundfile>=0.12",
+]
+
 pipeline = [
   "numpy>=1.26",
   "Pillow>=10",

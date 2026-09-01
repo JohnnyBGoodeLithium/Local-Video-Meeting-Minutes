@@ -32,10 +32,12 @@ with tempfile.TemporaryDirectory(prefix="meeting-photos-test-") as temp:
     make_image(second, (220, 230, 245), "2026:08:28 10:08:30")
     make_image(no_time, (210, 220, 210))
 
+    # EXIF DateTimeOriginal and the browser's datetime-local value are both
+    # wall-clock timestamps without a timezone; keep the synthetic fixture equivalent.
     result = photos.import_photos(
         meeting, [(first, "Whiteboard.jpg"), (second, "Paper.png")],
         mode="capture_time", duration=3600,
-        meeting_start_iso="2026-08-28T10:00:00+08:00")
+        meeting_start_iso="2026-08-28T10:00:00")
     assert [item["id"] for item in result["imported"]] == ["F0001", "F0002"]
     assert result["imported"][0]["alignment"] == {
         "seconds": 300.0, "state": "suggested",
