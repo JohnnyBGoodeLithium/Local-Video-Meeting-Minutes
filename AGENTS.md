@@ -56,14 +56,17 @@
 - 诊断请求默认只读；用户要求修复或构建时才写入。不得用 `git reset --hard` 或其他破坏性命令清理工作区。
 - Commit 使用 `OpenAI Codex <codex@openai.com>`。提交正文说明用户变化、根因/边界、验证和剩余限制；可独立验证的变更及时提交，不在本地长期堆积。
 - 推送前确认目标远端和公开/私有边界；对公开远端的敏感风险必须再次核对。版本发布按 `docs/runbooks/RELEASES.md` 执行。
+- 代码修改默认从最新 `main` 建 feature branch，经 Pull Request 和 GitHub hosted `check-and-smoke` 后合并；CI 失败不得绕过。`main` 的 branch protection/ruleset 由仓库管理员维护。
 
-验证按风险选择：
+验证分三层并按风险选择：
 
-- Python/JS/文档变更：相关专项测试、`make check`、`git diff --check`。
-- Web、路由、HTML、JS 或用户界面：再运行 `make smoke` 与相关 Headless Chromium 旅程。
-- Viewer：生成虚构包并验证无服务启动、主要 DOM、播放/时间码和语言切换。
-- GPU/provider：运行 `make doctor` 和目标专项测试；只有明确需要时执行真实模型测试。
-- 纯文档重构且未改 UI/服务代码：无需消耗 GPU 跑完整 smoke，但最终报告必须说明。
+- 开发中先运行与改动直接相关的专项测试，缩短反馈时间。
+- 提交 Pull Request 前至少运行 `make check`；Web、路由、HTML、JS、Viewer、导出、schema、人物核对、进度恢复或 smoke 本身有变化时，本地还应先运行 `make smoke`。
+- GitHub Actions 在 hosted runner 上运行完整 `make check + make smoke`，并把 `check-and-smoke` 作为合并门禁；CI 只使用虚构数据、dry-run、fake WeKnora 和 lexical RAG，不安装模型或访问本机服务。浏览器缺失必须失败，不能把 Headless Chromium 旅程静默跳过。
+- Viewer 改动还要生成虚构包并验证无服务启动、主要 DOM、播放/时间码和语言切换。
+- GPU/provider 改动在目标机器运行 `make doctor` 和专项测试；真实 ASR、说话人、VL、WeKnora 与统一内存行为只在 Lenovo 设备或其他获准环境做发布前验证。
+- 纯文档重构且未改 UI/服务代码无需消耗 GPU 跑完整本机 smoke，但 GitHub CI 仍执行仓库统一门禁，最终报告说明本地验证范围。
+- 公开仓库不得把办公 ThinkCentre 注册为可执行不可信 Pull Request 的 self-hosted runner。
 
 ## 文档唯一真源与更新矩阵
 

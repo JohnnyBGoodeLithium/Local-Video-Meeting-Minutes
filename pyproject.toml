@@ -18,6 +18,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+ci = [
+  "numpy>=1.26",
+  "Pillow>=10",
+  "soundfile>=0.12",
+]
+
 pipeline = [
   "numpy>=1.26",
   "Pillow>=10",
