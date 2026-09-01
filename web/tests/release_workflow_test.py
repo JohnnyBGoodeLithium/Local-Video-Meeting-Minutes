@@ -56,9 +56,12 @@ def main() -> int:
         "scripts/verify_release_bundle.py",
         "actions/upload-artifact@v7",
         "retention-days: 7",
+        "id: release-scope",
+        "git diff --quiet",
+        "steps.release-scope.outputs.full == 'true'",
+        "scripts/verify_release_bundle.py --full",
     ):
         require(ci, marker, str(ci_path))
-    assert "verify_release_bundle.py --full" not in ci.split("release-candidate:", 1)[1]
 
     dependabot_path = ROOT / ".github" / "dependabot.yml"
     dependabot = dependabot_path.read_text(encoding="utf-8")

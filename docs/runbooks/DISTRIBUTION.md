@@ -59,7 +59,8 @@ dirty 本地构建会在名称和 manifest 中明确标记，不能用于正式 
 
 ## 验证层级
 
-- 普通 PR 的 release-candidate：构建 dev bundle 并做结构、hash 与隐私边界验证。
+- 普通 PR 的 release-candidate：构建 dev bundle 并做结构、hash 与隐私边界验证；只有发布脚本、锁、
+  allowlist、Makefile 或 release workflow 发生变化时，才额外执行一次全新目录验证。
 - `make release-verify`：在全新临时目录中创建 venv，按 `ci.lock` 安装，运行 `package-check` 与 `make smoke`。
   `package-check` 保留包内可运行的 Python、Node、文档、静态资源和版本测试；只跳过 Git 工作区与未进入发布包的
   `.github` 仓库治理合同。

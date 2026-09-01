@@ -106,6 +106,47 @@ jobs:
       - name: Verify bundle structure
         run: python scripts/verify_release_bundle.py
 
+      - name: Detect release machinery changes
+        id: release-scope
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        shell: bash
+        run: |
+          if git diff --quiet "$BASE_SHA"...HEAD -- \
+            .github/workflows/release.yml \
+            Makefile \
+            pyproject.toml \
+            release/bundle-include.txt \
+            requirements/ \
+            scripts/build_release_bundle.py \
+            scripts/smoke_release_bundle.py \
+            scripts/verify_release_bundle.py; then
+            echo "full=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "full=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Node for full candidate verification
+        if: steps.release-scope.outputs.full == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          package-manager-cache: false
+
+      - name: Install full candidate system dependencies
+        if: steps.release-scope.outputs.full == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg poppler-utils
+          command -v google-chrome \
+            || command -v chromium \
+            || command -v chromium-browser
+
+      - name: Verify clean extraction and smoke for release changes
+        if: steps.release-scope.outputs.full == 'true'
+        run: python scripts/verify_release_bundle.py --full
+
       - name: Upload short-lived release candidate
         uses: actions/upload-artifact@v7
         with:
