@@ -34,7 +34,7 @@ export const EN_COPY = Object.freeze({
   heroStep2: "Review only the relevant moments.",
   heroStep3: "Return every conclusion to the source.",
   heroStepsAria: "Three main product actions",
-  heroTitle: "A two-hour meeting shouldn’t take two hours to review.",
+  heroTitle: "A two-hour meeting shouldn't take two hours to review.",
   keyConclusion: "Key conclusion",
   keyFrame: "Key frame",
   keyInformation: "Key information",
