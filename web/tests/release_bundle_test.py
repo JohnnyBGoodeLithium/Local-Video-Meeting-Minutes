@@ -45,6 +45,7 @@ def repository(root: Path, tag: str | None = None) -> Path:
     write(root, "private_reports/report.md")
     write(root, ".env", "TOKEN=fictional\n")
     write(root, "weights/model.gguf")
+    write(root, "release/authorized-tag.txt", "v0.15.1\n")
     write(root, "release/bundle-include.txt", """README.md
 README.zh-CN.md
 VERSION
@@ -54,6 +55,7 @@ pyproject.toml
 safe/**
 speaker_bank/*.template.json
 release/bundle-include.txt
+release/authorized-tag.txt
 """)
     command(root, "git", "add", ".")
     command(root, "git", "commit", "-qm", "synthetic fixture")
@@ -90,6 +92,7 @@ with tempfile.TemporaryDirectory(prefix="release-bundle-test-") as temp:
     assert "safe/app.py" in paths
     assert "safe/untracked.txt" not in paths
     assert "speaker_bank/orgchart.template.json" in paths
+    assert "release/authorized-tag.txt" in paths
     assert not any(path.startswith(("meetings/", "private_reports/", "weights/")) for path in paths)
     assert ".env" not in paths and "speaker_bank/private-voice.json" not in paths
     with zipfile.ZipFile(result["zip"]) as archive:

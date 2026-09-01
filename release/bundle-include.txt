@@ -22,6 +22,7 @@ scripts/build_release_bundle.py
 scripts/verify_release_bundle.py
 scripts/smoke_release_bundle.py
 release/bundle-include.txt
+release/authorized-tag.txt
 docs/INDEX.md
 docs/STATUS.md
 docs/PRODUCT.md

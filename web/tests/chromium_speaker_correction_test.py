@@ -114,13 +114,17 @@ class CDP:
         self.sock.close()
 
 
-def wait_file(path: Path, timeout: float = 10) -> None:
+def wait_devtools_port(path: Path, timeout: float = 10) -> int:
     deadline = time.time() + timeout
     while time.time() < deadline:
-        if path.is_file():
-            return
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+            if lines:
+                return int(lines[0])
+        except (FileNotFoundError, ValueError):
+            pass
         time.sleep(0.05)
-    raise RuntimeError("Chromium DevTools endpoint did not start")
+    raise RuntimeError("Chromium DevTools endpoint did not become readable")
 
 
 def main() -> int:
@@ -141,8 +145,7 @@ def main() -> int:
         ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         try:
             active = profile / "DevToolsActivePort"
-            wait_file(active)
-            port = int(active.read_text().splitlines()[0])
+            port = wait_devtools_port(active)
             deadline = time.time() + 10
             target = None
             while time.time() < deadline:

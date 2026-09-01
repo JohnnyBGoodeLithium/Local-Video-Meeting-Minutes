@@ -13,6 +13,13 @@
 
 重要的未发布用户变化才写入本节；普通实现细节留在 Git。
 
+## v0.15.3 — 2026-09-01
+
+- 修正正式 Application Release Bundle 的 allowlist，确保发布授权标记随制品进入全新目录验证。
+- 增加发布包必须包含授权标记的回归门禁，并修复 Headless Chromium 启动端口文件的瞬时读取竞态。
+- 保留失败的 `v0.15.2` tag 作为不可移动审计记录；该标签未产生 GitHub Release 或公开发布资产。
+- 产品 UI、canonical schema、`job-progress/v2`、模型管线和 RAG 行为保持不变。
+
 ## v0.15.2 — 2026-09-01
 
 - 仓库入口拆分为结构一致的完整英文与中文 README，并补充隐私安全、贡献、Pull Request 和 Issue 入口。

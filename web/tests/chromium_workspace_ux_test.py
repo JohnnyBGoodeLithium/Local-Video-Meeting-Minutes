@@ -17,7 +17,7 @@ import time
 import urllib.request
 from pathlib import Path
 
-from chromium_speaker_correction_test import CDP, wait_file
+from chromium_speaker_correction_test import CDP, wait_devtools_port
 
 
 CHROME = (shutil.which("chromium") or shutil.which("chromium-browser")
@@ -50,8 +50,7 @@ def main() -> int:
         ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         try:
             active = profile / "DevToolsActivePort"
-            wait_file(active)
-            port = int(active.read_text().splitlines()[0])
+            port = wait_devtools_port(active)
             target = None
             deadline = time.time() + 10
             while time.time() < deadline:

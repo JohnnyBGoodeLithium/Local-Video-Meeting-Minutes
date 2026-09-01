@@ -3,7 +3,7 @@
 English | [简体中文](README.zh-CN.md)
 
 <!-- maturity: controlled-single-machine-poc -->
-<!-- product-version: v0.15.2 -->
+<!-- product-version: v0.15.3 -->
 
 ## Overview
 
@@ -35,7 +35,7 @@ The default Web workflow runs on one controlled host. Local providers are prefer
 
 ## Current maturity
 
-Current product version: **v0.15.2**.
+Current product version: **v0.15.3**.
 
 | Area | Maturity | Current boundary |
 |---|---|---|
@@ -87,7 +87,7 @@ Local-first does not mean every configured provider is local. Remote endpoints a
 
 ## Release and installation status
 
-The current distribution model is a source checkout. The repository is being prepared to build a verified **Application Release Bundle** containing the application scripts, Web assets, prompts, deployment examples, locked lightweight dependencies, and required documentation.
+The current distribution models are a source checkout and a verified **Application Release Bundle** containing the application scripts, Web assets, prompts, deployment examples, locked lightweight dependencies, and required documentation.
 
 This is not a PyPI package. `pip install -e .` currently installs base dependencies and project metadata while the application continues to run from the repository or bundle directory. There is no stable public Python import API and no promise that a pip installation can be launched from an arbitrary directory.
 
