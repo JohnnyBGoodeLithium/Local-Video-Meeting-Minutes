@@ -251,7 +251,7 @@ button { color: inherit; }
 .correction-demo { display: grid; grid-template-columns: 1fr auto 1fr auto .72fr; align-items: stretch; border-top: 1px solid var(--productInk); border-bottom: 1px solid var(--productStroke); }
 .correction-demo > div { padding: 27px 30px; }
 .correction-demo > div + div { border-left: 1px solid var(--productStroke); }
-.correction-demo small { color: var(--productInkMuted); font-size: 11px; }
+.correction-demo small { display: block; color: var(--productInkMuted); font-size: 11px; }
 .correction-demo p { margin: 20px 0 0; }
 .correction-source p { display: grid; gap: 8px; font: 600 16px/1.4 var(--fontFamilyMonospace); }
 .correction-source del { color: #8b97a6; }
