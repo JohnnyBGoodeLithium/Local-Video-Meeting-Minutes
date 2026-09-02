@@ -50,6 +50,12 @@ assert initial_progress(fast_sync, 100.0)["available_outputs"]["transcript"] == 
 assert phase_ids_for(job(kind="retranscribe", route="audio")) == [
     "retranscribe_prepare", "speech_processing", "final_minutes",
 ]
+assert phase_ids_for(job(kind="photo_analysis", route="photos", sync_minutes=True)) == [
+    "visual_understanding", "final_minutes",
+]
+assert phase_ids_for(job(kind="photo_analysis", route="photos", sync_minutes=False)) == [
+    "visual_understanding",
+]
 
 event = parse_event('[progress] {"phase":"visual_understanding","state":"running",'
                     '"done":12,"total":36,"unit":"pages"}')

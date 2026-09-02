@@ -165,6 +165,8 @@ with tempfile.TemporaryDirectory(prefix="kb-document-test-") as tmp:
     meeting_photos.import_photos(
         full_dir, [(photo_source, "Whiteboard.jpg")], mode="current_time",
         anchor_seconds=42.5, duration=70.0)
+    # 未分析附件尚未进入生成输入，不应让既有脉络和证据失效。
+    assert meeting_topic_map.load_current_topic_map(full_dir)[0] == "ready"
 
     doc = kb_document.kb_document(full_dir, base_url=BASE)
     slug = "2026-08-25_alpha"

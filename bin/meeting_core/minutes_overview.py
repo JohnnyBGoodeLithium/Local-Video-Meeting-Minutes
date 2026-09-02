@@ -77,6 +77,11 @@ REDUCE_PROMPT = """根据按时间顺序排列的片段事实笔记，生成整�
 {pages}
 ```
 
+现场资料（白板、纸面或会议室照片；只作视觉上下文，正式结论仍需 T 编号）：
+```json
+{materials}
+```
+
 语音草稿覆盖清单（低信任，不是新证据）：
 ```json
 {draft_checklist}
@@ -407,6 +412,17 @@ def _pages_for_rows(pages: list[dict], rows: list[dict]) -> list[dict]:
     return [page for page in pages if str(page.get("id")) in ids]
 
 
+def _materials_for_rows(materials: list[dict], rows: list[dict]) -> list[dict]:
+    """Only repeat time-aligned photo context in the matching map chunk.
+
+    The reducer still receives every material, including unlocated photos. This avoids
+    multiplying a large batch of photo descriptions across every long-meeting request.
+    """
+    row_ids = {str(row.get("id") or "") for row in rows}
+    return [material for material in materials
+            if row_ids.intersection(map(str, material.get("nearby_turn_ids") or []))]
+
+
 def generate(context: dict, policy: dict, evidence_rules: str, *,
              client: LocalLLMClient | None = None, max_tokens: int = 6144,
              progress: Callable[[int, int], None] | None = None,
@@ -427,6 +443,7 @@ def generate(context: dict, policy: dict, evidence_rules: str, *,
     notes = []
     pages = context.get("pages") or []
     profiles = context.get("speaker_profiles") or []
+    materials = context.get("materials") or []
     draft_checklist = context.get("voice_draft_checklist") or {
         "schema": "meeting-voice-draft-checklist/v1", "items": []}
     for index, rows in enumerate(chunks, 1):
@@ -440,6 +457,7 @@ def generate(context: dict, policy: dict, evidence_rules: str, *,
             },
             "speaker_profiles": profiles,
             "pages": _pages_for_rows(pages, rows),
+            "materials": _materials_for_rows(materials, rows),
             "turns": rows,
         }
         row_ids = {str(row.get("id") or "") for row in rows}
@@ -465,6 +483,7 @@ def generate(context: dict, policy: dict, evidence_rules: str, *,
         "policy": json.dumps(policy, ensure_ascii=False, indent=2),
         "profiles": _compact(profiles),
         "pages": _compact(pages),
+        "materials": _compact(materials),
         "draft_checklist": _compact(draft_checklist),
     }
     reduce_prompt = reduce_prompt_t.format(**common, notes="\n".join(notes))

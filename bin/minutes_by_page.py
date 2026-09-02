@@ -45,6 +45,7 @@ from vl_page_test import (DETAIL_PROMPT, PROMPT as COMPACT_PAGE_PROMPT,
 from meeting_artifact import (
     CONCLUSION_POLICY,
     MARKER_RE,
+    append_materials_section,
     build_prompt_context,
     file_revision,
     load_speaker_profiles,
@@ -64,6 +65,7 @@ from meeting_core.llm import DEFAULT_MINUTES_MODEL, LocalLLMClient, validated_ap
 from meeting_core.resource_policy import prepare_stage
 from meeting_core.progress_events import (output_ready, phase_done,
                                           progress as progress_event)
+from meeting_core import photos as meeting_photos
 
 ROUTER = validated_api_base(os.environ.get(
     "MEETING_LLM_API", "http://127.0.0.1:11435/v1")) + "/chat/completions"
@@ -846,7 +848,9 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
     progress_event("final_minutes", done=0, total=final_batches, unit="batches")
     bank_dir = Path(os.environ.get("MEETING_WEB_BANK", mdir.parent.parent / "speaker_bank"))
     profiles = load_speaker_profiles(turns, bank_dir)
-    summary_context = build_prompt_context(turns, pages, descs, profiles)
+    materials = meeting_photos.prompt_materials(mdir, turns)
+    summary_context = build_prompt_context(
+        turns, pages, descs, profiles, materials=materials)
     draft_checklist = meeting_generation.voice_draft_checklist(mdir)
     if draft_checklist["items"]:
         summary_context["voice_draft_checklist"] = draft_checklist
@@ -950,6 +954,7 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
     md = normalize_minutes_markdown(normalize_action_marker_scope(
         insert_images(body, pages, descs)))
     md += appendix_md(pages, descs, per_page, kind=profile.kind)
+    md = append_materials_section(md, materials)
     current_transcript_revision = file_revision(mdir / "transcript.spk.json")
     if current_transcript_revision != transcript_revision:
         if _identity_retry > 0:
@@ -971,6 +976,7 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
             "text_model": MODEL,
             "vl_enabled": bool(vl),
             "vl_pages": len(descs),
+            "photo_materials": len(materials),
             "vl_review_model": vl_review.get("model"),
             "vl_reviewed_pages": int(vl_review.get("reviewed") or 0),
             "vl_review_failures": int(vl_review.get("failed") or 0),

@@ -51,6 +51,7 @@ package-check:
 	$(PY) web/tests/meeting_generation_test.py
 	$(PY) web/tests/meeting_structure_test.py
 	$(PY) web/tests/meeting_photos_test.py
+	$(PY) web/tests/photo_analysis_test.py
 	$(PY) web/tests/knowledge_sink_test.py
 	$(PY) web/tests/meeting_topic_map_test.py
 	$(PY) web/tests/hardware_test.py

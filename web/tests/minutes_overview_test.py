@@ -50,6 +50,14 @@ pages = [{"id": f"P{number:04d}", "number": number,
          for number in range(1, 8)]
 context = {"schema": "meeting-minutes-prompt/v1", "speaker_profiles": [],
            "pages": pages, "turns": turns,
+           "materials": [
+               {"id": "F0001", "nearby_turn_ids": ["T000001"],
+                "visual_summary": "合成现场资料甲"},
+               {"id": "F0002", "nearby_turn_ids": ["T000620"],
+                "visual_summary": "合成现场资料乙"},
+               {"id": "F0003", "nearby_turn_ids": [],
+                "visual_summary": "未定位现场资料"},
+           ],
            "voice_draft_checklist": {
                "schema": "meeting-voice-draft-checklist/v1",
                "items": [{"draft_claim_id": "C00001", "kind": "action",
@@ -65,6 +73,9 @@ assert len(client.calls) == result.chunks + 1
 assert "T000001" in client.calls[0][0]
 assert "T000620" in client.calls[-2][0]
 assert "P0001" in client.calls[0][0]
+assert "F0001" in client.calls[0][0] and "F0002" not in client.calls[0][0]
+assert "F0002" in client.calls[-2][0] and "F0001" not in client.calls[-2][0]
+assert "F0003" not in client.calls[0][0] and "F0003" in client.calls[-1][0]
 assert "meeting-voice-draft-checklist/v1" in client.calls[0][0]
 assert "meeting-voice-draft-checklist/v1" in client.calls[-1][0]
 assert "T000002" in client.calls[-1][0]

@@ -73,6 +73,9 @@ def phase_ids_for(job: dict) -> list[str]:
     no_vl = _has_arg(job, "--no-vl")
     if kind == "translation":
         return ["prepare"]
+    if kind == "photo_analysis":
+        return ["visual_understanding", *(["final_minutes"]
+                if job.get("sync_minutes") else [])]
     if kind == "topic_map":
         return ["prepare", "topic_map"]
     if kind == "retranscribe":

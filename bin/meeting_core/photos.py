@@ -1,7 +1,7 @@
-"""现场照片 canonical sidecar、受保护副本与阅读投影。
+"""现场照片 canonical sidecar、受保护副本、分析状态与阅读投影。
 
 照片可以补充白板、纸面笔记和线下展示，但不能独立证明会议决定。本模块只做
-确定性的文件固化、EXIF 读取和时间对齐，不调用模型，也不读取逐字稿正文。
+确定性的文件固化、EXIF 读取、时间对齐和分析结果写入；模型调用留在独立作业中。
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ SCHEMA = "meeting-photos/v1"
 SUPPORTED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 MAX_PHOTOS = 80
 MAX_FILE_BYTES = 32 * 1024 * 1024
+ANALYSIS_STATES = {"not_requested", "queued", "analyzing", "ready", "failed"}
 _LOCK = threading.RLock()
 
 
@@ -307,6 +308,116 @@ def set_title(mdir: Path, photo_id: str, title: str) -> dict:
         return record
 
 
+def set_analysis_state(
+    mdir: Path,
+    photo_ids: Iterable[str],
+    state: str,
+    *,
+    results: dict[str, dict] | None = None,
+) -> list[dict]:
+    """原子更新一批现场资料的视觉分析状态和受控结果。
+
+    ``results`` 只接受由本地分析作业产生的 description/model/analyzed_at/error_code；
+    原图、hash、标题和时间定位不在这里修改。
+    """
+    if state not in ANALYSIS_STATES:
+        raise PhotoError("现场资料分析状态无效")
+    wanted = list(dict.fromkeys(str(value or "").strip() for value in photo_ids))
+    wanted = [value for value in wanted if value]
+    if not wanted:
+        raise PhotoError("请选择至少一项现场资料")
+    result_map = results if isinstance(results, dict) else {}
+    with _LOCK:
+        document = load(mdir)
+        by_id = {str(item.get("id") or ""): item for item in document["photos"]}
+        missing = [value for value in wanted if value not in by_id]
+        if missing:
+            raise PhotoError("现场资料不存在")
+        updated = []
+        for photo_id in wanted:
+            record = by_id[photo_id]
+            payload = result_map.get(photo_id) if isinstance(result_map.get(photo_id), dict) else {}
+            record["analysis_state"] = state
+            if state == "ready":
+                description = str(payload.get("description") or "").strip()
+                if not description:
+                    raise PhotoError("现场资料分析没有返回可读内容")
+                record["description"] = description
+                record["analysis_model"] = str(payload.get("model") or "").strip() or None
+                record["analyzed_at"] = str(payload.get("analyzed_at") or _now_iso())
+                record.pop("analysis_error", None)
+            elif state == "failed":
+                record["analysis_error"] = str(payload.get("error_code") or "analysis_failed")[:64]
+            elif state in {"queued", "analyzing"}:
+                record.pop("analysis_error", None)
+            updated.append(dict(record))
+        document["updated_at"] = _now_iso()
+        _atomic_json(mdir / "meeting.photos.json", document)
+        return updated
+
+
+def prompt_materials(mdir: Path, turns: list[dict] | None = None) -> list[dict]:
+    """投影供文本纪要使用的已分析现场资料。
+
+    时间接近只表示上下文邻近，不是事实证明；因此这里只给出 nearby_turn_ids，
+    正式决定仍必须回到逐字稿证据。
+    """
+    rows = []
+    all_turns = turns or []
+    for item in load(mdir).get("photos", []):
+        description = str(item.get("description") or "").strip()
+        if item.get("analysis_state") != "ready" or not description:
+            continue
+        alignment = item.get("alignment") if isinstance(item.get("alignment"), dict) else {}
+        seconds = alignment.get("seconds")
+        located = isinstance(seconds, (int, float))
+        nearby = []
+        if located:
+            for index, turn in enumerate(all_turns):
+                start = float(turn.get("start") or 0)
+                end = float(turn.get("end") or start)
+                if end >= float(seconds) - 120 and start <= float(seconds) + 120:
+                    nearby.append(f"T{index + 1:06d}")
+        rows.append({
+            "id": str(item.get("id") or ""),
+            "title": str(item.get("title") or item.get("original_name") or "现场资料"),
+            "first": round(float(seconds), 3) if located else None,
+            "alignment_state": str(alignment.get("state") or "unlocated"),
+            "visual_detail": description,
+            "nearby_turn_ids": nearby,
+            "evidence_boundary": "visual_context_only_not_a_meeting_decision",
+        })
+    return rows
+
+
+def analysis_revision(mdir: Path) -> str | None:
+    """Hash only material facts that can enter generated text.
+
+    Importing, queueing, or failing an unanalyzed photo must not invalidate an otherwise
+    current set of minutes/evidence. Once Vision has produced readable material context,
+    its title, placement, and description become source inputs and participate in staleness.
+    """
+    records = []
+    for item in load(mdir).get("photos", []):
+        description = str(item.get("description") or "").strip()
+        if item.get("analysis_state") != "ready" or not description:
+            continue
+        alignment = item.get("alignment") if isinstance(item.get("alignment"), dict) else {}
+        seconds = alignment.get("seconds")
+        records.append({
+            "id": str(item.get("id") or ""),
+            "title": str(item.get("title") or item.get("original_name") or ""),
+            "seconds": round(float(seconds), 3) if isinstance(seconds, (int, float)) else None,
+            "alignment_state": str(alignment.get("state") or "unlocated"),
+            "description": description,
+        })
+    if not records:
+        return None
+    canonical = json.dumps(records, ensure_ascii=False, sort_keys=True,
+                           separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()[:16]
+
+
 def _managed_photo_path(mdir: Path, raw: str, folder: str) -> Path:
     """把 sidecar 路径约束在当前会议的指定照片目录内。"""
     root = (mdir / "photos" / folder).resolve()
@@ -369,13 +480,19 @@ def project(mdir: Path) -> list[dict]:
         seconds = alignment.get("seconds")
         located = isinstance(seconds, (int, float))
         title = str(item.get("title") or item.get("original_name") or f"现场照片 {index}")
+        analysis_state = str(item.get("analysis_state") or "not_requested")
+        status_copy = {
+            "queued": "已加入视觉分析队列",
+            "analyzing": "正在分析现场资料",
+            "failed": "视觉分析未完成，可重新尝试",
+        }.get(analysis_state, "尚未进行视觉分析")
         visuals.append({
             "id": str(item.get("id") or f"F{index:04d}"),
             "kind": "photo",
             "page": None,
             "title": title,
             "description": str(item.get("description") or ""),
-            "display_description": str(item.get("description") or "未分析，仅作为现场资料保存"),
+            "display_description": str(item.get("description") or status_copy),
             "image": str(item.get("image_path") or ""),
             "asset_path": str(item.get("image_path") or ""),
             "original_name": str(item.get("original_name") or ""),
@@ -384,7 +501,7 @@ def project(mdir: Path) -> list[dict]:
             "ranges": [[float(seconds), float(seconds) + 1.0]] if located else [],
             "turn_indexes": [],
             "display_status": "现场照片",
-            "analysis_state": str(item.get("analysis_state") or "not_requested"),
+            "analysis_state": analysis_state,
             "information_value": "unknown",
             "value": "unknown",
             "alignment": {

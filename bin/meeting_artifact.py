@@ -15,6 +15,8 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+from meeting_core import photos as meeting_photos
+
 
 EVIDENCE_SCHEMA = "meeting-minutes-evidence/v1"
 FACTS_SCHEMA = "meeting-facts/v1"
@@ -222,7 +224,8 @@ def speaker_navigation(turns: list[dict], profiles: list[dict],
 
 def build_prompt_context(turns: list[dict], pages: list[dict], descs: dict[int, str],
                          profiles: list[dict], *, detail: bool = False,
-                         page_numbers: set[int] | None = None) -> dict:
+                         page_numbers: set[int] | None = None,
+                         materials: list[dict] | None = None) -> dict:
     selected_pages = [p for p in pages if page_numbers is None or int(p["page"]) in page_numbers]
     selected_numbers = {int(p["page"]) for p in selected_pages}
     page_rows = []
@@ -259,12 +262,60 @@ def build_prompt_context(turns: list[dict], pages: list[dict], descs: dict[int, 
             "page_id": page_id(number) if number is not None else None,
             "text": str(turn.get("text") or ""),
         })
+    material_rows = []
+    for material in materials or []:
+        description = str(material.get("visual_detail") or "").strip()
+        row = {
+            "id": str(material.get("id") or ""),
+            "title": str(material.get("title") or "现场资料"),
+            "first": material.get("first"),
+            "alignment_state": str(material.get("alignment_state") or "unlocated"),
+            "visual_summary": " ".join(description.split())[:800],
+            "nearby_turn_ids": list(material.get("nearby_turn_ids") or [])[:80],
+            "evidence_boundary": "visual_context_only_not_a_meeting_decision",
+        }
+        if detail:
+            row["visual_detail"] = description[:6000]
+        material_rows.append(row)
     return {
         "schema": "meeting-minutes-prompt/v1",
         "speaker_profiles": profiles,
         "pages": page_rows,
+        "materials": material_rows,
         "turns": turn_rows,
     }
+
+
+def append_materials_section(minutes: str, materials: list[dict]) -> str:
+    """确定性附加现场资料解读；不把画面内容伪装成会议决定。"""
+    if not materials:
+        return minutes
+    heading_re = re.compile(r"^##\s+现场资料解读\s*$", re.M)
+    match = heading_re.search(minutes)
+    if match:
+        end = len(minutes)
+        for heading in HEADING_RE.finditer(minutes, match.end()):
+            if len(heading.group(1)) <= 2:
+                end = heading.start()
+                break
+        minutes = (minutes[:match.start()].rstrip() + "\n\n" + minutes[end:].lstrip("\n")).rstrip()
+    lines = ["## 现场资料解读", "",
+             "> 以下内容来自会后补充的白板、纸面或现场照片。它用于补足上下文，"
+             "不能单独证明会议已经作出决定。", ""]
+    for material in materials:
+        title = str(material.get("title") or "现场资料").strip()
+        first = material.get("first")
+        if isinstance(first, (int, float)):
+            seconds = max(0, int(first))
+            location = f"{seconds // 60:02d}:{seconds % 60:02d}"
+        else:
+            location = "未定位"
+        description = str(material.get("visual_detail") or "").strip()
+        if not description:
+            continue
+        description = re.sub(r"^#{1,6}\s*", "#### ", description, flags=re.M)
+        lines += [f"### {title} · {location}", "", description, ""]
+    return minutes.rstrip() + "\n\n" + "\n".join(lines).rstrip() + "\n"
 
 
 def _marker_values(raw: str) -> dict[str, str]:
@@ -722,17 +773,21 @@ def build_evidence_document(mdir: Path, minutes: str, turns: list[dict], pages: 
             claim["end"] = max(page_ends, default=claim["start"])
         claim["speakers"] = list(dict.fromkeys(t["speaker"] for t in linked))
         claim["person_ids"] = list(dict.fromkeys(t["person_id"] for t in linked if t.get("person_id")))
+    revisions = {
+        "transcript": transcript_revision,
+        "minutes": minutes_revision,
+        "slides": file_revision(mdir / "slides.json"),
+        "page_descriptions": file_revision(mdir / "page_desc.json"),
+    }
+    photo_revision = meeting_photos.analysis_revision(mdir)
+    if photo_revision:
+        revisions["photos"] = photo_revision
     document = {
         "schema": EVIDENCE_SCHEMA,
         "meeting_id": meeting_uid,
         "artifact_id": artifact_uid,
         "slug": slug,
-        "revisions": {
-            "transcript": transcript_revision,
-            "minutes": minutes_revision,
-            "slides": file_revision(mdir / "slides.json"),
-            "page_descriptions": file_revision(mdir / "page_desc.json"),
-        },
+        "revisions": revisions,
         "policy": CONCLUSION_POLICY,
         "generation": generation or {},
         "speaker_profiles": profiles,
@@ -766,6 +821,7 @@ def build_fact_document(evidence: dict) -> dict:
             "transcript": revisions.get("transcript"),
             "slides": revisions.get("slides"),
             "page_descriptions": revisions.get("page_descriptions"),
+            **({"photos": revisions.get("photos")} if "photos" in revisions else {}),
         },
         "source_minutes_revision": revisions.get("minutes"),
         "policy": evidence.get("policy", CONCLUSION_POLICY),
@@ -793,6 +849,9 @@ def fact_document_state(mdir: Path, document: dict | None = None) -> str:
         "slides": file_revision(mdir / "slides.json"),
         "page_descriptions": file_revision(mdir / "page_desc.json"),
     }
+    photo_revision = meeting_photos.analysis_revision(mdir)
+    if photo_revision:
+        current["photos"] = photo_revision
     return "ready" if expected == current else "stale"
 
 
@@ -822,6 +881,8 @@ def refresh_fact_document_sources(mdir: Path, evidence: dict) -> tuple[Path, dic
         "slides": revisions.get("slides"),
         "page_descriptions": revisions.get("page_descriptions"),
     }
+    if "photos" in revisions:
+        source_revisions["photos"] = revisions.get("photos")
     speaker_profiles = evidence.get("speaker_profiles", [])
     path = mdir / "meeting.facts.json"
     if (current.get("source_revisions") == source_revisions

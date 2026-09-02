@@ -18,6 +18,7 @@ from pathlib import Path
 
 from meeting_artifact import (
     CONCLUSION_POLICY,
+    append_materials_section,
     build_prompt_context,
     load_speaker_profiles,
     normalize_minutes_markdown,
@@ -25,6 +26,7 @@ from meeting_artifact import (
 )
 from meeting_core.llm import (DEFAULT_MINUTES_MODEL, LLMError, LocalLLMClient,
                               minutes_model_for_stage)
+from meeting_core import photos as meeting_photos
 from meeting_core import voice_draft
 import meeting_topic_map
 
@@ -84,7 +86,8 @@ def main() -> int:
         turns = json.loads(args.spk.read_text(encoding="utf-8"))
         bank_dir = Path(os.environ.get("MEETING_WEB_BANK", args.spk.parent.parent.parent / "speaker_bank"))
         profiles = load_speaker_profiles(turns, bank_dir)
-        context = build_prompt_context(turns, [], {}, profiles)
+        materials = meeting_photos.prompt_materials(args.spk.parent, turns)
+        context = build_prompt_context(turns, [], {}, profiles, materials=materials)
     else:
         if not args.transcript.is_file():
             print(f"找不到输入文件: {args.transcript}", file=sys.stderr)
@@ -122,6 +125,8 @@ def main() -> int:
         return 2
 
     minutes = normalize_minutes_markdown(raw_minutes.strip())
+    if args.spk:
+        minutes = append_materials_section(minutes, materials)
     if not minutes:
         print("[error] 模型返回为空（正文输出预算耗尽）", file=sys.stderr)
         return 3
@@ -139,7 +144,8 @@ def main() -> int:
             args.spk.parent, minutes + "\n", turns, [], {}, profiles,
             generation={"prompt_schema": "meeting-minutes-prompt/v1",
                         "conclusion_policy": CONCLUSION_POLICY["version"],
-                        "text_model": model, "vl_enabled": False,
+                        "text_model": model, "vl_enabled": bool(materials),
+                        "photo_materials": len(materials),
                         "generation_stage": args.generation_stage,
                         "generation_mode": generation_mode,
                         "generation_chunks": generation_chunks})
