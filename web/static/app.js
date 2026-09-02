@@ -1,44 +1,44 @@
 import { contentTypeOf, safeSourceUrl }
-  from "./modules/media-source.js?v=20260901p111";
+  from "./modules/media-source.js?v=20260902p112";
 import { buildUploadFormData, enqueueMediaUrl, isSingleLocalVideo }
-  from "./modules/imports.js?v=20260901p111";
+  from "./modules/imports.js?v=20260902p112";
 import { jobDisplayName, selectJobPanel }
-  from "./modules/jobs.js?v=20260901p111";
+  from "./modules/jobs.js?v=20260902p112";
 import { jobPresentation }
-  from "./modules/job-progress.js?v=20260901p111";
+  from "./modules/job-progress.js?v=20260902p112";
 import { closeJobSheet, renderCompactJob, renderJobSheet, renderProcessingBanner }
-  from "./modules/job-progress-view.js?v=20260901p111";
+  from "./modules/job-progress-view.js?v=20260902p112";
 import { chooseInitialItem, deepLinkSeconds, filterLibrary, sortLibrary }
-  from "./modules/library.js?v=20260901p111";
+  from "./modules/library.js?v=20260902p112";
 import { adjacentReviewUnit, defaultReviewUnits, nearestReviewUnit,
   reviewIndexesFor, reviewUnitForTurn as findReviewUnitForTurn, turnEnd }
-  from "./modules/player-navigation.js?v=20260901p111";
+  from "./modules/player-navigation.js?v=20260902p112";
 import { nextSearchCursor, pendingReviewByTurn, transcriptSearchHits }
-  from "./modules/transcript.js?v=20260901p111";
+  from "./modules/transcript.js?v=20260902p112";
 import { renderTranscriptView }
-  from "./modules/transcript-view.js?v=20260901p111";
+  from "./modules/transcript-view.js?v=20260902p112";
 import { availableViewerMedia, exportSizeState, formatBytes, meetingExportHref, normalizeExportProfile,
   packExportHref }
-  from "./modules/export.js?v=20260901p111";
+  from "./modules/export.js?v=20260902p112";
 import { claimAction, claimIdsForTurn, evidenceSources, minutesState, normalizeReviewMode,
   resolveMinutesView, turnIndexAtTime, turnIndexesForSourceIds }
-  from "./modules/minutes.js?v=20260901p111";
+  from "./modules/minutes.js?v=20260902p112";
 import { renderMinutesView }
-  from "./modules/minutes-view.js?v=20260901p111";
+  from "./modules/minutes-view.js?v=20260902p112";
 import { beginExampleSelection, beginIdentity, buildCorrectionApplyPayload,
   correctionSummary, createSpeakerCorrectionState, representativeTurns,
   resetSpeakerCorrection, setGroupAssignment, setIncludeSuggested, setPreview,
   toggleExample, withCorrectionError }
-  from "./modules/speaker-correction.js?v=20260901p111";
+  from "./modules/speaker-correction.js?v=20260902p112";
 import { renderCorrectionSheet, renderIdentityPopover }
-  from "./modules/speaker-correction-view.js?v=20260901p111";
+  from "./modules/speaker-correction-view.js?v=20260902p112";
 import { beginPhotoImport, createPhotoImportState, hydratePhotoCaptureTimes,
   markPhotoImportResult, photoUploadSpec, releasePhotoImport, removePhotoImportItem,
   setPhotoMeetingStart, setPhotoPositionMode, togglePhotoTimeSettings,
   withPhotoImportBusy, withPhotoImportError, formatPhotoBytes }
-  from "./modules/photo-import.js?v=20260901p111";
+  from "./modules/photo-import.js?v=20260902p112";
 import { renderPhotoImport }
-  from "./modules/photo-import-view.js?v=20260901p111";
+  from "./modules/photo-import-view.js?v=20260902p112";
 
 /* 会议列表 + 回顾工作台（装配入口；领域规则逐步迁往 modules/） */
 "use strict";
@@ -3527,6 +3527,30 @@ function visualNavCard(visual, selected) {
     `<em>${esc(visualStatus)}</em></span></span></button>`;
 }
 
+function photoAnalysisCopy(stateName) {
+  const english = isEnglishUi();
+  return {
+    queued: english ? "Visual analysis queued" : "视觉分析已排队",
+    analyzing: english ? "Analyzing meeting material" : "正在分析现场资料",
+    ready: english ? "Visual interpretation ready" : "现场资料解读已就绪",
+    failed: english ? "Visual analysis did not finish" : "视觉分析未完成",
+    not_requested: english ? "Not analyzed yet" : "尚未进行视觉分析",
+  }[stateName] || (english ? "Analysis status unknown" : "分析状态未知");
+}
+
+async function queuePhotoAnalysis(photoIds) {
+  if (!state.slug || !photoIds?.length) return false;
+  const response = await api(`/api/meetings/${encodeURIComponent(state.slug)}/photos/analyze`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ photo_ids: [...new Set(photoIds)] }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.detail || String(response.status));
+  await refreshPhotoMaterials();
+  await pollJobs();
+  return true;
+}
+
 function visualRangeDuration(visual) {
   return (visual.ranges || []).reduce((total, range) =>
     total + Math.max(0, Number(range[1]) - Number(range[0])), 0);
@@ -3630,6 +3654,20 @@ function renderVisuals(preserveListScroll = false) {
     : "现场资料用于补充上下文；未经发言或人工确认，不单独作为会议决定依据。"}</p>`
     + `<button type="button" class="subtle" data-add-materials><svg class="fluent-icon" aria-hidden="true"><use href="/static/fluent-icons.svg#fluent-add"></use></svg>`
     + `<span>${isEnglishUi() ? "Add meeting materials" : "添加现场资料"}</span></button></div>`;
+  const analysisNotice = selectedPhoto
+    ? (["queued", "analyzing"].includes(selected.analysis_state)
+      ? `<div class="visual-reprocess pending">${esc(photoAnalysisCopy(selected.analysis_state))}</div>`
+      : (["failed", "not_requested"].includes(selected.analysis_state)
+        ? `<div class="visual-reprocess"><span>${esc(photoAnalysisCopy(selected.analysis_state))}</span>`
+          + `<button type="button" data-photo-analyze="${esc(selected.id)}">${isEnglishUi() ? "Analyze again" : "重新分析"}</button></div>`
+        : ""))
+    : (selected.analysis_state === "pending"
+      ? `<div class="visual-reprocess pending">${isEnglishUi()
+        ? "Visual analysis is still running. Its information value will be assessed after completion."
+        : "屏幕解析仍在进行，完成前不会判断这页的内容价值。"}</div>`
+      : (selected.needs_reprocess
+        ? `<div class="visual-reprocess">页面解析没有得到可读正文，已标记为需要重新解析；当前不会将它判为低信息。</div>`
+        : ""));
   box.innerHTML = `${materialsHeader}<div class="structure-layout visual-layout"><nav class="structure-list visual-list" aria-label="${esc(contentLabel(contentTypeOf(state.bundle), "screens"))}">` +
     `<div class="structure-list-head visual-list-head"><div><b>${esc(contentLabel(contentTypeOf(state.bundle), "screens"))}</b>` +
     `<span>${allVisuals.length} ${isEnglishUi() ? "items" : "项"}</span></div><div class="visual-filter ${media ? "media-role-filter" : ""}">` +
@@ -3643,8 +3681,7 @@ function renderVisuals(preserveListScroll = false) {
     (selectedCopy.summary ? `<p>${esc(selectedCopy.summary)}</p>` : "") + `</div></header>` +
     (selectedPhoto ? "" : `<div class="visual-value-note ${esc(selected.information_value || "unknown")}"><b>${esc(visualValueLabel(selected))}</b>` +
       `<span>${esc(selected.value_reason || (isEnglishUi() ? "The information value has not been assessed." : "尚未判断这张画面的信息价值。"))}</span></div>`) +
-    (selected.analysis_state === "pending" ? `<div class="visual-reprocess pending">屏幕解析仍在进行，完成前不会判断这页的内容价值。</div>` :
-      selected.needs_reprocess ? `<div class="visual-reprocess">页面解析没有得到可读正文，已标记为需要重新解析；当前不会将它判为低信息。</div>` : "") +
+    analysisNotice +
     (selectedPhoto ? `<div class="visual-photo-actions"><span>${selected.alignment?.seconds == null
       ? (isEnglishUi() ? "This photo is saved but not linked to playback." : "照片已保存，但尚未关联播放进度。")
       : `${isEnglishUi() ? "Located at" : "定位于"} ${fmt(selected.alignment.seconds)} · ${selected.alignment?.state === "suggested" ? (isEnglishUi() ? "Suggested from capture time" : "依据拍摄时间建议") : (isEnglishUi() ? "Confirmed" : "已确认")}`}</span>` +
@@ -3662,9 +3699,9 @@ function renderVisuals(preserveListScroll = false) {
     (image ? `<img class="visual-hero" data-preview-visual="${esc(selected.id)}" src="${image}" ` +
       `alt="${esc(selectedCopy.title)}" title="${isEnglishUi() ? "Click to enlarge" : "点击放大查看"}">` :
       `<div class="visual-no-image">${isEnglishUi() ? "No static image is available" : "没有可用的静态图片"}</div>`) +
-    (selectedPhoto ? `<section class="visual-description photo-material-description"><h3>${isEnglishUi() ? "Material status" : "资料状态"}</h3>`
+    (selectedPhoto ? `<section class="visual-description photo-material-description"><h3>${isEnglishUi() ? "Material interpretation" : "现场资料解读"}</h3>`
       + (selected.description ? `<div>${visualDescriptionHtml(selected)}</div>`
-        : `<p>${isEnglishUi() ? "Not analyzed; saved only as meeting material." : "未分析，仅作为现场资料保存"}</p>`)
+        : `<p>${esc(photoAnalysisCopy(selected.analysis_state))}</p>`)
       + `</section>` : `<section class="visual-description"><h3>${isEnglishUi() ? "Screen interpretation" : "屏幕内容解读"}</h3>`
       + `<p class="visual-boundary">${isEnglishUi() ? "This describes what was shown; it does not prove a meeting decision." : "仅说明画面展示内容，不代表会议作出了决定。"}</p>`
       + `<div>${visualDescriptionHtml(selected)}</div></section>`) +
@@ -3709,6 +3746,16 @@ function renderVisuals(preserveListScroll = false) {
   });
   $$('[data-photo-delete]', box).forEach(button => button.onclick = () =>
     openPhotoDeleteDialog(button.dataset.photoDelete, selectedCopy.title, button));
+  $$('[data-photo-analyze]', box).forEach(button => button.onclick = async () => {
+    button.disabled = true;
+    try {
+      await queuePhotoAnalysis([button.dataset.photoAnalyze]);
+      toast(isEnglishUi() ? "Visual analysis queued" : "视觉分析已排队");
+    } catch (error) {
+      button.disabled = false;
+      toast(isEnglishUi() ? "Could not queue visual analysis" : "无法排入视觉分析");
+    }
+  });
   $$('[data-preview-visual]', box).forEach(image =>
     image.onclick = () => openScreenPreview(image.dataset.previewVisual));
   wireStructureClaims(box);
@@ -4138,6 +4185,7 @@ async function importMeetingPhotos() {
     const form = new FormData();
     form.append("files", spec.file, spec.file.name);
     form.append("mode", spec.mode);
+    form.append("defer_analysis", "1");
     if (spec.meetingStart) form.append("meeting_start", spec.meetingStart);
     if (spec.anchorSeconds != null) form.append("anchor_seconds", String(spec.anchorSeconds));
     try {
@@ -4158,12 +4206,29 @@ async function importMeetingPhotos() {
     renderPhotoImportDialog();
   }
   state.photoImport = withPhotoImportBusy(state.photoImport, false);
+  const analysisIds = state.photoImport.items
+    .filter(item => item.result && (!item.result.duplicate
+      || item.result.photo?.analysis_state !== "ready"))
+    .map(item => item.result?.photo?.id)
+    .filter(Boolean);
+  let analysisQueued = false;
+  if (analysisIds.length) {
+    try {
+      const response = await api(`/api/meetings/${encodeURIComponent(state.slug)}/photos/analyze`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ photo_ids: [...new Set(analysisIds)] }),
+      });
+      analysisQueued = response.ok;
+    } catch (_) { /* 图片已安全导入；分析可在资料详情中重试。 */ }
+  }
   if (created || duplicates) await refreshPhotoMaterials();
   if (!failed) {
     closePhotoImportDialog();
     const message = isEnglishUi()
-      ? `${created} materials imported${duplicates ? `; ${duplicates} duplicates skipped` : ""}.`
-      : `已导入 ${created} 张现场资料${duplicates ? `；${duplicates} 张重复内容未重复保存` : ""}。`;
+      ? `${created} materials imported${duplicates ? `; ${duplicates} duplicates skipped` : ""}`
+        + `${analysisQueued ? ". Visual analysis is queued." : "."}`
+      : `已导入 ${created} 张现场资料${duplicates ? `；${duplicates} 张重复内容未重复保存` : ""}`
+        + `${analysisQueued ? "；视觉分析已排队。" : "。"}`;
     toast(message);
   } else {
     state.photoImport = withPhotoImportError(state.photoImport,
@@ -5613,8 +5678,9 @@ async function pollJobs() {
     state.jobHideAvailable = d.capabilities?.job_hide === true;
     renderJobs(d.jobs);
     const completed = d.jobs.filter(job => job.meeting === state.slug
-      && ["upload", "topic_map", "regen", "retranscribe"].includes(job.kind)
-      && job.status === "done"
+      && ((["upload", "topic_map", "regen", "retranscribe", "photo_analysis"].includes(job.kind)
+        && job.status === "done")
+        || (job.kind === "photo_analysis" && job.status === "failed"))
       && Number(job.finished || 0) >= Number(state.bundleLoadedAt || 0)
       && !state.refreshedArtifactJobs.has(job.id));
     completed.forEach(job => state.refreshedArtifactJobs.add(job.id));

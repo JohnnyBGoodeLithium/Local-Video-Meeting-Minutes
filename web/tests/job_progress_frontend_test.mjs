@@ -24,8 +24,8 @@ const progress = {
 };
 const job = { id: "fixture", kind: "upload", route: "teams", status: "running", progress };
 
-assert.equal(phaseLabel("visual_understanding", "zh-CN"), "理解共享画面");
-assert.equal(phaseLabel("visual_understanding", "en"), "Understanding shared visuals");
+assert.equal(phaseLabel("visual_understanding", "zh-CN"), "理解画面与现场资料");
+assert.equal(phaseLabel("visual_understanding", "en"), "Understanding visuals and meeting materials");
 assert.equal(formatEtaRange(progress.estimated_remaining, "zh-CN"), "预计还需 18–26 分钟");
 assert.equal(formatDuration(130, "en"), "2 min");
 assert.deepEqual(availableOutputLabels(progress, "en"), [
@@ -38,6 +38,14 @@ assert.match(zh.detail, /完整结果 预计还需 18–26 分钟/);
 assert.equal(zh.ratio, 1 / 3);
 const en = jobPresentation(job, "Synthetic Review", "en");
 assert.match(en.headline, /Voice draft ready/);
+const photoProgress = structuredClone(progress);
+photoProgress.route = "photos";
+photoProgress.done = 2; photoProgress.total = 3; photoProgress.unit = "items";
+photoProgress.available_outputs.voice_draft = "pending";
+const photoPresentation = jobPresentation(
+  { ...job, kind: "photo_analysis", route: "photos", progress: photoProgress },
+  "Synthetic Review", "zh-CN");
+assert.match(photoPresentation.detail, /2 \/ 3 项资料/);
 
 const failedProgress = structuredClone(progress);
 failedProgress.state = "failed";

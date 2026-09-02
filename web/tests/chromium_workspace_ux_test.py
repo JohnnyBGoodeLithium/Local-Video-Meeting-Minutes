@@ -74,7 +74,18 @@ def main() -> int:
                             raise
                     time.sleep(0.1)
                 else:
-                    raise RuntimeError("workspace did not finish loading")
+                    diagnostic = cdp.evaluate(r"""
+(async () => {
+  const source = document.querySelector('script[type="module"]')?.src;
+  try {
+    if (source) await import(source);
+    return `module loaded but workspace missing; source=${source || 'missing'}`;
+  } catch (error) {
+    return `module error: ${error?.stack || error}; source=${source || 'missing'}`;
+  }
+})()
+""")
+                    raise RuntimeError(f"workspace did not finish loading: {diagnostic}")
 
                 cdp.evaluate(r"""
 window.__workspaceUxE2E = 'running';
@@ -120,7 +131,7 @@ void (async () => {
     && banner.textContent.includes('12 / 36') && banner.textContent.includes('18–26');
   banner.querySelector('[data-job-action="details"]').click();
   const detailReady = sheet.textContent.includes('生成语音草稿')
-    && sheet.textContent.includes('理解共享画面') && sheet.textContent.includes('12 / 36')
+    && sheet.textContent.includes('理解画面与现场资料') && sheet.textContent.includes('12 / 36')
     && sheet.querySelector('[aria-current="step"]');
   window.__workspaceUxCapture = 'progress';
   await new Promise(resolve => setTimeout(resolve, 350));
@@ -158,7 +169,7 @@ void (async () => {
       onStartDegraded:()=>{ window.__degradedOffered = true; },
     });
   }});
-  const failureClear = banner.textContent.includes('理解共享画面没有完成')
+  const failureClear = banner.textContent.includes('理解画面与现场资料没有完成')
     && banner.textContent.includes('本地视觉服务未能启动')
     && banner.textContent.includes('语音草稿');
   banner.querySelector('[data-job-action="recovery"]').click();
@@ -177,10 +188,11 @@ void (async () => {
 
   const realFetch = window.fetch.bind(window);
   const baseBundle = await realFetch('/api/meetings/_smoke/bundle').then(response => response.json());
-  let materialPresent = false, imported = 0, renamed = false, alignmentCalls = 0, deleted = false;
+  let materialPresent = false, imported = 0, renamed = false, alignmentCalls = 0;
+  let deleted = false, analysisQueued = false;
   const photo = {
     id:'F9001',kind:'photo',page:null,title:'Synthetic whiteboard',description:'',
-    display_description:'Not analyzed; saved only as meeting material.',
+    display_description:'Not analyzed yet.',
     image:'page1.png',asset_path:'slides/page1.png',
     original_name:'synthetic-whiteboard.png',first:null,ranges:[],turn_indexes:[],
     display_status:'Meeting material',analysis_state:'not_requested',information_value:'unknown',
@@ -194,6 +206,12 @@ void (async () => {
       imported += 1; materialPresent = true;
       return new Response(JSON.stringify({results:[{photo,duplicate:imported === 2}],
         imported: imported === 1 ? [photo] : [],duplicate_ids: imported === 2 ? ['F9001'] : []}),
+        {status:200,headers:{'Content-Type':'application/json'}});
+    }
+    if (url.endsWith('/photos/analyze') && method === 'POST') {
+      analysisQueued = true; photo.analysis_state = 'queued';
+      photo.display_description = 'Visual analysis queued';
+      return new Response(JSON.stringify({ok:true,job:{id:'synthetic-photo-job',status:'queued',kind:'photo_analysis'}}),
         {status:200,headers:{'Content-Type':'application/json'}});
     }
     if (url.endsWith('/bundle') && method === 'GET' && materialPresent) {
@@ -279,7 +297,7 @@ void (async () => {
 
   window.__workspaceUxE2E = [draftReady,Boolean(detailReady),failureClear,previewClear,
     window.__recoveryStarted === true,contextKept,completedCollapsed,englishMaterials,
-    englishQuality,previews,removable,progressivePosition,imported === 2,renamed,
+    englishQuality,previews,removable,progressivePosition,imported === 2,analysisQueued,renamed,
     alignmentCalls === 2,productDelete,deleted].join('|');
 })().catch(error => { window.__workspaceUxE2E = `error:${error?.stack || error}`; });
 """)
@@ -299,7 +317,7 @@ void (async () => {
                     if result != "running":
                         break
                     time.sleep(0.1)
-                if result != "true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true":
+                if result != "true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true":
                     raise RuntimeError(f"unexpected browser result: {result!r}")
             finally:
                 cdp.close()

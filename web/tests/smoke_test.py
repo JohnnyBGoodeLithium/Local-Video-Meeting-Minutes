@@ -181,7 +181,7 @@ app_js = b"\n".join([app_js, *module_sources])
 check("前端装配入口使用可独立加载的原生 ES modules",
       all(status == 200 for status in module_statuses)
       and b'type="module"' in page
-      and b'./modules/media-source.js?v=20260901p111' in app_js
+      and b'./modules/media-source.js?v=20260902p112' in app_js
       and b'export function selectJobPanel' in app_js
       and b'export function sortLibrary' in app_js
       and b'export function nearestReviewUnit' in app_js
@@ -209,7 +209,7 @@ if chrome:
         chrome, "--headless=new", "--disable-gpu", "--no-sandbox",
         "--window-size=1600,900", "--virtual-time-budget=8000", "--dump-dom", BASE,
     ], capture_output=True, text=True, timeout=90)
-    browser_build_present = "20260901p111" in browser.stdout
+    browser_build_present = "20260902p112" in browser.stdout
     browser_active_present = 'class="meeting-item active"' in browser.stdout
     browser_transcript_present = 'id="turn-0"' in browser.stdout
     browser_minutes_present = 'id="minutes-heading-0"' in browser.stdout
@@ -295,7 +295,7 @@ check("时间码跳转只滚动内容面板，不带动整页丢失播放器",
 check("在线屏幕舞台支持放大、缩放和相邻屏幕键盘导航",
       b'id="screen-preview-mask"' in page and b'openScreenPreview' in app_js
       and b'navigateScreenPreview' in app_js and b'SCREEN_PREVIEW_ZOOMS' in app_js
-      and b'20260901p111' in page)
+      and b'20260902p112' in page)
 check("会议深链 ?meeting=<slug>&t=<秒> 定位播放且忽略非法/超界 t",
       b'params.get("t")' in app_js and b'deepLinkSeek' in app_js
       and b'deepLinkSeconds' in app_js
@@ -380,7 +380,7 @@ check("产品介绍页使用七段双语用户旅程与虚构演示",
       and b'Northstar Product Launch' in product_page
       and b'data-product-content-version="0.15"' in product_page
       and b'data-ui-language="en"' in product_page
-      and b'/static/fluent-foundation.css?v=20260901p111' in product_page
+      and b'/static/fluent-foundation.css?v=20260902p112' in product_page
       and b'data-demo-mode="meeting"' in product_page
       and b'data-demo-mode="video"' in product_page
       and b'data-demo-evidence' in product_page
@@ -550,7 +550,8 @@ Image.new("RGB", (640, 360), (242, 238, 220)).save(photo_stream, format="JPEG")
 s, _, photo_result = multipart_files(
     "/api/meetings/_smoke/photos",
     [("files", "whiteboard.jpg", photo_stream.getvalue(), "image/jpeg")],
-    fields=[("mode", "current_time"), ("anchor_seconds", "2.5")])
+    fields=[("mode", "current_time"), ("anchor_seconds", "2.5"),
+            ("defer_analysis", "1")])
 photo_bundle = req("GET", "/api/meetings/_smoke/bundle")[2]
 check("现场照片导入固化原始/阅读副本并进入视觉资料",
       s == 200 and photo_result.get("imported", [{}])[0].get("id") == "F0001"
@@ -576,7 +577,7 @@ Image.new("RGB", (320, 240), (210, 225, 240)).save(delete_stream, format="PNG")
 s, _, second_photo = multipart_files(
     "/api/meetings/_smoke/photos",
     [("files", "temporary-note.png", delete_stream.getvalue(), "image/png")],
-    fields=[("mode", "unlocated")])
+    fields=[("mode", "unlocated"), ("defer_analysis", "1")])
 sd, _, deleted_photo = req("DELETE", "/api/meetings/_smoke/photos/F0002")
 check("删除现场资料同步清理原图、阅读副本和 sidecar",
       s == 200 and second_photo.get("created_ids") == ["F0002"] and sd == 200
@@ -1660,7 +1661,18 @@ s, _, _ = req("POST", "/api/meetings/_smoke/assistant/edit/undo",
               {"proposal_id": preview.get("proposal_id")})
 check("同一修改只能撤销一次", s == 409)
 
-# 19. 删除只作用于隔离数据根，并清理声纹来源引用
+# 19. 现场资料分析排队会把资料 revision 标为处理中；放到所有读取型
+# 导出/翻译断言之后，避免 dry-run 不执行分析脚本而人为制造 stale fixture。
+s, _, photo_analysis = req(
+    "POST", "/api/meetings/_smoke/photos/analyze", {"photo_ids": ["F0001"]})
+photo_job = photo_analysis.get("job") or {}
+photo_done = poll_job(photo_job.get("id")) if photo_job.get("id") else {}
+check("现场资料可批量排入独立 Vision 作业且响应不泄露命令路径",
+      s == 200 and photo_job.get("kind") == "photo_analysis"
+      and "cmd" not in photo_job and photo_done.get("status") == "done"
+      and photo_done.get("cmd", ["", ""])[1].endswith("bin/analyze_photos.py"))
+
+# 20. 删除只作用于隔离数据根，并清理声纹来源引用
 s, _, deleted = req("POST", "/api/meetings/_smoke/delete")
 check("删除隔离会议 → 目录移除", s == 200 and deleted.get("ok") is True and not SMOKE.exists())
 check("删除会议 → 同步移除本地审计记录",

@@ -179,7 +179,9 @@ def _meeting_photo_assets(mdir: Path) -> tuple[list[dict], dict[str, bytes]]:
             **item,
             "image": arcname,
             "asset_path": arcname,
-            "visual_description": item.get("display_description") or "",
+            # Status copy is localized by Viewer from analysis_state. Only persist
+            # actual visual content here, otherwise English packs inherit Chinese UI text.
+            "visual_description": item.get("description") or "",
         })
     return projected, assets
 
