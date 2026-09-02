@@ -7,7 +7,7 @@ const PHASE_COPY = {
   teams_alignment: ["区分发言人并对齐 Teams 文稿", "Aligning speakers with the Teams transcript"],
   voice_draft: ["生成语音草稿", "Generating the voice draft"],
   visual_extraction: ["提取共享画面", "Extracting shared visuals"],
-  visual_understanding: ["理解共享画面", "Understanding shared visuals"],
+  visual_understanding: ["理解画面与现场资料", "Understanding visuals and meeting materials"],
   final_minutes: ["生成正式纪要", "Generating final minutes"],
   topic_map: ["构建会议脉络", "Building the meeting map"],
   retranscribe_prepare: ["检查已有母版", "Checking the saved source"],
@@ -48,6 +48,9 @@ const FAILURE_CODE_COPY = {
   DOWNLOAD_FAILED: ["媒体下载没有完成", "The media download did not finish"],
   PROCESS_INTERRUPTED: ["任务在安全检查点被中断", "The task was interrupted at a safe checkpoint"],
   STAGE_PROCESSING_FAILED: ["这一处理步骤没有完成", "This processing step did not finish"],
+  PHOTO_ANALYSIS_FAILED: ["现场资料视觉分析没有完成", "The meeting material analysis did not finish"],
+  PHOTO_MINUTES_SYNC_FAILED: ["现场资料已分析，但纪要同步没有完成", "The material was analyzed, but the minutes did not update"],
+  PHOTO_INPUT_INVALID: ["现场资料不存在或已经删除", "The meeting material is missing or was deleted"],
 };
 
 const RETRY_ORDER = {
@@ -123,7 +126,8 @@ function progressUnits(progress, language) {
   const done = Math.max(0, Number(progress.done) || 0);
   const unit = progress.unit === "pages" ? (language === "en" ? "visuals" : "个画面")
     : progress.unit === "windows" ? (language === "en" ? "sections" : "个区段")
-    : progress.unit === "batches" ? (language === "en" ? "batches" : "个批次") : "";
+    : progress.unit === "batches" ? (language === "en" ? "batches" : "个批次")
+    : progress.unit === "items" ? (language === "en" ? "materials" : "项资料") : "";
   return `${done} / ${progress.total}${unit ? ` ${unit}` : ""}`;
 }
 

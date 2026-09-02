@@ -58,6 +58,26 @@ with tempfile.TemporaryDirectory(prefix="meeting-photos-test-") as temp:
     assert projection[-1]["first"] == 725.5
     assert projection[-1]["kind"] == "photo"
     assert projection[-1]["asset_path"] == "photos/review/F0003.jpg"
+    assert photos.analysis_revision(meeting) is None
+
+    # 视觉分析状态和结果原子落到现场资料 sidecar；时间邻近只是上下文，不是决定证据。
+    photos.set_analysis_state(meeting, ["F0001"], "queued")
+    photos.set_analysis_state(meeting, ["F0001"], "analyzing")
+    ready = photos.set_analysis_state(meeting, ["F0001"], "ready", results={
+        "F0001": {"description": "## 标题\n规划白板\n## 可见内容\n- 两个工作流",
+                  "model": "synthetic-vl"},
+    })[0]
+    assert ready["analysis_state"] == "ready" and ready["analysis_model"] == "synthetic-vl"
+    materials = photos.prompt_materials(meeting, [
+        {"start": 260, "end": 280}, {"start": 900, "end": 920},
+    ])
+    assert materials[0]["id"] == "F0001"
+    assert materials[0]["nearby_turn_ids"] == ["T000001"]
+    assert materials[0]["evidence_boundary"] == "visual_context_only_not_a_meeting_decision"
+    ready_revision = photos.analysis_revision(meeting)
+    assert ready_revision and len(ready_revision) == 16
+    photos.set_title(meeting, "F0001", "Revised material title")
+    assert photos.analysis_revision(meeting) != ready_revision
 
     # 相同内容不产生第二份副本或新 ID。
     duplicate = root / "duplicate.webp"

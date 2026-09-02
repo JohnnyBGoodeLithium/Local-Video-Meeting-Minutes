@@ -15,6 +15,7 @@ KIND_PRIORITIES = {
     "upload": 10,
     "retranscribe": 10,
     "regen": 20,
+    "photo_analysis": 15,
     "topic_map": 20,
     "orgchart_extract": 20,
     "translation": 30,

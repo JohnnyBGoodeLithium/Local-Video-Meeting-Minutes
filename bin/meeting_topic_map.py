@@ -21,6 +21,7 @@ from typing import Callable
 
 import meeting_artifact as artifact
 import meeting_structure
+from meeting_core import photos as meeting_photos
 from meeting_core.media_navigation import build_media_navigation
 from meeting_core.llm import validated_api_base
 from meeting_core.progress_events import (failure as failure_event, output_ready,
@@ -107,12 +108,17 @@ def _minutes_path(mdir: Path) -> Path | None:
 
 def current_revisions(mdir: Path) -> dict:
     minutes = _minutes_path(mdir)
-    return {
+    revisions = {
         "transcript": artifact.file_revision(mdir / "transcript.spk.json"),
         "minutes": artifact.file_revision(minutes) if minutes else None,
         "slides": artifact.file_revision(mdir / "slides.json"),
         "page_descriptions": artifact.file_revision(mdir / "page_desc.json"),
     }
+    # Unanalyzed attachments do not affect generated text. A ready Vision result does.
+    photo_revision = meeting_photos.analysis_revision(mdir)
+    if photo_revision:
+        revisions["photos"] = photo_revision
+    return revisions
 
 
 def load_current_topic_map(mdir: Path) -> tuple[str, dict]:

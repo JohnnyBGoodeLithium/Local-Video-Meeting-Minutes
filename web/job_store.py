@@ -309,7 +309,7 @@ def _run_pipeline(job: dict):
         _set_status(job, terminal, finished=finished, rc=proc.returncode,
                     result={"dry_run": True} if DRY_RUN and succeeded else None)
         if succeeded and not DRY_RUN and job.get("kind") in {
-                "upload", "regen", "topic_map", "retranscribe"}:
+                "upload", "regen", "topic_map", "retranscribe", "photo_analysis"}:
             try:
                 _record_meeting_activity(job)
             except Exception as exc:

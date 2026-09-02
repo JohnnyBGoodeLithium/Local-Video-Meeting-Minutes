@@ -46,6 +46,11 @@ for index in range(520):
 context = {
     "schema": "meeting-minutes-prompt/v1",
     "speaker_profiles": [], "pages": [], "turns": turns,
+    "materials": [
+        {"id": "F0001", "nearby_turn_ids": ["T000001"], "visual_summary": "合成白板甲"},
+        {"id": "F0002", "nearby_turn_ids": ["T000520"], "visual_summary": "合成白板乙"},
+        {"id": "F0003", "nearby_turn_ids": [], "visual_summary": "未定位资料"},
+    ],
 }
 policy = {"version": "synthetic/v1", "rules": ["不得编造"]}
 direct = voice_draft.build_direct_prompt(context, policy)
@@ -58,6 +63,9 @@ assert result.chunks > 1
 assert len(client.calls) == result.chunks + 1
 assert "T000001" in client.calls[0][0]
 assert "T000520" in client.calls[-2][0]
+assert "F0001" in client.calls[0][0] and "F0002" not in client.calls[0][0]
+assert "F0002" in client.calls[-2][0] and "F0001" not in client.calls[-2][0]
+assert "F0003" not in client.calls[0][0] and "F0003" in client.calls[-1][0]
 assert client.calls[-1][1]["max_tokens"] == 8192
 for prompt, kwargs in client.calls[:-1]:
     assert kwargs["max_tokens"] == 2048

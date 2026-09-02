@@ -29,7 +29,7 @@ def _revision(mdir: Path) -> str:
     digest = hashlib.sha256()
     found = False
     for name in ("transcript.spk.json", "minutes.md", "minutes.spk.md",
-                 "meeting.topic-map.json", "page_desc.json"):
+                 "meeting.topic-map.json", "page_desc.json", "meeting.photos.json"):
         path = mdir / name
         if not path.is_file():
             continue

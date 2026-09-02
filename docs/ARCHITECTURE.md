@@ -43,6 +43,12 @@ Web · Viewer · AI Context · KB · RAG
 | retranscribe | 已有母版 | 从私有快照与当前 provider 重建逐字稿及下游资产 |
 | regenerate / sync | 已有 canonical | 标准重生成可补缺；快速同步只复用完整 VL 缓存 |
 
+现场资料采用独立的补充路径：图片先原子固化为受保护原图和阅读 JPEG，再由批量
+`photo_analysis` 作业调用本地 VL。视觉模型只读取图片，不读取逐字稿；分析完成后，
+已确认定位仅把前后两分钟的 T ID 作为文本纪要的邻近上下文。已有终稿在缓存完整时
+只重生成纪要与 evidence，不重跑 ASR、人物或页面 VL；仍在处理的会议由原终稿阶段吸收。
+未定位图片仍进入资料解读，但不会伪造与某段发言的时间关联。
+
 公开链接下载只接受受限单条媒体。原始 URL 只进入私有 inbox；工作台、Viewer 与 KB 只投影 `media-source/v1` 的白名单字段，含临时 query 的 generic URL 不导出。
 
 ## Canonical 数据真源
@@ -79,7 +85,7 @@ LLM 可以生成包含 evidence marker 的候选，但解析器必须容忍 Mark
 - AI 纪要 view、Viewer、AI Context 和 KB projection；
 - 知识库发布回执。
 
-来源 revision 包括相关逐字稿、人物身份、画面和正式纪要指纹。相关来源变化时，派生资产必须变成 stale、排队更新或在下次读取时懒重建。旧结果可以保留用于恢复，但不能继续展示为当前版本。
+来源 revision 包括相关逐字稿、人物身份、页面画面、现场资料 sidecar 和正式纪要指纹。相关来源变化时，派生资产必须变成 stale、排队更新或在下次读取时懒重建。没有现场资料 sidecar 的旧会议保持原 revision 形状，避免仅因升级代码而全部误判过期。旧结果可以保留用于恢复，但不能继续展示为当前版本。
 
 逐字稿快速同步是独立安全路径：
 
