@@ -169,10 +169,12 @@ def enroll(name2vec: dict, slug: str, threshold: float = 0.70, bank_dir: Path = 
     bank = vb.load_bank(bank_dir)
     candidates = list(bank["voices"])
     claimed_unbound = set()
+    claimed_persons = set()
     rename, voice_of, linked, new = {}, {}, 0, 0
     for name, vec in name2vec.items():
         entry, sim, _ = vb.match_session_voice(
-            bank_dir, bank, candidates, vec, threshold, slug, name, claimed_unbound)
+            bank_dir, bank, candidates, vec, threshold, slug, name, claimed_unbound,
+            claimed_persons)
         if entry is None:
             entry = vb.add_voice(bank_dir, bank, vec, label_hint=name, source=slug)
             new += 1

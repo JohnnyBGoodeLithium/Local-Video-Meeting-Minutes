@@ -116,10 +116,15 @@ def build_topic_map_command(mdir: Path) -> list[str]:
     return [str(PY), str(ROOT / "bin" / "meeting_topic_map.py"), str(mdir)]
 
 
-def build_retranscribe_command(mdir: Path) -> list[str]:
+def build_retranscribe_command(mdir: Path, num_speakers: int | None = None) -> list[str]:
     if _video_path(mdir) is None and _audio_path(mdir) is None:
         raise ValueError("missing_source_media")
-    return [str(PY), str(ROOT / "bin" / "retranscribe_local.py"), str(mdir)]
+    command = [str(PY), str(ROOT / "bin" / "retranscribe_local.py"), str(mdir)]
+    if num_speakers is not None:
+        if not 1 <= int(num_speakers) <= 20:
+            raise ValueError("invalid_speaker_count")
+        command += ["--num-speakers", str(int(num_speakers))]
+    return command
 
 
 def build_speaker_resume_command(mdir: Path) -> list[str]:

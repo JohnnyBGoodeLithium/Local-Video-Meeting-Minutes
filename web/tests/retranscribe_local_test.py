@@ -11,6 +11,9 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "bin"))
 import retranscribe_local as local_asr  # noqa: E402
 
+sys.path.insert(0, str(ROOT / "web"))
+import job_recovery  # noqa: E402
+
 
 with tempfile.TemporaryDirectory(prefix="meeting-local-asr-") as temporary:
     data_root = Path(temporary)
@@ -40,5 +43,14 @@ with tempfile.TemporaryDirectory(prefix="meeting-local-asr-") as temporary:
     assert (mdir / "samples" / "voice.wav").read_bytes() == b"sample-before"
     assert (mdir / "source_video.mp4").read_bytes() == b"protected fictional video"
     assert (mdir / "source.docx").read_bytes() == b"protected fictional transcript"
+
+    constrained = job_recovery.build_retranscribe_command(mdir, num_speakers=2)
+    assert constrained[-2:] == ["--num-speakers", "2"]
+    try:
+        job_recovery.build_retranscribe_command(mdir, num_speakers=0)
+    except ValueError as exc:
+        assert str(exc) == "invalid_speaker_count"
+    else:
+        raise AssertionError("invalid speaker count must be rejected")
 
 print("local retranscription snapshot/restore boundary passed")
