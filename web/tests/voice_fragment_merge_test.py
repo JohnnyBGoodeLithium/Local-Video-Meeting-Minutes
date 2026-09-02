@@ -112,8 +112,8 @@ with tempfile.TemporaryDirectory() as td:
     assert all(len(ids) == 1 for ids in owners.values()), owners
 
 with tempfile.TemporaryDirectory() as td:
-    # 已由用户确认归属同一人的 voice 允许吸收同场多个声学聚类；隔离规则只约束
-    # 未绑定匿名 voice，不能破坏跨设备/音色变化下的一人多簇能力。
+    # 已由用户确认归属同一人的 voice 仍可吸收同场多个强相似声学聚类，保留
+    # 跨设备/音色轻微变化下的一人多簇能力。
     bank_dir = Path(td) / "bank"
     bank = {"schema": "speaker-bank/v3", "voices": [], "persons": []}
     person = vb.add_person(bank, "Synthetic Person")
@@ -125,5 +125,51 @@ with tempfile.TemporaryDirectory() as td:
         labels, "session-c", bank_dir=bank_dir)
     assert known_new == 0 and known_linked == 2
     assert set(known_map.values()) == {known["id"]}
+
+with tempfile.TemporaryDirectory() as td:
+    # 嘈杂会议中，第二个聚类即使越过普通 0.70 门槛，也不能弱命中已经在本场
+    # 出现的已确认人物；它应保留为独立匿名 voice，等待用户确认。
+    bank_dir = Path(td) / "bank"
+    bank = {"schema": "speaker-bank/v3", "voices": [], "persons": []}
+    person = vb.add_person(bank, "Synthetic Person")
+    target = np.zeros(DIM, dtype=np.float32)
+    target[0] = 1.0
+    known = vb.add_voice(bank_dir, bank, target, "Synthetic Person", "older-session",
+                         person_id=person["id"])
+    vb.save_bank(bank_dir, bank)
+    weak = np.zeros(DIM, dtype=np.float32)
+    weak[0] = 0.76
+    weak[1] = np.sqrt(1.0 - weak[0] ** 2)
+    labels = {"说话人1": target.copy(), "说话人2": weak}
+    rename, guarded, guarded_linked, guarded_new = ve.enroll(
+        labels, "session-d", bank_dir=bank_dir)
+    assert guarded_linked == 1 and guarded_new == 1
+    assert guarded["说话人1"] == known["id"]
+    assert guarded["说话人2"] != known["id"]
+    assert rename["说话人2"].startswith("说话人")
+
+with tempfile.TemporaryDirectory() as td:
+    # 旧版本已经把两个本场聚类保存到同一个已绑定 voice 时，受控重跑也必须
+    # 重新检查第二簇的真实相似度，并迁移弱映射，而不是被精确 source 映射锁死。
+    bank_dir = Path(td) / "bank"
+    bank = {"schema": "speaker-bank/v3", "voices": [], "persons": []}
+    person = vb.add_person(bank, "Synthetic Person")
+    target = np.zeros(DIM, dtype=np.float32)
+    target[0] = 1.0
+    known = vb.add_voice(bank_dir, bank, target, "Synthetic Person", "older-session",
+                         person_id=person["id"])
+    known["source_clusters"] = {"session-e": ["说话人1", "说话人2"]}
+    vb.save_bank(bank_dir, bank)
+    weak = np.zeros(DIM, dtype=np.float32)
+    weak[0] = 0.76
+    weak[1] = np.sqrt(1.0 - weak[0] ** 2)
+    labels = {"说话人1": target.copy(), "说话人2": weak}
+    _, healed, _, healed_new = ve.enroll(labels, "session-e", bank_dir=bank_dir)
+    assert healed_new == 1
+    assert healed["说话人1"] == known["id"]
+    assert healed["说话人2"] != known["id"]
+    saved = vb.load_bank(bank_dir)
+    old = next(voice for voice in saved["voices"] if voice["id"] == known["id"])
+    assert old.get("source_clusters", {}).get("session-e") == ["说话人1"]
 
 print("voice enrollment isolation and fragment merge: synthetic bank passed")

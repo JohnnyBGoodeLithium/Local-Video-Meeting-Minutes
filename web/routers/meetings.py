@@ -314,7 +314,7 @@ def get_bundle(slug: str):
 
 
 @router.post("/api/meetings/{slug}/retranscribe-local")
-def retranscribe_local(slug: str):
+def retranscribe_local(slug: str, num_speakers: int | None = Query(None, ge=1, le=20)):
     """保留母版与旧快照，使用当前显式配置的 ASR provider 重建。"""
     mdir = _mdir(slug)
     if any(job.get("meeting") == slug and job.get("status") in {"queued", "running"}
@@ -322,7 +322,7 @@ def retranscribe_local(slug: str):
         raise HTTPException(409, "这场会议仍有处理作业，不能并发重转写")
     if _video_path(mdir) is None and _audio_path(mdir) is None:
         raise HTTPException(400, "没有受保护的音视频母版，无法重新转写")
-    cmd = build_retranscribe_command(mdir)
+    cmd = build_retranscribe_command(mdir, num_speakers=num_speakers)
     job = _new_job("retranscribe", route="video" if _video_path(mdir) else "audio",
                    meeting=slug, cmd=cmd,
                    transcript_policy="local_asr")

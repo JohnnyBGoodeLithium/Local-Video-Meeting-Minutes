@@ -96,7 +96,11 @@ def _restore(mdir: Path, version: Path, existing: set[Path]) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description="已有会议使用当前 ASR provider 重新转写")
     parser.add_argument("meeting_dir", type=Path)
+    parser.add_argument("--num-speakers", type=int, default=None,
+                        help="已知真实发言人数；仅约束本次说话人重分离")
     args = parser.parse_args()
+    if args.num_speakers is not None and not 1 <= args.num_speakers <= 20:
+        parser.error("--num-speakers 必须在 1 到 20 之间")
     try:
         mdir = _managed_meeting(args.meeting_dir)
     except ValueError as exc:
@@ -128,6 +132,8 @@ def main() -> int:
     else:
         command = [str(PY), str(ROOT / "bin" / "run_all.py"), str(audios[0]),
                    "--meeting-dir", str(mdir), "--title", mdir.name]
+    if args.num_speakers is not None:
+        command += ["--num-speakers", str(args.num_speakers)]
     try:
         result = subprocess.run(command)
     except (InterruptedError, KeyboardInterrupt):

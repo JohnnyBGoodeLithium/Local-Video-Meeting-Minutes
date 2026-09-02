@@ -153,10 +153,12 @@ def update_bank(name2vec, slug, threshold):
     bank = vb.load_bank(BANK_DIR)
     candidates = list(bank["voices"])
     claimed_unbound = set()
+    claimed_persons = set()
     rename, voice_of, linked, new = {}, {}, 0, 0
     for name, vec in name2vec.items():
         entry, sim, _ = vb.match_session_voice(
-            BANK_DIR, bank, candidates, vec, threshold, slug, name, claimed_unbound)
+            BANK_DIR, bank, candidates, vec, threshold, slug, name, claimed_unbound,
+            claimed_persons)
         if entry is not None:
             if slug not in entry.setdefault("sources", []):
                 entry["sources"].append(slug)

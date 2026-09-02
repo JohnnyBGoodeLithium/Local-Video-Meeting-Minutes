@@ -21,6 +21,12 @@ import numpy as np
 
 SCHEMA = 3
 NAME_TYPES = {"org", "chinese", "pinyin", "english_display", "other"}
+# A first cross-meeting identity match uses the caller's normal threshold.  Once
+# that person already owns a cluster in the same recording, an additional
+# acoustic cluster needs stronger evidence.  This preserves legitimate
+# far/near-device fragmentation without letting several distinct speakers in a
+# noisy room collapse into one confirmed identity.
+SESSION_REPEAT_PERSON_THRESHOLD = 0.82
 
 
 def normalize_name(value: str) -> str:
@@ -191,29 +197,59 @@ def forget_source(entry: dict, source: str) -> bool:
 
 def match_session_voice(bank_dir: Path, bank: dict, candidates: list, vec,
                         threshold: float, source: str, cluster_label: str,
-                        claimed_unbound: set):
-    """为本场一个原始聚类匹配声纹，并阻止匿名簇在同场多对一坍缩。
+                        claimed_unbound: set, claimed_persons: set = None,
+                        repeat_person_threshold: float = SESSION_REPEAT_PERSON_THRESHOLD):
+    """为本场一个原始聚类匹配声纹，并阻止同场多对一坍缩。
 
     ``candidates`` 必须是入库循环开始前冻结的 voice 列表，因此本场刚创建的
     voice 不会被后续聚类当成“跨会议命中”。已有的 source+cluster 映射优先，
-    使恢复重跑保持幂等。已绑定 person 的 voice 可承载同一人的多个声学簇；
-    未绑定 voice 在一场会议里最多认领一个原始聚类。
+    使恢复重跑保持幂等。未绑定 voice 在一场会议里最多认领一个原始聚类；已
+    绑定 person 可以承载多个声学簇，但第二簇起必须达到更严格的相似度，避免
+    嘈杂或远场录音把多个真实人物全部投影成同一个已确认姓名。
     """
+    if claimed_persons is None:
+        claimed_persons = set()
+    repeat_threshold = max(float(threshold), float(repeat_person_threshold))
+
+    def accept_bound(entry, similarity: float) -> bool:
+        person_id = entry.get("person_id")
+        if not person_id:
+            return True
+        if person_id in claimed_persons and similarity < repeat_threshold:
+            return False
+        claimed_persons.add(person_id)
+        return True
+
     entry = source_cluster_voice(bank, source, cluster_label)
     if entry is not None:
-        if entry.get("person_id") or entry.get("id") not in claimed_unbound:
+        if entry.get("person_id"):
+            current = np.asarray(vec, dtype=np.float32)
+            current = current / (np.linalg.norm(current) + 1e-9)
+            similarity = float(np.dot(current, vec_of(bank_dir, entry)))
+            if accept_bound(entry, similarity):
+                return entry, similarity, "session"
+            # A prior version may have persisted several weak clusters under one
+            # confirmed person.  Treat the extra mapping as a candidate again;
+            # remember_source_cluster will migrate it if a new voice is created.
+            entry = None
+        elif entry.get("id") not in claimed_unbound:
             if not entry.get("person_id"):
                 claimed_unbound.add(entry["id"])
             return entry, 1.0, "session"
-        # 兼容曾经把多个本场聚类记进同一匿名 voice 的坏数据：本轮将其拆开。
-        entry = None
+        else:
+            # 兼容曾经把多个本场聚类记进同一匿名 voice 的坏数据：本轮将其拆开。
+            entry = None
 
     frozen_bank = {"voices": candidates}
     matched, similarity = match_voice(bank_dir, frozen_bank, vec, threshold)
-    if matched is not None and not matched.get("person_id"):
-        if matched["id"] in claimed_unbound:
-            return None, similarity, "collision"
-        claimed_unbound.add(matched["id"])
+    if matched is not None:
+        if matched.get("person_id"):
+            if not accept_bound(matched, similarity):
+                return None, similarity, "person_collision"
+        else:
+            if matched["id"] in claimed_unbound:
+                return None, similarity, "collision"
+            claimed_unbound.add(matched["id"])
     return matched, similarity, "matched" if matched is not None else "new"
 
 
