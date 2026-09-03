@@ -204,11 +204,14 @@ window.fetch = async (input, init = {}) => {
                     "width": 390, "height": 844, "deviceScaleFactor": 1, "mobile": True,
                 })
                 responsive = cdp.evaluate(r"""
-({client: document.documentElement.clientWidth, scroll: document.documentElement.scrollWidth,
-  dialog: document.querySelector('#live-context-form').getBoundingClientRect().width,
-  animations: document.querySelector('#live-context-form').getAnimations().length})
+(() => {
+  const form = document.querySelector('#live-context-form');
+  const rect = form.getBoundingClientRect();
+  return {client: document.documentElement.clientWidth, left: rect.left, right: rect.right,
+    dialog: rect.width, animations: form.getAnimations({subtree: true}).length};
+})()
 """)
-                assert responsive["scroll"] <= responsive["client"], responsive
+                assert responsive["left"] >= 0 and responsive["right"] <= responsive["client"], responsive
                 assert responsive["dialog"] <= responsive["client"], responsive
                 assert responsive["animations"] == 0, responsive
 

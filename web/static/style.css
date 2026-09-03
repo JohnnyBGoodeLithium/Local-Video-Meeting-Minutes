@@ -374,8 +374,8 @@ body.page-index { overflow: hidden; }
 .live-context-entry { width: 100%; margin-top: var(--sp-7); }
 #live-context-mask { padding: 15px; overflow: auto; }
 .dialog.live-context-dialog {
-  width: min(620px, 100%);
-  max-width: 100%;
+  width: min(620px, calc(100vw - 30px));
+  max-width: calc(100vw - 30px);
   max-height: calc(100dvh - 30px);
   overflow: auto;
 }
@@ -414,6 +414,9 @@ body.page-index { overflow: hidden; }
   .live-content-choice { display: grid; grid-template-columns: 1fr; }
   .live-content-choice label { min-width: 0; }
   .live-active-status dl div { grid-template-columns: 1fr; gap: 2px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .live-context-dialog, .live-context-dialog * { animation: none !important; transition: none !important; }
 }
 .skip-vl { display: block; padding-top: var(--sp-5); }
 .processing-mode { display: grid; gap: var(--sp-6); margin: var(--sp-8) 0 var(--sp-4); padding: 0; border: 0; }
