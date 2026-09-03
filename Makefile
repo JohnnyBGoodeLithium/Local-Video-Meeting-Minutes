@@ -47,6 +47,9 @@ package-check:
 	$(PY) web/tests/generic_vtt_test.py
 	$(PY) web/tests/live_replay_test.py
 	$(PY) web/tests/live_checkpoint_test.py
+	$(PY) web/tests/live_source_plan_test.py
+	$(PY) web/tests/hls_live_test.py
+	$(PY) web/tests/live_end_detection_test.py
 	$(PY) web/tests/slide_pages_test.py
 	$(PY) web/tests/media_shots_test.py
 	$(PY) web/tests/media_minutes_test.py
@@ -76,7 +79,7 @@ package-check:
 	$(PY) web/tests/ai_context_test.py
 	$(PY) web/tests/content_type_test.py
 	$(PY) web/tests/viewer_boot_test.py
-	@if command -v node >/dev/null 2>&1; then node --check web/static/app.js && node --check web/static/admin.js && node --check web/static/product-copy.js && node --check web/static/product-demo.js && node --check web/static/product.js && node web/tests/frontend_modules_test.mjs && node web/tests/job_progress_frontend_test.mjs && node web/tests/photo_import_frontend_test.mjs && node web/tests/speaker_correction_frontend_test.mjs && node web/tests/assistant_intent_test.mjs && node web/tests/product_demo_frontend_test.mjs; else echo "Node unavailable: skipped JS syntax check"; fi
+	@if command -v node >/dev/null 2>&1; then node --check web/static/app.js && node --check web/static/admin.js && node --check web/static/product-copy.js && node --check web/static/product-demo.js && node --check web/static/product.js && node web/tests/frontend_modules_test.mjs && node web/tests/live_context_frontend_test.mjs && node web/tests/job_progress_frontend_test.mjs && node web/tests/photo_import_frontend_test.mjs && node web/tests/speaker_correction_frontend_test.mjs && node web/tests/assistant_intent_test.mjs && node web/tests/product_demo_frontend_test.mjs; else echo "Node unavailable: skipped JS syntax check"; fi
 
 smoke: export MEETING_RESOURCE_GUARD=0
 smoke:

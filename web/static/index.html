@@ -33,6 +33,7 @@
     <div id="dropzone">
       <input type="file" id="file-input" accept="video/*,audio/*,.vtt,.docx" multiple hidden>
       <button id="pick-btn" class="primary import-button fluent-button fluent-button--primary" type="button"><svg class="fluent-icon" aria-hidden="true"><use href="/static/fluent-icons.svg#fluent-add"></use></svg><span>导入会议</span></button>
+      <button id="live-context-entry" class="live-context-entry fluent-button hidden" type="button">Live Context</button>
       <span id="drop-hint" class="drop-hint">或拖入视频 + VTT/DOCX，或单个音视频</span>
       <div id="media-url-import" class="media-url-import hidden">
         <div class="import-divider"><span>或粘贴公开视频链接</span></div>
@@ -227,6 +228,41 @@
 </main>
 
 <button id="library-scrim" class="library-scrim hidden" type="button" aria-label="关闭会议列表"></button>
+
+<div id="live-context-mask" class="mask hidden">
+  <form id="live-context-form" class="dialog live-context-dialog" role="dialog" aria-modal="true"
+        aria-labelledby="live-context-title" aria-describedby="live-context-summary">
+    <header class="export-dialog-head">
+      <div>
+        <h3 id="live-context-title">开始 Live Context</h3>
+        <p id="live-context-summary" class="dim">会议或直播进行时持续整理文字、人物、议题与证据。此能力仍在实验中。</p>
+      </div>
+      <button id="live-context-close" type="button" aria-label="关闭 Live Context">×</button>
+    </header>
+    <fieldset class="live-choice-group live-content-choice">
+      <legend id="live-content-legend">内容类型</legend>
+      <label><input type="radio" name="live-content-type" value="live_event" checked><span><b>直播活动</b></span></label>
+      <label><input type="radio" name="live-content-type" value="meeting"><span><b>会议</b></span></label>
+    </fieldset>
+    <label class="live-source-field" for="live-source-input">
+      <span id="live-source-label">来源</span>
+      <input id="live-source-input" class="fluent-field" type="url" inputmode="url" autocomplete="off"
+             placeholder="粘贴公开直播 URL，或稍后选择会议音频来源">
+    </label>
+    <fieldset class="live-choice-group">
+      <legend id="live-mode-legend">分析方式</legend>
+      <div id="live-mode-options"></div>
+    </fieldset>
+    <details class="live-advanced">
+      <summary id="live-advanced-label">高级选项</summary>
+      <p id="live-advanced-detail" class="dim">来源能力探测后才会显示可用捕获方式；不会静默切换或播放声音。</p>
+    </details>
+    <div class="dialog-btns live-context-actions">
+      <button id="live-context-cancel" type="button">取消</button>
+      <button id="live-context-continue" class="primary" type="submit" disabled>检查来源</button>
+    </div>
+  </form>
+</div>
 
 <div id="quote-pop" class="quote-pop hidden">
   <button type="button" data-intent="ask">问助手</button>

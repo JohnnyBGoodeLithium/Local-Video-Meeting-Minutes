@@ -37,6 +37,7 @@ def health():
         "python_ready": PY.is_file(),
         "active_jobs": active,
         "product": {"name": "Meeting Minutes", "version": PRODUCT_VERSION},
+        "features": {"live_context": os.environ.get("MEETING_LIVE_CONTEXT") == "1"},
         "integrations": {"knowledge_base": _knowledge_base_config()},
         "assistant": {"model": assistant.LLM_MODEL, "local_only": not assistant.ALLOW_REMOTE,
                       "rag": assistant.rag_service.RAG_VERSION,

@@ -39,6 +39,8 @@ import { beginPhotoImport, createPhotoImportState, hydratePhotoCaptureTimes,
   from "./modules/photo-import.js?v=20260903p113";
 import { renderPhotoImport }
   from "./modules/photo-import-view.js?v=20260903p113";
+import { mountLiveContext }
+  from "./modules/live-context-view.js?v=20260903p113";
 
 /* 会议列表 + 回顾工作台（装配入口；领域规则逐步迁往 modules/） */
 "use strict";
@@ -46,6 +48,7 @@ import { renderPhotoImport }
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const WORKSPACE_KEY = "meeting-minutes:workspace:v1";
+let liveContextView = null;
 
 function readWorkspaceState() {
   try {
@@ -416,6 +419,7 @@ function saveWorkspaceState() {
 
 function applyUiLanguage() {
   const english = isEnglishUi();
+  liveContextView?.setLanguage(english ? "en" : "zh-CN");
   document.documentElement.lang = state.uiLanguage;
   document.title = ui("title");
   const text = (selector, value) => { const el = $(selector); if (el) el.textContent = value; };
@@ -539,6 +543,7 @@ async function loadProductVersion() {
   const version = $("#product-version");
   try {
     const health = await jget("/api/health");
+    liveContextView?.setEnabled(health.features?.live_context === true);
     const value = String(health.product?.version || "").trim();
     const knowledgeBase = health.integrations?.knowledge_base || {};
     const knowledgeLink = $("#knowledge-base-link");
@@ -6051,6 +6056,7 @@ function wireTablistKeyboard(tablist) {
 }
 
 function init() {
+  liveContextView = mountLiveContext(document);
   applyUiLanguage();
   wireTablistKeyboard(document.querySelector(".minutes-mode-tabs"));
   wireTablistKeyboard(document.querySelector(".utility-tabs"));
