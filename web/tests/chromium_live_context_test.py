@@ -84,6 +84,10 @@ const jsonResponse = (value, status = 200) => new Response(JSON.stringify(value)
 window.fetch = async (input, init = {}) => {
   const url = String(input);
   const method = String(init.method || 'GET').toUpperCase();
+  // Switching the UI language normally schedules derived translations. Keep this
+  // browser journey isolated so the later API smoke still starts from missing sidecars.
+  if (url.includes('/translations/') && method === 'POST')
+    return jsonResponse({state: 'missing'});
   if (url === '/api/live/probe' && method === 'POST') return jsonResponse({
     source: {kind: 'hls'},
     capture_plan: {mode: 'analyze_background', background_available: true}
@@ -177,8 +181,12 @@ window.fetch = async (input, init = {}) => {
                 assert closed == {"hidden": True, "stopCalls": 0}
 
                 cdp.evaluate("document.querySelector('#live-context-entry').focus()")
-                cdp.call("Input.dispatchKeyEvent", {"type": "keyDown", "key": "Enter", "code": "Enter"})
-                cdp.call("Input.dispatchKeyEvent", {"type": "keyUp", "key": "Enter", "code": "Enter"})
+                enter = {"key": "Enter", "code": "Enter", "windowsVirtualKeyCode": 13,
+                         "nativeVirtualKeyCode": 13}
+                cdp.call("Input.dispatchKeyEvent", {"type": "rawKeyDown", **enter})
+                cdp.call("Input.dispatchKeyEvent", {"type": "char", **enter,
+                                                     "text": "\r", "unmodifiedText": "\r"})
+                cdp.call("Input.dispatchKeyEvent", {"type": "keyUp", **enter})
                 wait_for(cdp, "!document.querySelector('#live-context-mask').classList.contains('hidden')",
                          "keyboard reopen")
                 resumed = cdp.evaluate(r"""
