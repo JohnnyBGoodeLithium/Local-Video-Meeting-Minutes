@@ -25,6 +25,7 @@ dependencies = [
   "linkify-it-py>=2.0",
   "markdown-it-py>=3",
   "python-multipart>=0.0.9",
+  "qrcode>=8.2",
   "uvicorn>=0.29",
   "yt-dlp>=2025.1.26",
 ]

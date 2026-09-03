@@ -193,3 +193,8 @@ ASR、说话人或覆盖当前可读结果。该模式不改变 canonical schema
 - 模型角色：[reference/MODELS.md](reference/MODELS.md)
 - 知识与 RAG：[KNOWLEDGE_RAG.md](KNOWLEDGE_RAG.md)
 - 重大事故：[history/ENGINEERING_CHANGES.md](history/ENGINEERING_CHANGES.md)
+## Companion 边缘投影
+
+Experimental Companion 的 transport 固定为 `Phone → tailnet HTTPS → Tailscale Serve → http://127.0.0.1:<port>`。Serve 与 Funnel 是不同边界；本原型禁止 Funnel，也不把 FastAPI 改为 `0.0.0.0`。
+
+`/api/companion/**` 是独立 controller/projection 层。它复用现有 jobs、canonical meeting、evidence/media 和 speaker correction 服务，不拥有第二套会议、人物或队列状态。应用授权由哈希保存的一次性 pairing token、可撤销 HttpOnly session、能力白名单、同源检查和双提交 CSRF 共同约束。Tailscale identity header 只作为近似 metadata，不能替代应用 session。

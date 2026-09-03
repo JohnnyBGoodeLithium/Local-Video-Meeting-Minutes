@@ -166,3 +166,8 @@
 - 数据与失败合同：[ARCHITECTURE.md](ARCHITECTURE.md)
 - 处理与恢复操作：[runbooks/PROCESSING_AND_RECOVERY.md](runbooks/PROCESSING_AND_RECOVERY.md)
 - 旧人物专项规格：[archive/SPEAKER_CORRECTION_UX_FULL_2026-08-31.md](archive/SPEAKER_CORRECTION_UX_FULL_2026-08-31.md)
+## Companion 移动体验
+
+Companion 页面独立于桌面 `app.js`，以 390px 为首要视口，并支持中文/英文。首页只有发送链接、发送文件和最近项目；review 只显示标题、时长、内容类型、议题、人物、结论与 evidence。人物页沿用按人跳播语义，身份校正必须先预览再确认，并保留撤销。
+
+网络失败、X Ultra 休眠或 session 撤销必须显示可恢复状态，不清空已提交的服务端任务。界面不展示路径、模型、GPU、命令、stderr 或原始内部状态。

@@ -31,6 +31,7 @@
 
 - Live Context 可在开启 `MEETING_LIVE_CONTEXT=1` 后对公开、无 DRM 的原生 HLS 流执行无浏览器后台分析，累积暂定文字、人物、议题和选择性画面，结束后再交给现有 canonical pipeline 收尾。
 - Browser-assisted 音频尚未在当前 AMD/PipeWire 主机上证明可靠静音捕获；能力不足时必须请用户保持来源窗口，不会自动播放、抓取全系统音频或切换捕获方式。
+- Companion 私有 tailnet 原型已实现应用内配对、URL/小文件发送、进度、安全轻量 review、evidence 回听和人物确认；真实手机与 X Ultra 的 Tailscale Serve transport 仍待人工实验验证，默认关闭且不使用 Funnel。
 - 跨会议序列比较、主题演进和部门知识交付。
 - 新 embedding、reranker、模型替换和视觉疑难页路由。
 - 由历史材料生成汇报演练辅助；必须保持证据、反例、时效和人工确认，不能固化人物画像。

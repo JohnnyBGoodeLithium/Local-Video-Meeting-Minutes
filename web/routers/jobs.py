@@ -98,6 +98,13 @@ def _predict_meeting(route: str, primary: Path, transcript: Path | None,
 @router.post("/api/upload")
 async def upload(files: list[UploadFile] = File(...), no_vl: str = Form(""),
                  ignore_transcript: str = Form(""), content_type: str = Form("")):
+    return await upload_with_limit(files, no_vl, ignore_transcript, content_type)
+
+
+async def upload_with_limit(files: list[UploadFile], no_vl: str = "",
+                            ignore_transcript: str = "", content_type: str = "",
+                            *, max_bytes: int | None = None):
+    """Shared streaming intake; Companion supplies a conservative request limit."""
     if not files:
         raise HTTPException(400, "没有文件")
     skip_vl = bool(no_vl.strip())
@@ -109,6 +116,7 @@ async def upload(files: list[UploadFile] = File(...), no_vl: str = Form(""),
     dest_dir = INBOX / jid
     dest_dir.mkdir(parents=True, exist_ok=True)
     saved = []
+    received = 0
     try:
         for f in files:
             ext = Path(f.filename or "").suffix.lower()
@@ -117,6 +125,9 @@ async def upload(files: list[UploadFile] = File(...), no_vl: str = Form(""),
             dest = dest_dir / (_safe(Path(f.filename).stem) + ext)
             async with aiofiles.open(dest, "wb") as out:
                 while chunk := await f.read(1 << 20):
+                    received += len(chunk)
+                    if max_bytes is not None and received > max_bytes:
+                        raise HTTPException(413, "上传超过 Companion 文件大小限制")
                     await out.write(chunk)
             saved.append(dest)
 

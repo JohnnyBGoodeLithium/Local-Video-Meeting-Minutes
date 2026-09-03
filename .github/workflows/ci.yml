@@ -73,6 +73,7 @@ jobs:
         env:
           MEETING_RESOURCE_GUARD: "0"
           MM_PRODUCT_SCREENSHOT_DIR: artifacts/product-site/screenshots
+          MM_COMPANION_SCREENSHOT_DIR: artifacts/companion/screenshots
         run: make smoke
 
       - name: Upload final product site screenshots
@@ -81,6 +82,15 @@ jobs:
         with:
           name: product-site-final-${{ github.sha }}
           path: artifacts/product-site/screenshots/
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload Companion mobile screenshots
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v7
+        with:
+          name: companion-mobile-${{ github.sha }}
+          path: artifacts/companion/screenshots/
           if-no-files-found: error
           retention-days: 7
 

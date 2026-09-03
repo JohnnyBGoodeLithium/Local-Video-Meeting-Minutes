@@ -284,6 +284,29 @@ if chrome:
           and "progress, recovery, bilingual key review and materials lifecycle passed" in workspace_browser.stdout,
           f"rc={workspace_browser.returncode}, out={workspace_browser.stdout[-500:]!r}, "
           f"err={workspace_browser.stderr[-500:]!r}")
+    companion_samples_before = {p.name: p.read_bytes()
+                                for p in (SMOKE / "samples").glob("*.wav")}
+    companion_browser = subprocess.run([
+        str(Path(__file__).resolve().parent.parent.parent / ".venv/bin/python"),
+        str(Path(__file__).resolve().parent / "chromium_companion_test.py"),
+    ], capture_output=True, text=True, timeout=120, env=os.environ)
+    check("Headless Chromium 完成 390px Companion 私有配对与轻交互旅程",
+          companion_browser.returncode == 0
+          and "pairing, URL, upload progress, status, review, evidence, person, "
+              "speaker confirm/undo, refresh recovery, revoke, bilingual and 390px passed"
+          in companion_browser.stdout,
+          f"rc={companion_browser.returncode}, out={companion_browser.stdout[-500:]!r}, "
+          f"err={companion_browser.stderr[-500:]!r}")
+    # Companion 旅程真实执行了 speaker bind/undo 往返；undo 恢复逐字稿与声纹库，
+    # 但按现有事务语义保留改名后的试听样本文件。这里把夹具样本恢复到旅程前快照，
+    # 避免污染后序主线断言（与 undo 的产品语义无关）。
+    for stale_sample in (SMOKE / "samples").glob("*.wav"):
+        if stale_sample.name not in companion_samples_before:
+            stale_sample.unlink()
+    for sample_name, sample_bytes in companion_samples_before.items():
+        sample_path = SMOKE / "samples" / sample_name
+        if not sample_path.exists() or sample_path.read_bytes() != sample_bytes:
+            sample_path.write_bytes(sample_bytes)
     live_browser = subprocess.run([
         str(Path(__file__).resolve().parent.parent.parent / ".venv/bin/python"),
         str(Path(__file__).resolve().parent / "chromium_live_context_test.py"),
@@ -298,6 +321,7 @@ else:
     print("SKIP  在线工作台 ES modules 浏览器启动（未安装 Chromium）")
     print("SKIP  产品介绍 ES module 浏览器启动（未安装 Chromium）")
     print("SKIP  产品站双语、证据与响应式浏览器旅程（未安装 Chromium）")
+    print("SKIP  Companion 390px 浏览器旅程（未安装 Chromium）")
     print("SKIP  Live Context 浏览器旅程（未安装 Chromium）")
 check("渐进纪要失败时明确等待终稿，不把空纪要误报为草稿可读",
       s == 200 and "语音草稿已就绪".encode() in app_js

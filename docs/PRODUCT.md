@@ -97,3 +97,8 @@ Live Context 的任务是在会议或直播进行时持续编译可回顾上下�
 - 不在没有反例、时效和人工确认时固化人物反应模式。
 - 不为追求功能数量复制第二套播放器、纪要、RAG 或 Notebook UI。
 - 不把单机 PoC 描述为生产级多人服务；生产化需要另行建设身份、ACL、TLS、配额、审计和生命周期。
+## Experimental Companion
+
+Companion 验证一个窄闭环：重处理与 canonical 数据留在 X Ultra，手机只做 Connect、Send、Check、Review、Correct。它不是缩小版桌面工作台，也不是已获企业批准的远程部署方案。
+
+首个原型通过私有 Tailscale tailnet HTTPS 接入 localhost FastAPI，并在 tailnet 身份之外要求 5 分钟一次性应用配对。移动端只获得最近项目、处理状态、议题、人物、重要结论、证据媒体和人物确认的安全投影；删除、清理、模型配置、重转写、批量导出和管理 API 均不开放。

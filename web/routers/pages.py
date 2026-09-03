@@ -3,12 +3,13 @@
 import os
 from urllib.parse import urlparse
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 
 from deps import DATA_ROOT, DRY_RUN, MEETINGS, PY, STATIC, assistant
 from job_store import JOBS
 from product_version import PRODUCT_VERSION
+from companion_security import enabled as companion_enabled
 
 router = APIRouter()
 
@@ -60,3 +61,20 @@ def admin():
 @router.get("/product")
 def product():
     return FileResponse(STATIC / "product.html", headers={"Cache-Control": "no-store"})
+
+
+@router.get("/companion")
+def companion_page():
+    if not companion_enabled():
+        raise HTTPException(404, "Companion unavailable")
+    return FileResponse(STATIC / "companion.html", headers={"Cache-Control": "no-store"})
+
+
+@router.get("/companion/setup")
+def companion_setup(request: Request):
+    if not companion_enabled():
+        raise HTTPException(404, "Companion unavailable")
+    host = (urlparse(f"//{request.headers.get('host') or ''}").hostname or "").lower()
+    if host not in {"127.0.0.1", "localhost", "::1", "testserver"}:
+        raise HTTPException(404, "Companion unavailable")
+    return FileResponse(STATIC / "companion-setup.html", headers={"Cache-Control": "no-store"})

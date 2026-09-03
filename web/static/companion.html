@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <title>Meeting Context Companion</title>
+  <link rel="stylesheet" href="/static/companion.css?v=20260903p115">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/companion" aria-label="Companion home"><span class="signal" aria-hidden="true"></span>Meeting Context</a>
+    <button id="language" class="quiet" type="button" aria-label="Switch language">EN</button>
+  </header>
+  <main id="app" tabindex="-1">
+    <section id="pair-view" class="view" hidden>
+      <p class="eyebrow">Companion · Experimental</p>
+      <h1 data-i18n="connectTitle">连接这台 X Ultra？</h1>
+      <dl class="facts"><div><dt data-i18n="device">设备</dt><dd>X Ultra</dd></div><div><dt data-i18n="connection">连接</dt><dd data-i18n="tailnet">私有 tailnet</dd></div><div><dt data-i18n="expires">配对有效期</dt><dd id="pair-expiry">05:00</dd></div></dl>
+      <label><span data-i18n="deviceName">设备名称</span><input id="device-name" maxlength="80" value="Mobile Companion"></label>
+      <button id="connect" class="primary" type="button" data-i18n="connect">连接</button>
+      <p id="pair-state" class="status" role="status"></p>
+    </section>
+
+    <section id="home-view" class="view" hidden>
+      <p class="eyebrow">Companion · Experimental</p>
+      <h1 data-i18n="homeTitle">轻交互，重处理留在 X Ultra</h1>
+      <div class="actions">
+        <button id="send-link-open" class="action" type="button"><span>↗</span><strong data-i18n="sendLink">发送链接</strong></button>
+        <label class="action file-action"><span>＋</span><strong data-i18n="sendFile">发送文件</strong><input id="file" type="file" accept="audio/*,video/*,.vtt,.docx"></label>
+      </div>
+      <div id="upload-progress" class="upload-progress" hidden><span id="upload-label">0%</span><progress id="upload-bar" max="100" value="0"></progress></div>
+      <div class="section-head"><h2 data-i18n="recent">最近项目</h2><button id="refresh" class="quiet" type="button" data-i18n="refresh">刷新</button></div>
+      <div id="recent" class="list" aria-live="polite"></div>
+    </section>
+
+    <section id="link-view" class="view" hidden>
+      <button class="back quiet" type="button" data-back data-i18n="back">返回</button>
+      <h1 data-i18n="pasteLink">粘贴媒体链接</h1>
+      <form id="link-form"><label><span>URL</span><input id="url" type="url" inputmode="url" required placeholder="https://…"></label><button class="primary" data-i18n="sendTo">发送到 X Ultra</button></form>
+      <p id="link-state" class="status" role="status"></p>
+    </section>
+
+    <section id="job-view" class="view" hidden>
+      <button class="back quiet" type="button" data-back data-i18n="back">返回</button>
+      <p class="eyebrow" data-i18n="processing">处理中</p><h1 id="job-title">Processing</h1>
+      <p id="job-phase" class="lead"></p><div id="job-outputs" class="readiness"></div>
+      <button id="job-retry" class="secondary" type="button" data-i18n="retry">重试连接</button>
+    </section>
+
+    <section id="item-view" class="view" hidden>
+      <button class="back quiet" type="button" data-back data-i18n="back">返回</button>
+      <p id="item-kind" class="eyebrow"></p><h1 id="item-title"></h1><p id="item-meta" class="lead"></p>
+      <section><h2 data-i18n="map">议题脉络</h2><div id="topics" class="list"></div></section>
+      <section><h2 data-i18n="people">人物</h2><div id="people" class="chips"></div></section>
+      <section><h2 data-i18n="conclusions">重要结论</h2><div id="conclusions" class="list"></div></section>
+      <section><h2 data-i18n="evidence">证据</h2><div id="evidence" class="list"></div></section>
+    </section>
+
+    <section id="person-view" class="view" hidden>
+      <button class="back quiet" type="button" data-back-item data-i18n="back">返回</button><h1 id="person-name"></h1><p id="person-count" class="lead"></p>
+      <div class="player-controls"><button id="previous" type="button">←</button><button id="play-person" class="primary" type="button" data-i18n="play">播放</button><button id="next" type="button">→</button></div>
+      <div id="moments" class="list"></div>
+      <section id="speaker-correction" hidden><h2 data-i18n="who">这是谁？</h2><audio id="speaker-sample" controls preload="none"></audio><label><span data-i18n="knownPeople">已知人物</span><select id="candidate"></select></label><button id="preview-speaker" class="secondary" type="button" data-i18n="preview">预览更改</button><div id="speaker-preview" hidden><p id="speaker-preview-text" class="status"></p><button id="confirm-speaker" class="primary" type="button" data-i18n="confirm">确认身份</button></div><button id="undo-speaker" class="quiet" type="button" data-i18n="undo">撤销上次人物修改</button></section>
+    </section>
+    <audio id="player" preload="metadata"></audio>
+    <div id="offline" class="offline" role="alert" hidden><strong data-i18n="cantReach">无法连接 X Ultra</strong><span id="last-connected"></span><button id="retry" type="button" data-i18n="retry">重试</button></div>
+  </main>
+  <script type="module" src="/static/companion.js?v=20260903p115"></script>
+</body>
+</html>
