@@ -284,6 +284,8 @@ if chrome:
           and "progress, recovery, bilingual key review and materials lifecycle passed" in workspace_browser.stdout,
           f"rc={workspace_browser.returncode}, out={workspace_browser.stdout[-500:]!r}, "
           f"err={workspace_browser.stderr[-500:]!r}")
+    companion_samples_before = {p.name: p.read_bytes()
+                                for p in (SMOKE / "samples").glob("*.wav")}
     companion_browser = subprocess.run([
         str(Path(__file__).resolve().parent.parent.parent / ".venv/bin/python"),
         str(Path(__file__).resolve().parent / "chromium_companion_test.py"),
@@ -295,6 +297,16 @@ if chrome:
           in companion_browser.stdout,
           f"rc={companion_browser.returncode}, out={companion_browser.stdout[-500:]!r}, "
           f"err={companion_browser.stderr[-500:]!r}")
+    # Companion 旅程真实执行了 speaker bind/undo 往返；undo 恢复逐字稿与声纹库，
+    # 但按现有事务语义保留改名后的试听样本文件。这里把夹具样本恢复到旅程前快照，
+    # 避免污染后序主线断言（与 undo 的产品语义无关）。
+    for stale_sample in (SMOKE / "samples").glob("*.wav"):
+        if stale_sample.name not in companion_samples_before:
+            stale_sample.unlink()
+    for sample_name, sample_bytes in companion_samples_before.items():
+        sample_path = SMOKE / "samples" / sample_name
+        if not sample_path.exists() or sample_path.read_bytes() != sample_bytes:
+            sample_path.write_bytes(sample_bytes)
     live_browser = subprocess.run([
         str(Path(__file__).resolve().parent.parent.parent / ".venv/bin/python"),
         str(Path(__file__).resolve().parent / "chromium_live_context_test.py"),
