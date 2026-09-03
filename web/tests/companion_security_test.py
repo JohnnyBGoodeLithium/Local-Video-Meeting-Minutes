@@ -51,7 +51,8 @@ with tempfile.TemporaryDirectory(prefix="mm-companion-security-") as tmp:
     companion._same_origin(request(origin="https://testserver"))
 
     pairing = companion.create_pairing(local)
-    assert pairing["pairing_url"].startswith("https://x-ultra.example.ts.net/companion?pair=")
+    assert pairing["pairing_url"].startswith("https://x-ultra.example.ts.net/companion#pair=")
+    assert "?" not in pairing["pairing_url"], "pairing token must stay in the URL fragment"
     requested = companion.request_pairing(
         companion.PairRequest(token=pairing["token"], display_name="Synthetic phone"),
         request(origin="https://testserver", identity="fake@example.test"))

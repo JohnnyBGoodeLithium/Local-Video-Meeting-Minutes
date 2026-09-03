@@ -115,7 +115,7 @@ def create_pairing(request: Request):
             or parsed.username or parsed.password or parsed.path not in {"", "/"}
             or parsed.query or parsed.fragment):
         public_base = ""
-    pairing_url = f"{public_base}/companion?pair={item['token']}" if public_base else None
+    pairing_url = f"{public_base}/companion#pair={item['token']}" if public_base else None
     qr_svg = None
     if pairing_url:
         image = qrcode.make(pairing_url, image_factory=qrcode.image.svg.SvgPathImage,

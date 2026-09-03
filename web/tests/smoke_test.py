@@ -290,7 +290,8 @@ if chrome:
     ], capture_output=True, text=True, timeout=120, env=os.environ)
     check("Headless Chromium 完成 390px Companion 私有配对与轻交互旅程",
           companion_browser.returncode == 0
-          and "pairing, URL, status, review, evidence, person, revoke, bilingual and 390px passed"
+          and "pairing, URL, upload progress, status, review, evidence, person, "
+              "speaker confirm/undo, refresh recovery, revoke, bilingual and 390px passed"
           in companion_browser.stdout,
           f"rc={companion_browser.returncode}, out={companion_browser.stdout[-500:]!r}, "
           f"err={companion_browser.stderr[-500:]!r}")
