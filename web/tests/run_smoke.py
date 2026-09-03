@@ -71,6 +71,7 @@ def main() -> int:
             "MEETING_COMPANION_PUBLIC_BASE": "https://x-ultra.synthetic.ts.net",
             "MEETING_COMPANION_INSECURE_TEST_COOKIE": "1",
             "MM_COMPANION_SCREENSHOT_DIR": os.environ.get("MM_COMPANION_SCREENSHOT_DIR", ""),
+            "MEETING_LIVE_CONTEXT": "1",
             "MEETING_RAG_MODE": "lexical",
             "PYTHONUNBUFFERED": "1",
             "MEETING_KB_PROVIDER": "weknora",

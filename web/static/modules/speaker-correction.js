@@ -17,6 +17,7 @@ export function createSpeakerCorrectionState() {
     returnPlaybackTime: null,
     anchorRect: null,
     exitConfirmation: false,
+    previewPending: false,
     error: "",
   };
 }
@@ -40,7 +41,8 @@ export function beginIdentity(current, { voice, displayName, scrollAnchor, playb
 
 export function beginExampleSelection(current) {
   return { ...current, mode: "select_examples", preview: null,
-    includeSuggested: false, groupAssignments: {}, exitConfirmation: false, error: "" };
+    includeSuggested: false, groupAssignments: {}, exitConfirmation: false,
+    previewPending: false, error: "" };
 }
 
 export function toggleExample(current, index) {
@@ -48,11 +50,12 @@ export function toggleExample(current, index) {
   if (selected.has(index)) selected.delete(index);
   else selected.add(index);
   return { ...current, selectedTurnIndexes: selected, preview: null,
-    includeSuggested: false, groupAssignments: {}, exitConfirmation: false, error: "" };
+    includeSuggested: false, groupAssignments: {}, exitConfirmation: false,
+    previewPending: false, error: "" };
 }
 
 export function withCorrectionError(current, error) {
-  return { ...current, error: String(error || "") };
+  return { ...current, previewPending: false, error: String(error || "") };
 }
 
 function indexes(values) {
@@ -103,7 +106,7 @@ export function setPreview(current, raw, transcript = []) {
       ? { name: group.suggestedPerson, create: false }
       : { name: "", create: false };
   });
-  return { ...current, mode: "preview", preview, includeSuggested: false,
+  return { ...current, mode: "preview", preview, previewPending: false, includeSuggested: false,
     groupAssignments: assignments, exitConfirmation: false, error: "" };
 }
 

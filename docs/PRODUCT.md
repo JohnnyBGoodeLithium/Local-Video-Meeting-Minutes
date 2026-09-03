@@ -18,7 +18,7 @@ Local Video Meeting Minutes 是一个本地优先的会议上下文编译器：�
 | 知识维护者 | 把一手内容交给通用模型或知识库 | AI Context、KB projection、revision 回执 |
 | 技术评审者 | 理解数据边界、模型可替换性和失败恢复 | canonical、provider、progress、recovery 合同 |
 
-## 三类场景
+## 使用场景
 
 ### 会议回顾
 
@@ -31,6 +31,10 @@ Local Video Meeting Minutes 是一个本地优先的会议上下文编译器：�
 ### 人或团队的知识交付
 
 处理结果可作为一次性离线交付、通用 AI 的来源材料或下游知识库文档。跨会议能力只应围绕用户显式建立的会议序列和问题集，不自动生成永久人物性格、领导画像或组织判断。
+
+### 实验性 Live Context
+
+Live Context 的任务是在会议或直播进行时持续编译可回顾上下文，而不是另做一个实时字幕产品。直播活动默认“后台分析”，会议默认“会议伴随”；文字、人物和画面都保持暂定与 provenance，结束后经 reconcile 和延迟视觉补完才进入现有输出。当前只对无 DRM 原生 HLS 后台路径有可执行实现；browser 和 meeting audio 仍是明确受限的适配器。
 
 ## 三类输出
 
@@ -76,6 +80,7 @@ Local Video Meeting Minutes 是一个本地优先的会议上下文编译器：�
 | 单场 RAG | 已实现，仍在验证 | 有 evidence hybrid 检索，缺系统答案评测 |
 | 跨会议知识 | 实验中 | 仅对显式序列和固定问题有意义 |
 | 多人部门服务 | 当前不在范围 | 缺完整 SSO、ACL、租户与运营机制 |
+| Live Context | 实验中 | 原生 HLS 可后台运行；browser 静音捕获、实时延迟和说话人质量尚未在目标主机验证 |
 
 ## 产品不是什么
 

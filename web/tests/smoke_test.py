@@ -135,8 +135,18 @@ check("GET /api/health → 200 + dry-run + local assistant",
       and health.get("assistant", {}).get("local_only") is True
       and health.get("assistant", {}).get("rag") == "meeting-rag/evidence-hybrid-v1"
       and health.get("assistant", {}).get("retrieval_models", {}).get("mode") == "lexical"
+      and health.get("features", {}).get("live_context") is True
       and isinstance(health.get("integrations", {}).get("knowledge_base", {}).get(
           "configured"), bool))
+s, _, live_capabilities = req("GET", "/api/live/capabilities")
+check("Live Context 实验开关打开时只返回本机能力元数据",
+      s == 200 and isinstance(live_capabilities.get("audio"), dict)
+      and isinstance(live_capabilities.get("caption_ocr", {}).get("available"), bool))
+s, _, _ = req("POST", "/api/live/probe", {
+    "source_url": "http://127.0.0.1/private.m3u8",
+    "content_type": "live_event", "mode": "analyze_background",
+})
+check("Live Context 来源探测拒绝本机和私有网络地址", s == 400)
 s, headers, page = req("GET", "/", raw=True)
 cache_control = next((value for key, value in headers.items()
                       if key.lower() == "cache-control"), "")
@@ -284,11 +294,22 @@ if chrome:
           in companion_browser.stdout,
           f"rc={companion_browser.returncode}, out={companion_browser.stdout[-500:]!r}, "
           f"err={companion_browser.stderr[-500:]!r}")
+    live_browser = subprocess.run([
+        str(Path(__file__).resolve().parent.parent.parent / ".venv/bin/python"),
+        str(Path(__file__).resolve().parent / "chromium_live_context_test.py"),
+    ], capture_output=True, text=True, timeout=120, env=os.environ)
+    check("Headless Chromium 完成 Live Context 默认、静音、恢复与收尾旅程",
+          live_browser.returncode == 0
+          and "defaults, silence, resume, finalization, bilingual, keyboard and responsive contracts passed"
+          in live_browser.stdout,
+          f"rc={live_browser.returncode}, out={live_browser.stdout[-500:]!r}, "
+          f"err={live_browser.stderr[-500:]!r}")
 else:
     print("SKIP  在线工作台 ES modules 浏览器启动（未安装 Chromium）")
     print("SKIP  产品介绍 ES module 浏览器启动（未安装 Chromium）")
     print("SKIP  产品站双语、证据与响应式浏览器旅程（未安装 Chromium）")
     print("SKIP  Companion 390px 浏览器旅程（未安装 Chromium）")
+    print("SKIP  Live Context 浏览器旅程（未安装 Chromium）")
 check("渐进纪要失败时明确等待终稿，不把空纪要误报为草稿可读",
       s == 200 and "语音草稿已就绪".encode() in app_js
       and "终稿待复核".encode() in app_js

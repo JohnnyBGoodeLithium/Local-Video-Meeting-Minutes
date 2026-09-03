@@ -20,6 +20,18 @@ make run
 4. 模型或知识库问题先检查对应 loopback 健康端点，不读取或打印会议正文。
 5. UI 变更后确认 Web build；若浏览器仍显示旧资源，先硬刷新而不是重复改代码。
 
+## Live Context（实验）
+
+Live Context 默认关闭。只在了解来源权限、音频路由和数据保留责任后设置：
+
+```bash
+MEETING_LIVE_CONTEXT=1 make run
+```
+
+启动前运行 `make doctor`，并单独检查 `ffmpeg`、`tesseract`与 PipeWire/Pulse 命令是否存在。当前主机只检测到 `ffmpeg` 和 `tesseract`，未检测到 `pactl`/`pw-cli`/`wpctl`，因此不能声称 browser 可在该主机静音捕获音频。原生 HLS 可以由 `ffmpeg` 直接 ingest，不打开浏览器也不输出到扬声器。
+
+Live 运行数据位于会议目录下 `.live/`。不要手工把它复制进发布包、MeetingPack 或 KB。正常停止应在 UI 选“停止并整理”；服务重启时会扫描 checkpoint 恢复未完成 session。如发现 DRM、需绕过权限、音频丢块或只能无提示捕获全系统音频，立即停止对应路径。详见 [Live Context 研究与验证边界](research/LIVE_CONTEXT.md)。
+
 ## 安全启动和停止
 
 - 开发运行：`make run`。

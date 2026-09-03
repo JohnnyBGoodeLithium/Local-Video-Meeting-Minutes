@@ -21,6 +21,7 @@ let state = beginIdentity(createSpeakerCorrectionState(), {
 });
 assert.equal(state.mode, "identify");
 state = beginExampleSelection(state);
+assert.equal(state.previewPending, false);
 state = toggleExample(state, 3);
 state = toggleExample(state, 4);
 assert.deepEqual([...state.selectedTurnIndexes], [3, 4]);
@@ -37,6 +38,7 @@ const raw = {
 const normalized = normalizeCorrectionPreview(raw, transcript);
 assert.equal(normalized.groups.length, 2);
 state = setPreview(state, raw, transcript);
+assert.equal(state.previewPending, false);
 assert.equal(state.includeSuggested, false, "默认只处理手选片段");
 state = setGroupAssignment(state, "group-2", { name: "王五", create: false });
 let summary = correctionSummary(state, transcript);
@@ -56,7 +58,8 @@ assert.equal(correctionSummary(state, transcript, "Speaker to review").groups[1]
   "Speaker to review", "未命名结果组随界面语言投影，不在状态层写死中文");
 assert.equal(representativeTurns(transcript, "source", 3).length, 3);
 
-const failed = withCorrectionError(state, "preview unavailable");
+const failed = withCorrectionError({ ...state, previewPending: true }, "preview unavailable");
+assert.equal(failed.previewPending, false, "预览失败后解除忙碌状态以允许重试");
 assert.deepEqual([...failed.selectedTurnIndexes], [3, 4], "API 失败后保留手选样例");
 const direct = normalizeCorrectionPreview({
   selected: [3], suggested: [], protected: [0], ambiguous: [], direct_only: true,
