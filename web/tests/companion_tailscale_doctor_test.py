@@ -35,3 +35,7 @@ missing = doctor.diagnose(runner=runner, which=lambda _name: None,
 assert not missing["tailscale_installed"] and missing["suggested_command"] is None
 
 print("companion Tailscale doctor: detection, current-help command and Funnel warning passed")
+
+rc, out = doctor.run(["sh", "-c", "echo help-on-stderr >&2"])
+assert rc == 0 and "help-on-stderr" in out
+print("companion Tailscale doctor: stderr-only help capture passed")
