@@ -21,7 +21,8 @@ def run(command: list[str]) -> tuple[int, str]:
         result = subprocess.run(command, text=True, capture_output=True, timeout=5, check=False)
     except (OSError, subprocess.TimeoutExpired):
         return 1, ""
-    return result.returncode, result.stdout
+    # Newer tailscale CLI prints subcommand help to stderr only.
+    return result.returncode, result.stdout or result.stderr
 
 
 def _json(text: str) -> dict:
