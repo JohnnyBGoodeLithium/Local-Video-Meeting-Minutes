@@ -110,6 +110,30 @@ def build_fast_sync_command(mdir: Path) -> list[str]:
             "--skip-topic-map"]
 
 
+def build_visual_upgrade_command(mdir: Path) -> list[str]:
+    """只补充视频画面理解及下游纪要/脉络，不重跑 ASR 或说话人。"""
+    if not (mdir / "transcript.spk.json").is_file():
+        raise ValueError("missing_transcript")
+    video = _video_path(mdir)
+    if video is None:
+        raise ValueError("missing_video")
+    try:
+        pages = json.loads((mdir / "slides.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        pages = []
+    if not isinstance(pages, list) or not pages:
+        raise ValueError("missing_visual_pages")
+    coverage = visual_cache_coverage(mdir)
+    command = [str(PY), str(ROOT / "bin" / "minutes_by_page.py"), str(mdir),
+               "--publish"]
+    if coverage["complete"]:
+        # no-VL 重跑可能保留了旧的完整页面缓存；此时直接复用，不再调用视觉模型。
+        command.append("--reuse-vl-cache-only")
+    else:
+        command += ["--video", str(video)]
+    return command
+
+
 def build_topic_map_command(mdir: Path) -> list[str]:
     if not (mdir / "transcript.spk.json").is_file() or _minutes_file(mdir) is None:
         raise ValueError("missing_topic_sources")

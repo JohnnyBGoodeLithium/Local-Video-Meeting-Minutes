@@ -22,8 +22,15 @@ export function selectJobPanel(jobs, contentType, contentTypeOf, now = Date.now(
   return { allActiveJobs, activeJobs, runningJob, visibleJobs };
 }
 
-export function jobDisplayName(job, meetings, contentTypeOf) {
+export function jobDisplayName(job, meetings, contentTypeOf, language = "zh-CN") {
   const meeting = (meetings || []).find(item => item.slug === job?.meeting);
+  if (job?.upgrade_mode === "visual") {
+    const title = meeting?.title || job?.meeting;
+    const action = language === "en" ? "Adding visual analysis" : "补充画面分析";
+    return title ? `${title} · ${action}` : action;
+  }
   return meeting?.title || job?.display_name || job?.meeting
-    || (contentTypeOf(job) === "media" ? "媒体处理" : "会议处理");
+    || (contentTypeOf(job) === "media"
+      ? (language === "en" ? "Media processing" : "媒体处理")
+      : (language === "en" ? "Meeting processing" : "会议处理"));
 }

@@ -1,9 +1,9 @@
 <!-- current-status-source -->
 # 当前状态
 
-- 更新时间：2026-09-02
+- 更新时间：2026-09-03
 - 产品版本：v0.15.3
-- Web 构建号：20260902p112
+- Web 构建号：20260903p113
 - 源代码基线：以不可移动的 `v0.15.3` tag 所指 commit 为准
 - Owner：Local AI PoC maintainer
 - 当前阶段：受控 PoC 验证（Controlled PoC validation）
@@ -25,6 +25,7 @@
 - AI Context、KB Markdown/HTML 与 provider-neutral `KnowledgeSink` 已实现；真实知识库的权限、删除、规模和评测仍需受控验证。
 - 本地关键词、dense retrieval 与 reranker 已可用于单场证据问答；跨会议价值尚未形成稳定评测结论。
 - NVIDIA、AMD 与 CPU 的配置边界已抽象，当前验证深度仍集中在主要开发机器。
+- 视频导入可以选择快速纪要或完整分析；快速模式仍生成正式纪要和会议脉络，后续画面补充只重跑视觉及下游结果，不重跑 ASR 或说话人。
 
 ## 实验中（Experimental）
 

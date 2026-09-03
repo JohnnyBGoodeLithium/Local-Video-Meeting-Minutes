@@ -167,6 +167,7 @@ async def upload(files: list[UploadFile] = File(...), no_vl: str = Form(""),
                        route, primary, transcript,
                        prefer_transcript_title=ignore_external and transcript is not None),
                    content_type=content_type,
+                   processing_mode="fast" if skip_vl else "complete",
                    transcript_policy=("ignored" if transcript is not None and ignore_external
                                       else "external" if transcript is not None else "local_asr"))
     resp = dict(job)  # 快照：避免 worker 线程抢在响应序列化前改状态
@@ -203,7 +204,8 @@ def import_media_url(payload: MediaURLImport):
         inbox=str(dest_dir.relative_to(DATA_ROOT)),
         result_file=str(result_path.relative_to(DATA_ROOT)),
         content_type="media", source_kind="url", display_name=f"链接媒体 · {host}",
-        transcript_policy="local_asr")
+        transcript_policy="local_asr",
+        processing_mode="fast" if payload.no_vl else "complete")
     response = dict(job)
     EXEC.submit(_run_pipeline, job)
     return response

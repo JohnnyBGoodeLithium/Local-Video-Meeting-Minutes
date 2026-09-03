@@ -278,7 +278,10 @@ def main() -> int:
         output_ready("voice_draft")
     else:
         progress_event("voice_draft", state="degraded")
-    meeting_generation.begin_visual_enrichment(mdir)
+    if args.no_vl:
+        meeting_generation.update(mdir, "voice_only_finalizing", result_mode="voice_only")
+    else:
+        meeting_generation.begin_visual_enrichment(mdir)
 
     print("[6/7] 抽屏幕共享逻辑页 ...", flush=True)
     progress_event("visual_extraction")
@@ -287,13 +290,18 @@ def main() -> int:
     print(f"[meta] 逻辑页 {len(pages)} 页 | 抽页耗时 {time.time()-t0:.1f}s", flush=True)
     phase_done("visual_extraction", done=len(pages), total=len(pages), unit="pages")
 
-    print("[7/7] 用 VL 屏幕资料升级多模态纪要 ...", flush=True)
-    prepare_stage("visual", keep=[DEFAULT_MINUTES_MODEL],
-                  progress_phase="visual_understanding")
+    print("[7/7] 生成语音版完整结果 ..." if args.no_vl
+          else "[7/7] 用 VL 屏幕资料升级多模态纪要 ...", flush=True)
+    if not args.no_vl:
+        prepare_stage("visual", keep=[DEFAULT_MINUTES_MODEL],
+                      progress_phase="visual_understanding")
     out_path, mstats = generate_minutes(mdir, video=source_mp4, vl=not args.no_vl)
     meeting_generation.finalize(
-        mdir, pages=mstats["pages"], vl_pages=mstats["vl_pages"])
-    print(f"[meta] 多模态纪要已替换语音草稿 | VL {mstats['vl_pages']}/{mstats['pages']} 页",
+        mdir, pages=mstats["pages"], vl_pages=mstats["vl_pages"],
+        visual_mode="skipped_by_user" if args.no_vl else "complete")
+    print((f"[meta] 语音版完整结果已发布 | 画面理解已跳过 | "
+           f"逻辑页 {mstats['pages']} 页") if args.no_vl else
+          f"[meta] 多模态纪要已替换语音草稿 | VL {mstats['vl_pages']}/{mstats['pages']} 页",
           flush=True)
     meeting_topic_map.generate_for_pipeline(mdir)
     terminology = safe_harvest_screen_candidates(

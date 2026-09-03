@@ -181,7 +181,7 @@ app_js = b"\n".join([app_js, *module_sources])
 check("前端装配入口使用可独立加载的原生 ES modules",
       all(status == 200 for status in module_statuses)
       and b'type="module"' in page
-      and b'./modules/media-source.js?v=20260902p112' in app_js
+      and b'./modules/media-source.js?v=20260903p113' in app_js
       and b'export function selectJobPanel' in app_js
       and b'export function sortLibrary' in app_js
       and b'export function nearestReviewUnit' in app_js
@@ -192,6 +192,12 @@ check("前端装配入口使用可独立加载的原生 ES modules",
       and b'export function renderMinutesView' in app_js
       and b'export function createPhotoImportState' in app_js
       and b'export function renderPhotoImport' in app_js)
+check("导入设置明确区分快速纪要与完整分析并允许稍后补充画面",
+      b'id="analysis-mode-full"' in page and b'id="skip-vl"' in page
+      and "完整分析".encode() in page and "快速纪要".encode() in page
+      and b'/visual-upgrade' in app_js
+      and "不会重跑语音识别或说话人处理".encode() in app_js
+      and b'Add visual analysis' in app_js)
 check("知识库入口只在服务端提供安全配置后显示",
       b'health.integrations?.knowledge_base' in app_js
       and b'knowledgeBase.configured && knowledgeBase.url' in app_js
@@ -209,7 +215,7 @@ if chrome:
         chrome, "--headless=new", "--disable-gpu", "--no-sandbox",
         "--window-size=1600,900", "--virtual-time-budget=8000", "--dump-dom", BASE,
     ], capture_output=True, text=True, timeout=90)
-    browser_build_present = "20260902p112" in browser.stdout
+    browser_build_present = "20260903p113" in browser.stdout
     browser_active_present = 'class="meeting-item active"' in browser.stdout
     browser_transcript_present = 'id="turn-0"' in browser.stdout
     browser_minutes_present = 'id="minutes-heading-0"' in browser.stdout
@@ -295,7 +301,7 @@ check("时间码跳转只滚动内容面板，不带动整页丢失播放器",
 check("在线屏幕舞台支持放大、缩放和相邻屏幕键盘导航",
       b'id="screen-preview-mask"' in page and b'openScreenPreview' in app_js
       and b'navigateScreenPreview' in app_js and b'SCREEN_PREVIEW_ZOOMS' in app_js
-      and b'20260902p112' in page)
+      and b'20260903p113' in page)
 check("会议深链 ?meeting=<slug>&t=<秒> 定位播放且忽略非法/超界 t",
       b'params.get("t")' in app_js and b'deepLinkSeek' in app_js
       and b'deepLinkSeconds' in app_js
@@ -380,7 +386,7 @@ check("产品介绍页使用七段双语用户旅程与虚构演示",
       and b'Northstar Product Launch' in product_page
       and b'data-product-content-version="0.15"' in product_page
       and b'data-ui-language="en"' in product_page
-      and b'/static/fluent-foundation.css?v=20260902p112' in product_page
+      and b'/static/fluent-foundation.css?v=20260903p113' in product_page
       and b'data-demo-mode="meeting"' in product_page
       and b'data-demo-mode="video"' in product_page
       and b'data-demo-evidence' in product_page
@@ -1476,6 +1482,34 @@ check("POST regen_minutes → 200 作业创建", s == 200 and j.get("kind") == "
 jj = poll_job(j["id"])
 check("regen 作业 done(dry-run)", jj["status"] == "done"
       and (jj.get("result") or {}).get("dry_run") is True)
+
+# 12a. 用户主动跳过 VL 后可只补充画面与下游结果，不重跑 ASR/说话人。
+generation_path = SMOKE / "meeting.generation.json"
+generation_before = generation_path.read_bytes() if generation_path.is_file() else None
+# _smoke 的常态夹具是纯音频；这一段只在测试期间补入虚构视频母版，
+# 用来验证“语音版结果 → 补充画面分析”的真实入口条件。
+source_video.write_bytes(b"fictional protected video")
+generation_value = json.loads(generation_before or b'{"schema":"meeting-generation/v1"}')
+generation_value.update({"schema": "meeting-generation/v1", "phase": "ready",
+                         "result_mode": "voice_only",
+                         "enrichment": {"visual_mode": "skipped_by_user"}})
+generation_path.write_text(json.dumps(generation_value), encoding="utf-8")
+s, _, voice_only_bundle = req("GET", "/api/meetings/_smoke/bundle")
+su, _, visual_job = req("POST", "/api/meetings/_smoke/visual-upgrade")
+visual_done = poll_job(visual_job.get("id")) if visual_job.get("id") else visual_job
+visual_cmd = visual_job.get("cmd", [])
+check("语音版结果可补充画面分析并复用逐字稿、人物和完整页面缓存",
+      s == 200 and voice_only_bundle.get("visual_analysis", {}).get("upgrade_available") is True
+      and su == 200 and visual_done.get("status") == "done"
+      and visual_job.get("upgrade_mode") == "visual"
+      and visual_job.get("processing_mode") == "complete"
+      and "--reuse-vl-cache-only" in visual_cmd
+      and not any("transcribe" in str(item) or "diarize" in str(item) for item in visual_cmd))
+if generation_before is None:
+    generation_path.unlink(missing_ok=True)
+else:
+    generation_path.write_bytes(generation_before)
+source_video.unlink(missing_ok=True)
 
 # 13. jobs 列表
 s, _, j = req("GET", "/api/jobs")

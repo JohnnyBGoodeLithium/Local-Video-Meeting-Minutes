@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>会议纪要</title>
-<link rel="stylesheet" href="/static/fluent-foundation.css?v=20260902p112">
-<link rel="stylesheet" href="/static/style.css?v=20260902p112">
-<link rel="stylesheet" href="/static/theme.css?v=20260902p112">
+<link rel="stylesheet" href="/static/fluent-foundation.css?v=20260903p113">
+<link rel="stylesheet" href="/static/style.css?v=20260903p113">
+<link rel="stylesheet" href="/static/theme.css?v=20260903p113">
 </head>
 <body class="page-index">
 <header class="topbar">
@@ -44,7 +44,17 @@
       </div>
       <details class="import-options">
         <summary id="import-settings-label">导入设置</summary>
-        <label class="skip-vl"><input type="checkbox" id="skip-vl"> <span id="skip-vl-label">快速处理，不分析共享画面</span></label>
+        <fieldset class="processing-mode">
+          <legend id="processing-mode-label">处理方式</legend>
+          <label>
+            <input type="radio" name="processing-mode" id="analysis-mode-full" value="complete" aria-describedby="analysis-mode-full-detail" checked>
+            <span><b id="analysis-mode-full-label">完整分析</b><small id="analysis-mode-full-detail">先提供逐字稿和语音草稿，再理解画面并生成完整结果</small></span>
+          </label>
+          <label>
+            <input type="radio" name="processing-mode" id="skip-vl" value="fast" aria-describedby="processing-mode-help">
+            <span><b id="skip-vl-label">快速纪要</b><small id="processing-mode-help">跳过画面理解，但仍生成纪要和会议脉络；之后可以补充</small></span>
+          </label>
+        </fieldset>
         <label class="skip-vl"><input type="checkbox" id="ignore-transcript"> <span id="ignore-transcript-label">忽略附带逐字稿，改用本地语音识别</span></label>
       </details>
     </div>
@@ -350,6 +360,6 @@
 
 <div id="tl-tip" class="tl-tip hidden"></div>
 
-<script type="module" src="/static/app.js?v=20260902p112"></script>
+<script type="module" src="/static/app.js?v=20260903p113"></script>
 </body>
 </html>

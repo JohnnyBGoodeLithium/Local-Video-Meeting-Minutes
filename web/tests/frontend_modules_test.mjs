@@ -70,6 +70,10 @@ const selected = selectJobPanel([
 assert.deepEqual(selected.visibleJobs.map(item => item.id), ["queued-media", "failed-media"]);
 assert.equal(selected.runningJob.id, "running-meeting");
 assert.equal(jobDisplayName({ content_type: "media" }, [], contentType), "媒体处理");
+assert.equal(jobDisplayName({ upgrade_mode: "visual", meeting: "synthetic" }, [], contentType),
+  "synthetic · 补充画面分析");
+assert.equal(jobDisplayName({ upgrade_mode: "visual", meeting: "synthetic" }, [], contentType, "en"),
+  "synthetic · Adding visual analysis");
 
 const library = [
   { slug: "older", title: "Older meeting", imported_at: 10, date: "2026-08-01" },

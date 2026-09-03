@@ -1017,11 +1017,14 @@ def main() -> int:
                           reuse_vl_cache_only=args.reuse_vl_cache_only)
     if args.publish:
         meeting_generation.finalize(
-            args.mdir, pages=stats["pages"], vl_pages=stats["vl_pages"])
+            args.mdir, pages=stats["pages"], vl_pages=stats["vl_pages"],
+            visual_mode="skipped_by_user" if args.no_vl else "complete")
     if not args.skip_topic_map:
         meeting_topic_map.generate_for_pipeline(args.mdir)
     if args.publish:
-        print(f"[meta] 多模态终稿已发布 | VL {stats['vl_pages']}/{stats['pages']} 页",
+        print((f"[meta] 语音版完整结果已发布 | 画面理解已跳过 | "
+               f"逻辑页 {stats['pages']} 页") if args.no_vl else
+              f"[meta] 多模态终稿已发布 | VL {stats['vl_pages']}/{stats['pages']} 页",
               flush=True)
     print(f"[meta] 纪要: {out} | {stats['chars']} 字 | VL页数 {stats['vl_pages']}"
           f"{' | 已精修' if stats['refined'] else ''}", flush=True)

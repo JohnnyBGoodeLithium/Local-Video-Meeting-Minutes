@@ -1,44 +1,44 @@
 import { contentTypeOf, safeSourceUrl }
-  from "./modules/media-source.js?v=20260902p112";
+  from "./modules/media-source.js?v=20260903p113";
 import { buildUploadFormData, enqueueMediaUrl, isSingleLocalVideo }
-  from "./modules/imports.js?v=20260902p112";
+  from "./modules/imports.js?v=20260903p113";
 import { jobDisplayName, selectJobPanel }
-  from "./modules/jobs.js?v=20260902p112";
+  from "./modules/jobs.js?v=20260903p113";
 import { jobPresentation }
-  from "./modules/job-progress.js?v=20260902p112";
+  from "./modules/job-progress.js?v=20260903p113";
 import { closeJobSheet, renderCompactJob, renderJobSheet, renderProcessingBanner }
-  from "./modules/job-progress-view.js?v=20260902p112";
+  from "./modules/job-progress-view.js?v=20260903p113";
 import { chooseInitialItem, deepLinkSeconds, filterLibrary, sortLibrary }
-  from "./modules/library.js?v=20260902p112";
+  from "./modules/library.js?v=20260903p113";
 import { adjacentReviewUnit, defaultReviewUnits, nearestReviewUnit,
   reviewIndexesFor, reviewUnitForTurn as findReviewUnitForTurn, turnEnd }
-  from "./modules/player-navigation.js?v=20260902p112";
+  from "./modules/player-navigation.js?v=20260903p113";
 import { nextSearchCursor, pendingReviewByTurn, transcriptSearchHits }
-  from "./modules/transcript.js?v=20260902p112";
+  from "./modules/transcript.js?v=20260903p113";
 import { renderTranscriptView }
-  from "./modules/transcript-view.js?v=20260902p112";
+  from "./modules/transcript-view.js?v=20260903p113";
 import { availableViewerMedia, exportSizeState, formatBytes, meetingExportHref, normalizeExportProfile,
   packExportHref }
-  from "./modules/export.js?v=20260902p112";
+  from "./modules/export.js?v=20260903p113";
 import { claimAction, claimIdsForTurn, evidenceSources, minutesState, normalizeReviewMode,
   resolveMinutesView, turnIndexAtTime, turnIndexesForSourceIds }
-  from "./modules/minutes.js?v=20260902p112";
+  from "./modules/minutes.js?v=20260903p113";
 import { renderMinutesView }
-  from "./modules/minutes-view.js?v=20260902p112";
+  from "./modules/minutes-view.js?v=20260903p113";
 import { beginExampleSelection, beginIdentity, buildCorrectionApplyPayload,
   correctionSummary, createSpeakerCorrectionState, representativeTurns,
   resetSpeakerCorrection, setGroupAssignment, setIncludeSuggested, setPreview,
   toggleExample, withCorrectionError }
-  from "./modules/speaker-correction.js?v=20260902p112";
+  from "./modules/speaker-correction.js?v=20260903p113";
 import { renderCorrectionSheet, renderIdentityPopover }
-  from "./modules/speaker-correction-view.js?v=20260902p112";
+  from "./modules/speaker-correction-view.js?v=20260903p113";
 import { beginPhotoImport, createPhotoImportState, hydratePhotoCaptureTimes,
   markPhotoImportResult, photoUploadSpec, releasePhotoImport, removePhotoImportItem,
   setPhotoMeetingStart, setPhotoPositionMode, togglePhotoTimeSettings,
   withPhotoImportBusy, withPhotoImportError, formatPhotoBytes }
-  from "./modules/photo-import.js?v=20260902p112";
+  from "./modules/photo-import.js?v=20260903p113";
 import { renderPhotoImport }
-  from "./modules/photo-import-view.js?v=20260902p112";
+  from "./modules/photo-import-view.js?v=20260903p113";
 
 /* 会议列表 + 回顾工作台（装配入口；领域规则逐步迁往 modules/） */
 "use strict";
@@ -180,7 +180,10 @@ const UI_COPY = {
     mediaUrlDivider: "或粘贴公开视频链接", mediaUrlPlaceholder: "YouTube、Bilibili 或公开网页视频链接",
     mediaUrlSubmit: "解析链接", mediaUrlHint: "将获取平台标题、发布者和发布时间；不导入播放列表或直播",
     sourceLink: "↗ 查看原视频",
-    skipVl: "快速处理，不分析共享画面", ignoreTranscript: "忽略附带逐字稿，改用本地语音识别",
+    processingMode: "处理方式", fullAnalysis: "完整分析",
+    fullAnalysisDetail: "先提供逐字稿和语音草稿，再理解画面并生成完整结果",
+    skipVl: "快速纪要", fastAnalysisDetail: "跳过画面理解，但仍生成纪要和会议脉络；之后可以补充",
+    ignoreTranscript: "忽略附带逐字稿，改用本地语音识别",
     search: "搜索会议…", sortImported: "最近导入", sortMeeting: "会议时间", sortUpdated: "最近更新", transcript: "逐字稿",
     original: "原文", translated: "译文", comparison: "对照", translateTo: "译为", follow: "跟随",
     outline: "会议脉络", minutes: "会议纪要", screens: "画面与资料", audit: "核对关键结论",
@@ -214,7 +217,10 @@ const UI_COPY = {
     mediaUrlDivider: "or paste a public video URL", mediaUrlPlaceholder: "YouTube, Bilibili, or a public web video URL",
     mediaUrlSubmit: "Parse URL", mediaUrlHint: "Retrieves platform title, publisher, and publish date; playlists and live streams are not supported",
     sourceLink: "↗ Open original video",
-    skipVl: "Fast processing; skip shared-screen analysis", ignoreTranscript: "Ignore attached transcript and use local speech recognition",
+    processingMode: "Processing mode", fullAnalysis: "Full analysis",
+    fullAnalysisDetail: "Makes the transcript and voice draft available first, then understands visuals and creates the complete result",
+    skipVl: "Fast minutes", fastAnalysisDetail: "Skips visual understanding but still creates minutes and a meeting map; visuals can be added later",
+    ignoreTranscript: "Ignore attached transcript and use local speech recognition",
     search: "Search meetings…", sortImported: "Recently imported", sortMeeting: "Meeting time", sortUpdated: "Recently updated", transcript: "Transcript",
     original: "Original", translated: "Translation", comparison: "Side by side", translateTo: "Translate to", follow: "Follow",
     outline: "Meeting map", minutes: "Minutes", screens: "Visuals & Materials", audit: "Review key conclusions",
@@ -422,7 +428,11 @@ function applyUiLanguage() {
   text("#undo-speaker-btn", ui("undoSpeaker"));
   text("#drop-hint", ui("drop"));
   text("#import-settings-label", ui("importSettings"));
+  text("#processing-mode-label", ui("processingMode"));
+  text("#analysis-mode-full-label", ui("fullAnalysis"));
+  text("#analysis-mode-full-detail", ui("fullAnalysisDetail"));
   text("#skip-vl-label", ui("skipVl"));
+  text("#processing-mode-help", ui("fastAnalysisDetail"));
   text("#ignore-transcript-label", ui("ignoreTranscript"));
   text(".import-divider span", ui("mediaUrlDivider"));
   text("#media-url-submit", ui("mediaUrlSubmit"));
@@ -1020,7 +1030,12 @@ function renderMeetingStatuses() {
   const voiceDraftFailed = !b.has_minutes && Number(b.generation?.voice_draft_rc || 0) !== 0;
   const draftFailure = voiceDraftFailureCopy(b.generation?.voice_draft_rc);
   const enrichment = b.generation?.enrichment || {};
-  const finalNeedsReview = documentReady && enrichment.quality_state === "review_needed";
+  const voiceOnly = b.visual_analysis?.mode === "skipped_by_user"
+    || b.generation?.result_mode === "voice_only"
+    || (b.visual_analysis?.upgrade_available
+      && Number(b.visual_analysis?.available || 0) === 0);
+  const finalNeedsReview = documentReady && !voiceOnly
+    && enrichment.quality_state === "review_needed";
   const unresolved = Number(enrichment.unresolved_material_claims || 0);
   const qualityTitle = finalNeedsReview
     ? (isEnglishUi()
@@ -1050,6 +1065,11 @@ function renderMeetingStatuses() {
     text = draftFailure.title;
     title = draftFailure.detail;
     tone = "warn";
+  } else if (voiceOnly && documentReady) {
+    text = isEnglishUi()
+      ? "Fast minutes and meeting map are ready · visual understanding has not run"
+      : "快速纪要与会议脉络可读 · 尚未运行画面理解";
+    tone = "good";
   } else if (finalNeedsReview) {
     text = isEnglishUi() ? "Final minutes need review · evidence remains traceable"
       : "终稿待复核 · 结论仍可回到原声与画面";
@@ -1070,7 +1090,11 @@ function renderMeetingStatuses() {
   }
   box.innerHTML = text
     ? `<span class="meeting-readiness tone-${esc(tone)}"${title ? ` title="${esc(title)}"` : ""}>${esc(text)}</span>`
+      + (voiceOnly && b.visual_analysis?.upgrade_available
+        ? `<button type="button" class="meeting-inline-action" data-visual-upgrade>${isEnglishUi()
+          ? "Add visual analysis" : "补充画面分析"}</button>` : "")
     : "";
+  wireVisualUpgrade(box);
 }
 
 function renderTranscriptReviewBar() {
@@ -3607,17 +3631,19 @@ function renderVisuals(preserveListScroll = false) {
     ? (box.querySelector(".visual-list")?.scrollTop || 0) : 0;
   const allVisuals = state.bundle?.structure?.visuals || [];
   const media = contentTypeOf(state.bundle) === "media";
+  const upgradeNotice = visualUpgradeNotice();
   if (!allVisuals.length) {
     box.innerHTML = media
-      ? `<div class="structure-empty-state"><h3>${isEnglishUi() ? "No visual analysis" : "没有画面解析"}</h3>`
+      ? `${upgradeNotice}<div class="structure-empty-state"><h3>${isEnglishUi() ? "No visual analysis" : "没有画面解析"}</h3>`
         + `<p>${isEnglishUi() ? "This media can still be reviewed through its analysis and transcript." : "仍可通过分析纪要和逐字稿回顾这条媒体。"}</p></div>`
-      : `<div class="materials-empty"><div><h3>${isEnglishUi() ? "No visuals or meeting materials yet" : "还没有画面或现场资料"}</h3>`
+      : `${upgradeNotice}<div class="materials-empty"><div><h3>${isEnglishUi() ? "No visuals or meeting materials yet" : "还没有画面或现场资料"}</h3>`
         + `<p>${isEnglishUi() ? "Add photos of whiteboards, paper notes, room displays, or physical objects that the recording did not capture clearly." : "可以补充视频中没有清楚记录的白板、纸面笔记、会议室展示或实物照片。"}</p>`
         + `<button type="button" class="primary" data-add-materials><svg class="fluent-icon" aria-hidden="true"><use href="/static/fluent-icons.svg#fluent-add"></use></svg>`
         + `<span>${isEnglishUi() ? "Add meeting materials" : "添加现场资料"}</span></button></div>`
         + `<p class="materials-trust-boundary">${isEnglishUi() ? "Meeting materials supplement context; without discussion or human confirmation, they are not meeting decisions." : "现场资料用于补充上下文；未经发言或人工确认，不单独作为会议决定依据。"}</p></div>`;
     $("[data-add-materials]", box)?.addEventListener("click", event =>
       choosePhotoFiles("materials", event.currentTarget));
+    wireVisualUpgrade(box);
     return;
   }
   const useful = allVisuals.filter(item => item.information_value !== "low");
@@ -3668,7 +3694,7 @@ function renderVisuals(preserveListScroll = false) {
       : (selected.needs_reprocess
         ? `<div class="visual-reprocess">页面解析没有得到可读正文，已标记为需要重新解析；当前不会将它判为低信息。</div>`
         : ""));
-  box.innerHTML = `${materialsHeader}<div class="structure-layout visual-layout"><nav class="structure-list visual-list" aria-label="${esc(contentLabel(contentTypeOf(state.bundle), "screens"))}">` +
+  box.innerHTML = `${upgradeNotice}${materialsHeader}<div class="structure-layout visual-layout"><nav class="structure-list visual-list" aria-label="${esc(contentLabel(contentTypeOf(state.bundle), "screens"))}">` +
     `<div class="structure-list-head visual-list-head"><div><b>${esc(contentLabel(contentTypeOf(state.bundle), "screens"))}</b>` +
     `<span>${allVisuals.length} ${isEnglishUi() ? "items" : "项"}</span></div><div class="visual-filter ${media ? "media-role-filter" : ""}">` +
     filters + `</div></div>` +
@@ -3709,6 +3735,7 @@ function renderVisuals(preserveListScroll = false) {
     `</article></div>`;
   $$('[data-add-materials]', box).forEach(button => button.onclick = event =>
     choosePhotoFiles("materials", event.currentTarget));
+  wireVisualUpgrade(box);
   $$('[data-visual-select]', box).forEach(button => button.onclick = () => {
     state.selectedVisualId = button.dataset.visualSelect;
     renderVisuals(true);
@@ -5238,6 +5265,54 @@ async function regenMinutes(refineModel) {
   });
 }
 
+function visualUpgradeNotice() {
+  if (!state.bundle?.visual_analysis?.upgrade_available) return "";
+  return `<section class="visual-upgrade-notice"><div><b>${isEnglishUi()
+    ? "This result was created without visual understanding"
+    : "当前结果未进行画面理解"}</b><span>${isEnglishUi()
+    ? "Add it later without rerunning speech recognition or speaker processing. The current result remains readable while it runs."
+    : "可以稍后补充，不会重跑语音识别或说话人处理；运行期间当前结果仍可阅读。"}</span></div>`
+    + `<button type="button" class="fluent-button fluent-button--primary" data-visual-upgrade>${isEnglishUi()
+      ? "Add visual analysis" : "补充画面分析"}</button></section>`;
+}
+
+function wireVisualUpgrade(container = document) {
+  $$('[data-visual-upgrade]', container).forEach(button => {
+    button.onclick = () => startVisualUpgrade(button);
+  });
+}
+
+async function startVisualUpgrade(button) {
+  if (!state.slug) return;
+  button.disabled = true;
+  const response = await api(
+    `/api/meetings/${encodeURIComponent(state.slug)}/visual-upgrade`, { method: "POST" });
+  const job = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    button.disabled = false;
+    toast(`${isEnglishUi() ? "Could not add visual analysis" : "无法补充画面分析"}：${job.detail || response.status}`);
+    return;
+  }
+  rememberReadingPosition();
+  toast(isEnglishUi()
+    ? "Visual analysis queued. Speech recognition and speaker processing will be reused."
+    : "画面分析已排队，将复用逐字稿和说话人结果");
+  pollJobs();
+  pollJob(job.id, async current => {
+    if (current.status === "done") {
+      toast(isEnglishUi()
+        ? "Visual analysis added; minutes and the meeting map are updated."
+        : "画面分析已补充，纪要和会议脉络已经更新");
+      await loadMeeting(state.slug);
+    } else if (["failed", "cancelled"].includes(current.status)) {
+      toast(isEnglishUi()
+        ? "Visual analysis did not finish. The fast minutes remain available."
+        : "画面分析未完成，原快速纪要仍然可用");
+      await loadMeeting(state.slug);
+    }
+  });
+}
+
 async function syncMinutes() {
   if (!state.slug) return;
   const button = $("[data-review-action='sync']", $("#transcript-review-bar"));
@@ -5713,7 +5788,8 @@ function closeProcessingDetails() {
 function openProcessingDetails(job, mode = "details", trigger = null, options = {}) {
   const sheet = $("#job-detail-sheet");
   if (!sheet || !job) return;
-  const model = jobPresentation(job, jobDisplayName(job, state.meetings, contentTypeOf), state.uiLanguage);
+  const model = jobPresentation(job, jobDisplayName(
+    job, state.meetings, contentTypeOf, state.uiLanguage), state.uiLanguage);
   const returnFocus = trigger || state.jobSheet.returnFocus || document.activeElement;
   state.jobSheet = { jobId: job.id, mode, returnFocus, options };
   renderJobSheet(sheet, model, { mode, ...options }, {
@@ -5788,7 +5864,8 @@ async function handleJobAction(action, model, trigger) {
   if (action === "preempt") {
     const running = state.activeJobs.find(item => item.status === "running");
     return openProcessingDetails(job, "preempt", trigger, {
-      runningName: running ? jobDisplayName(running, state.meetings, contentTypeOf) : "",
+      runningName: running ? jobDisplayName(
+        running, state.meetings, contentTypeOf, state.uiLanguage) : "",
     });
   }
   if (action === "open_draft") {
@@ -5851,7 +5928,8 @@ function renderJobsStructured(jobs) {
     ? (isEnglishUi() ? "Processing" : "正在处理") : (isEnglishUi() ? "Needs attention" : "需要处理");
   ul.replaceChildren();
   visibleJobs.slice(0, 8).forEach(job => {
-    const model = jobPresentation(job, jobDisplayName(job, state.meetings, contentTypeOf), state.uiLanguage);
+    const model = jobPresentation(job, jobDisplayName(
+      job, state.meetings, contentTypeOf, state.uiLanguage), state.uiLanguage);
     const node = renderCompactJob(model, {
       language: state.uiLanguage,
       allowHide: state.jobHideAvailable && ["failed", "paused", "cancelled"].includes(job.status),
@@ -5875,7 +5953,8 @@ function renderJobsStructured(jobs) {
   });
   const current = currentJobForMeeting();
   renderProcessingBanner($("#processing-banner"), current
-    ? jobPresentation(current, jobDisplayName(current, state.meetings, contentTypeOf), state.uiLanguage)
+    ? jobPresentation(current, jobDisplayName(
+      current, state.meetings, contentTypeOf, state.uiLanguage), state.uiLanguage)
     : null, { language: state.uiLanguage, onAction: handleJobAction });
   if (state.jobSheet.jobId && !$("#job-detail-sheet")?.classList.contains("hidden")) {
     const openJob = jobs.find(job => job.id === state.jobSheet.jobId);

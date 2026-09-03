@@ -17,8 +17,8 @@ with tempfile.TemporaryDirectory(prefix="meeting-recovery-") as tmp:
     os.environ["MEETING_DATA_ROOT"] = str(root)
     os.environ["MEETING_WEB_JOBS"] = str(root / "jobs")
 
-    from job_recovery import (build_fast_sync_command, meeting_dir_for_job,
-                              preemption_resume_spec, recovery_plan,
+    from job_recovery import (build_fast_sync_command, build_visual_upgrade_command,
+                              meeting_dir_for_job, preemption_resume_spec, recovery_plan,
                               visual_cache_coverage)  # noqa: E402
     from teams_minutes import slugify  # noqa: E402
 
@@ -82,6 +82,10 @@ with tempfile.TemporaryDirectory(prefix="meeting-recovery-") as tmp:
         assert str(exc) == "incomplete_visual_cache"
     else:
         raise AssertionError("快速同步不得接受缺页的视觉缓存")
+    visual_upgrade = build_visual_upgrade_command(meeting)
+    assert visual_upgrade[1].endswith("minutes_by_page.py")
+    assert "--video" in visual_upgrade and "--reuse-vl-cache-only" not in visual_upgrade
+    assert not any("transcribe" in item or "diarize" in item for item in visual_upgrade)
     (meeting / "page_desc.json").write_text(
         '{"desc":{"1":"Synthetic visual description"}}', encoding="utf-8")
     coverage = visual_cache_coverage(meeting)
@@ -89,6 +93,8 @@ with tempfile.TemporaryDirectory(prefix="meeting-recovery-") as tmp:
     fast = build_fast_sync_command(meeting)
     assert "--reuse-vl-cache-only" in fast and "--skip-topic-map" in fast
     assert "--video" not in fast
+    cached_upgrade = build_visual_upgrade_command(meeting)
+    assert "--reuse-vl-cache-only" in cached_upgrade and "--video" not in cached_upgrade
 
     audio_meeting = root / "meetings" / "synthetic-audio"
     audio_meeting.mkdir()

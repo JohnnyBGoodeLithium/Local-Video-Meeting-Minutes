@@ -122,7 +122,8 @@ def initial_progress(job: dict, now: float | None = None) -> dict:
         "total": None,
         "unit": None,
         "available_outputs": {
-            item: str((job.get("available_outputs") or {}).get(item) or "pending")
+            item: ("skipped" if item == "visuals" and _has_arg(job, "--no-vl")
+                   else str((job.get("available_outputs") or {}).get(item) or "pending"))
             for item in OUTPUTS
         },
         "estimated_first_usable": None,

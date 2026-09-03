@@ -65,17 +65,25 @@ with tempfile.TemporaryDirectory(prefix="meeting-generation-test-") as temp:
     final = meeting_generation.finalize(mdir, pages=12, vl_pages=10)
     assert final["phase"] == "ready"
     assert final["enrichment"] == {
-        "pages": 12, "vl_pages": 10, "draft_claims": 2, "final_claims": 2,
+        "pages": 12, "vl_pages": 10, "visual_mode": "complete",
+        "draft_claims": 2, "final_claims": 2,
         "added_claims": 1, "reframed_or_removed_claims": 1,
         "quality_state": "review_needed", "material_draft_claims": 2,
         "covered_material_claims": 1, "unresolved_material_claims": 1,
         "material_coverage": 0.5, "draft_actions": 1, "unresolved_actions": 1,
         "text_only_candidates": 0,
     }
+    assert final["result_mode"] == "multimodal"
     assert meeting_generation.document_state(mdir, True) == "ready"
     # 状态 sidecar 只存 revision/数量，不复制会议正文。
     state_text = (mdir / "meeting.generation.json").read_text(encoding="utf-8")
     assert "多模态终稿事实" not in state_text and "屏幕表格补充" not in state_text
+
+    voice_only = meeting_generation.finalize(
+        mdir, pages=12, vl_pages=0, visual_mode="skipped_by_user")
+    assert voice_only["phase"] == "ready"
+    assert voice_only["result_mode"] == "voice_only"
+    assert voice_only["enrichment"]["visual_mode"] == "skipped_by_user"
 
     fully_covered = meeting_generation.coverage_audit(
         evidence([{"text": "落实合成方案", "kind": "action", "status": "open",
