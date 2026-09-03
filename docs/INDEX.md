@@ -17,7 +17,7 @@
 | 版本发布与应用分发 | [当前状态](STATUS.md) + [版本摘要](../CHANGELOG.md) + [发布规范](runbooks/RELEASES.md) + [分发与发布包](runbooks/DISTRIBUTION.md) |
 | 产品介绍站部署 | [产品介绍站 runbook](runbooks/PRODUCT_SITE.md) |
 | 历史事故 | [工程变化](history/ENGINEERING_CHANGES.md) 的目标章节 |
-| 研究实验 | [实验记录](research/EXPERIMENT_LOG.md) 的目标章节 |
+| 研究实验 | [实验记录](research/EXPERIMENT_LOG.md) 的目标章节；实时能力见 [Live Context](research/LIVE_CONTEXT.md) |
 | Coding agent | [AGENTS.md](../AGENTS.md) + [当前状态](STATUS.md) + 本文 + 一份目标文档 |
 
 ## 权威位置
@@ -39,6 +39,7 @@
 | 产品介绍站 | [PRODUCT_SITE.md](runbooks/PRODUCT_SITE.md) |
 | 重大工程事故 | [ENGINEERING_CHANGES.md](history/ENGINEERING_CHANGES.md) |
 | 实验结果 | [EXPERIMENT_LOG.md](research/EXPERIMENT_LOG.md) |
+| Live Context 能力与限制 | [LIVE_CONTEXT.md](research/LIVE_CONTEXT.md) |
 
 ## 默认上下文预算
 

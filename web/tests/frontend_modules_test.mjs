@@ -21,6 +21,8 @@ import { claimAction, claimIdsForTurn, evidenceSources, minutesState, normalizeR
   resolveMinutesClaim, resolveMinutesView, turnIndexAtTime, turnIndexesForSourceIds }
   from "../static/modules/minutes.js";
 import { renderMinutesView } from "../static/modules/minutes-view.js";
+import { createLiveContextState, defaultLiveMode, selectLiveContentType, selectLiveMode }
+  from "../static/modules/live-context.js";
 
 const media = {
   slug: "synthetic-media",
@@ -186,5 +188,14 @@ assert.equal(evidenceSources(evidenceBundle, evidence.claims[0]).firstTime, 10);
 assert.equal(normalizeReviewMode("chapters", { transcript: [] }), "minutes");
 assert.equal(normalizeReviewMode("quality", {}), "quality");
 assert.equal(typeof renderMinutesView, "function");
+
+assert.equal(defaultLiveMode("live_event"), "analyze_background");
+assert.equal(defaultLiveMode("meeting"), "meeting_companion");
+let live = createLiveContextState();
+assert.equal(live.mode, "analyze_background");
+live = selectLiveMode(live, "watch_analyze");
+assert.equal(live.mode, "watch_analyze");
+live = selectLiveContentType(live, "meeting");
+assert.equal(live.mode, "meeting_companion");
 
 console.log("frontend modules: source/import/job/library/player/transcript-view/export/minutes-view policies passed");

@@ -28,6 +28,7 @@ from pathlib import Path
 
 from meeting_dir import for_teams, materialize_source
 from meeting_core.terminology import configured_bank_dir, safe_harvest_screen_candidates
+from meeting_core.model_resolver import ModelNotInstalledError, resolve_pyannote_model
 from meeting_core.transcript_review import bind_review_to_transcript
 from meeting_core.resource_policy import prepare_stage
 from meeting_core.llm import DEFAULT_DRAFT_MODEL, DEFAULT_MINUTES_MODEL
@@ -142,6 +143,11 @@ def main() -> int:
     print("[2/6] 转写 ∥ 说话人分离 ...", flush=True)
     progress_event("speech_processing")
     prepare_stage("audio", keep=[DEFAULT_DRAFT_MODEL], progress_phase="speech_processing")
+    try:
+        resolve_pyannote_model(ROOT)
+    except ModelNotInstalledError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
     tr_cmd = [str(PY), str(BIN / "transcribe.py"), str(wav), "--out", str(mdir),
               "--context-title", args.slug or slug]
     if args.reuse_asr:

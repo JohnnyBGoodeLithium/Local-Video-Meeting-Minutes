@@ -67,6 +67,7 @@ def main() -> int:
             "MEETING_WEB_PORT": str(port),
             "MEETING_WEB_DRYRUN": "1",
             "MEETING_WEB_DRYRUN_DELAY": "0.4",
+            "MEETING_LIVE_CONTEXT": "1",
             "MEETING_RAG_MODE": "lexical",
             "PYTHONUNBUFFERED": "1",
             "MEETING_KB_PROVIDER": "weknora",

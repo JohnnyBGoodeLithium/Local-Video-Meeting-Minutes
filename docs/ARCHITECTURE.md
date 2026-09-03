@@ -6,7 +6,7 @@
 
 ```text
 Source
-  Teams VTT/DOCX · audio · recording · public media URL · photos
+  Teams VTT/DOCX · audio · recording · public media URL · live source · photos
   ↓
 Local model-enhanced processing
   ASR · diarization · visual understanding · text generation
@@ -43,6 +43,7 @@ Web · Viewer · AI Context · KB · RAG
 | retranscribe | 已有母版 | 从私有快照与当前 provider 重建逐字稿及下游资产 |
 | regenerate / sync | 已有 canonical | 标准重生成可补缺；快速同步只复用完整 VL 缓存 |
 | visual upgrade | 已有语音版结果 | 复用媒体、逐字稿、人物和逻辑页，只补画面理解、正式纪要与脉络 |
+| live | 公开 HLS 或明确授权的会议/browser 来源 | 先写 `.live/` 暂定 signal 和 checkpoint；结束后 reconcile，复用 visual upgrade 补完画面，最后才写 canonical |
 
 现场资料采用独立的补充路径：图片先原子固化为受保护原图和阅读 JPEG，再由批量
 `photo_analysis` 作业调用本地 VL。视觉模型只读取图片，不读取逐字稿；分析完成后，
@@ -51,6 +52,11 @@ Web · Viewer · AI Context · KB · RAG
 未定位图片仍进入资料解读，但不会伪造与某段发言的时间关联。
 
 公开链接下载只接受受限单条媒体。原始 URL 只进入私有 inbox；工作台、Viewer 与 KB 只投影 `media-source/v1` 的白名单字段，含临时 query 的 generic URL 不导出。
+
+Live 中间层位于单场目录的 `.live/`：尽量 append-only 保存 timed text、speaker/frame event 和脱敏 metrics，checkpoint 原子替换。主页关闭不改变 worker；重启时从 checkpoint 恢复媒体序号。该目录不进入 Git、应用发布包、MeetingPack 或 KB，也不作为事实真源。
+
+`CONNECTING → LIVE → STALLED/RECOVERING → ENDING → FINALIZING → COMPLETE`
+是结构化状态合同。HLS `ENDLIST` 是强结束信号；无进展只先进入宽限期，恢复后回到 `LIVE`。输入冻结后，finalizer 按来源优先级融合信号，物化已选画面，调用现有 `minutes_by_page.py`/`summarize.py`；不重跑 ASR、说话人或已有 logical frame。
 
 ## Canonical 数据真源
 
