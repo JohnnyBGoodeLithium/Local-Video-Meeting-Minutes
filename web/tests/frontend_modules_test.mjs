@@ -3,7 +3,7 @@ import { contentTypeOf, safeSourceUrl, sourcePublishedDate, sourceSearchText }
   from "../static/modules/media-source.js";
 import { buildUploadFormData, enqueueMediaUrl, isSingleLocalVideo }
   from "../static/modules/imports.js";
-import { jobDisplayName, selectJobPanel } from "../static/modules/jobs.js";
+import { jobDisplayName, jobTaskLabel, selectJobPanel } from "../static/modules/jobs.js";
 import { chooseInitialItem, deepLinkSeconds, filterLibrary, sortLibrary }
   from "../static/modules/library.js";
 import { adjacentReviewUnit, defaultReviewUnits, nearestReviewUnit,
@@ -71,9 +71,20 @@ assert.deepEqual(selected.visibleJobs.map(item => item.id), ["queued-media", "fa
 assert.equal(selected.runningJob.id, "running-meeting");
 assert.equal(jobDisplayName({ content_type: "media" }, [], contentType), "媒体处理");
 assert.equal(jobDisplayName({ upgrade_mode: "visual", meeting: "synthetic" }, [], contentType),
-  "synthetic · 补充画面分析");
+  "synthetic");
 assert.equal(jobDisplayName({ upgrade_mode: "visual", meeting: "synthetic" }, [], contentType, "en"),
-  "synthetic · Adding visual analysis");
+  "synthetic");
+assert.equal(jobTaskLabel({ kind: "regen", upgrade_mode: "visual" }), "补充画面分析");
+assert.equal(jobTaskLabel({ kind: "topic_map" }), "构建会议脉络");
+assert.equal(jobTaskLabel({
+  kind: "translation", translation_artifact: "topic_map", target_language: "en", auto: true,
+}), "自动补充 · 将会议脉络翻译为英文");
+assert.equal(jobTaskLabel({
+  kind: "translation", translation_artifact: "minutes", target_language: "zh-CN",
+}, "en"), "Translate minutes to Chinese");
+assert.equal(jobTaskLabel({
+  kind: "upload", route: "teams", processing_mode: "complete",
+}), "处理 Teams 会议 · 完整分析");
 
 const library = [
   { slug: "older", title: "Older meeting", imported_at: 10, date: "2026-08-01" },

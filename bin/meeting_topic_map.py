@@ -2,7 +2,8 @@
 """用本机 LLM 把逐字稿/evidence 归并为整场会议语义 Topic Map。
 
 页面变化只作为证据，不直接生成 Topic。长会议先按约 15 分钟处理窗口做局部归纳，
-再从全场视角归并成 3–8 个一级论点；每个节点必须携带可验证的 T/P/C ID。
+再从全场视角优先归并成少量一级论点；复杂多议程会议允许超过常规数量，但不能退化为
+时间窗目录。每个节点必须携带可验证的 T/P/C ID。
 stdout 只输出窗口数、节点数、耗时等元数据，不打印会议正文或模型输出。
 """
 
@@ -40,6 +41,11 @@ ALLOWED_CHILD_TYPES = {
     "open_question", "risk", "evidence", "discussion",
 }
 MEDIA_CHILD_TYPES = ALLOWED_CHILD_TYPES | {"demo", "conclusion"}
+# 3–8 是首屏浏览的推荐密度，不是 canonical 数据上限。只有全场确有互不从属的独立议题时
+# 才允许扩展到 12；正常模型结果不做静默切片，避免第 9 个议题及其证据直接丢失。
+PREFERRED_TOPIC_MIN = 3
+PREFERRED_TOPIC_MAX = 8
+FALLBACK_TOPIC_LIMIT = 12
 
 CHUNK_PROMPT = """你负责整理一段会议的局部语义，不要按截图或页面变化分章。
 输入是 meeting-topic-chunk-input/v1 JSON。请识别这一时间窗真正讨论的 1–5 个候选论点，
@@ -65,8 +71,10 @@ CHUNK_PROMPT = """你负责整理一段会议的局部语义，不要按截图�
 REDUCE_PROMPT = """你负责生成整场会议的逻辑思维导图，而不是时间轴或截屏目录。
 输入是 meeting-topic-reduce-input/v1：包含各大时间窗的局部归纳和权威 evidence claims。
 
-请从全场视角归并为 3–8 个一级论点。相同论点即使在不连续时间再次出现，也必须合并为
-同一个 topic，并保留多个证据范围。每个 topic 下用 2–7 个结构化子节点说明背景、主要观点、
+请从全场视角高度归并一级论点，通常保持 3–8 个。只有存在无法合理合并、且分别有独立
+问题/论证/决定链的议题时才可增加，但不得超过 12 个。相同论点即使在不连续时间再次出现，
+也必须合并为同一个 topic，并保留多个证据范围。不同时间窗、说话人、页面或分享轮次本身
+不构成独立议题。每个 topic 下用 2–7 个结构化子节点说明背景、主要观点、
 反方/约束、决定、行动、风险或未决问题。不要把页面、时间窗或说话人直接当成论点。
 决定/行动状态必须服从输入 claim，页面展示不能被升级为会议结论。
 保持紧凑：meeting_summary 不超过 120 个汉字；topic title 不超过 30 个汉字、summary 不超过
@@ -197,7 +205,7 @@ def _fallback_reduce(summaries: list[dict]) -> dict:
     """最终归并连续输出坏 JSON 时，直接投影局部候选，避免整场脉络消失。
 
     这条路径不重新解释逐字稿：标题、摘要和 T/P/C 引用只取已经通过局部归纳的
-    candidate_topics。完全相同的标题跨窗口合并；超过八组时把余项聚到最后一组，
+    candidate_topics。完全相同的标题跨窗口合并；超过安全展示数量时把余项聚到最后一组，
     保证引用不丢。局部归纳本身不足三个主题时，结果仍交给既有质量门槛处理，
     不为了凑数伪造主题。
     """
@@ -239,9 +247,9 @@ def _fallback_reduce(summaries: list[dict]) -> dict:
                 "page_ids": list(candidate.get("page_ids") or []),
             })
 
-    if len(groups) > 8:
-        overflow = groups[8:]
-        groups = groups[:8]
+    if len(groups) > FALLBACK_TOPIC_LIMIT:
+        overflow = groups[FALLBACK_TOPIC_LIMIT:]
+        groups = groups[:FALLBACK_TOPIC_LIMIT]
         target = groups[-1]
         for group in overflow:
             extend_unique(target["summary_parts"], group["summary_parts"])
@@ -719,7 +727,9 @@ def _sanitize_map(raw: dict, evidence: dict, revisions: dict, *, model: str,
         return _merge_ranges(ranges)
 
     topics = []
-    for raw_topic in list(raw.get("topics") or [])[:8]:
+    # 正常模型结果不按推荐密度截断。Prompt 负责高度归并；若模型仍产出较多有效议题，
+    # 完整保留并交给响应式 UI 展示，而不是静默丢掉后续证据。
+    for raw_topic in list(raw.get("topics") or []):
         if not isinstance(raw_topic, dict):
             continue
         # 结论引用可能横跨相邻议题。先记住模型显式给每个议题/子节点分配的轮次，后续去重时
@@ -971,7 +981,8 @@ def generate_topic_map(mdir: Path, *, llm: Callable[[str, int], object] | None =
     final_prompt = REDUCE_PROMPT.format(
         context=json.dumps(reduce_payload, ensure_ascii=False, separators=(",", ":")))
     if content_type == "media":
-        final_prompt = ("这是媒体视频。一级节点仍是3–8个内容论点；children.type 可使用 "
+        final_prompt = ("这是媒体视频。一级节点通常保持3–8个高度归并的内容论点；只有互不从属"
+                        "的独立论证链才可增加，且不得超过12个。children.type 可使用 "
                         "context/argument/evidence/demo/counterpoint/risk/open_question/"
                         "conclusion/discussion，分别表达铺垫、观点、证据、演示、质疑和结论。"
                         "不要生成会议决定或待办。\n\n" + final_prompt)

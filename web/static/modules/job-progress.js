@@ -147,7 +147,7 @@ function recoveryLabel(job, progress, language) {
   return pick(labels[mode] || ["查看恢复方式", "Review recovery options"], language);
 }
 
-export function jobPresentation(job, displayName, language = "zh-CN") {
+export function jobPresentation(job, displayName, language = "zh-CN", taskLabel = "") {
   const progress = normalizeProgress(job);
   const state = progress.state || job.status;
   const phase = phaseLabel(progress.phase, language);
@@ -222,7 +222,7 @@ export function jobPresentation(job, displayName, language = "zh-CN") {
   }
 
   return {
-    job, progress, name: displayName, state, phase, headline, detail, tone, primary,
+    job, progress, name: displayName, taskLabel, state, phase, headline, detail, tone, primary,
     units, eta, outputs, legacy: progress.source === "legacy_estimate",
     ratio: Number(progress.total) > 0 ? Math.min(1, Math.max(0, Number(progress.done || 0) / Number(progress.total))) : null,
   };

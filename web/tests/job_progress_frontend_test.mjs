@@ -32,9 +32,10 @@ assert.deepEqual(availableOutputLabels(progress, "en"), [
   "transcript", "speaker navigation", "voice draft", "completed visuals (partial)",
 ]);
 
-const zh = jobPresentation(job, "Synthetic Review", "zh-CN");
+const zh = jobPresentation(job, "Synthetic Review", "zh-CN", "处理虚构会议 · 完整分析");
 assert.match(zh.headline, /语音草稿已就绪/);
 assert.match(zh.detail, /完整结果 预计还需 18–26 分钟/);
+assert.equal(zh.taskLabel, "处理虚构会议 · 完整分析");
 assert.equal(zh.ratio, 1 / 3);
 const en = jobPresentation(job, "Synthetic Review", "en");
 assert.match(en.headline, /Voice draft ready/);
