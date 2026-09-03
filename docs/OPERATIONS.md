@@ -114,3 +114,8 @@ make run
 - 模型角色：[reference/MODELS.md](reference/MODELS.md)
 - 成本模型：[reference/COST_MODEL.md](reference/COST_MODEL.md)
 - 开放风险：[RISKS.md](RISKS.md)
+## Companion 运维边界
+
+Companion 默认由 `MEETING_COMPANION=0` 关闭。实验启用、Tailscale 检测、Serve 建议命令、Funnel 警告和人工手机验收见 [Companion Tailscale runbook](runbooks/COMPANION_TAILSCALE.md)。`make companion-doctor` 只读检测安全 metadata，不登录账号、不保存 auth key、不改 ACL、不执行 Serve 或 Funnel。
+
+配对与设备 session 状态位于私有数据根的 `companion/auth.json`，文件权限收紧为 owner-only；状态不含会议正文或永久明文 token。应用发布包包含 Companion 代码与文档，但不包含状态文件、Tailscale binary、凭据或真实网络配置。

@@ -29,6 +29,7 @@
 
 ## 实验中（Experimental）
 
+- Companion 私有 tailnet 原型已实现应用内配对、URL/小文件发送、进度、安全轻量 review、evidence 回听和人物确认；真实手机与 X Ultra 的 Tailscale Serve transport 仍待人工实验验证，默认关闭且不使用 Funnel。
 - 跨会议序列比较、主题演进和部门知识交付。
 - 新 embedding、reranker、模型替换和视觉疑难页路由。
 - 由历史材料生成汇报演练辅助；必须保持证据、反例、时效和人工确认，不能固化人物画像。

@@ -73,7 +73,7 @@ def companion_page():
 def companion_setup(request: Request):
     if not companion_enabled():
         raise HTTPException(404, "Companion unavailable")
-    host = (request.headers.get("host") or "").split(":", 1)[0].strip("[]").lower()
+    host = (urlparse(f"//{request.headers.get('host') or ''}").hostname or "").lower()
     if host not in {"127.0.0.1", "localhost", "::1", "testserver"}:
         raise HTTPException(404, "Companion unavailable")
     return FileResponse(STATIC / "companion-setup.html", headers={"Cache-Control": "no-store"})

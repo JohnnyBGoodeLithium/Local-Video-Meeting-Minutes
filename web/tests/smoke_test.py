@@ -274,10 +274,21 @@ if chrome:
           and "progress, recovery, bilingual key review and materials lifecycle passed" in workspace_browser.stdout,
           f"rc={workspace_browser.returncode}, out={workspace_browser.stdout[-500:]!r}, "
           f"err={workspace_browser.stderr[-500:]!r}")
+    companion_browser = subprocess.run([
+        str(Path(__file__).resolve().parent.parent.parent / ".venv/bin/python"),
+        str(Path(__file__).resolve().parent / "chromium_companion_test.py"),
+    ], capture_output=True, text=True, timeout=120, env=os.environ)
+    check("Headless Chromium 完成 390px Companion 私有配对与轻交互旅程",
+          companion_browser.returncode == 0
+          and "pairing, URL, status, review, evidence, person, revoke, bilingual and 390px passed"
+          in companion_browser.stdout,
+          f"rc={companion_browser.returncode}, out={companion_browser.stdout[-500:]!r}, "
+          f"err={companion_browser.stderr[-500:]!r}")
 else:
     print("SKIP  在线工作台 ES modules 浏览器启动（未安装 Chromium）")
     print("SKIP  产品介绍 ES module 浏览器启动（未安装 Chromium）")
     print("SKIP  产品站双语、证据与响应式浏览器旅程（未安装 Chromium）")
+    print("SKIP  Companion 390px 浏览器旅程（未安装 Chromium）")
 check("渐进纪要失败时明确等待终稿，不把空纪要误报为草稿可读",
       s == 200 and "语音草稿已就绪".encode() in app_js
       and "终稿待复核".encode() in app_js

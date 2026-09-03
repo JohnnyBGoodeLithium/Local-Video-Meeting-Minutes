@@ -35,7 +35,7 @@ def _feature() -> None:
 
 def _local_admin(request: Request) -> None:
     _feature()
-    host = (request.headers.get("host") or "").split(":", 1)[0].strip("[]").lower()
+    host = (urlsplit(f"//{request.headers.get('host') or ''}").hostname or "").lower()
     if host not in {"127.0.0.1", "localhost", "::1", "testserver"}:
         raise HTTPException(404, "Companion unavailable")
 
@@ -46,7 +46,10 @@ def _same_origin(request: Request) -> None:
     if not origin or not host:
         raise HTTPException(403, "Same-origin request required")
     parsed = urlsplit(origin)
-    if parsed.scheme not in {"http", "https"} or parsed.netloc.casefold() != host.casefold():
+    hostname = (parsed.hostname or "").lower()
+    local = hostname in {"127.0.0.1", "localhost", "::1", "testserver"}
+    if parsed.scheme not in ({"http", "https"} if local else {"https"}) \
+            or parsed.netloc.casefold() != host.casefold():
         raise HTTPException(403, "Origin rejected")
 
 
@@ -107,6 +110,11 @@ class SpeakerConfirmation(BaseModel):
 def create_pairing(request: Request):
     item = STORE.create_pairing()
     public_base = os.environ.get("MEETING_COMPANION_PUBLIC_BASE", "").rstrip("/")
+    parsed = urlsplit(public_base)
+    if (parsed.scheme != "https" or not (parsed.hostname or "").endswith(".ts.net")
+            or parsed.username or parsed.password or parsed.path not in {"", "/"}
+            or parsed.query or parsed.fragment):
+        public_base = ""
     pairing_url = f"{public_base}/companion?pair={item['token']}" if public_base else None
     qr_svg = None
     if pairing_url:

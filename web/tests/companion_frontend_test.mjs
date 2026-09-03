@@ -4,6 +4,7 @@ import vm from "node:vm";
 const source=fs.readFileSync(new URL("../static/companion.js",import.meta.url),"utf8");
 const html=fs.readFileSync(new URL("../static/companion.html",import.meta.url),"utf8");
 const css=fs.readFileSync(new URL("../static/companion.css",import.meta.url),"utf8");
+new vm.Script(source.replaceAll("export ",""),{filename:"companion.js"});
 
 for(const contract of ["/library","/import/url","/import/file","/jobs/","/evidence/","/media/audio"]){
   if(!source.includes(contract))throw new Error(`missing Companion flow: ${contract}`);
