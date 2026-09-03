@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import copy
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -107,6 +108,18 @@ const neutralTranscriptRow=getComputedStyle(document.querySelector('.turn')).bac
 document.body.dataset.topicContract=[topicDetailExpanded,nodeStaysContext,playerAvailableInContext,timeOpensReview,tabsStayPut,tabWidthsStable,singleSelectedTab,transcriptReplacesContext,leavingTranscriptRestoresContext,spaciousPersonLane,neutralTranscriptRow].join(',');
 </script></body>"""
 page = page.replace(b"</body>", contract_probe)
+tab_probe = """
+<script>
+const viewbarRect=document.querySelector('.workspace-nav .viewbar').getBoundingClientRect();
+const firstTabLeft=()=>document.querySelector('#viewtabs [role="tab"]').getBoundingClientRect().left;
+const tabLeftBefore=firstTabLeft();
+const tabsCenterRight=(tabLeftBefore-viewbarRect.left)>=viewbarRect.width*0.45;
+renderTranscriptMode();renderMinutes();renderScreens();renderTopicMap();
+const tabsNoJump=Math.abs(firstTabLeft()-tabLeftBefore)<1;
+const noHorizontalOverflow=document.documentElement.scrollWidth<=document.documentElement.clientWidth+1;
+document.body.dataset.tabContract=[tabsCenterRight,tabsNoJump,noHorizontalOverflow].join(',');
+</script></body>"""
+page = page.replace(b"</body>", tab_probe.encode("utf-8"))
 
 with tempfile.TemporaryDirectory() as td:
     f = Path(td) / "viewer.html"
@@ -136,6 +149,10 @@ assert 'data-topic-contract="true,true,true,true,true,true,true,true,true,true,t
     ("viewer 全局播放器、Tab 切换与轻量人物标记契约不一致: " +
      (next((part.split('"')[1] for part in proc.stdout.split()
             if part.startswith('data-topic-contract=')), "missing")))
+assert 'data-tab-contract="true,true,true"' in proc.stdout, \
+    ("viewer 桌面 Tab 中间偏右/位置稳定/无横向溢出契约不一致: " +
+     (next((part.split('"')[1] for part in proc.stdout.split()
+            if part.startswith('data-tab-contract=')), "missing")))
 assert "Uncaught" not in proc.stderr, \
     f"viewer 启动存在未捕获异常: {proc.stderr[-500:]}"
 
@@ -179,4 +196,186 @@ assert 'id="original-source"' in media_proc.stdout \
     and "查看原视频" in media_proc.stdout, "viewer 未投影公开来源跳转"
 assert "Uncaught" not in media_proc.stderr, \
     f"viewer media 启动存在未捕获异常: {media_proc.stderr[-500:]}"
+
+
+def chromium_dom(page: bytes, path: Path, *, size="1920,1080", budget=8000,
+                 profile: Path | None = None) -> subprocess.CompletedProcess:
+    path.write_bytes(page)
+    cmd = [CHROME, "--headless=new", "--disable-gpu", "--no-sandbox",
+           f"--window-size={size}", "--enable-logging=stderr", "--v=0",
+           f"--virtual-time-budget={budget}", "--dump-dom"]
+    if profile:
+        cmd.append(f"--user-data-dir={profile}")
+    cmd.append(path.as_uri())
+    return subprocess.run(cmd, capture_output=True, text=True, timeout=90)
+
+
+# A/C. 匿名说话人重命名:显示层同步、底层 identity 不变、person-focus 导航与
+# 播放位置保持、Esc/Enter 键盘路径、reset 恢复;最后留下 Peter 供隔离用例复用。
+EVIDENCE_ALIAS = copy.deepcopy(EVIDENCE)
+EVIDENCE_ALIAS["sources"]["transcript"] = [
+    {"id": "T0001", "index": 0, "speaker": "Speaker A", "start": 0.0, "end": 5.0,
+     "text": "示例发言：匿名声音组第一句。"},
+    {"id": "T0002", "index": 1, "speaker": "人员乙", "start": 5.0, "end": 10.0,
+     "text": "示例发言：具名说话人。"},
+    {"id": "T0003", "index": 2, "speaker": "Speaker A", "start": 10.0, "end": 15.0,
+     "text": "示例发言：匿名声音组第二句。"},
+]
+EVIDENCE_ALIAS["sources"]["pages"] = []
+ALIAS_NAV = [
+    {"speaker": "Speaker A", "selectable": True,
+     "identity_basis": "session_voice_cluster"},
+    {"speaker": "人员乙", "selectable": True,
+     "identity_basis": "imported_transcript_label"},
+]
+alias_page = export_meeting._viewer_html(
+    "合成别名测试会甲", "2026-01-01",
+    "<h2>总体摘要</h2><p>别名冒烟正文</p>",
+    EVIDENCE_ALIAS, {"schema": "test"}, TOPIC_MAP, None, None,
+    speaker_navigation_rows=ALIAS_NAV)
+alias_probe = """
+<script>
+const out=[],qa=(name,val)=>out.push(name+':'+(val?'1':'0'));
+renderTranscriptMode();
+focusTime(5,false);
+const focusBefore=focus.time;
+const renameBtn=document.querySelector('#transcript [data-rename="Speaker A"]');
+qa('renameEntry',!!renameBtn);
+renameBtn.click();
+qa('popoverOpens',!document.querySelector('#rename-popover').hidden&&document.activeElement.id==='rename-input');
+document.querySelector('#rename-input').dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+qa('escCancels',document.querySelector('#rename-popover').hidden&&document.activeElement===document.querySelector('#transcript [data-rename="Speaker A"]'));
+document.querySelector('#transcript [data-rename="Speaker A"]').click();
+document.querySelector('#rename-input').value='Peter';
+document.querySelector('#rename-apply').click();
+const heads=[...document.querySelectorAll('#transcript .turn')];
+qa('turnsShowPeter',heads.filter(el=>el.dataset.index!=='1').every(el=>el.querySelector('.turn-head b').textContent==='Peter')&&heads.filter(el=>el.dataset.index==='1').every(el=>el.querySelector('.turn-head b').textContent==='人员乙'));
+qa('legendShowsPeter',[...document.querySelectorAll('#legend [data-person]')].find(b=>b.dataset.person==='Speaker A')?.textContent.includes('Peter'));
+personLanesOpen=true;renderPersonLanes();
+qa('laneShowsPeter',document.querySelector('#person-lanes .person-lane[data-speaker="Speaker A"] .person-lane-name')?.textContent==='Peter');
+selectPlaybackSpeaker('Speaker A',false);setPlaybackScope('speaker');
+qa('controlsShowPeter',document.querySelector('#utterance-controls .utterance-context b')?.textContent==='Peter');
+showTurn(turns[0]);
+qa('evidenceShowsPeter',document.querySelector('#evidence').textContent.includes('Peter'));
+qa('focusKept',focus.time===focusBefore);
+qa('identityKept',turns[0].speaker==='Speaker A'&&spkPin==='Speaker A'&&reviewUnits()[0].speaker==='Speaker A');
+qa('stored',(localStorage.getItem(aliasStorageKey)||'').includes('Peter'));
+selectReviewTurn(0,false);
+const stepBefore=reviewTurn;stepReviewTurn(1);
+qa('navigationWorks',playbackScope==='speaker'&&reviewTurn!==stepBefore&&reviewUnits()[reviewTurn].speaker==='Speaker A');
+document.querySelector('#alias-reset').click();
+qa('resetRestores',displaySpeaker('Speaker A')==='Speaker A'&&localStorage.getItem(aliasStorageKey)===null&&document.querySelector('#transcript .turn .turn-head b').textContent==='Speaker A');
+qa('pinKeptAfterReset',spkPin==='Speaker A'&&playbackScope==='speaker');
+document.querySelector('#transcript [data-rename="Speaker A"]').click();
+document.querySelector('#rename-input').value='Peter';
+document.querySelector('#rename-input').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
+qa('enterApplies',displaySpeaker('Speaker A')==='Peter'&&(localStorage.getItem(aliasStorageKey)||'').includes('Peter'));
+document.body.dataset.aliasContract=out.join(',');
+</script></body>"""
+alias_page = alias_page.replace(b"</body>", alias_probe.encode("utf-8"))
+
+alias_b_page = export_meeting._viewer_html(
+    "合成别名测试会乙", "2026-01-02",
+    "<h2>总体摘要</h2><p>别名隔离正文</p>",
+    EVIDENCE_ALIAS, {"schema": "test"}, TOPIC_MAP, None, None,
+    speaker_navigation_rows=ALIAS_NAV)
+isolation_probe = """
+<script>
+document.body.dataset.isolationContract=[displaySpeaker('Speaker A')==='Speaker A',!document.querySelector('#transcript').textContent.includes('Peter'),localStorage.getItem(aliasStorageKey)===null,aliasStorageKey.startsWith('meetingpack:speaker-aliases:')].join(',');
+</script></body>"""
+alias_b_page = alias_b_page.replace(b"</body>", isolation_probe.encode("utf-8"))
+
+with tempfile.TemporaryDirectory() as td:
+    profile = Path(td) / "shared-profile"
+    alias_proc = chromium_dom(alias_page, Path(td) / "alias-viewer.html", profile=profile)
+    assert alias_proc.returncode == 0, alias_proc.stderr[-300:]
+    alias_contract = next((part.split('"')[1] for part in alias_proc.stdout.split()
+                           if part.startswith('data-alias-contract=')), "missing")
+    assert alias_contract != "missing" and all(
+        item.endswith(":1") for item in alias_contract.split(",")), \
+        f"viewer 匿名说话人重命名契约不一致: {alias_contract}"
+    assert "Uncaught" not in alias_proc.stderr, \
+        f"viewer alias 启动存在未捕获异常: {alias_proc.stderr[-500:]}"
+    # B. alias 按包指纹隔离:同 profile 下另一场会议的 Speaker A 不受影响
+    isolation_proc = chromium_dom(alias_b_page, Path(td) / "alias-b-viewer.html",
+                                  profile=profile)
+    assert isolation_proc.returncode == 0, isolation_proc.stderr[-300:]
+    assert 'data-isolation-contract="true,true,true,true"' in isolation_proc.stdout, \
+        ("viewer 显示名按包隔离契约不一致: " +
+         (next((part.split('"')[1] for part in isolation_proc.stdout.split()
+                if part.startswith('data-isolation-contract=')), "missing")))
+
+# D. audio-only 与 video 的 media workspace 保持稳定垂直尺寸:
+# 关键元素(tabs/searchbox/timeline/逐字稿)纵向位置不允许结构性跳动。
+layout_probe = """
+<script>
+document.body.dataset.layoutTops=['#viewtabs','.searchbox','#scrub','#transcript-panel'].map(sel=>Math.round(document.querySelector(sel).getBoundingClientRect().top)).join(',');
+document.body.dataset.shellClass=document.querySelector('#media-stage-shell')?.className||'missing';
+</script></body>"""
+layout_pages = {}
+for name, media_path, media_kind in (("video", "media/video.mp4", "video"),
+                                     ("audio", "media/audio.mp3", "audio")):
+    layout_page = export_meeting._viewer_html(
+        "合成布局测试会", "2026-01-01",
+        "<h2>总体摘要</h2><p>布局冒烟正文</p>",
+        EVIDENCE, {"schema": "test"}, TOPIC_MAP, media_path, media_kind,
+        speaker_navigation_rows=[
+            {"speaker": "人员甲", "selectable": True,
+             "identity_basis": "session_voice_cluster"},
+            {"speaker": "人员乙", "selectable": True,
+             "identity_basis": "imported_transcript_label"}])
+    layout_pages[name] = layout_page.replace(b"</body>", layout_probe.encode("utf-8"))
+with tempfile.TemporaryDirectory() as td:
+    layout_tops, shell_classes = {}, {}
+    for name, layout_page in layout_pages.items():
+        layout_proc = chromium_dom(layout_page, Path(td) / f"layout-{name}.html")
+        assert layout_proc.returncode == 0, layout_proc.stderr[-300:]
+        layout_tops[name] = [int(x) for x in next(
+            part.split('"')[1] for part in layout_proc.stdout.split()
+            if part.startswith('data-layout-tops=')).split(",")]
+        shell_classes[name] = re.search(r'data-shell-class="([^"]*)"',
+                                        layout_proc.stdout).group(1)
+    assert "video" in shell_classes["video"] and "audio-only" in shell_classes["audio"], \
+        f"viewer media-stage-shell 契约缺失: {shell_classes}"
+    labels = ["viewtabs", "searchbox", "timeline", "transcript-panel"]
+    deltas = {label: abs(a - b) for label, a, b in
+              zip(labels, layout_tops["video"], layout_tops["audio"])}
+    assert deltas["viewtabs"] <= 2 and deltas["searchbox"] <= 2 \
+        and deltas["transcript-panel"] <= 2, \
+        f"viewer 导航区位置随 media 类型跳动: {deltas}"
+    assert deltas["timeline"] <= 48, \
+        f"viewer 时间线位置在 audio/video 之间跳动超过 48px: {deltas}"
+    print(f"viewer layout: audio/video 关键元素 top 差值 {deltas}")
+
+# F. 390px 移动端:无横向溢出、Tab 可用、rename popover 不超出视口。
+mobile_page = export_meeting._viewer_html(
+    "合成启动测试会", "2026-01-01",
+    "<h2>总体摘要</h2><p>启动冒烟正文标记</p>",
+    EVIDENCE, {"schema": "test"}, TOPIC_MAP, None, None,
+    speaker_navigation_rows=[
+        {"speaker": "人员甲", "selectable": True,
+         "identity_basis": "session_voice_cluster"},
+        {"speaker": "人员乙", "selectable": True,
+         "identity_basis": "imported_transcript_label"}])
+mobile_probe = """
+<script>
+const noOverflow=document.documentElement.scrollWidth<=document.documentElement.clientWidth+1;
+document.querySelector('#viewtabs [data-mode="transcript"]').click();
+const tabSwitched=currentMode==='transcript';
+document.querySelector('#transcript [data-rename]').click();
+const pop=document.querySelector('#rename-popover'),rect=pop.getBoundingClientRect();
+const popoverUsable=!pop.hidden&&rect.left>=-1&&rect.right<=window.innerWidth+1&&document.activeElement.id==='rename-input';
+document.querySelector('#rename-cancel').click();
+document.body.dataset.mobileContract=[noOverflow,tabSwitched,popoverUsable].join(',');
+</script></body>"""
+mobile_page = mobile_page.replace(b"</body>", mobile_probe.encode("utf-8"))
+with tempfile.TemporaryDirectory() as td:
+    mobile_proc = chromium_dom(mobile_page, Path(td) / "mobile-viewer.html",
+                               size="390,844")
+    assert mobile_proc.returncode == 0, mobile_proc.stderr[-300:]
+    assert 'data-mobile-contract="true,true,true"' in mobile_proc.stdout, \
+        ("viewer 移动端契约不一致: " +
+         (next((part.split('"')[1] for part in mobile_proc.stdout.split()
+                if part.startswith('data-mobile-contract=')), "missing")))
+
 print("viewer boot: headless runtime passed")
