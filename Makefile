@@ -50,6 +50,10 @@ package-check:
 	$(PY) web/tests/live_source_plan_test.py
 	$(PY) web/tests/hls_live_test.py
 	$(PY) web/tests/live_end_detection_test.py
+	$(PY) web/tests/audio_capture_policy_test.py
+	$(PY) web/tests/caption_change_test.py
+	$(PY) web/tests/caption_merge_test.py
+	$(PY) web/tests/browser_capture_test.py
 	$(PY) web/tests/slide_pages_test.py
 	$(PY) web/tests/media_shots_test.py
 	$(PY) web/tests/media_minutes_test.py
