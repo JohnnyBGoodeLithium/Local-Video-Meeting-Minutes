@@ -17,6 +17,8 @@ import companion_projection
 from deps import DATA_ROOT, MEETINGS, STATIC, _audio_path, _mdir, _video_path
 from job_store import JOBS
 from routers import jobs as job_routes
+from routers import media as media_routes
+from routers import speakers as speaker_routes
 
 router = APIRouter(prefix="/api/companion")
 STORE = CompanionStore(Path(os.environ.get(
@@ -90,6 +92,12 @@ class PairDecision(BaseModel):
 class LinkImport(BaseModel):
     url: str
     no_vl: bool = False
+
+
+class SpeakerConfirmation(BaseModel):
+    voice_id: str
+    person_name: str
+    confirm: bool = False
 
 
 @router.post("/admin/pairings", dependencies=[Depends(_local_admin)])
@@ -232,3 +240,53 @@ async def companion_import_file(file: UploadFile = File(...),
     result = await job_routes.upload_with_limit([file], "", "", "meeting",
                                                 max_bytes=max_bytes)
     return companion_projection.job(result, [result])
+
+
+def _voice_in_item(item_id: str, voice_id: str) -> None:
+    mdir = _mdir(item_id)
+    turns = companion_projection._read_json(mdir / "transcript.spk.json", [])
+    if not any(voice_id in row["voice_ids"]
+               for row in companion_projection.people_rows(mdir, turns)):
+        raise HTTPException(404, "Speaker cluster not found in this item")
+
+
+@router.get("/items/{item_id}/speaker-correction/{voice_id}")
+def speaker_correction_options(item_id: str, voice_id: str,
+                               _grant: SessionGrant = Depends(require("speaker_confirm"))):
+    _voice_in_item(item_id, voice_id)
+    people = speaker_routes.list_speakers()["persons"]
+    candidates = [{"id": row["id"], "name": row["display_name"]}
+                  for row in people if row.get("display_name")][:40]
+    return {"voice_id": voice_id, "candidates": candidates,
+            "sample_url": f"/api/companion/items/{item_id}/speaker-sample/{voice_id}",
+            "confirmation_required": True, "provenance": "human_confirmed"}
+
+
+@router.get("/items/{item_id}/speaker-sample/{voice_id}")
+def companion_speaker_sample(item_id: str, voice_id: str,
+                             _grant: SessionGrant = Depends(require("speaker_confirm"))):
+    _voice_in_item(item_id, voice_id)
+    return media_routes.sample_file(item_id, f"{voice_id}.wav")
+
+
+@router.post("/items/{item_id}/speaker-confirmation")
+def companion_speaker_confirmation(
+        item_id: str, payload: SpeakerConfirmation,
+        _grant: SessionGrant = Depends(require("speaker_confirm", write=True))):
+    _voice_in_item(item_id, payload.voice_id)
+    preview = {"voice_id": payload.voice_id, "person_name": payload.person_name.strip(),
+               "provenance": "human_confirmed", "will_update": "existing speaker correction"}
+    if not payload.person_name.strip():
+        raise HTTPException(400, "Choose an existing person")
+    if not payload.confirm:
+        return {"state": "preview", "preview": preview}
+    result = speaker_routes.bind_in_meeting(item_id, speaker_routes.BindReq(
+        voice=payload.voice_id, name=payload.person_name.strip(), create=False))
+    return {"state": "confirmed", "preview": preview, "result": result,
+            "undo_available": bool(result.get("undo_available"))}
+
+
+@router.post("/items/{item_id}/speaker-confirmation/undo")
+def companion_speaker_undo(
+        item_id: str, _grant: SessionGrant = Depends(require("speaker_confirm", write=True))):
+    return speaker_routes.undo_speaker_operation(item_id)

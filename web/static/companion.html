@@ -61,6 +61,7 @@
       <button class="back quiet" type="button" data-back-item data-i18n="back">返回</button><h1 id="person-name"></h1><p id="person-count" class="lead"></p>
       <div class="player-controls"><button id="previous" type="button">←</button><button id="play-person" class="primary" type="button" data-i18n="play">播放</button><button id="next" type="button">→</button></div>
       <div id="moments" class="list"></div>
+      <section id="speaker-correction" hidden><h2 data-i18n="who">这是谁？</h2><audio id="speaker-sample" controls preload="none"></audio><label><span data-i18n="knownPeople">已知人物</span><select id="candidate"></select></label><button id="preview-speaker" class="secondary" type="button" data-i18n="preview">预览更改</button><div id="speaker-preview" hidden><p id="speaker-preview-text" class="status"></p><button id="confirm-speaker" class="primary" type="button" data-i18n="confirm">确认身份</button></div><button id="undo-speaker" class="quiet" type="button" data-i18n="undo">撤销上次人物修改</button></section>
     </section>
     <audio id="player" preload="metadata"></audio>
     <div id="offline" class="offline" role="alert" hidden><strong data-i18n="cantReach">无法连接 X Ultra</strong><span id="last-connected"></span><button id="retry" type="button" data-i18n="retry">重试</button></div>
