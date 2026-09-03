@@ -37,6 +37,14 @@ assert phase_ids_for(job(route="video", cmd=["python", "video_minutes.py", "--no
     "prepare", "speech_processing", "voice_draft", "visual_extraction",
     "final_minutes", "topic_map",
 ]
+fast_import = initial_progress(
+    job(route="video", cmd=["python", "video_minutes.py", "--no-vl"]), 100.0)
+assert fast_import["available_outputs"]["visuals"] == "skipped"
+visual_upgrade = job(kind="regen", route="video", upgrade_mode="visual",
+                     cmd=["python", "minutes_by_page.py", "--publish", "--video", "source.mp4"])
+assert phase_ids_for(visual_upgrade) == [
+    "prepare", "visual_understanding", "final_minutes", "topic_map",
+]
 assert phase_ids_for(job(route="audio")) == [
     "prepare", "speech_processing", "final_minutes",
 ]

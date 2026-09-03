@@ -24,7 +24,8 @@ from deps import (BANK_DIR, BANK_LOCK, CONTENT_TYPES, DRY_RUN, EVALUATIONS_DIR, 
                   _minutes_html, _read_json, _source, _video_path)
 from job_store import EXEC, JOBS, _new_job, _run_pipeline
 from job_recovery import (build_fast_sync_command, build_minutes_command,
-                          build_retranscribe_command, build_topic_map_command)
+                          build_retranscribe_command, build_topic_map_command,
+                          build_visual_upgrade_command, visual_cache_coverage)
 
 router = APIRouter()
 
@@ -272,6 +273,14 @@ def get_bundle(slug: str):
             "html": MD.render(reading),
             "sources": view.get("sources") or [],
         })
+    visual_coverage = visual_cache_coverage(mdir) if slides else {
+        "required": 0, "available": 0, "missing": [], "complete": False}
+    visual_mode = str((generation.get("enrichment") or {}).get("visual_mode") or "")
+    visual_upgrade_available = bool(
+        _video_path(mdir) is not None and transcript and slides
+        and document_state == "ready"
+        and (generation.get("result_mode") == "voice_only"
+             or not visual_coverage["complete"]))
     return {
         "slug": slug,
         **_meeting_identity(slug),
@@ -299,6 +308,12 @@ def get_bundle(slug: str):
         "minutes_history_available": minutes_history_available,
         "document_state": document_state,
         "generation": generation,
+        "visual_analysis": {
+            "mode": visual_mode or ("complete" if visual_coverage["complete"] else "unknown"),
+            "required": visual_coverage["required"],
+            "available": visual_coverage["available"],
+            "upgrade_available": visual_upgrade_available,
+        },
         "structure": structure,
         "photos": photo_visuals,
         "topic_map": topic_payload,
@@ -395,6 +410,41 @@ def sync_minutes(slug: str):
     resp = dict(job)
     EXEC.submit(_run_pipeline, job)
     return resp
+
+
+@router.post("/api/meetings/{slug}/visual-upgrade")
+def visual_upgrade(slug: str):
+    """在语音版结果之上补跑画面理解、纪要和脉络；复用逐字稿及人物结果。"""
+    mdir = _mdir(slug)
+    if any(job.get("meeting") == slug and job.get("status") in {"queued", "running"}
+           for job in JOBS.values()):
+        raise HTTPException(409, "这场会议仍有处理作业，不能并发补充画面分析")
+    if meeting_generation.document_state(mdir, _minutes_file(mdir) is not None) != "ready":
+        raise HTTPException(409, "请先等待当前纪要完成，再补充画面分析")
+    generation = meeting_generation.load(mdir)
+    coverage = visual_cache_coverage(mdir)
+    if generation.get("result_mode") != "voice_only" and coverage["complete"]:
+        raise HTTPException(409, "画面分析已经完成，无需重复运行")
+    try:
+        cmd = build_visual_upgrade_command(mdir)
+    except ValueError as exc:
+        messages = {
+            "missing_transcript": "没有逐字稿，无法补充画面分析",
+            "missing_video": "没有保留视频母版，无法补充画面分析",
+            "missing_visual_pages": "没有可用的画面页，请重新导入视频",
+        }
+        raise HTTPException(409, messages.get(str(exc), "现有资料不足，无法补充画面分析")) from exc
+    job = _new_job(
+        "regen", route="video", meeting=slug, cmd=cmd,
+        upgrade_mode="visual", processing_mode="complete",
+        available_outputs={
+            "transcript": "ready", "speaker_navigation": "ready",
+            "final_minutes": "ready", "topic_map": "ready",
+        },
+    )
+    response = dict(job)
+    EXEC.submit(_run_pipeline, job)
+    return response
 
 
 @router.post("/api/meetings/{slug}/topic-map")

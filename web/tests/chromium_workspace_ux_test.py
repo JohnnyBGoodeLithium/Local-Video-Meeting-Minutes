@@ -237,8 +237,15 @@ void (async () => {
     return realFetch(input, init);
   };
 
+  const processingModesZh = document.querySelector('#analysis-mode-full-label').textContent === '完整分析'
+    && document.querySelector('#skip-vl-label').textContent === '快速纪要'
+    && document.querySelector('#analysis-mode-full').checked
+    && !document.querySelector('#skip-vl').checked;
   document.querySelector('[data-ui-language="en"]').click();
   await waitFor(() => document.documentElement.lang === 'en', 'English UI');
+  const processingModesEn = document.querySelector('#analysis-mode-full-label').textContent === 'Full analysis'
+    && document.querySelector('#skip-vl-label').textContent === 'Fast minutes'
+    && document.querySelector('#processing-mode-help').textContent.includes('meeting map');
   const englishMaterials = document.querySelector('#visuals-tab').textContent.trim() === 'Visuals & Materials';
   const qualityEntryHidden = document.querySelector('#quality-entry-btn').classList.contains('hidden');
   const qualityTab = await waitFor(() => {
@@ -297,7 +304,8 @@ void (async () => {
 
   window.__workspaceUxE2E = [draftReady,Boolean(detailReady),failureClear,previewClear,
     window.__recoveryStarted === true,contextKept,completedCollapsed,englishMaterials,
-    englishQuality,previews,removable,progressivePosition,imported === 2,analysisQueued,renamed,
+    processingModesZh,processingModesEn,englishQuality,previews,removable,progressivePosition,
+    imported === 2,analysisQueued,renamed,
     alignmentCalls === 2,productDelete,deleted].join('|');
 })().catch(error => { window.__workspaceUxE2E = `error:${error?.stack || error}`; });
 """)
@@ -317,7 +325,7 @@ void (async () => {
                     if result != "running":
                         break
                     time.sleep(0.1)
-                if result != "true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true":
+                if result != "true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true":
                     raise RuntimeError(f"unexpected browser result: {result!r}")
             finally:
                 cdp.close()

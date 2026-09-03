@@ -204,7 +204,8 @@ def coverage_audit(draft_document: dict, final_document: dict) -> dict:
     }
 
 
-def finalize(mdir: Path, *, pages: int, vl_pages: int) -> dict:
+def finalize(mdir: Path, *, pages: int, vl_pages: int,
+             visual_mode: str | None = None) -> dict:
     mdir = Path(mdir)
     draft_evidence = _read_json(mdir / "minutes.voice-draft.evidence.json", {})
     final_evidence = _read_json(mdir / "minutes.evidence.json", {})
@@ -212,8 +213,10 @@ def finalize(mdir: Path, *, pages: int, vl_pages: int) -> dict:
     final_claims = final_evidence.get("claims", [])
     draft_text = {" ".join(str(item.get("text") or "").split()) for item in draft_claims}
     final_text = {" ".join(str(item.get("text") or "").split()) for item in final_claims}
+    resolved_visual_mode = visual_mode or ("complete" if vl_pages else "not_available")
     enrichment = {
         "pages": int(pages), "vl_pages": int(vl_pages),
+        "visual_mode": resolved_visual_mode,
         "draft_claims": len(draft_claims), "final_claims": len(final_claims),
         "added_claims": len(final_text - draft_text),
         "reframed_or_removed_claims": len(draft_text - final_text),
@@ -221,7 +224,8 @@ def finalize(mdir: Path, *, pages: int, vl_pages: int) -> dict:
     }
     return update(
         mdir, "ready", final_revision=artifact.file_revision(mdir / "minutes.md"),
-        enrichment=enrichment)
+        result_mode=("voice_only" if resolved_visual_mode == "skipped_by_user"
+                     else "multimodal"), enrichment=enrichment)
 
 
 def document_state(mdir: Path, has_document: bool) -> str:
