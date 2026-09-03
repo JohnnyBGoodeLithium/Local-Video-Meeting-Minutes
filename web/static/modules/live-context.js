@@ -1,5 +1,8 @@
 "use strict";
 
+import { adjacentReviewUnit, defaultReviewUnits, reviewIndexesFor }
+  from "./player-navigation.js";
+
 export const LIVE_CONTENT_TYPES = new Set(["meeting", "live_event"]);
 export const LIVE_MODES = new Set([
   "analyze_background", "watch_analyze", "meeting_companion", "manual",
@@ -34,4 +37,14 @@ export function selectLiveMode(state, mode) {
     : new Set(["analyze_background", "watch_analyze"]);
   if (!allowed.has(mode)) throw new Error("mode is not available for this content type");
   return { ...state, mode };
+}
+
+export function livePersonFocusNavigation(turns, duration, speaker, currentIndex, delta) {
+  const units = defaultReviewUnits(turns, duration);
+  const indexes = reviewIndexesFor(units, speaker || null);
+  return {
+    units,
+    indexes,
+    target: delta === 0 ? currentIndex : adjacentReviewUnit(indexes, currentIndex, delta),
+  };
 }
