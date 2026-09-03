@@ -198,14 +198,12 @@ assert "Uncaught" not in media_proc.stderr, \
     f"viewer media 启动存在未捕获异常: {media_proc.stderr[-500:]}"
 
 
-def chromium_dom(page: bytes, path: Path, *, size="1920,1080", budget=8000,
-                 profile: Path | None = None) -> subprocess.CompletedProcess:
+def chromium_dom(page: bytes, path: Path, *, size="1920,1080",
+                 budget=8000) -> subprocess.CompletedProcess:
     path.write_bytes(page)
     cmd = [CHROME, "--headless=new", "--disable-gpu", "--no-sandbox",
            f"--window-size={size}", "--enable-logging=stderr", "--v=0",
            f"--virtual-time-budget={budget}", "--dump-dom"]
-    if profile:
-        cmd.append(f"--user-data-dir={profile}")
     cmd.append(path.as_uri())
     return subprocess.run(cmd, capture_output=True, text=True, timeout=90)
 
@@ -279,15 +277,21 @@ alias_b_page = export_meeting._viewer_html(
     "<h2>总体摘要</h2><p>别名隔离正文</p>",
     EVIDENCE_ALIAS, {"schema": "test"}, TOPIC_MAP, None, None,
     speaker_navigation_rows=ALIAS_NAV)
+# B. alias 按包指纹隔离:主脚本启动前向 localStorage 播入一个"其他包"指纹的
+# 同名 alias;Viewer 只读本包指纹 key,不得显示外包 Peter,也不得改写外包 key。
+# 不用共享 --user-data-dir:hosted runner 上首次创建 profile 会让 headless 挂起。
+isolation_seed = (b"<script>try{localStorage.setItem("
+                  b"'meetingpack:speaker-aliases:foreignfingerprint',"
+                  b"JSON.stringify({'Speaker A':'Peter'}))}catch(_){}</script>")
+alias_b_page = alias_b_page.replace(b"<script>", isolation_seed + b"<script>", 1)
 isolation_probe = """
 <script>
-document.body.dataset.isolationContract=[displaySpeaker('Speaker A')==='Speaker A',!document.querySelector('#transcript').textContent.includes('Peter'),localStorage.getItem(aliasStorageKey)===null,aliasStorageKey.startsWith('meetingpack:speaker-aliases:')].join(',');
+document.body.dataset.isolationContract=[displaySpeaker('Speaker A')==='Speaker A',!document.querySelector('#transcript').textContent.includes('Peter'),localStorage.getItem(aliasStorageKey)===null,aliasStorageKey.startsWith('meetingpack:speaker-aliases:')&&aliasStorageKey!=='meetingpack:speaker-aliases:foreignfingerprint',(localStorage.getItem('meetingpack:speaker-aliases:foreignfingerprint')||'').includes('Peter')].join(',');
 </script></body>"""
 alias_b_page = alias_b_page.replace(b"</body>", isolation_probe.encode("utf-8"))
 
 with tempfile.TemporaryDirectory() as td:
-    profile = Path(td) / "shared-profile"
-    alias_proc = chromium_dom(alias_page, Path(td) / "alias-viewer.html", profile=profile)
+    alias_proc = chromium_dom(alias_page, Path(td) / "alias-viewer.html")
     assert alias_proc.returncode == 0, alias_proc.stderr[-300:]
     alias_contract = next((part.split('"')[1] for part in alias_proc.stdout.split()
                            if part.startswith('data-alias-contract=')), "missing")
@@ -296,11 +300,9 @@ with tempfile.TemporaryDirectory() as td:
         f"viewer 匿名说话人重命名契约不一致: {alias_contract}"
     assert "Uncaught" not in alias_proc.stderr, \
         f"viewer alias 启动存在未捕获异常: {alias_proc.stderr[-500:]}"
-    # B. alias 按包指纹隔离:同 profile 下另一场会议的 Speaker A 不受影响
-    isolation_proc = chromium_dom(alias_b_page, Path(td) / "alias-b-viewer.html",
-                                  profile=profile)
+    isolation_proc = chromium_dom(alias_b_page, Path(td) / "alias-b-viewer.html")
     assert isolation_proc.returncode == 0, isolation_proc.stderr[-300:]
-    assert 'data-isolation-contract="true,true,true,true"' in isolation_proc.stdout, \
+    assert 'data-isolation-contract="true,true,true,true,true"' in isolation_proc.stdout, \
         ("viewer 显示名按包隔离契约不一致: " +
          (next((part.split('"')[1] for part in isolation_proc.stdout.split()
                 if part.startswith('data-isolation-contract=')), "missing")))
