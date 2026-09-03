@@ -1,12 +1,15 @@
 PY := .venv/bin/python
 
-.PHONY: run doctor check package-check smoke assistant-live retrieval-live rag-index lock lock-check install-runtime install-ci product-site-build release-bundle release-verify
+.PHONY: run doctor companion-doctor check package-check smoke assistant-live retrieval-live rag-index lock lock-check install-runtime install-ci product-site-build release-bundle release-verify
 
 run:
 	$(PY) web/server.py
 
 doctor:
 	$(PY) bin/doctor.py --profile all
+
+companion-doctor:
+	$(PY) bin/companion_doctor.py
 
 check: package-check
 	$(PY) web/tests/release_workflow_test.py
@@ -80,6 +83,7 @@ package-check:
 	$(PY) web/tests/companion_import_url_test.py
 	$(PY) web/tests/companion_upload_test.py
 	$(PY) web/tests/companion_speaker_confirmation_test.py
+	$(PY) web/tests/companion_tailscale_doctor_test.py
 	$(PY) web/tests/viewer_boot_test.py
 	@if command -v node >/dev/null 2>&1; then node --check web/static/app.js && node --check web/static/admin.js && node --check web/static/product-copy.js && node --check web/static/product-demo.js && node --check web/static/product.js && node --check web/static/companion.js && node web/tests/frontend_modules_test.mjs && node web/tests/job_progress_frontend_test.mjs && node web/tests/photo_import_frontend_test.mjs && node web/tests/speaker_correction_frontend_test.mjs && node web/tests/assistant_intent_test.mjs && node web/tests/product_demo_frontend_test.mjs && node web/tests/companion_frontend_test.mjs; else echo "Node unavailable: skipped JS syntax check"; fi
 

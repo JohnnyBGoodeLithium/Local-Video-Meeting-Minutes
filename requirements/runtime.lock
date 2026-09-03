@@ -32,6 +32,8 @@ pydantic-core==2.46.5
     # via pydantic
 python-multipart==0.0.32
     # via local-meeting-minutes (pyproject.toml)
+qrcode==8.2
+    # via local-meeting-minutes (pyproject.toml)
 starlette==1.6.0
     # via fastapi
 typing-extensions==4.16.0

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from io import BytesIO
 from pathlib import Path
 import secrets
 from urllib.parse import urlsplit
@@ -10,6 +11,8 @@ from urllib.parse import urlsplit
 from fastapi import APIRouter, Cookie, Depends, File, Header, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+import qrcode
+import qrcode.image.svg
 
 from companion_security import (CSRF_COOKIE, SESSION_COOKIE, CompanionStore, SessionGrant,
                                 enabled)
@@ -105,7 +108,14 @@ def create_pairing(request: Request):
     item = STORE.create_pairing()
     public_base = os.environ.get("MEETING_COMPANION_PUBLIC_BASE", "").rstrip("/")
     pairing_url = f"{public_base}/companion?pair={item['token']}" if public_base else None
-    return {**item, "pairing_url": pairing_url}
+    qr_svg = None
+    if pairing_url:
+        image = qrcode.make(pairing_url, image_factory=qrcode.image.svg.SvgPathImage,
+                            box_size=8, border=3)
+        output = BytesIO()
+        image.save(output)
+        qr_svg = output.getvalue().decode("utf-8")
+    return {**item, "pairing_url": pairing_url, "qr_svg": qr_svg}
 
 
 @router.get("/admin/requests", dependencies=[Depends(_local_admin)])
