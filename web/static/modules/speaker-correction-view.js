@@ -9,7 +9,7 @@ const SPEAKER_COPY = {
     personPlaceholder: "搜索已有人员或输入新姓名", personAria: "搜索或输入人员姓名",
     confirming: "正在确认…", confirmAll: "确认全部为此人", createAndConfirm: "新建人员并确认",
     repair: "这组里混入了其他人", later: "稍后处理", playAt: time => `播放 ${time}`,
-    protected: "已人工确认，不会自动修改", groupTitle: index => `新分组 ${index}`,
+    protected: "此前已人工确认；只有你明确选中时才会修改", groupTitle: index => `新分组 ${index}`,
     segmentDuration: (count, duration) => `${count} 段 · ${duration}`, limited: "音频证据较少",
     groupWho: "这个分组是谁？", keepPending: "保持待确认说话人", createMissing: "姓名不存在时新建人员",
     keepUnnamed: "保持未命名", scope: "处理范围", selected: "手选片段", suggested: "相似片段",
@@ -22,7 +22,7 @@ const SPEAKER_COPY = {
     repairTitle: "修复混入的说话人", repairSubtitle: name => `选出几段明显不是「${name}」的发言即可，无需全部找出。`,
     exitReview: "退出人物核对", selectionCount: (count, name) => `已选择 ${count} 段明显不是「${name}」的发言。`,
     continueReview: "继续核对", discardExit: "放弃选择并退出", exitReviewButton: "退出核对",
-    back: "返回重新选择", next: "下一步", applying: "正在应用…", apply: "应用修改",
+    back: "返回重新选择", next: "下一步", previewing: "正在生成预览…", applying: "正在应用…", apply: "应用修改",
   },
   en: {
     identityTitle: "Who is this speaker?", identitySummary: (count, duration) => `The system grouped ${count} segments (${duration}) as one speaker.`,
@@ -30,7 +30,7 @@ const SPEAKER_COPY = {
     personPlaceholder: "Search people or enter a new name", personAria: "Search or enter a person name",
     confirming: "Confirming…", confirmAll: "Confirm all as this person", createAndConfirm: "Create person and confirm",
     repair: "Other people are mixed into this group", later: "Review later", playAt: time => `Play at ${time}`,
-    protected: "Manually confirmed; it will not change automatically", groupTitle: index => `New group ${index}`,
+    protected: "Previously confirmed; it changes only if you explicitly select it", groupTitle: index => `New group ${index}`,
     segmentDuration: (count, duration) => `${count} segments · ${duration}`, limited: "Limited audio evidence",
     groupWho: "Who is this group?", keepPending: "Keep as speaker to review", createMissing: "Create the person if the name is new",
     keepUnnamed: "Keep unnamed", scope: "Change scope", selected: "Selected", suggested: "Similar suggestions",
@@ -43,7 +43,7 @@ const SPEAKER_COPY = {
     repairTitle: "Fix mixed speakers", repairSubtitle: name => `Select a few segments that clearly are not “${name}”. You do not need to find every one.`,
     exitReview: "Exit speaker review", selectionCount: (count, name) => `${count} segments selected as clearly not “${name}”.`,
     continueReview: "Continue reviewing", discardExit: "Discard selection and exit", exitReviewButton: "Exit review",
-    back: "Back to selection", next: "Next", applying: "Applying…", apply: "Apply changes",
+    back: "Back to selection", next: "Next", previewing: "Building preview…", applying: "Applying…", apply: "Apply changes",
   },
 };
 
@@ -114,7 +114,7 @@ function exampleList(correction, transcript, formatTime, escapeHtml, copy, locke
       const isLocked = locked.has(index);
       const checked = correction.selectedTurnIndexes.has(index);
       return `<article class="speaker-example ${isLocked ? "protected" : ""}" data-turn-row="${index}">`
-        + `<label><input type="checkbox" data-example="${index}" ${checked ? "checked" : ""} ${isLocked ? "disabled" : ""}>`
+        + `<label><input type="checkbox" data-example="${index}" ${checked ? "checked" : ""}>`
         + `<span><b>${h(formatTime(turn.start || 0), escapeHtml)}</b><small>${h(String(turn.text || "").slice(0, 120), escapeHtml)}</small></span></label>`
         + `<button type="button" data-play-turn="${index}" aria-label="${h(copy.playAt(formatTime(turn.start || 0)), escapeHtml)}">▶</button>`
         + `${isLocked ? `<em>${copy.protected}</em>` : ""}</article>`;
@@ -162,19 +162,21 @@ export function renderCorrectionSheet({ root, correction, transcript = [], perso
   }
   const selecting = correction.mode === "select_examples";
   const copy = copyFor(language);
+  root.setAttribute("aria-busy", correction.previewPending || correction.mode === "applying"
+    ? "true" : "false");
   root.innerHTML = `<div class="speaker-sheet-head"><div><h3>${copy.repairTitle}</h3>`
     + `<p>${h(copy.repairSubtitle(correction.sourceDisplayName), escapeHtml)}</p></div>`
     + `<button type="button" data-exit aria-label="${copy.exitReview}">×</button></div>`
-    + `<div class="speaker-sheet-body">${selecting
+    + `<div class="speaker-sheet-body">${correction.error
+      ? `<div class="speaker-inline-error" role="alert">${h(correction.error, escapeHtml)}</div>` : ""}${selecting
       ? `<p class="speaker-selection-count" aria-live="polite">${h(copy.selectionCount(correction.selectedTurnIndexes.size, correction.sourceDisplayName), escapeHtml)}</p>`
         + `<div class="speaker-example-list">${exampleList(correction, transcript, formatTime, escapeHtml, copy, locked)}</div>`
       : previewHtml(correction, transcript, persons, formatTime, formatDuration, escapeHtml, summary, copy)}`
-    + `<div class="speaker-inline-error" aria-live="polite">${h(correction.error, escapeHtml)}</div>`
     + `${correction.exitConfirmation
       ? `<div class="speaker-discard-actions"><button type="button" data-continue>${copy.continueReview}</button><button type="button" data-discard>${copy.discardExit}</button></div>` : ""}</div>`
     + `<div class="speaker-sheet-actions"><button type="button" data-secondary>${selecting ? copy.exitReviewButton : copy.back}</button>`
-    + `<button type="button" data-primary class="primary" ${selecting && !correction.selectedTurnIndexes.size ? "disabled" : ""} ${correction.mode === "applying" ? "disabled" : ""}>`
-    + `${selecting ? copy.next : (correction.mode === "applying" ? copy.applying : copy.apply)}</button></div>`;
+    + `<button type="button" data-primary class="primary" ${selecting && (!correction.selectedTurnIndexes.size || correction.previewPending) ? "disabled" : ""} ${correction.mode === "applying" ? "disabled" : ""}>`
+    + `${selecting ? (correction.previewPending ? copy.previewing : copy.next) : (correction.mode === "applying" ? copy.applying : copy.apply)}</button></div>`;
   root.querySelector("[data-exit]").onclick = onExit;
   root.querySelector("[data-secondary]").onclick = selecting ? onExit : onBack;
   root.querySelector("[data-primary]").onclick = selecting ? onNext : onApply;
