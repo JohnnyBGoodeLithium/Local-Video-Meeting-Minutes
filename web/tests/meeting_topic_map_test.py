@@ -365,6 +365,20 @@ assert claim_deduped["topics"][0]["turn_ids"] == ["T000001"]
 assert "T000002" in claim_deduped["topics"][1]["turn_ids"]
 assert "T000002" not in claim_deduped["topics"][0]["turn_ids"]
 
+# 3–8 是推荐浏览密度，不是数据截断合同；复杂多议程会议的第 9/10 个有效议题必须保留。
+ten_topic_raw = {"meeting_summary": "虚构复杂会议。", "topics": [
+    {"title": f"独立议题 {index}", "summary": "独立问题链。",
+     "turn_ids": [f"T{index:06d}"], "claim_ids": [], "page_ids": [], "children": []}
+    for index in range(1, 11)
+]}
+ten_topic_map = topic_map._sanitize_map(
+    ten_topic_raw, synthetic_evidence, {}, model="synthetic-ten-topics",
+    window_count=2, chunk_seconds=900)
+assert len(ten_topic_map["topics"]) == 10
+assert ten_topic_map["topics"][-1]["turn_ids"] == ["T000010"]
+assert "通常保持 3–8 个" in topic_map.REDUCE_PROMPT
+assert "不得超过 12 个" in topic_map.REDUCE_PROMPT
+
 # v2 兼容辅助函数仍可继承局部引用；v3 正常生成不再调用它污染代表论据。
 representative_raw = {"meeting_summary": "虚构代表引用。", "topics": [
     {"title": "议题甲", "summary": "前段。", "turn_ids": ["T000001"],
