@@ -7,7 +7,7 @@ from pathlib import Path
 import secrets
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Request, Response
+from fastapi import APIRouter, Cookie, Depends, File, Header, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
@@ -16,6 +16,7 @@ from companion_security import (CSRF_COOKIE, SESSION_COOKIE, CompanionStore, Ses
 import companion_projection
 from deps import DATA_ROOT, MEETINGS, STATIC, _audio_path, _mdir, _video_path
 from job_store import JOBS
+from routers import jobs as job_routes
 
 router = APIRouter(prefix="/api/companion")
 STORE = CompanionStore(Path(os.environ.get(
@@ -84,6 +85,11 @@ class PairStatus(BaseModel):
 class PairDecision(BaseModel):
     request_id: str
     allow: bool
+
+
+class LinkImport(BaseModel):
+    url: str
+    no_vl: bool = False
 
 
 @router.post("/admin/pairings", dependencies=[Depends(_local_admin)])
@@ -209,3 +215,20 @@ def companion_job(job_id: str, _grant: SessionGrant = Depends(require("view_stat
     if value is None:
         raise HTTPException(404, "Job not found")
     return companion_projection.job(value, JOBS.values())
+
+
+@router.post("/import/url")
+def companion_import_url(payload: LinkImport,
+                         _grant: SessionGrant = Depends(require("send_url", write=True))):
+    result = job_routes.import_media_url(job_routes.MediaURLImport(
+        url=payload.url, no_vl=payload.no_vl))
+    return companion_projection.job(result, [result])
+
+
+@router.post("/import/file")
+async def companion_import_file(file: UploadFile = File(...),
+                                _grant: SessionGrant = Depends(require("upload", write=True))):
+    max_bytes = int(os.environ.get("MEETING_COMPANION_UPLOAD_LIMIT", str(256 * 1024 * 1024)))
+    result = await job_routes.upload_with_limit([file], "", "", "meeting",
+                                                max_bytes=max_bytes)
+    return companion_projection.job(result, [result])
