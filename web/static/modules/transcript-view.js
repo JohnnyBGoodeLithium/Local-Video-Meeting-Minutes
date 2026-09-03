@@ -1,6 +1,6 @@
 /* Transcript DOM projection. All application state and side effects arrive as callbacks. */
 
-import { splitTurnChunks, turnReviewUnits } from "./transcript.js?v=20260903p114";
+import { splitTurnChunks, turnReviewUnits } from "./transcript.js?v=20260903p115";
 
 export function transcriptScrollAnchor(box) {
   const bounds = box.getBoundingClientRect();
@@ -84,9 +84,10 @@ export function renderTranscriptView(options) {
       + '<button type="button" class="quote-turn" title="引用这一轮到会议助手">引用</button>';
     const correctionActive = correctionMode === "select_examples";
     if (correctionSelected.has(turnIndex)) div.classList.add("speaker-correction-selected");
-    if (correctionActive && turn.voice === correctionVoice)
-      div.classList.add(correctionProtected.has(turnIndex)
-        ? "speaker-correction-protected" : "speaker-correction-candidate");
+    if (correctionActive && turn.voice === correctionVoice) {
+      div.classList.add("speaker-correction-candidate");
+      if (correctionProtected.has(turnIndex)) div.classList.add("speaker-correction-confirmed");
+    }
     else if (correctionActive) div.classList.add("speaker-correction-muted");
     div.querySelector(".tc").onclick = event => {
       event.stopPropagation();

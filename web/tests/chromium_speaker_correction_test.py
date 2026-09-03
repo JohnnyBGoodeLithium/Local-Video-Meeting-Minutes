@@ -191,18 +191,25 @@ void (async () => {
     if (url.includes('/translations/') && String(init?.method || 'GET').toUpperCase() === 'POST')
       return new Response(JSON.stringify({state: 'missing'}),
         {status: 200, headers: {'Content-Type': 'application/json'}});
+    if (url.includes('/speakers/') && url.endsWith('/review')) return new Response(JSON.stringify({
+      ok: true, voice: 'v_9001', indexes: [0, 2], protected: [0],
+      summary: {turns: 2, duration: 5, representative_turns: [0, 2]}
+    }), {status: 200, headers: {'Content-Type': 'application/json'}});
     if (url.endsWith('/bind')) return new Response(JSON.stringify({
       ok: true, turns: 1, name: 'Alice Example'
     }), {status: 200, headers: {'Content-Type': 'application/json'}});
     if (url.endsWith('/speakers/undo')) return new Response(JSON.stringify({
       ok: true
     }), {status: 200, headers: {'Content-Type': 'application/json'}});
-    if (url.endsWith('/split/preview')) return new Response(JSON.stringify({
-      ok: true, voice: 'v_9001', selected: [0], suggested: [2], protected: [],
-      ambiguous: [], direct_only: false,
-      groups: [{group_key: 'group-1', selected: [0], suggested: [2], duration: 2.5,
-        representative_turns: [0, 2], suggested_person: 'Alice Example'}]
-    }), {status: 200, headers: {'Content-Type': 'application/json'}});
+    if (url.endsWith('/split/preview')) {
+      await new Promise(resolve => setTimeout(resolve, 120));
+      return new Response(JSON.stringify({
+        ok: true, voice: 'v_9001', selected: [0], suggested: [2], protected: [],
+        ambiguous: [], direct_only: false,
+        groups: [{group_key: 'group-1', selected: [0], suggested: [2], duration: 2.5,
+          representative_turns: [0, 2], suggested_person: 'Alice Example'}]
+      }), {status: 200, headers: {'Content-Type': 'application/json'}});
+    }
     if (url.endsWith('/split')) return new Response(JSON.stringify({
       ok: true, moved: 1, clusters: 1, turn_indexes: [0],
       voices: [{group_key: 'group-1', turn_indexes: [0], name: 'Alice Example'}]
@@ -237,10 +244,19 @@ void (async () => {
   const englishRepair = await waitFor(() => document.querySelector(
     '#speaker-correction-sheet:not(.hidden) h3')?.textContent.trim() === 'Fix mixed speakers',
     'English mixed-speaker view');
-  const example = await waitFor(() => document.querySelector(
-    '#speaker-correction-sheet:not(.hidden) [data-example="0"]'), 'example selection');
+  await waitFor(() => document.querySelector(
+    '#speaker-correction-sheet [data-turn-row="0"]')?.textContent.includes('Previously confirmed'),
+    'confirmed segment guidance');
+  const example = document.querySelector(
+    '#speaker-correction-sheet:not(.hidden) [data-example="0"]');
+  const confirmedCanBeSelected = !example.disabled
+    && document.querySelector('#speaker-correction-sheet [data-turn-row="0"]')?.textContent
+      .includes('Previously confirmed');
   example.click();
   document.querySelector('#speaker-correction-sheet [data-primary]').click();
+  const previewButton = document.querySelector('#speaker-correction-sheet [data-primary]');
+  const previewFeedback = previewButton?.disabled
+    && previewButton.textContent.trim() === 'Building preview…';
   await waitFor(() => document.querySelector(
     '#speaker-correction-sheet [data-group="group-1"]'), 'multi-group preview');
   const conservative = !document.querySelector('[data-include-suggested]').checked;
@@ -252,6 +268,8 @@ void (async () => {
     '#export-preflight input[name="export-profile"]').length === 2, 'two export choices');
   window.__speakerCorrectionE2E = [
     document.querySelector('#turn-1 .chip')?.textContent.trim() === 'Bob',
+    confirmedCanBeSelected,
+    previewFeedback,
     conservative,
     document.querySelector('#speaker-correction-sheet').classList.contains('hidden'),
     document.querySelectorAll('#export-preflight input[name="export-profile"]').length === 2,
@@ -272,7 +290,7 @@ void (async () => {
                     time.sleep(0.1)
             finally:
                 cdp.close()
-            if result != "true|true|true|true|true|true|true":
+            if result != "true|true|true|true|true|true|true|true|true":
                 raise RuntimeError(f"unexpected browser result: {result!r}")
             print("speaker correction browser: identity/undo and advanced preview/apply passed")
             return 0
