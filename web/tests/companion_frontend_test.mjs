@@ -22,4 +22,6 @@ if(html.includes("/static/app.js"))throw new Error("Companion must not load desk
 if(!html.includes('name="viewport"')||!css.includes("@media(max-width:390px)"))throw new Error("390px mobile contract missing");
 if(!source.includes("COPY={zh:")||!source.includes(",en:"))throw new Error("bilingual copy missing");
 if(css.includes("min-width:390px"))throw new Error("horizontal overflow floor detected");
+if(!html.includes('id="video-file"')||!html.includes('accept="video/*"'))throw new Error("iOS Photo Library video picker missing");
+if(!source.includes('$("video-file")'))throw new Error("video picker must be wired to uploadFile");
 console.log("companion frontend: mobile, bilingual, progress and API boundaries passed");

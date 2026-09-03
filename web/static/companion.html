@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="color-scheme" content="light dark">
   <title>Meeting Context Companion</title>
-  <link rel="stylesheet" href="/static/companion.css?v=20260903p115">
+  <link rel="stylesheet" href="/static/companion.css?v=20260903p116">
 </head>
 <body>
   <header class="topbar">
@@ -27,6 +27,7 @@
       <h1 data-i18n="homeTitle">轻交互，重处理留在 X Ultra</h1>
       <div class="actions">
         <button id="send-link-open" class="action" type="button"><span>↗</span><strong data-i18n="sendLink">发送链接</strong></button>
+        <label class="action file-action"><span>▣</span><strong data-i18n="sendVideo">发送视频</strong><input id="video-file" type="file" accept="video/*"></label>
         <label class="action file-action"><span>＋</span><strong data-i18n="sendFile">发送文件</strong><input id="file" type="file" accept="audio/*,video/*,.vtt,.docx"></label>
       </div>
       <div id="upload-progress" class="upload-progress" hidden><span id="upload-label">0%</span><progress id="upload-bar" max="100" value="0"></progress></div>
@@ -66,6 +67,6 @@
     <audio id="player" preload="metadata"></audio>
     <div id="offline" class="offline" role="alert" hidden><strong data-i18n="cantReach">无法连接 X Ultra</strong><span id="last-connected"></span><button id="retry" type="button" data-i18n="retry">重试</button></div>
   </main>
-  <script type="module" src="/static/companion.js?v=20260903p115"></script>
+  <script type="module" src="/static/companion.js?v=20260903p116"></script>
 </body>
 </html>
