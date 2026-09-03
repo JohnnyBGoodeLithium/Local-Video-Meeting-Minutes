@@ -30,10 +30,12 @@ assert.match(html, /id="live-context-entry"[^>]*hidden/);
 assert.match(html, /name="live-content-type"[^>]*value="live_event"[^>]*checked/);
 assert.match(html, /id="live-mode-options"/);
 assert.match(html, /aria-labelledby="live-context-title"/);
+assert.match(html, /id="live-open-source"/);
 
 const view = fs.readFileSync(new URL("../static/modules/live-context-view.js", import.meta.url), "utf8");
 assert.match(view, /No playback required/);
 assert.match(view, /listens quietly in the background/);
+assert.match(view, /analysis has not started/);
 assert.doesNotMatch(view, /\.play\s*\(/);
 assert.match(view, /\/api\/live\/probe/);
 assert.match(view, /\/api\/live\/sessions/);

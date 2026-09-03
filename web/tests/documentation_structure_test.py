@@ -41,7 +41,7 @@ REPOSITORY_ONLY = {
     "docs/reporting/DEMO_SCRIPT.md",
     "docs/history/ENGINEERING_CHANGES.md",
     "docs/research/EXPERIMENT_LOG.md", "docs/research/RAG_STUDY.md",
-    "docs/research/UX_REFERENCES.md",
+    "docs/research/UX_REFERENCES.md", "docs/research/LIVE_CONTEXT.md",
 }
 
 COMPATIBILITY = {

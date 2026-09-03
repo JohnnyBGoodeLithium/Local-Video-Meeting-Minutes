@@ -8,7 +8,7 @@ const COPY = {
     entry: "Live Context", title: "开始 Live Context",
     summary: "会议或直播进行时持续整理文字、人物、议题与证据。此能力仍在实验中。",
     contentLegend: "内容类型", meeting: "会议", event: "直播活动", source: "来源",
-    sourcePlaceholder: "粘贴公开直播 URL，或稍后选择会议音频来源", modeLegend: "分析方式",
+    sourcePlaceholder: "粘贴已授权的公开来源 URL", modeLegend: "分析方式",
     background: "后台分析", backgroundDetail: "无需播放。我们会在后台跟随活动。",
     watch: "观看并分析", watchDetail: "打开来源，同时继续分析。",
     companion: "会议伴随", companionDetail: "正常加入会议，Live Context 在后台安静监听。",
@@ -18,6 +18,7 @@ const COPY = {
     cancel: "取消", continue: "检查来源", close: "关闭 Live Context",
     probing: "正在检查来源能力…", starting: "正在启动后台分析…",
     unavailable: "此来源目前不能静默后台分析。请保持来源窗口打开后再继续。",
+    sourceOpened: "来源已打开，但分析尚未开始。请再选择经授权的标签页或系统音频捕获方式。",
     live: "LIVE", finalizing: "正在整理已捕获内容", complete: "整理完成", failed: "分析未完成",
     text: "文字", audio: "音频", speakers: "人物", visual: "画面",
     textWaiting: "正在等待来源", audioSilent: "静默采集中", speakersProvisional: "暂定",
@@ -28,7 +29,7 @@ const COPY = {
     entry: "Live Context", title: "Start Live Context",
     summary: "Compile text, people, topics, and evidence while a meeting or live event is still running. Experimental.",
     contentLegend: "Content type", meeting: "Meeting", event: "Live event", source: "Source",
-    sourcePlaceholder: "Paste a public live URL, or choose a meeting audio source later",
+    sourcePlaceholder: "Paste an authorized public source URL",
     modeLegend: "Analysis mode", background: "Analyze in background",
     backgroundDetail: "No playback required. We'll follow the event for you.",
     watch: "Watch & analyze", watchDetail: "Open the source while analysis continues.",
@@ -41,6 +42,7 @@ const COPY = {
     cancel: "Cancel", continue: "Check source", close: "Close Live Context",
     probing: "Checking source capabilities…", starting: "Starting background analysis…",
     unavailable: "Background analysis is not available for this source. Keep the source window open to continue analysis.",
+    sourceOpened: "Source opened, but analysis has not started. Choose an approved tab or system-audio capture source to continue.",
     live: "LIVE", finalizing: "Finalizing captured context", complete: "Complete", failed: "Analysis incomplete",
     text: "Text", audio: "Audio", speakers: "Speakers", visual: "Visual",
     textWaiting: "Waiting for source", audioSilent: "Capturing silently", speakersProvisional: "Provisional",
@@ -60,7 +62,8 @@ export function mountLiveContext(root = document, { request = fetch, pollEvery =
   const entry = root.querySelector("#live-context-entry");
   const mask = root.querySelector("#live-context-mask");
   const form = root.querySelector("#live-context-form");
-  let state = { ...createLiveContextState(), busy: false, notice: "", session: null };
+  let state = { ...createLiveContextState(), busy: false, notice: "", session: null,
+    fallbackOpen: false };
   let language = "zh-CN";
   let returnFocus = null;
   let poller = null;
@@ -148,13 +151,19 @@ export function mountLiveContext(root = document, { request = fetch, pollEvery =
         <span><b>${escapeHtml(label)}</b><small>${escapeHtml(detail)}</small></span>
       </label>`).join("");
     root.querySelector("#live-context-continue").disabled =
-      state.busy || !!state.session || (state.contentType === "live_event" && !state.source.trim());
+      state.busy || !!state.session || !state.source.trim();
     root.querySelector("#live-content-legend").closest("fieldset").disabled = !!state.session;
     root.querySelector("#live-source-input").disabled = !!state.session;
     root.querySelector("#live-mode-legend").closest("fieldset").disabled = !!state.session;
     const notice = root.querySelector("#live-probe-status");
     notice.textContent = state.notice || "";
     notice.classList.toggle("hidden", !state.notice);
+    const sourceLink = root.querySelector("#live-open-source");
+    const showSourceLink = state.fallbackOpen || (!!state.session && !!state.source);
+    sourceLink.href = showSourceLink ? state.source : "#";
+    sourceLink.textContent = state.fallbackOpen
+      ? c.openSource : (language === "en" ? "Open source" : "打开来源");
+    sourceLink.classList.toggle("hidden", !showSourceLink);
 
     const active = root.querySelector("#live-active-status");
     active.classList.toggle("hidden", !state.session);
@@ -212,15 +221,15 @@ export function mountLiveContext(root = document, { request = fetch, pollEvery =
     render();
   });
   root.querySelector("#live-source-input").addEventListener("input", event => {
-    state = { ...state, source: event.target.value };
+    state = { ...state, source: event.target.value, fallbackOpen: false };
     root.querySelector("#live-context-continue").disabled =
-      state.contentType === "live_event" && !state.source.trim();
+      !state.source.trim();
   });
   form.addEventListener("submit", async event => {
     event.preventDefault();
     if (state.busy || state.session) return;
     const c = copy();
-    state = { ...state, busy: true, notice: c.probing };
+    state = { ...state, busy: true, notice: c.probing, fallbackOpen: false };
     render();
     const payload = { source_url: state.source.trim(), content_type: state.contentType,
       mode: state.mode };
@@ -230,11 +239,7 @@ export function mountLiveContext(root = document, { request = fetch, pollEvery =
         body: JSON.stringify(payload),
       });
       if (!probe.capture_plan?.background_available || state.mode !== "analyze_background") {
-        state = { ...state, busy: false, notice: c.unavailable };
-        const link = root.querySelector("#live-open-source");
-        link.href = state.source;
-        link.textContent = c.openSource;
-        link.classList.remove("hidden");
+        state = { ...state, busy: false, notice: c.unavailable, fallbackOpen: true };
         render();
         return;
       }
@@ -244,13 +249,18 @@ export function mountLiveContext(root = document, { request = fetch, pollEvery =
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      state = { ...state, busy: false, notice: "", session };
+      state = { ...state, busy: false, notice: "", session, fallbackOpen: false };
       render();
       schedulePoll();
     } catch (error) {
       state = { ...state, busy: false, notice: error.message || c.unavailable };
       render();
     }
+  });
+  root.querySelector("#live-open-source").addEventListener("click", () => {
+    if (!state.fallbackOpen) return;
+    state = { ...state, notice: copy().sourceOpened };
+    render();
   });
   root.querySelector("#live-stop").addEventListener("click", () => {
     root.querySelector("#live-stop-confirm").classList.remove("hidden");

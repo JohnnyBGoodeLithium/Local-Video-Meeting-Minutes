@@ -135,8 +135,18 @@ check("GET /api/health → 200 + dry-run + local assistant",
       and health.get("assistant", {}).get("local_only") is True
       and health.get("assistant", {}).get("rag") == "meeting-rag/evidence-hybrid-v1"
       and health.get("assistant", {}).get("retrieval_models", {}).get("mode") == "lexical"
+      and health.get("features", {}).get("live_context") is True
       and isinstance(health.get("integrations", {}).get("knowledge_base", {}).get(
           "configured"), bool))
+s, _, live_capabilities = req("GET", "/api/live/capabilities")
+check("Live Context 实验开关打开时只返回本机能力元数据",
+      s == 200 and isinstance(live_capabilities.get("audio"), dict)
+      and isinstance(live_capabilities.get("caption_ocr", {}).get("available"), bool))
+s, _, _ = req("POST", "/api/live/probe", {
+    "source_url": "http://127.0.0.1/private.m3u8",
+    "content_type": "live_event", "mode": "analyze_background",
+})
+check("Live Context 来源探测拒绝本机和私有网络地址", s == 400)
 s, headers, page = req("GET", "/", raw=True)
 cache_control = next((value for key, value in headers.items()
                       if key.lower() == "cache-control"), "")
@@ -181,7 +191,7 @@ app_js = b"\n".join([app_js, *module_sources])
 check("前端装配入口使用可独立加载的原生 ES modules",
       all(status == 200 for status in module_statuses)
       and b'type="module"' in page
-      and b'./modules/media-source.js?v=20260903p113' in app_js
+      and b'./modules/media-source.js?v=20260903p114' in app_js
       and b'export function selectJobPanel' in app_js
       and b'export function sortLibrary' in app_js
       and b'export function nearestReviewUnit' in app_js
@@ -215,7 +225,7 @@ if chrome:
         chrome, "--headless=new", "--disable-gpu", "--no-sandbox",
         "--window-size=1600,900", "--virtual-time-budget=8000", "--dump-dom", BASE,
     ], capture_output=True, text=True, timeout=90)
-    browser_build_present = "20260903p113" in browser.stdout
+    browser_build_present = "20260903p114" in browser.stdout
     browser_active_present = 'class="meeting-item active"' in browser.stdout
     browser_transcript_present = 'id="turn-0"' in browser.stdout
     browser_minutes_present = 'id="minutes-heading-0"' in browser.stdout
@@ -274,10 +284,21 @@ if chrome:
           and "progress, recovery, bilingual key review and materials lifecycle passed" in workspace_browser.stdout,
           f"rc={workspace_browser.returncode}, out={workspace_browser.stdout[-500:]!r}, "
           f"err={workspace_browser.stderr[-500:]!r}")
+    live_browser = subprocess.run([
+        str(Path(__file__).resolve().parent.parent.parent / ".venv/bin/python"),
+        str(Path(__file__).resolve().parent / "chromium_live_context_test.py"),
+    ], capture_output=True, text=True, timeout=120, env=os.environ)
+    check("Headless Chromium 完成 Live Context 默认、静音、恢复与收尾旅程",
+          live_browser.returncode == 0
+          and "defaults, silence, resume, finalization, bilingual, keyboard and responsive contracts passed"
+          in live_browser.stdout,
+          f"rc={live_browser.returncode}, out={live_browser.stdout[-500:]!r}, "
+          f"err={live_browser.stderr[-500:]!r}")
 else:
     print("SKIP  在线工作台 ES modules 浏览器启动（未安装 Chromium）")
     print("SKIP  产品介绍 ES module 浏览器启动（未安装 Chromium）")
     print("SKIP  产品站双语、证据与响应式浏览器旅程（未安装 Chromium）")
+    print("SKIP  Live Context 浏览器旅程（未安装 Chromium）")
 check("渐进纪要失败时明确等待终稿，不把空纪要误报为草稿可读",
       s == 200 and "语音草稿已就绪".encode() in app_js
       and "终稿待复核".encode() in app_js
@@ -301,7 +322,7 @@ check("时间码跳转只滚动内容面板，不带动整页丢失播放器",
 check("在线屏幕舞台支持放大、缩放和相邻屏幕键盘导航",
       b'id="screen-preview-mask"' in page and b'openScreenPreview' in app_js
       and b'navigateScreenPreview' in app_js and b'SCREEN_PREVIEW_ZOOMS' in app_js
-      and b'20260903p113' in page)
+      and b'20260903p114' in page)
 check("会议深链 ?meeting=<slug>&t=<秒> 定位播放且忽略非法/超界 t",
       b'params.get("t")' in app_js and b'deepLinkSeek' in app_js
       and b'deepLinkSeconds' in app_js
@@ -386,7 +407,7 @@ check("产品介绍页使用七段双语用户旅程与虚构演示",
       and b'Northstar Product Launch' in product_page
       and b'data-product-content-version="0.15"' in product_page
       and b'data-ui-language="en"' in product_page
-      and b'/static/fluent-foundation.css?v=20260903p113' in product_page
+      and b'/static/fluent-foundation.css?v=20260903p114' in product_page
       and b'data-demo-mode="meeting"' in product_page
       and b'data-demo-mode="video"' in product_page
       and b'data-demo-evidence' in product_page

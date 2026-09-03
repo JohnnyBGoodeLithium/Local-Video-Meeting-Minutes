@@ -25,6 +25,12 @@ Python 管线不绑定 AMD：NVIDIA 使用 PyTorch CUDA，AMD 使用 PyTorch ROC
 | VL 备选 | Qwen3-VL-8B Q8_0 | 8.9G | ✅ 质量略高、更慢更贵 |
 | 会议检索 | Qwen3-Embedding-0.6B Q8_0 + Qwen3-Reranker-0.6B Q8_0 | GGUF 各 0.64G | 多语言混合召回与重排 ✅ |
 
+pyannote 路径统一按以下顺序解析：`MEETING_PYANNOTE_MODEL` → 应用目录内
+`models/pyannote/speaker-diarization-community-1` →
+`~/.local/share/models/hf/pyannote/speaker-diarization-community-1`。全部不存在时直接返回“Speaker model is not installed locally”，不触发 Hugging Face 下载或隐式登录。
+
+应用发布包永远不含模型权重。单独的 Diarization Runtime Pack 构建器要求锁定 upstream ID/revision，列举所有 submodel，并为每项提供已核实的 license、attribution 与 redistribution terms；任一项不明确就拒绝生成。`community-1` 页面标注 CC BY 4.0 且支持离线克隆，但真实 pack 的子模型和分发条件尚未逐项核实，因此本仓库未构建或发布 official model pack。这是工程门禁记录，不是法律意见。
+
 ## 2. 档位矩阵
 
 ### A 档：统一内存大盒（本机 Strix Halo 96G VRAM / 124G RAM）✅ 已验证

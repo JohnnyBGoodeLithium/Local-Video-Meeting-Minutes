@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>会议纪要</title>
-<link rel="stylesheet" href="/static/fluent-foundation.css?v=20260903p113">
-<link rel="stylesheet" href="/static/style.css?v=20260903p113">
-<link rel="stylesheet" href="/static/theme.css?v=20260903p113">
+<link rel="stylesheet" href="/static/fluent-foundation.css?v=20260903p114">
+<link rel="stylesheet" href="/static/style.css?v=20260903p114">
+<link rel="stylesheet" href="/static/theme.css?v=20260903p114">
 </head>
 <body class="page-index">
 <header class="topbar">
@@ -247,7 +247,7 @@
     <label class="live-source-field" for="live-source-input">
       <span id="live-source-label">来源</span>
       <input id="live-source-input" class="fluent-field" type="url" inputmode="url" autocomplete="off"
-             placeholder="粘贴公开直播 URL，或稍后选择会议音频来源">
+             placeholder="粘贴已授权的公开来源 URL">
     </label>
     <fieldset class="live-choice-group">
       <legend id="live-mode-legend">分析方式</legend>
@@ -258,6 +258,8 @@
       <p id="live-advanced-detail" class="dim">来源能力探测后才会显示可用捕获方式；不会静默切换或播放声音。</p>
     </details>
     <div id="live-probe-status" class="live-probe-status hidden" aria-live="polite"></div>
+    <a id="live-open-source" class="fluent-button live-open-source hidden" href="#"
+       target="_blank" rel="noopener noreferrer">打开来源并分析</a>
     <section id="live-active-status" class="live-active-status hidden" aria-labelledby="live-active-title">
       <h4 id="live-active-title">Live Context</h4>
       <div id="live-active-state" aria-live="polite"></div>
@@ -268,7 +270,6 @@
         <div><dt id="live-visual-label">画面</dt><dd id="live-visual-status">等待选择性分析</dd></div>
       </dl>
       <div class="live-session-actions">
-        <a id="live-open-source" class="fluent-button hidden" href="#" target="_blank" rel="noopener noreferrer">打开来源</a>
         <button id="live-stop" type="button">停止</button>
       </div>
       <div id="live-stop-confirm" class="live-stop-confirm hidden" role="alertdialog" aria-labelledby="live-stop-question">
@@ -416,6 +417,6 @@
 
 <div id="tl-tip" class="tl-tip hidden"></div>
 
-<script type="module" src="/static/app.js?v=20260903p113"></script>
+<script type="module" src="/static/app.js?v=20260903p114"></script>
 </body>
 </html>
