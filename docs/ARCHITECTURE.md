@@ -37,11 +37,12 @@ Web · Viewer · AI Context · KB · RAG
 | route | 来源 | 关键差异 |
 |---|---|---|
 | audio | 单个音频 | 本地 ASR → 说话人分离 → 纪要与检索 |
-| video | 普通会议录屏 | 本地 ASR 与说话人 + 逻辑页面 + VL + 多模态终稿 |
-| teams | 录屏 + VTT/DOCX | 先读取外部文稿和姓名，再与本地声音对齐；用户可忽略错误文稿改用 ASR |
+| video | 普通会议录屏 | 本地 ASR 与说话人 + 逻辑页面；完整模式继续 VL，快速模式直接生成语音版正式纪要与脉络 |
+| teams | 录屏 + VTT/DOCX | 先读取外部文稿和姓名，再与本地声音对齐；同样支持快速纪要或完整分析 |
 | media | 本地视频或受限公开链接 | 镜头、论证角色和第一手来源；不生成会议式待办 |
 | retranscribe | 已有母版 | 从私有快照与当前 provider 重建逐字稿及下游资产 |
 | regenerate / sync | 已有 canonical | 标准重生成可补缺；快速同步只复用完整 VL 缓存 |
+| visual upgrade | 已有语音版结果 | 复用媒体、逐字稿、人物和逻辑页，只补画面理解、正式纪要与脉络 |
 
 现场资料采用独立的补充路径：图片先原子固化为受保护原图和阅读 JPEG，再由批量
 `photo_analysis` 作业调用本地 VL。视觉模型只读取图片，不读取逐字稿；分析完成后，
@@ -94,6 +95,12 @@ LLM 可以生成包含 evidence marker 的候选，但解析器必须容忍 Mark
 3. 先发布新 `minutes.md` 与 evidence；
 4. Topic Map、翻译和关键字作为低优先级派生任务继续；RAG 按 revision 懒重建；
 5. 任一页面缓存缺失就拒绝快速路径，标准重生成仍可补跑视觉。
+
+导入时的快速纪要与逐字稿修正后的“快速同步”不是同一条路径。前者用 `--no-vl` 明确跳过
+画面模型，但仍提取逻辑页、生成正式纪要和 Topic Map，并在 `meeting.generation.json` 记录
+`result_mode=voice_only` 与 `visual_mode=skipped_by_user`。用户稍后触发 `visual-upgrade` 时，系统只运行
+`minutes_by_page.py` 的画面及下游生成：缓存完整则严格复用，缓存不完整才补跑 VL；两种情况都不重跑
+ASR、说话人或覆盖当前可读结果。该模式不改变 canonical schema，只增加作业与生成状态投影。
 
 ## Provider 边界
 
