@@ -3,7 +3,7 @@
 
 - 更新时间：2026-09-03
 - 产品版本：v0.15.3
-- Web 构建号：20260903p113
+- Web 构建号：20260903p114
 - 源代码基线：以不可移动的 `v0.15.3` tag 所指 commit 为准
 - Owner：Local AI PoC maintainer
 - 当前阶段：受控 PoC 验证（Controlled PoC validation）

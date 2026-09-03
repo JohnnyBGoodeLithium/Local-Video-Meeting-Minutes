@@ -1,44 +1,44 @@
 import { contentTypeOf, safeSourceUrl }
-  from "./modules/media-source.js?v=20260903p113";
+  from "./modules/media-source.js?v=20260903p114";
 import { buildUploadFormData, enqueueMediaUrl, isSingleLocalVideo }
-  from "./modules/imports.js?v=20260903p113";
-import { jobDisplayName, selectJobPanel }
-  from "./modules/jobs.js?v=20260903p113";
+  from "./modules/imports.js?v=20260903p114";
+import { jobDisplayName, jobTaskLabel, selectJobPanel }
+  from "./modules/jobs.js?v=20260903p114";
 import { jobPresentation }
-  from "./modules/job-progress.js?v=20260903p113";
+  from "./modules/job-progress.js?v=20260903p114";
 import { closeJobSheet, renderCompactJob, renderJobSheet, renderProcessingBanner }
-  from "./modules/job-progress-view.js?v=20260903p113";
+  from "./modules/job-progress-view.js?v=20260903p114";
 import { chooseInitialItem, deepLinkSeconds, filterLibrary, sortLibrary }
-  from "./modules/library.js?v=20260903p113";
+  from "./modules/library.js?v=20260903p114";
 import { adjacentReviewUnit, defaultReviewUnits, nearestReviewUnit,
   reviewIndexesFor, reviewUnitForTurn as findReviewUnitForTurn, turnEnd }
-  from "./modules/player-navigation.js?v=20260903p113";
+  from "./modules/player-navigation.js?v=20260903p114";
 import { nextSearchCursor, pendingReviewByTurn, transcriptSearchHits }
-  from "./modules/transcript.js?v=20260903p113";
+  from "./modules/transcript.js?v=20260903p114";
 import { renderTranscriptView }
-  from "./modules/transcript-view.js?v=20260903p113";
+  from "./modules/transcript-view.js?v=20260903p114";
 import { availableViewerMedia, exportSizeState, formatBytes, meetingExportHref, normalizeExportProfile,
   packExportHref }
-  from "./modules/export.js?v=20260903p113";
+  from "./modules/export.js?v=20260903p114";
 import { claimAction, claimIdsForTurn, evidenceSources, minutesState, normalizeReviewMode,
   resolveMinutesView, turnIndexAtTime, turnIndexesForSourceIds }
-  from "./modules/minutes.js?v=20260903p113";
+  from "./modules/minutes.js?v=20260903p114";
 import { renderMinutesView }
-  from "./modules/minutes-view.js?v=20260903p113";
+  from "./modules/minutes-view.js?v=20260903p114";
 import { beginExampleSelection, beginIdentity, buildCorrectionApplyPayload,
   correctionSummary, createSpeakerCorrectionState, representativeTurns,
   resetSpeakerCorrection, setGroupAssignment, setIncludeSuggested, setPreview,
   toggleExample, withCorrectionError }
-  from "./modules/speaker-correction.js?v=20260903p113";
+  from "./modules/speaker-correction.js?v=20260903p114";
 import { renderCorrectionSheet, renderIdentityPopover }
-  from "./modules/speaker-correction-view.js?v=20260903p113";
+  from "./modules/speaker-correction-view.js?v=20260903p114";
 import { beginPhotoImport, createPhotoImportState, hydratePhotoCaptureTimes,
   markPhotoImportResult, photoUploadSpec, releasePhotoImport, removePhotoImportItem,
   setPhotoMeetingStart, setPhotoPositionMode, togglePhotoTimeSettings,
   withPhotoImportBusy, withPhotoImportError, formatPhotoBytes }
-  from "./modules/photo-import.js?v=20260903p113";
+  from "./modules/photo-import.js?v=20260903p114";
 import { renderPhotoImport }
-  from "./modules/photo-import-view.js?v=20260903p113";
+  from "./modules/photo-import-view.js?v=20260903p114";
 
 /* 会议列表 + 回顾工作台（装配入口；领域规则逐步迁往 modules/） */
 "use strict";
@@ -1229,7 +1229,7 @@ async function loadMeeting(slug) {
   if (state.workspace.utilityOpen) openUtility(state.workspace.utilityTab);
   if (isDraft && state.viewMode === "quality") state.viewMode = "minutes";
   const topicMapReady = b.topic_map?.state === "ready"
-    && (b.topic_map?.topics?.length || 0) >= 3 && b.topic_map.topics.length <= 8;
+    && (b.topic_map?.topics?.length || 0) >= 3;
   if (changed && !requestedViewExplicit) state.viewMode = contentTypeOf(b) === "media"
     ? "chapters" : (topicMapReady ? "chapters" : "minutes");
   $("#quality-tab").disabled = isDraft;
@@ -1351,7 +1351,7 @@ function visualImageUrl(visual) {
 function topicMapReady() {
   const topicMap = readingTopicMap();
   const topics = topicMap.topics || [];
-  return topicMap.state === "ready" && topics.length >= 3 && topics.length <= 8;
+  return topicMap.state === "ready" && topics.length >= 3;
 }
 
 function topicNode(topicId, nodeId = topicId) {
@@ -3430,8 +3430,8 @@ function renderChapters() {
         : (stale ? "会议内容变化，需要更新脉络" : invalid
           ? `当前有 ${topics.length} 个一级议题，需要重新归纳` : "还没有整场会议语义脉络")}</h3>` +
       `<p>${isEnglishUi()
-        ? "The system synthesizes the transcript, speakers, conclusion evidence, and screen content into 3–8 primary topics. Screenshot or attendee changes do not become nodes by themselves."
-        : "系统会读取逐字稿、说话人、结论依据和屏幕资料，先做大尺度内容归纳，再合并为 3–8 个一级议题。截图和参会人变化不会直接成为节点。"}</p>` +
+        ? "The system synthesizes the transcript, speakers, conclusion evidence, and screen content into a small set of meeting-wide topics. Screens, time windows, and attendee changes do not become topics by themselves."
+        : "系统会读取逐字稿、说话人、结论依据和屏幕资料，归并为少量整场议题。截图、时间窗和参会人变化不会直接成为议题。"}</p>` +
       `<button type="button" id="topic-map-generate" class="primary">${isEnglishUi()
         ? (stale || invalid ? "Update meeting map" : "Generate meeting map")
         : (stale || invalid ? "更新会议脉络" : "生成会议脉络")}</button></div>`;
@@ -5929,7 +5929,8 @@ function renderJobsStructured(jobs) {
   ul.replaceChildren();
   visibleJobs.slice(0, 8).forEach(job => {
     const model = jobPresentation(job, jobDisplayName(
-      job, state.meetings, contentTypeOf, state.uiLanguage), state.uiLanguage);
+      job, state.meetings, contentTypeOf, state.uiLanguage), state.uiLanguage,
+      jobTaskLabel(job, state.uiLanguage));
     const node = renderCompactJob(model, {
       language: state.uiLanguage,
       allowHide: state.jobHideAvailable && ["failed", "paused", "cancelled"].includes(job.status),
@@ -5954,7 +5955,8 @@ function renderJobsStructured(jobs) {
   const current = currentJobForMeeting();
   renderProcessingBanner($("#processing-banner"), current
     ? jobPresentation(current, jobDisplayName(
-      current, state.meetings, contentTypeOf, state.uiLanguage), state.uiLanguage)
+      current, state.meetings, contentTypeOf, state.uiLanguage), state.uiLanguage,
+      jobTaskLabel(current, state.uiLanguage))
     : null, { language: state.uiLanguage, onAction: handleJobAction });
   if (state.jobSheet.jobId && !$("#job-detail-sheet")?.classList.contains("hidden")) {
     const openJob = jobs.find(job => job.id === state.jobSheet.jobId);

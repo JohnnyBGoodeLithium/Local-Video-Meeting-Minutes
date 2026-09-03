@@ -18,10 +18,13 @@ export function renderCompactJob(model, handlers = {}) {
   const name = document.createElement("strong");
   name.className = "j-name";
   name.textContent = model.name;
+  const task = document.createElement("span");
+  task.className = "j-task";
+  task.textContent = model.taskLabel || (handlers.language === "en" ? "Process meeting content" : "处理会议资料");
   const status = document.createElement("span");
   status.className = "j-st";
   status.textContent = model.headline;
-  item.append(name, status);
+  item.append(name, task, status);
   if (model.detail) {
     const detail = document.createElement("small");
     detail.className = "j-detail";
@@ -49,7 +52,7 @@ export function renderCompactJob(model, handlers = {}) {
       extra.id, model, event.currentTarget));
     actions.appendChild(extraButton);
   });
-  const primary = button(model.primary.label, model.primary.id, true);
+  const primary = button(model.primary.label, model.primary.id, model.primary.id !== "details");
   primary.addEventListener("click", event => handlers.onAction?.(model.primary.id, model, event.currentTarget));
   actions.appendChild(primary);
   if (["queued", "running", "waiting_resource", "recovering"].includes(model.state)) {
@@ -132,7 +135,7 @@ export function renderJobSheet(sheet, model, options = {}, handlers = {}) {
     : options.mode === "preempt" ? (english ? "Process this item now?" : "立即处理这项任务？")
     : (english ? "Processing details" : "处理详情");
   const sub = document.createElement("p");
-  sub.textContent = model.name;
+  sub.textContent = model.taskLabel ? `${model.taskLabel} · ${model.name}` : model.name;
   heading.append(h2, sub);
   const close = button("×", "close");
   close.classList.add("workspace-side-sheet__close");

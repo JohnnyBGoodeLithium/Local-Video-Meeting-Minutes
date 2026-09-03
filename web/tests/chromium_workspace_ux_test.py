@@ -101,8 +101,19 @@ void (async () => {
   };
   const jp = await import('/static/modules/job-progress.js');
   const view = await import('/static/modules/job-progress-view.js');
+  const jobs = await import('/static/modules/jobs.js');
   const banner = document.querySelector('#processing-banner');
   const sheet = document.querySelector('#job-detail-sheet');
+  const queueFixture = document.createElement('ul');
+  const queuedTranslation = {
+    id:'synthetic-translation',kind:'translation',status:'queued',queue_position:2,
+    meeting:'_smoke',target_language:'en',translation_artifact:'topic_map',auto:true,
+  };
+  const queueModel = jp.jobPresentation(
+    queuedTranslation, 'Synthetic review', 'zh-CN', jobs.jobTaskLabel(queuedTranslation, 'zh-CN'));
+  queueFixture.appendChild(view.renderCompactJob(queueModel, {language:'zh-CN'}));
+  const queueTaskClear = queueFixture.textContent.includes('自动补充 · 将会议脉络翻译为英文')
+    && queueFixture.textContent.includes('队列第 2');
   const phases = [
     {id:'prepare',state:'done',elapsed_seconds:18},
     {id:'teams_alignment',state:'done',elapsed_seconds:130},
@@ -302,7 +313,7 @@ void (async () => {
   document.querySelector('#photo-delete-confirm').click();
   await waitFor(() => deleted && document.querySelector('#photo-delete-mask').classList.contains('hidden'), 'delete');
 
-  window.__workspaceUxE2E = [draftReady,Boolean(detailReady),failureClear,previewClear,
+  window.__workspaceUxE2E = [queueTaskClear,draftReady,Boolean(detailReady),failureClear,previewClear,
     window.__recoveryStarted === true,contextKept,completedCollapsed,englishMaterials,
     processingModesZh,processingModesEn,englishQuality,previews,removable,progressivePosition,
     imported === 2,analysisQueued,renamed,
@@ -325,11 +336,11 @@ void (async () => {
                     if result != "running":
                         break
                     time.sleep(0.1)
-                if result != "true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true":
+                if result != "true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true":
                     raise RuntimeError(f"unexpected browser result: {result!r}")
             finally:
                 cdp.close()
-            print("workspace UX browser: progress, recovery, bilingual key review and materials lifecycle passed")
+            print("workspace UX browser: explicit queue tasks, progress, recovery, bilingual key review and materials lifecycle passed")
             return 0
         finally:
             process.terminate()

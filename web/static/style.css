@@ -428,6 +428,7 @@ body.page-index { overflow: hidden; }
 #jobs-list li.job-card--warning { border-left: 3px solid var(--colorStatusWarningForeground1); padding-left: var(--sp-8); }
 #jobs-list li.job-card--working { border-left: 3px solid var(--accent); padding-left: var(--sp-8); }
 .job-card .j-st { grid-column: auto; grid-row: auto; white-space: normal; }
+.job-card .j-task { color: var(--text); font-size: var(--fs-12); font-weight: 600; line-height: 1.35; }
 .job-card .j-detail { color: var(--dim); line-height: 1.4; }
 .job-card .j-actions { grid-column: auto; grid-row: auto; justify-content: flex-start; }
 .job-card .j-actions button { min-height: 26px; padding: 2px var(--sp-8); }
