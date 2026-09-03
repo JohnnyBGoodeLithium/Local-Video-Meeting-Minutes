@@ -14,6 +14,20 @@ TEXT_PRIORITY = {
     "native_transcript": 4,
 }
 
+REVIEW_PRIORITY = {
+    "unknown": 0,
+    "automatic": 1,
+    "platform_provided": 2,
+    "human_corrected": 3,
+}
+
+
+def _authority(signal: TimedTextSignal) -> tuple[int, int, float]:
+    """Keep editorial authority separate from model confidence."""
+    source_score = (signal.confidence_facets or {}).get("source", 0.0)
+    return (REVIEW_PRIORITY[signal.text_review_status],
+            TEXT_PRIORITY[signal.text_source], source_score)
+
 
 def _overlap(left: TimedTextSignal, right: TimedTextSignal) -> float:
     return max(0.0, min(left.end, right.end) - max(left.start, right.start))
@@ -31,14 +45,14 @@ def fuse_text_signals(signals: list[TimedTextSignal]) -> tuple[list[dict], list[
     selected: list[TimedTextSignal] = []
     provenance: list[dict] = []
     ordered = sorted(signals, key=lambda item: (item.start, item.end,
-                                                -TEXT_PRIORITY[item.text_source], item.id))
+                                                tuple(-value for value in _authority(item)), item.id))
     for signal in ordered:
         duplicate = next((item for item in selected if _same_observation(item, signal)), None)
         if duplicate is None:
             selected.append(signal)
             provenance.append({"selected": signal.id, "observed": [signal.id]})
             continue
-        if TEXT_PRIORITY[signal.text_source] > TEXT_PRIORITY[duplicate.text_source]:
+        if _authority(signal) > _authority(duplicate):
             index = selected.index(duplicate)
             selected[index] = signal
             record = next(item for item in provenance if item["selected"] == duplicate.id)

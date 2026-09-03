@@ -12,7 +12,7 @@
 - Replay-as-Live 可以 1×/10×/100× 速率重放本地媒体与时间文本，media timestamp 不随墙钟倍速改变。
 - Generic HLS 支持 master/media playlist、`EXT-X-MEDIA` 字幕、media sequence checkpoint、新分片去重、暂时网络失败恢复、target-duration 轮询和 `ENDLIST` 结束。URL 日志不保留 query。
 - Native HLS worker 通过 `ffmpeg` 直接解调音频，有原生字幕时不运行主 ASR；无字幕时可使用 rolling chunk ASR。不创建可听播放元素。
-- Visual Caption Capture 只读 0–1 相对坐标手工区域，1–5 fps（默认 2）变化检测后才运行本地 Tesseract；前缀扩展、后缀重叠、重复和闪烁经时序合并。没有 cloud OCR fallback。
+- Visual Caption Capture 支持手工区域，也支持全帧低频检测、区域跟踪和局部 1–5 fps（默认 2）识别；前缀扩展、后缀重叠、重复和闪烁经时序合并。没有 cloud OCR fallback。
 - 近实时 ASR 是明确的 rolling chunk + overlap，不声称 native streaming。人物使用 stable anonymous ID，display label 可在会后 reconcile；platform/human identity 不会被本地 cluster 降级。
 - 资源优先级固定为 audio → text/ASR + speaker → topic → OCR → VL → final heavy analysis。压力增加时先降 VL 频率、暂停 VL、降 OCR、暂停 live topic；丢 audio 块是硬失败。
 - VL 只由场景/议题变化、数字、百分比、价格、规格、用户书签或周期安全样本触发，可落后 5–30 秒，不逐帧运行。
@@ -35,6 +35,14 @@ Browser adapter 定义 foreground、background-headful 和 headless-verified，�
 CI 只使用 synthetic/public-safe fixture，验证信号、HLS sequence/checkpoint、字幕合并、资源降级、finalization、模型分发门禁和 Chromium UI 合同。Metrics 只写 backlog/lag/RTF/churn/drop 等数字，不记录正文、真名、会议标题、URL query 或 token。
 
 ASR 已提供 5/8/12/15 秒 replay benchmark 工具，但本次没有用未授权的真实会议或未安装模型伪造数字。因此 ASR p50/p95、speaker lag/churn、VL lag、peak memory 和会后收尾时间尚为“未在目标主机实测”。下一步是在本机使用授权素材运行 benchmark，没有达到无丢块和持续 RTF < 1 之前不声称可实时运行。
+
+## 字幕 OCR
+
+- 主识别器确定为本地 PP-OCRv6 Small；系统 Tesseract 仅作为无模型环境兜底。
+- PP-OCRv6 适配器只接受已经存在的 detection / recognition 模型目录，不在服务启动或 CI 中隐式下载权重。
+- 字幕位置不是固定配置：全帧低频检测文字区域，持续跟踪当前字幕带，再在局部区域识别；检测失效或位置变化时重新定位。困难来源仍可手动画框覆盖。
+- 置信信息分别保存来源、区域检测、文字识别、时序稳定和跨来源一致性。人工校对字幕具有最高编辑权威，但从画面 OCR 读取它时仍可能识别错误，因此“经过校对”不等于“OCR 分数为 1”。
+- 已确认或人工校对字幕不被 OCR / ASR 覆盖；冲突保留原始信号并进入核对。
 
 ## Diarization Runtime Pack
 

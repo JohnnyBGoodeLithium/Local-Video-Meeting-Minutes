@@ -13,6 +13,13 @@ TEXT_SOURCES = {
     "local_asr",
 }
 
+TEXT_REVIEW_STATUSES = {
+    "unknown",
+    "automatic",
+    "platform_provided",
+    "human_corrected",
+}
+
 SPEAKER_SOURCES = {
     "platform_identity",
     "human_confirmed",
@@ -40,6 +47,8 @@ class TimedTextSignal:
     speaker_source: str = "unknown"
     language: str | None = None
     confidence: float | None = None
+    confidence_facets: dict[str, float] | None = None
+    text_review_status: str = "unknown"
     provisional: bool = True
     review_needed: bool = False
 
@@ -58,6 +67,14 @@ class TimedTextSignal:
             raise ValueError("known speaker provenance requires a speaker label")
         if self.confidence is not None and not 0 <= self.confidence <= 1:
             raise ValueError("confidence must be between 0 and 1")
+        if self.text_review_status not in TEXT_REVIEW_STATUSES:
+            raise ValueError(f"unsupported text review status: {self.text_review_status}")
+        if self.confidence_facets is not None:
+            allowed = {"source", "recognition", "temporal", "agreement", "region"}
+            if set(self.confidence_facets) - allowed:
+                raise ValueError("unsupported confidence facet")
+            if any(not 0 <= float(value) <= 1 for value in self.confidence_facets.values()):
+                raise ValueError("confidence facets must be between 0 and 1")
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -75,6 +92,11 @@ class TimedTextSignal:
             language=(str(value["language"]) if value.get("language") else None),
             confidence=(float(value["confidence"])
                         if value.get("confidence") is not None else None),
+            confidence_facets=(
+                {str(key): float(score) for key, score in value["confidence_facets"].items()}
+                if isinstance(value.get("confidence_facets"), dict) else None
+            ),
+            text_review_status=str(value.get("text_review_status") or "unknown"),
             provisional=bool(value.get("provisional", True)),
             review_needed=bool(value.get("review_needed", False)),
         )
