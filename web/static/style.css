@@ -419,6 +419,15 @@ body.page-index { overflow: hidden; }
 .live-stop-confirm { margin-top: var(--sp-10); padding: var(--sp-10); border: 1px solid var(--warn); }
 .live-stop-confirm p { margin-top: 0; }
 @media (max-width: 480px) {
+  .dialog.live-context-dialog {
+    position: fixed;
+    top: 15px;
+    right: auto;
+    bottom: auto;
+    left: 15px;
+    width: calc(100vw - 30px);
+    margin: 0;
+  }
   .live-content-choice { display: grid; grid-template-columns: 1fr; }
   .live-content-choice label { min-width: 0; }
   .live-active-status dl div { grid-template-columns: 1fr; gap: 2px; }
