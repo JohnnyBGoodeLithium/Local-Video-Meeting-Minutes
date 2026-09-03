@@ -42,6 +42,11 @@ package-check:
 	$(PY) web/tests/media_url_test.py
 	$(PY) web/tests/retranscribe_local_test.py
 	$(PY) web/tests/teams_transcript_test.py
+	$(PY) web/tests/live_signal_test.py
+	$(PY) web/tests/teams_live_adapter_test.py
+	$(PY) web/tests/generic_vtt_test.py
+	$(PY) web/tests/live_replay_test.py
+	$(PY) web/tests/live_checkpoint_test.py
 	$(PY) web/tests/slide_pages_test.py
 	$(PY) web/tests/media_shots_test.py
 	$(PY) web/tests/media_minutes_test.py

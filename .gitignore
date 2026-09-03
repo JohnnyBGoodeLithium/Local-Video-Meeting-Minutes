@@ -3,6 +3,7 @@
 /meetings/
 /evaluations/
 /private_reports/
+**/.live/
 
 # Voiceprints, identities, and organization data are private.
 /speaker_bank/*

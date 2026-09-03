@@ -16,17 +16,13 @@ import zipfile
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
+from meeting_core.live.vtt import WebVTTError, parse_webvtt
+
 
 W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 W = f"{{{W_NS}}}"
 MAX_DOCUMENT_XML_BYTES = 32 * 1024 * 1024
 _DOCX_TIME = re.compile(r"(?<!\d)(?:(\d{1,3}):)?(\d{1,2}):(\d{2})(?![:\d])")
-_VTT_TIME = re.compile(
-    r"(\d{1,3}:\d{2}:\d{2}[.,]\d{3})\s*-->\s*"
-    r"(\d{1,3}:\d{2}:\d{2}[.,]\d{3})"
-)
-
-
 class TranscriptFormatError(ValueError):
     """The supplied file is readable but is not a supported Teams transcript."""
 
@@ -48,28 +44,16 @@ def _plain(text: str) -> str:
 
 def parse_vtt(path: Path) -> list[dict]:
     """Parse Teams WebVTT into ``{name,start,end,text}`` cues."""
-    raw = path.read_text(encoding="utf-8", errors="replace")
-    cues: list[dict] = []
-    for block in re.split(r"\n\s*\n", raw):
-        timing = _VTT_TIME.search(block)
-        if not timing:
-            continue
-        voice = re.search(r"<v\s+([^>]+)>(.*?)</v>", block, re.I | re.S)
-        if voice:
-            name, text = voice.group(1).strip(), voice.group(2)
-        else:
-            name, text = "未具名", block[timing.end():]
-        text = _plain(re.sub(r"<[^>]+>", "", text))
-        if text:
-            cues.append({
-                "name": name,
-                "start": to_sec(timing.group(1)),
-                "end": to_sec(timing.group(2)),
-                "text": text,
-            })
-    if not cues:
-        raise TranscriptFormatError("VTT 中没有可用的 Teams 逐字稿段落")
-    return cues
+    try:
+        cues = parse_webvtt(path)
+    except WebVTTError as exc:
+        raise TranscriptFormatError("VTT 中没有可用的 Teams 逐字稿段落") from exc
+    return [{
+        "name": cue.speaker or "未具名",
+        "start": cue.start,
+        "end": cue.end,
+        "text": cue.text,
+    } for cue in cues]
 
 
 def _run_text(run: ET.Element) -> str:
