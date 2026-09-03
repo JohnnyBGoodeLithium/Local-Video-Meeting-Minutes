@@ -36,3 +36,9 @@ __pycache__/
 
 # Reproducible release outputs
 /dist/
+
+# Companion pairing/session secrets (local runtime state)
+/companion/
+
+# Local test artifacts
+/artifacts/
