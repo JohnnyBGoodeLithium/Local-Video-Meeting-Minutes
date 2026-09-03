@@ -21,6 +21,13 @@ signal = TimedTextSignal(
     language="en",
 )
 assert signal.provisional is True
+
+corrected = TimedTextSignal(
+    id="corrected", start=0, end=1, text="Human checked", speaker=None,
+    text_source="native_subtitle", text_review_status="human_corrected",
+    confidence_facets={"source": 1.0, "recognition": 0.99}, provisional=False,
+)
+assert TimedTextSignal.from_dict(corrected.to_dict()) == corrected
 assert TimedTextSignal.from_dict(signal.to_dict()) == signal
 
 for changes in (

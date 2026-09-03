@@ -15,7 +15,8 @@ def _signal_id(namespace: str, index: int, start: float, end: float, text: str) 
 
 
 def teams_cue_signals(cues: Iterable[dict], *, namespace: str = "teams",
-                      provisional: bool = True) -> list[TimedTextSignal]:
+                      provisional: bool = True,
+                      human_corrected: bool = False) -> list[TimedTextSignal]:
     """Preserve Teams platform identity while adapting existing parser output."""
     signals = []
     for index, cue in enumerate(cues):
@@ -30,6 +31,9 @@ def teams_cue_signals(cues: Iterable[dict], *, namespace: str = "teams",
             speaker=speaker,
             text_source="native_transcript",
             speaker_source="platform_identity" if speaker else "unknown",
+            text_review_status=("human_corrected" if human_corrected
+                                else "platform_provided"),
+            confidence_facets={"source": 1.0 if human_corrected else 0.9},
             provisional=provisional,
         ))
     return signals
@@ -37,7 +41,8 @@ def teams_cue_signals(cues: Iterable[dict], *, namespace: str = "teams",
 
 def generic_subtitle_signals(cues: Iterable[WebVTTCue], *, namespace: str = "subtitle",
                              language: str | None = None,
-                             provisional: bool = True) -> list[TimedTextSignal]:
+                             provisional: bool = True,
+                             human_corrected: bool = False) -> list[TimedTextSignal]:
     """Adapt generic subtitles without treating visual labels as known identity."""
     signals = []
     for index, cue in enumerate(cues):
@@ -50,6 +55,9 @@ def generic_subtitle_signals(cues: Iterable[WebVTTCue], *, namespace: str = "sub
             text_source="native_subtitle",
             speaker_source="unknown",
             language=language,
+            text_review_status=("human_corrected" if human_corrected
+                                else "platform_provided"),
+            confidence_facets={"source": 1.0 if human_corrected else 0.9},
             provisional=provisional,
         ))
     return signals

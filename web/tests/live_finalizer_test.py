@@ -11,8 +11,24 @@ sys.path.insert(0, str(ROOT / "bin"))
 
 from meeting_core.live.finalizer import (LiveFinalizationError, mark_finalization_complete,
                                          prepare_finalization)
+from meeting_core.live.fusion import fuse_text_signals
 from meeting_core.live.models import TimedTextSignal
 from meeting_core.live.store import LiveSessionStore
+
+
+corrected = TimedTextSignal(
+    id="corrected", start=0, end=2, text="校对后的字幕", speaker=None,
+    text_source="native_subtitle", text_review_status="human_corrected",
+    confidence_facets={"source": 1.0}, provisional=False,
+)
+automatic = TimedTextSignal(
+    id="automatic", start=0, end=2, text="校对后的字母", speaker=None,
+    text_source="native_transcript", text_review_status="automatic",
+    confidence=0.99, confidence_facets={"source": 0.6, "recognition": 0.99},
+)
+turns, provenance = fuse_text_signals([automatic, corrected])
+assert turns[0]["text"] == "校对后的字幕"
+assert provenance[0]["selected"] == "corrected"
 
 
 with tempfile.TemporaryDirectory(prefix="mm-live-finalizer-") as tmp:

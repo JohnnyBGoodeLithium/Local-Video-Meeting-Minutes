@@ -10,8 +10,11 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "bin"))
 
-from meeting_core.live.captions import (CaptionChangeDetector, CaptionRegion,
-                                        FakeCaptionOCR, TesseractCaptionOCR,
+from meeting_core.live.captions import (CaptionChangeDetector, CaptionDetection,
+                                        CaptionOCRResult, CaptionRegion,
+                                        CaptionRegionTracker, FakeCaptionOCR,
+                                        FakeCaptionRegionDetector, PaddleOCRv6CaptionOCR,
+                                        TesseractCaptionOCR,
                                         VisualCaptionCapture)
 
 
@@ -39,6 +42,7 @@ assert change.changed(b"a" * 100) is False
 assert change.changed(b"b" * 100) is True
 assert FakeCaptionOCR(" local only ").recognize(Path("unused")) == " local only "
 assert isinstance(TesseractCaptionOCR().available(), bool)
+assert PaddleOCRv6CaptionOCR(Path("/missing/det"), Path("/missing/rec")).available() is False
 
 with tempfile.TemporaryDirectory(prefix="mm-caption-region-") as tmp:
     frame = Path(tmp) / "frame.png"
@@ -49,5 +53,30 @@ with tempfile.TemporaryDirectory(prefix="mm-caption-region-") as tmp:
     signal = region_capture.flush(2.0)[0]
     assert signal.text == "Synthetic line"
     assert signal.speaker == "Avery" and signal.speaker_source == "ocr_label"
+    assert signal.text_review_status == "automatic"
+    assert signal.confidence_facets["source"] == 0.55
+
+    moving = CaptionRegion(0.08, 0.08, 0.84, 0.14)
+    detector = FakeCaptionRegionDetector([CaptionDetection(moving, 0.92)])
+
+    class ScoredOCR(FakeCaptionOCR):
+        def recognize(self, image, *, language=None):
+            return CaptionOCRResult("Verified-looking text", 0.86)
+
+    adaptive = VisualCaptionCapture(None, ScoredOCR(), detector=detector)
+    assert adaptive.process_frame(frame, 3.0) == []
+    adaptive_signal = adaptive.flush(4.0)[0]
+    assert adaptive_signal.confidence == 0.86
+    assert adaptive_signal.confidence_facets == {
+        "source": 0.55, "temporal": 0.5, "recognition": 0.86, "region": 0.92,
+    }
+
+tracker = CaptionRegionTracker(maximum_misses=1)
+bottom = CaptionRegion(0.1, 0.76, 0.8, 0.16)
+moved = CaptionRegion(0.1, 0.08, 0.8, 0.16)
+assert tracker.update([CaptionDetection(bottom, 0.8)]) == bottom
+assert tracker.update([CaptionDetection(moved, 0.95)]) == moved
+assert tracker.update([]) == moved
+assert tracker.update([]) is None
 
 print("caption change tests: OK")

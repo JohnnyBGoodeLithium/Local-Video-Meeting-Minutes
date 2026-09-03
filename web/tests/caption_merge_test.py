@@ -30,5 +30,6 @@ speaker = CaptionTemporalMerger()
 speaker.observe(10.0, "Review starts", speaker="Avery")
 cue = speaker.flush(11.0)[0]
 assert cue.speaker == "Avery" and cue.speaker_source == "ocr_label"
+assert cue.text_review_status == "automatic"
 
 print("caption merge tests: OK")
