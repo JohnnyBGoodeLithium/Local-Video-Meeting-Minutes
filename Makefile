@@ -58,6 +58,10 @@ package-check:
 	$(PY) web/tests/live_speaker_test.py
 	$(PY) web/tests/live_backpressure_test.py
 	$(PY) web/tests/live_metrics_test.py
+	$(PY) web/tests/live_vision_queue_test.py
+	$(PY) web/tests/live_finalizer_test.py
+	$(PY) web/tests/live_source_probe_test.py
+	$(PY) web/tests/live_runtime_test.py
 	$(PY) web/tests/slide_pages_test.py
 	$(PY) web/tests/media_shots_test.py
 	$(PY) web/tests/media_minutes_test.py

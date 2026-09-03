@@ -35,5 +35,9 @@ const view = fs.readFileSync(new URL("../static/modules/live-context-view.js", i
 assert.match(view, /No playback required/);
 assert.match(view, /listens quietly in the background/);
 assert.doesNotMatch(view, /\.play\s*\(/);
+assert.match(view, /\/api\/live\/probe/);
+assert.match(view, /\/api\/live\/sessions/);
+const closeBody = view.match(/function close\(\) \{([\s\S]*?)\n  \}/)?.[1] || "";
+assert.doesNotMatch(closeBody, /stop|DELETE|POST/);
 
 console.log("live context frontend: defaults, bilingual copy and no-playback contract passed");

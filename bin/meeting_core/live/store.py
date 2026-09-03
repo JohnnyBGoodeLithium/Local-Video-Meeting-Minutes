@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
 from typing import Any, Iterable
 
 from .models import TimedTextSignal
@@ -111,3 +112,21 @@ class LiveSessionStore:
 
     def append_signals(self, signals: Iterable[TimedTextSignal]) -> int:
         return sum(1 for signal in signals if self.append_signal(signal))
+
+    def write_frame(self, frame_id: str, content: bytes, *, at: float, reason: str,
+                    suffix: str = ".jpg") -> Path:
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", frame_id):
+            raise LiveStoreError("unsafe live frame id")
+        if suffix.lower() not in {".jpg", ".jpeg", ".png", ".webp"}:
+            raise LiveStoreError("unsupported live frame format")
+        frames = self.root / "frames"
+        frames.mkdir(mode=0o700, parents=True, exist_ok=True)
+        path = frames / f"{frame_id}{suffix.lower()}"
+        temp = path.with_name(f".{path.name}.tmp-{os.getpid()}")
+        temp.write_bytes(content)
+        os.replace(temp, path)
+        self.append("frame-events.jsonl", {
+            "id": frame_id, "at": round(float(at), 3), "reason": reason,
+            "file": f"frames/{path.name}",
+        })
+        return path

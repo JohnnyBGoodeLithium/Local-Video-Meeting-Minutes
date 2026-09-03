@@ -257,6 +257,26 @@
       <summary id="live-advanced-label">高级选项</summary>
       <p id="live-advanced-detail" class="dim">来源能力探测后才会显示可用捕获方式；不会静默切换或播放声音。</p>
     </details>
+    <div id="live-probe-status" class="live-probe-status hidden" aria-live="polite"></div>
+    <section id="live-active-status" class="live-active-status hidden" aria-labelledby="live-active-title">
+      <h4 id="live-active-title">Live Context</h4>
+      <div id="live-active-state" aria-live="polite"></div>
+      <dl>
+        <div><dt id="live-text-label">文字</dt><dd id="live-text-status">正在等待来源</dd></div>
+        <div><dt id="live-audio-label">音频</dt><dd id="live-audio-status">静默采集中</dd></div>
+        <div><dt id="live-speaker-label">人物</dt><dd id="live-speaker-status">暂定</dd></div>
+        <div><dt id="live-visual-label">画面</dt><dd id="live-visual-status">等待选择性分析</dd></div>
+      </dl>
+      <div class="live-session-actions">
+        <a id="live-open-source" class="fluent-button hidden" href="#" target="_blank" rel="noopener noreferrer">打开来源</a>
+        <button id="live-stop" type="button">停止</button>
+      </div>
+      <div id="live-stop-confirm" class="live-stop-confirm hidden" role="alertdialog" aria-labelledby="live-stop-question">
+        <p id="live-stop-question">停止并整理目前已捕获的内容？</p>
+        <button id="live-stop-cancel" type="button">取消</button>
+        <button id="live-stop-finalize" class="primary" type="button">停止并整理</button>
+      </div>
+    </section>
     <div class="dialog-btns live-context-actions">
       <button id="live-context-cancel" type="button">取消</button>
       <button id="live-context-continue" class="primary" type="submit" disabled>检查来源</button>

@@ -16,6 +16,13 @@ const COPY = {
     advanced: "高级选项",
     advancedDetail: "来源能力探测后才会显示可用捕获方式；不会静默切换或播放声音。",
     cancel: "取消", continue: "检查来源", close: "关闭 Live Context",
+    probing: "正在检查来源能力…", starting: "正在启动后台分析…",
+    unavailable: "此来源目前不能静默后台分析。请保持来源窗口打开后再继续。",
+    live: "LIVE", finalizing: "正在整理已捕获内容", complete: "整理完成", failed: "分析未完成",
+    text: "文字", audio: "音频", speakers: "人物", visual: "画面",
+    textWaiting: "正在等待来源", audioSilent: "静默采集中", speakersProvisional: "暂定",
+    visualWaiting: "选择性分析；允许稍后补完", openSource: "打开来源并分析", stop: "停止",
+    stopQuestion: "停止并整理目前已捕获的内容？", stopCancel: "取消", stopFinalize: "停止并整理",
   },
   en: {
     entry: "Live Context", title: "Start Live Context",
@@ -32,6 +39,14 @@ const COPY = {
     advanced: "Advanced options",
     advancedDetail: "Capture choices appear after source probing. No silent mode switch or audible playback.",
     cancel: "Cancel", continue: "Check source", close: "Close Live Context",
+    probing: "Checking source capabilities…", starting: "Starting background analysis…",
+    unavailable: "Background analysis is not available for this source. Keep the source window open to continue analysis.",
+    live: "LIVE", finalizing: "Finalizing captured context", complete: "Complete", failed: "Analysis incomplete",
+    text: "Text", audio: "Audio", speakers: "Speakers", visual: "Visual",
+    textWaiting: "Waiting for source", audioSilent: "Capturing silently", speakersProvisional: "Provisional",
+    visualWaiting: "Selective analysis; may finish later", openSource: "Open source & analyze", stop: "Stop",
+    stopQuestion: "Stop and finalize what has been captured so far?", stopCancel: "Cancel",
+    stopFinalize: "Stop & finalize",
   },
 };
 
@@ -41,15 +56,64 @@ function escapeHtml(value) {
   })[char]);
 }
 
-export function mountLiveContext(root = document) {
+export function mountLiveContext(root = document, { request = fetch, pollEvery = 4000 } = {}) {
   const entry = root.querySelector("#live-context-entry");
   const mask = root.querySelector("#live-context-mask");
   const form = root.querySelector("#live-context-form");
-  let state = createLiveContextState();
+  let state = { ...createLiveContextState(), busy: false, notice: "", session: null };
   let language = "zh-CN";
   let returnFocus = null;
+  let poller = null;
 
   function copy() { return COPY[language] || COPY["zh-CN"]; }
+
+  function formatDuration(seconds) {
+    const value = Math.max(0, Number(seconds) || 0);
+    const hours = Math.floor(value / 3600);
+    const minutes = Math.floor(value % 3600 / 60);
+    const secs = Math.floor(value % 60);
+    return hours ? `${hours}:${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`
+      : `${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+  }
+
+  async function jsonRequest(path, options = {}) {
+    const response = await request(path, options);
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const detail = typeof body.detail === "object" ? body.detail?.message : body.detail;
+      throw new Error(detail || `HTTP ${response.status}`);
+    }
+    return body;
+  }
+
+  function schedulePoll() {
+    clearTimeout(poller);
+    if (!state.session?.id || ["COMPLETE", "FAILED", "CANCELLED"].includes(state.session.state)) return;
+    poller = setTimeout(async () => {
+      try {
+        state = { ...state, session: await jsonRequest(`/api/live/sessions/${encodeURIComponent(state.session.id)}`) };
+        render();
+      } catch (_) {
+        // A transient UI poll failure must not stop the backend session.
+      }
+      schedulePoll();
+    }, pollEvery);
+  }
+
+  async function loadActiveSession() {
+    try {
+      const body = await jsonRequest("/api/live/sessions");
+      const sessions = body.sessions || [];
+      const active = sessions.find(item => !["COMPLETE", "FAILED", "CANCELLED"].includes(item.state));
+      if (active) {
+        state = { ...state, session: active, source: state.source || "" };
+        render();
+        schedulePoll();
+      }
+    } catch (_) {
+      // Feature discovery may race service startup; the entry remains usable.
+    }
+  }
 
   function render() {
     const c = copy();
@@ -63,7 +127,8 @@ export function mountLiveContext(root = document) {
     root.querySelector("#live-advanced-label").textContent = c.advanced;
     root.querySelector("#live-advanced-detail").textContent = c.advancedDetail;
     root.querySelector("#live-context-cancel").textContent = c.cancel;
-    root.querySelector("#live-context-continue").textContent = c.continue;
+    root.querySelector("#live-context-continue").textContent = state.busy
+      ? (state.notice === c.starting ? c.starting : c.probing) : c.continue;
     root.querySelector("#live-context-close").setAttribute("aria-label", c.close);
     root.querySelectorAll('[name="live-content-type"]').forEach(input => {
       input.checked = input.value === state.contentType;
@@ -83,7 +148,41 @@ export function mountLiveContext(root = document) {
         <span><b>${escapeHtml(label)}</b><small>${escapeHtml(detail)}</small></span>
       </label>`).join("");
     root.querySelector("#live-context-continue").disabled =
-      state.contentType === "live_event" && !state.source.trim();
+      state.busy || !!state.session || (state.contentType === "live_event" && !state.source.trim());
+    root.querySelector("#live-content-legend").closest("fieldset").disabled = !!state.session;
+    root.querySelector("#live-source-input").disabled = !!state.session;
+    root.querySelector("#live-mode-legend").closest("fieldset").disabled = !!state.session;
+    const notice = root.querySelector("#live-probe-status");
+    notice.textContent = state.notice || "";
+    notice.classList.toggle("hidden", !state.notice);
+
+    const active = root.querySelector("#live-active-status");
+    active.classList.toggle("hidden", !state.session);
+    if (state.session) {
+      const statusLabel = ({
+        LIVE: c.live, CONNECTING: c.starting, STALLED: c.unavailable,
+        RECOVERING: c.starting, ENDING: c.finalizing, FINALIZING: c.finalizing,
+        COMPLETE: c.complete, FAILED: c.failed, CANCELLED: c.failed,
+      })[state.session.state] || state.session.state;
+      root.querySelector("#live-active-state").textContent =
+        `${statusLabel} · ${formatDuration(state.session.duration)}`;
+      root.querySelector("#live-text-label").textContent = c.text;
+      root.querySelector("#live-audio-label").textContent = c.audio;
+      root.querySelector("#live-speaker-label").textContent = c.speakers;
+      root.querySelector("#live-visual-label").textContent = c.visual;
+      root.querySelector("#live-text-status").textContent = state.session.text_signals
+        ? `${state.session.text_signals} ${language === "en" ? "provisional signals" : "条暂定片段"}`
+        : c.textWaiting;
+      root.querySelector("#live-audio-status").textContent = c.audioSilent;
+      root.querySelector("#live-speaker-status").textContent = c.speakersProvisional;
+      root.querySelector("#live-visual-status").textContent = c.visualWaiting;
+      root.querySelector("#live-stop").textContent = c.stop;
+      root.querySelector("#live-stop-question").textContent = c.stopQuestion;
+      root.querySelector("#live-stop-cancel").textContent = c.stopCancel;
+      root.querySelector("#live-stop-finalize").textContent = c.stopFinalize;
+      root.querySelector("#live-stop").disabled = ["ENDING", "FINALIZING", "COMPLETE", "FAILED"]
+        .includes(state.session.state);
+    }
   }
 
   function close() {
@@ -97,6 +196,7 @@ export function mountLiveContext(root = document) {
     state = { ...state, open: true };
     mask.classList.remove("hidden");
     render();
+    loadActiveSession();
     root.querySelector('[name="live-content-type"]:checked')?.focus();
   });
   root.querySelector("#live-context-close").addEventListener("click", close);
@@ -116,10 +216,69 @@ export function mountLiveContext(root = document) {
     root.querySelector("#live-context-continue").disabled =
       state.contentType === "live_event" && !state.source.trim();
   });
-  form.addEventListener("submit", event => event.preventDefault());
+  form.addEventListener("submit", async event => {
+    event.preventDefault();
+    if (state.busy || state.session) return;
+    const c = copy();
+    state = { ...state, busy: true, notice: c.probing };
+    render();
+    const payload = { source_url: state.source.trim(), content_type: state.contentType,
+      mode: state.mode };
+    try {
+      const probe = await jsonRequest("/api/live/probe", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!probe.capture_plan?.background_available || state.mode !== "analyze_background") {
+        state = { ...state, busy: false, notice: c.unavailable };
+        const link = root.querySelector("#live-open-source");
+        link.href = state.source;
+        link.textContent = c.openSource;
+        link.classList.remove("hidden");
+        render();
+        return;
+      }
+      state = { ...state, notice: c.starting };
+      render();
+      const session = await jsonRequest("/api/live/sessions", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      state = { ...state, busy: false, notice: "", session };
+      render();
+      schedulePoll();
+    } catch (error) {
+      state = { ...state, busy: false, notice: error.message || c.unavailable };
+      render();
+    }
+  });
+  root.querySelector("#live-stop").addEventListener("click", () => {
+    root.querySelector("#live-stop-confirm").classList.remove("hidden");
+    root.querySelector("#live-stop-finalize").focus();
+  });
+  root.querySelector("#live-stop-cancel").addEventListener("click", () => {
+    root.querySelector("#live-stop-confirm").classList.add("hidden");
+    root.querySelector("#live-stop").focus();
+  });
+  root.querySelector("#live-stop-finalize").addEventListener("click", async () => {
+    if (!state.session?.id) return;
+    root.querySelector("#live-stop-confirm").classList.add("hidden");
+    try {
+      state = { ...state, session: await jsonRequest(
+        `/api/live/sessions/${encodeURIComponent(state.session.id)}/stop`, { method: "POST" }) };
+      render();
+      schedulePoll();
+    } catch (error) {
+      state = { ...state, notice: error.message || copy().failed };
+      render();
+    }
+  });
   render();
   return {
-    setEnabled(enabled) { entry.classList.toggle("hidden", !enabled); },
+    setEnabled(enabled) {
+      entry.classList.toggle("hidden", !enabled);
+      if (enabled) loadActiveSession();
+    },
     setLanguage(value) { language = value === "en" ? "en" : "zh-CN"; render(); },
     getState() { return { ...state }; },
   };

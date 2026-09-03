@@ -393,6 +393,16 @@ body.page-index { overflow: hidden; }
 .live-advanced summary { cursor: pointer; }
 .live-advanced p { margin-bottom: 0; }
 .live-context-actions { justify-content: flex-end; }
+.live-probe-status { margin-top: var(--sp-12); padding: var(--sp-10); border-left: 3px solid var(--warn); background: var(--panel2); }
+.live-active-status { margin-top: var(--sp-14); padding-top: var(--sp-12); border-top: 1px solid var(--border); }
+.live-active-status h4 { margin: 0 0 var(--sp-7); }
+.live-active-status dl { display: grid; gap: var(--sp-6); margin: var(--sp-10) 0; }
+.live-active-status dl div { display: grid; grid-template-columns: minmax(72px, .35fr) 1fr; gap: var(--sp-8); }
+.live-active-status dt { color: var(--dim); }
+.live-active-status dd { margin: 0; }
+.live-session-actions { display: flex; gap: var(--sp-8); }
+.live-stop-confirm { margin-top: var(--sp-10); padding: var(--sp-10); border: 1px solid var(--warn); }
+.live-stop-confirm p { margin-top: 0; }
 .skip-vl { display: block; padding-top: var(--sp-5); }
 .processing-mode { display: grid; gap: var(--sp-6); margin: var(--sp-8) 0 var(--sp-4); padding: 0; border: 0; }
 .processing-mode legend { margin-bottom: var(--sp-4); color: var(--text); font-size: var(--fs-12); }
