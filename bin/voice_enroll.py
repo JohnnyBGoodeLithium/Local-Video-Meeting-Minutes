@@ -18,14 +18,12 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import voice_bank as vb  # noqa: E402
-from meeting_core.hardware import configured_path, inference_device  # noqa: E402
+from meeting_core.hardware import inference_device  # noqa: E402
+from meeting_core.model_resolver import resolve_pyannote_model  # noqa: E402
 from teams_minutes import mmss  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 PY = Path(__import__("os").environ.get("MEETING_PYTHON", sys.executable)).expanduser()
-EMB_DIR = configured_path(
-    "MEETING_PYANNOTE_MODEL",
-    Path.home() / ".local/share/models/hf/pyannote/speaker-diarization-community-1") / "embedding"
 
 
 def centroids_from_segments(wav: Path, segments: list, device: str = None) -> dict:
@@ -39,7 +37,7 @@ def centroids_from_segments(wav: Path, segments: list, device: str = None) -> di
     from pyannote.audio import Inference, Model
     from pyannote.core import Segment, Timeline
 
-    model = Model.from_pretrained(str(EMB_DIR))
+    model = Model.from_pretrained(str(resolve_pyannote_model(ROOT) / "embedding"))
     inf = Inference(model, window="sliding", duration=1.5, step=0.75)
     inf.to(torch.device(device or inference_device(torch)))
     data, sr = sf.read(str(wav), dtype="float32", always_2d=True)
@@ -63,7 +61,7 @@ def embed_ranges(wav: Path, ranges: list, device: str = None) -> np.ndarray:
     import torch
     from pyannote.audio import Inference, Model
 
-    model = Model.from_pretrained(str(EMB_DIR))
+    model = Model.from_pretrained(str(resolve_pyannote_model(ROOT) / "embedding"))
     inf = Inference(model, window="whole")
     inf.to(torch.device(device or inference_device(torch)))
     data, sr = sf.read(str(wav), dtype="float32", always_2d=True)

@@ -38,7 +38,8 @@ from pathlib import Path
 warnings.filterwarnings("ignore")
 
 from meeting_dir import for_teams, materialize_source
-from meeting_core.hardware import configured_path, inference_device
+from meeting_core.hardware import inference_device
+from meeting_core.model_resolver import ModelNotInstalledError, resolve_pyannote_model
 from meeting_core.terminology import configured_bank_dir, safe_harvest_screen_candidates
 from meeting_core.resource_policy import prepare_stage
 from meeting_core.llm import DEFAULT_MINUTES_MODEL
@@ -52,9 +53,6 @@ import meeting_generation
 import voice_bank as vb
 
 ROOT = Path(__file__).resolve().parent.parent
-PYANN = configured_path(
-    "MEETING_PYANNOTE_MODEL",
-    Path.home() / ".local/share/models/hf/pyannote/speaker-diarization-community-1")
 BANK_DIR = ROOT / "speaker_bank"
 
 
@@ -94,7 +92,7 @@ def diarize(wav: Path, num_speakers=None):
     import torch
     from pyannote.audio import Pipeline
 
-    pipeline = Pipeline.from_pretrained(str(PYANN))
+    pipeline = Pipeline.from_pretrained(str(resolve_pyannote_model(ROOT)))
     pipeline.to(torch.device(inference_device(torch)))
     data, sr = sf.read(str(wav), dtype="float32", always_2d=True)
     audio = {"waveform": torch.from_numpy(data.T), "sample_rate": sr}
@@ -218,7 +216,11 @@ def main() -> int:
     progress_event("teams_alignment")
     prepare_stage("audio", keep=[DEFAULT_MINUTES_MODEL], progress_phase="teams_alignment")
     t0 = time.time()
-    dia_turns, centroids = diarize(wav, args.num_speakers)
+    try:
+        dia_turns, centroids = diarize(wav, args.num_speakers)
+    except ModelNotInstalledError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
     print(f"[meta] 分离 {time.time()-t0:.1f}s | 声纹聚类 {len(centroids)} 个", flush=True)
 
     print("[3/7] 解析 Teams 逐字稿并对齐姓名 ...", flush=True)

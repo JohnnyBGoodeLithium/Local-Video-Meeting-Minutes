@@ -22,6 +22,8 @@ scripts/build_product_pages.py
 scripts/build_release_bundle.py
 scripts/verify_release_bundle.py
 scripts/smoke_release_bundle.py
+scripts/build_diarization_runtime_pack.py
+scripts/verify_diarization_runtime_pack.py
 release/bundle-include.txt
 release/authorized-tag.txt
 docs/INDEX.md

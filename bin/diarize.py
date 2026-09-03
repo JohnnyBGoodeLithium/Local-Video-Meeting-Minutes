@@ -20,13 +20,10 @@ import time
 from pathlib import Path
 
 from meeting_dir import for_recording
-from meeting_core.hardware import configured_path, inference_device
+from meeting_core.hardware import inference_device
+from meeting_core.model_resolver import ModelNotInstalledError, resolve_pyannote_model
 
-HOME = Path.home()
 ROOT = Path(__file__).resolve().parent.parent
-MODEL_DIR = configured_path(
-    "MEETING_PYANNOTE_MODEL",
-    HOME / ".local/share/models/hf/pyannote/speaker-diarization-community-1")
 SENT_END = tuple("。！？!?；;")
 
 
@@ -201,7 +198,12 @@ def main() -> int:
 
         device = args.device or inference_device(torch)
         t0 = time.time()
-        pipeline = Pipeline.from_pretrained(str(MODEL_DIR))
+        try:
+            model_dir = resolve_pyannote_model(ROOT)
+        except ModelNotInstalledError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+        pipeline = Pipeline.from_pretrained(str(model_dir))
         pipeline.to(torch.device(device))
         print(f"[meta] pyannote 加载 {time.time()-t0:.1f}s device={device}", flush=True)
 
