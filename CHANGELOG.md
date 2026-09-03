@@ -23,6 +23,7 @@
 - 新导入的白板、纸面笔记和现场照片会按批次进入本地 Vision；解读进入纪要、Viewer 与知识投影，已有终稿优先复用缓存快速同步，图片本身仍不能独立证明会议决定。
 - 新增默认关闭的 Experimental Companion：通过私有 Tailscale Serve HTTPS 与应用内一次性配对，让手机发送链接/小文件、查看安全进度与会议投影、回听 evidence 并复用现有人物确认和撤销。FastAPI 仍仅监听 localhost，不使用 Funnel。
 - Companion 配对链接改为 URL fragment 携带一次性 token，token 不再出现在 HTTP request target 与访问日志中；手机端刷新后可通过本地 job 指针继续追踪已提交任务，revoke 后立即失效。
+- Offline Viewer 支持给匿名/未绑定说话人设置本地显示名（如 Speaker A → Peter）：只改显示层、按包指纹存入 localStorage，不写回 MeetingPack，人物选择、仅听此人与 evidence 标签同步更新；audio-only 与 video 包的媒体区高度统一，桌面 Tab 移到内容 header 中间偏右。
 
 ## v0.15.3 — 2026-09-01
 
