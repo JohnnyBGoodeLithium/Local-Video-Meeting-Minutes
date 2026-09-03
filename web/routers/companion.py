@@ -8,11 +8,14 @@ import secrets
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Request, Response
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from companion_security import (CSRF_COOKIE, SESSION_COOKIE, CompanionStore, SessionGrant,
                                 enabled)
-from deps import DATA_ROOT
+import companion_projection
+from deps import DATA_ROOT, MEETINGS, STATIC, _audio_path, _mdir, _video_path
+from job_store import JOBS
 
 router = APIRouter(prefix="/api/companion")
 STORE = CompanionStore(Path(os.environ.get(
@@ -154,3 +157,55 @@ def pairing_status(payload: PairStatus, request: Request, response: Response):
 def current_session(grant: SessionGrant = Depends(_session)):
     return {"id": grant.id, "display_name": grant.display_name,
             "capabilities": grant.capabilities}
+
+
+@router.get("/library")
+def companion_library(_grant: SessionGrant = Depends(require("review"))):
+    return {"items": companion_projection.library(MEETINGS)}
+
+
+@router.get("/items/{item_id}")
+def companion_item(item_id: str, _grant: SessionGrant = Depends(require("review"))):
+    return companion_projection.item(_mdir(item_id))
+
+
+@router.get("/items/{item_id}/people")
+def companion_people(item_id: str, _grant: SessionGrant = Depends(require("review"))):
+    return {"people": companion_projection.item(_mdir(item_id))["people"]}
+
+
+@router.get("/items/{item_id}/people/{name}")
+def companion_person(item_id: str, name: str,
+                     _grant: SessionGrant = Depends(require("review"))):
+    value = companion_projection.person(_mdir(item_id), name)
+    if value is None:
+        raise HTTPException(404, "Person not found in this item")
+    return value
+
+
+@router.get("/items/{item_id}/evidence/{evidence_id}")
+def companion_evidence(item_id: str, evidence_id: str,
+                       _grant: SessionGrant = Depends(require("review"))):
+    value = companion_projection.item(_mdir(item_id))
+    evidence = next((row for row in value["evidence"] if row["id"] == evidence_id), None)
+    if evidence is None:
+        raise HTTPException(404, "Evidence not found in this item")
+    return {**evidence, "media_url": f"/api/companion/items/{item_id}/media/audio"}
+
+
+@router.get("/items/{item_id}/media/{kind}")
+def companion_media(item_id: str, kind: str,
+                    _grant: SessionGrant = Depends(require("review"))):
+    mdir = _mdir(item_id)
+    path = _audio_path(mdir) if kind == "audio" else _video_path(mdir) if kind == "video" else None
+    if path is None:
+        raise HTTPException(404, "Approved meeting media unavailable")
+    return FileResponse(path)
+
+
+@router.get("/jobs/{job_id}")
+def companion_job(job_id: str, _grant: SessionGrant = Depends(require("view_status"))):
+    value = JOBS.get(job_id)
+    if value is None:
+        raise HTTPException(404, "Job not found")
+    return companion_projection.job(value, JOBS.values())
