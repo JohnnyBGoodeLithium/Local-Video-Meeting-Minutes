@@ -13,21 +13,37 @@
 
 重要的未发布用户变化才写入本节；普通实现细节留在 Git。
 
-- Companion 新增不抢导航的后台任务卡、5 条精简 Home、分页 Library，以及 Phone 单列、Tablet 双列、Laptop 三列的自适应回顾布局。
-- Companion 现在统一回放音频与视频，支持真实 206 Range seek、原文／翻译／双语原生字幕和 stale translation 防护；MeetingPack Viewer 复用相同 cue 投影并保持旧包兼容。
-- 人物确认支持选择已有人员或新建并绑定；canonical 显示名修改提供跨会议影响预览与安全撤销，简单身份操作以测试证明 0 model calls；Viewer 匿名改名继续是按包隔离的本地 alias。
+## v0.16.0 — 2026-09-04
 
-- 新增默认关闭的 Experimental Live Context：可直接粘贴能够安全解析为公开、无 DRM 原生 HLS 的直播页面或 HLS 地址，在不可听播放、不打开浏览器的情况下持续累积暂定上下文；启动后进入独立工作区查看真实滚动文字、状态和时长，退出工作区不中断后台采集，结束后再复用现有视觉补完与 canonical 输出流程。
-- 新增可恢复 `.live/` 中间层、Teams/WebVTT 来源适配、HLS 滑动列表、字幕 OCR 合并、近实时 ASR/暂定人物、资源降级和选择性画面触发；browser 静音捕获仍保持为未验证限制。
-- 说话人模型改为本地优先级解析且禁止隐式下载；单独 runtime pack 只能在 license、归属、版本和子模型再分发条件全部明确时构建，应用发布包仍无权重。
-- 导入设置明确区分“快速纪要”和“完整分析”；左侧队列直接显示正在处理、构建或翻译什么；会议脉络继续优先高度归并，但不再把第 9 个以后的有效议题静默截断。
-- 产品介绍站收敛为“找到重点 → 核对事实 → 修正来源 → 继续使用”的七段双语旅程，加入仅使用虚构 Northstar 数据的会议／视频演示，并完成 Source Fold 响应式与无障碍视觉系统。
-- 新增 GitHub Pages 静态构建与部署门禁；公开站点不访问会议、作业、人物或私有报告数据。
-- 嘈杂或远场录音中，同一已确认人物不再以普通相似度连续吞并多个声音组；混声修复允许用户明确改正此前人工确认过的片段，同时继续禁止系统自动覆盖确认结果，“下一步”计算预览时即时显示处理中并阻止重复提交。
-- 新导入的白板、纸面笔记和现场照片会按批次进入本地 Vision；解读进入纪要、Viewer 与知识投影，已有终稿优先复用缓存快速同步，图片本身仍不能独立证明会议决定。
-- 新增默认关闭的 Experimental Companion：通过私有 Tailscale Serve HTTPS 与应用内一次性配对，让手机发送链接/小文件、查看安全进度与会议投影、回听 evidence 并复用现有人物确认和撤销。FastAPI 仍仅监听 localhost，不使用 Funnel。
-- Companion 配对链接改为 URL fragment 携带一次性 token，token 不再出现在 HTTP request target 与访问日志中；手机端刷新后可通过本地 job 指针继续追踪已提交任务，revoke 后立即失效。
-- Offline Viewer 支持给匿名/未绑定说话人设置本地显示名（如 Speaker A → Peter）：只改显示层、按包指纹存入 localStorage，不写回 MeetingPack，人物选择、仅听此人与 evidence 标签同步更新；audio-only 与 video 包的媒体区高度统一，桌面 Tab 移到内容 header 中间偏右。
+### Review and source verification
+
+- 视频可先生成 voice-first 快速纪要，再复用逐字稿、人物与页面缓存补充画面分析；会议脉络不再静默截断有效的后续议题。
+- Workbench 与 MeetingPack 统一音频/视频来源回跳、真实 Range seek 与 transcript-linked 字幕；Viewer 改善音视频布局，并允许给匿名人物设置单个包内的本地 alias。
+- 现场照片批量进入本地 Vision，解读同步到纪要、Viewer 与知识投影；图片本身仍不能独立证明会议决定。
+
+### Companion
+
+- 新增 Phone 单列、Tablet 双列、Laptop 三列的自适应回顾，Home、分页 Library 与后台任务分离；轮询和任务恢复不会夺取当前导航。
+- 轻端可发送受限 URL、小文件和视频，并支持 iOS Photo Library input；真实 iPhone 与 Tailscale Serve transport 尚未完成验证。
+- 音频与视频共享播放器，字幕支持关闭、原文、翻译和双语；过期翻译拒绝冒充当前内容。
+- 私有传输原型使用 localhost backend、一次性应用配对、URL fragment token 与可撤销最小权限 session，默认关闭且不使用 Funnel。
+
+### Identity
+
+- 人物确认可选择已有人员或新建并绑定；canonical 显示名修改提供跨会议影响预览与安全撤销，自动化证明简单绑定和改名均为 0 model calls。
+- 显示名、身份绑定和发言归属修正分开处理；系统不以普通相似度覆盖已确认身份，用户仍可明确修正混入片段。
+
+### Live Context — Experimental
+
+- 经授权的公开、无 DRM 原生 HLS 来源可进入可退出但不中断采集的 Live 工作区，查看真实滚动文字、状态与时长，停止后复用现有流程统一整理。
+- 新增可恢复 `.live/` 中间层、WebVTT/HLS 路径、字幕 OCR fallback、近实时文字与暂定人物、资源降级和选择性画面触发。
+- 合成与重放回归通过；真实直播、目标主机延迟和 browser audio capture 仍未验证，因此不构成生产承诺。
+
+### Engineering and release
+
+- Hosted CI 覆盖 Companion 多尺寸回顾、视频/字幕、人物确认与撤销、Live workspace，以及完整 clean-bundle smoke。
+- 双语 README 与 Source Fold 产品站更新为 v0.16.0 的九段用户旅程；Pages 部署增加首页、CSS、JS 和内容版本的 production HTTP smoke。
+- 应用发布包继续不包含模型权重、会议数据、凭据、tailnet 配置或私有验证记录。
 
 ## v0.15.3 — 2026-09-01
 

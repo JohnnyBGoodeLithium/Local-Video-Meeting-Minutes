@@ -150,7 +150,10 @@ def select_files(root: Path, allowlist: Path) -> list[tuple[str, int]]:
             raise ReleaseError(f"release file exceeds {MAX_FILE_BYTES} bytes: {path}")
         selected.append((path, mode))
     selected.sort()
-    required = {"README.md", "README.zh-CN.md", "VERSION", "pyproject.toml", "Makefile"}
+    required = {
+        "README.md", "README.zh-CN.md", "RELEASE_NOTES.md", "VERSION",
+        "pyproject.toml", "Makefile",
+    }
     missing = required - {path for path, _ in selected}
     if missing:
         raise ReleaseError(f"release allowlist missed required files: {sorted(missing)}")

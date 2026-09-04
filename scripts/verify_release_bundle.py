@@ -102,7 +102,7 @@ def verify_checksums(dist: Path, expected_assets: set[str]) -> None:
 
 def verify_tree(root: Path, manifest: dict) -> None:
     required = {
-        "README.md", "README.zh-CN.md", "VERSION", "CHANGELOG.md",
+        "README.md", "README.zh-CN.md", "RELEASE_NOTES.md", "VERSION", "CHANGELOG.md",
         "SECURITY.md", "CONTRIBUTING.md", "Makefile", "pyproject.toml",
         "requirements/runtime.lock", "requirements/ci.lock",
         "web/static/index.html", "web/tests/run_smoke.py",

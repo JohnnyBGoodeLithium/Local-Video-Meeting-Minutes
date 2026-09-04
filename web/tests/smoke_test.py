@@ -436,15 +436,15 @@ check("结论审计默认聚焦重点结论并保留全部证据入口",
 s, product_headers, product_page = req("GET", "/product", raw=True)
 product_cache = next((value for key, value in product_headers.items()
                       if key.lower() == "cache-control"), "")
-check("产品介绍页使用七段双语用户旅程与虚构演示",
-      s == 200 and product_page.count(b'data-product-section') == 7
+check("产品介绍页使用九段双语用户旅程与虚构演示",
+      s == 200 and product_page.count(b'data-product-section') == 9
       and '两小时会议，不该再花两小时复盘。'.encode() in product_page
       and '虚构演示数据'.encode() in product_page
       and b'Northstar Launch Review' in product_page
       and b'Northstar Product Launch' in product_page
-      and b'data-product-content-version="0.15"' in product_page
+      and b'data-product-content-version="0.16"' in product_page
       and b'data-ui-language="en"' in product_page
-      and b'/static/fluent-foundation.css?v=20260904p117' in product_page
+      and b'/static/fluent-foundation.css?v=20260904p118' in product_page
       and b'data-demo-mode="meeting"' in product_page
       and b'data-demo-mode="video"' in product_page
       and b'data-demo-evidence' in product_page

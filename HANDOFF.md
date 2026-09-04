@@ -1,24 +1,29 @@
-# Handoff
-- 产品版本保持 `v0.15.3`；禁止改 `VERSION`、tag 或 Release。
-- baseline：`f98719c2037ed6d6d33bcceb510556184c86be44`；分支：`feat/companion-adaptive-review`。
-- 目标 PR：`feat(companion): add adaptive review, captions, and identity UX`。
-- 状态：[docs/STATUS.md](docs/STATUS.md)；真机步骤：[docs/runbooks/COMPANION_DEVICE_CHECK.md](docs/runbooks/COMPANION_DEVICE_CHECK.md)。
+# v0.16.0 Release Handoff
+- Current release target: `v0.16.0`
+- Previous release: `v0.15.3`
+- Release branch: `release/v0.16.0`
+- Base SHA: `e93d22cc7cc9a1ff0992d266717d516476bbd67e`
+- Feature freeze: **yes**
+- State: release-preparation PR; no tag or GitHub Release
 
-## 已完成
-九个提交依次分离导航与后台任务、精简 Home/分页 Library、自适应详情、身份语义、caption projection、视频回放、人物命名、跨尺寸旅程和文档。PR 同时含已过 CI 的 Viewer alias/layout；alias 是 local-only。
+## Capabilities
+- Voice-first minutes with later visual completion; person-focused review, source return, conservative speaker correction, field-photo analysis, and MeetingPack.
+- Adaptive Companion Phone/Tablet/Laptop review: jobs, Library, URL/file/video send, playback, captions, identity binding, display rename, and undo.
+- Viewer local speaker alias, aligned audio/video layout, transcript-linked captions, and old-pack compatibility.
+- Experimental Live Context for authorized public, non-DRM native HLS. Full evidence: [reality matrix](docs/releases/v0.16.0-reality-matrix.md).
 
-## 必守合同
-- Home recent=5；提交后保持 Home，poll 不跳 Job；Phone 四 Tab，Tablet 双列，Laptop 三列。
-- media Range 返回真实 206；caption=关闭／原文／翻译／双语；stale translation 返回 409。
-- bind/display rename 的 ASR、diarization、VL、minutes、topic、translation calls 均为 0。
-- display rename 更新 bank、逐字稿、people/evidence/caption，可跨会议撤销；不全局替换旧 minutes prose。
-- attribution split 继续走桌面高级 correction；old MeetingPack 继续启动；Viewer alias 按 pack 隔离。
+## Boundaries and validation
+- Live is **Experimental**: synthetic/replay and Hosted Chromium pass; real live event, target-host latency, and browser audio capture are **NOT TESTED**.
+- Companion hosted layouts/journeys pass; iPhone 15 Pro + X Ultra Tailscale Serve and iPhone fullscreen captions are **NOT TESTED**.
+- Companion transport is not enterprise approval; backend remains localhost-only, Funnel disabled. No adaptive video proxy; broader KB/RAG scale remains early.
+- Integrated main `e93d22c`: hosted check/smoke, 216 checks, Chromium/screenshots, and clean-bundle verification passed.
+- Release branch local `make check` and 216-check smoke pass; bundle structure/checksums pass. Local full bundle smoke is blocked only by absent Chromium and remains a Hosted CI gate. Pages HTTP result is pending merge.
 
-## 下一位 Agent
-1. 最终再跑 `make check`、`make smoke`；本机无 Chromium时需以 hosted CI 为浏览器证据。
-2. 推送九个提交、创建 PR，等 `check-and-smoke` 与 `release-candidate` 成功。
-3. 下载 `companion-ux-<sha>`，确认 14 张图齐全并逐张视觉走查；未打开不能声称通过。
-4. 按真机 runbook 验证 iPhone 15 Pro Safari；未执行必须报告“未验证”。
-5. 若成功 check 仍显示 expected，记录 repository rule/status association 问题，不绕过。
+## Blockers and publish
+- Release PR/hosted CI, final local checks, clean bundle, privacy scan, and post-merge production Pages smoke must pass.
+- `release/authorized-tag.txt` remains `v0.15.3` until the user explicitly says **Publish v0.16.0**.
+- Then: verify clean green `main` and device record; set authorization to `v0.16.0`; run `RELEASE_TAG=v0.16.0 make release-verify`; merge authorization.
+- Tag exactly that commit with `git tag -a v0.16.0 -m "Meeting Context v0.16.0"`; run `git push origin v0.16.0`.
+- Let `.github/workflows/release.yml` create the pre-release/assets; verify ZIP, tar.gz, manifest, checksums, and public product page.
 
-已知限制：无 adaptive bitrate/review proxy；iOS fullscreen captions 待真机；旧 minutes 人名不破坏性改写；手机不提供缩水 split；无大屏 presentation mode。
+TAG CREATED: **NO**

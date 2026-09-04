@@ -39,7 +39,7 @@ changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
 assert re.search(rf"^## v{re.escape(version)} — \d{{4}}-\d{{2}}-\d{{2}}$", changelog, re.MULTILINE)
 
 status = (ROOT / "docs" / "STATUS.md").read_text(encoding="utf-8")
-assert f"产品版本：v{version}" in status
+assert f"产品版本：v{version}（release candidate）" in status
 
 product_html = (ROOT / "web" / "static" / "product.html").read_text(encoding="utf-8")
 major, minor, _ = version.split(".")
@@ -52,13 +52,18 @@ for readme_name in ("README.md", "README.zh-CN.md"):
     referenced = set(re.findall(r"\bv(\d+\.\d+\.\d+)\b", readme))
     assert referenced <= {version}, f"{readme_name} contains conflicting versions: {referenced}"
 
+release_notes = ROOT / "docs" / "releases" / f"v{version}.md"
+latest_release_notes = ROOT / "RELEASE_NOTES.md"
+assert release_notes.is_file(), f"release notes missing: {release_notes}"
+assert latest_release_notes.is_file(), "root RELEASE_NOTES.md is missing"
+assert latest_release_notes.read_text(encoding="utf-8") == release_notes.read_text(encoding="utf-8")
+
 release_tag = os.environ.get("RELEASE_TAG")
 if release_tag:
     assert release_tag == f"v{version}", (
         f"release tag {release_tag!r} must equal VERSION v{version}"
     )
-    release_notes = ROOT / "docs" / "releases" / f"{release_tag}.md"
-    assert release_notes.is_file(), f"release notes missing: {release_notes}"
+    assert release_notes == ROOT / "docs" / "releases" / f"{release_tag}.md"
     authorization = (ROOT / "release" / "authorized-tag.txt").read_text(
         encoding="utf-8"
     ).strip()

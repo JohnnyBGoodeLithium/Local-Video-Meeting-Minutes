@@ -2,11 +2,13 @@
 # 当前状态
 
 - 更新时间：2026-09-04
-- 当前发布候选版本：v0.16.0
+- 产品版本：v0.16.0（release candidate）
 - 最近发布版本：v0.15.3
 - 发布状态：v0.16.0 release candidate
-- Web 构建号：20260904p117
+- Web 构建号：20260904p118
+- Workbench asset baseline：20260904p117
 - Release candidate 基线：`release/v0.16.0`；正式 tag 尚未创建
+- 源代码基线：`release/v0.16.0`，base `e93d22cc7cc9a1ff0992d266717d516476bbd67e`
 - Owner：Local AI PoC maintainer
 - 当前阶段：受控 PoC 验证（Controlled PoC validation）
 
