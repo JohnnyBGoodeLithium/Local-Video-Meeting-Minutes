@@ -41,6 +41,7 @@ from meeting_core.source_info import load_source_info
 from meeting_core import photos as meeting_photos
 import meeting_topic_map
 import meeting_generation
+import caption_projection
 from product_version import PRODUCT_VERSION, PRODUCT_VERSION_LABEL
 
 
@@ -498,7 +499,9 @@ def _viewer_html(title: str, date: str, minutes_html: str, evidence: dict, integ
                  keywords: list[str] | None = None,
                  content_type: str = "meeting",
                  source_info: dict | None = None,
-                 photos: list[dict] | None = None) -> bytes:
+                 photos: list[dict] | None = None,
+                 caption_cues: list[dict] | None = None,
+                 caption_target: str | None = None) -> bytes:
     duration = max((float(t.get("end", 0)) for t in evidence["sources"]["transcript"]), default=0)
     payload = {
         "title": title,
@@ -520,6 +523,8 @@ def _viewer_html(title: str, date: str, minutes_html: str, evidence: dict, integ
         "speaker_navigation": speaker_navigation_rows or [],
         "photos": photos or [],
         "document_state": document_state,
+        "caption_cues": caption_cues or [],
+        "caption_target": caption_target,
         "product": {"name": "Meeting Minutes", "version": PRODUCT_VERSION},
     }
     page = VIEWER_TEMPLATE_PATH.read_text(encoding="utf-8").replace(
@@ -572,6 +577,18 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
     descs = {int(k): clean_model_text(str(v)) for k, v in raw_desc.items()
              if str(k).isdigit()}
     profiles = load_speaker_profiles(turns, bank_dir)
+    transcript_revision = hashlib.sha256((mdir / "transcript.spk.json").read_bytes()).hexdigest()[:16]
+    caption_translation, caption_target = None, None
+    for target in ("en", "zh-CN"):
+        sidecar = _read_json(mdir / f"transcript.translation.{target}.json", {})
+        if (sidecar.get("status") == "complete"
+                and sidecar.get("source_revision") == transcript_revision):
+            caption_translation = {**sidecar, "state": "ready"}
+            caption_target = target
+            break
+    caption_cues = caption_projection.build_cues(
+        turns, profiles=profiles, translation=caption_translation,
+        transcript_revision=transcript_revision)
     source_meta = _read_json(mdir / "source.json", {})
     transcript_format = str(source_meta.get("transcript_format") or "").lower()
     if not transcript_format:
@@ -659,7 +676,8 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
                                         media_arc, media_kind, source_language, minutes_languages,
                                         topic_map_languages, visuals_languages,
                                         speaker_navigation_rows, document_state, keywords,
-                                        content_type, source_info, photos=photo_visuals),
+                                        content_type, source_info, photos=photo_visuals,
+                                        caption_cues=caption_cues, caption_target=caption_target),
             "README.txt": _readme(media_mode, document_state).encode("utf-8"),
             "AGENTS.md": _AGENTS_MD.encode("utf-8"),
             "assets/minutes.md": reading_minutes.encode("utf-8"),

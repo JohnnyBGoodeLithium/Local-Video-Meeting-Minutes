@@ -15,6 +15,7 @@ import voice_bank as vb
 import voice_enroll as ve
 import speaker_corrections as sc
 import speaker_history as sh
+import person_rename_history as prh
 from deps import (BANK_DIR, BANK_LOCK, MEETINGS, PY, ROOT, SPEAKER_OP_LOCK,
                   _audio_path, _hms, _mmss, _mdir, _read_json,
                   _refresh_evidence, _safe)
@@ -77,7 +78,8 @@ def _rewrite_spk_md(mdir: Path, slug: str, turns: list):
     mp.write_text(head + body, encoding="utf-8")
 
 
-def _rename_voice_in_meeting(mdir: Path, slug: str, voice_id: str, new_name: str) -> int:
+def _rename_voice_in_meeting(mdir: Path, slug: str, voice_id: str, new_name: str,
+                             rename_sample: bool = True) -> int:
     tp = mdir / "transcript.spk.json"
     turns = _read_json(tp, [])
     old_names, n = set(), 0
@@ -91,11 +93,12 @@ def _rename_voice_in_meeting(mdir: Path, slug: str, voice_id: str, new_name: str
     tp.write_text(json.dumps(turns, ensure_ascii=False, indent=1), encoding="utf-8")
     _rewrite_spk_md(mdir, slug, turns)
     # 试听片段跟随改名（best-effort）
-    samples = mdir / "samples"
-    for old in old_names:
-        src, dst = samples / f"{_safe(old)}.wav", samples / f"{_safe(new_name)}.wav"
-        if src.is_file() and not dst.exists():
-            src.rename(dst)
+    if rename_sample:
+        samples = mdir / "samples"
+        for old in old_names:
+            src, dst = samples / f"{_safe(old)}.wav", samples / f"{_safe(new_name)}.wav"
+            if src.is_file() and not dst.exists():
+                src.rename(dst)
     return n
 
 
@@ -204,6 +207,32 @@ class PersonPutReq(BaseModel):
     names: list[dict] = Field(default_factory=list)
 
 
+def person_rename_impact(person_id: str, display_name: str) -> dict:
+    display = display_name.strip()
+    if not display:
+        raise HTTPException(400, "首选显示名不能为空")
+    bank = vb.load_bank(BANK_DIR)
+    person = next((p for p in bank["persons"] if p["id"] == person_id), None)
+    if person is None:
+        raise HTTPException(404, "没有这个人")
+    voices = [v for v in bank["voices"] if v.get("person_id") == person_id]
+    voice_ids = {voice["id"] for voice in voices}
+    slugs = sorted({slug for voice in voices for slug in voice.get("sources", [])})
+    turns = 0
+    valid_slugs = []
+    for slug in slugs:
+        mdir = (MEETINGS / slug).resolve()
+        if mdir.parent != MEETINGS.resolve() or not mdir.is_dir():
+            continue
+        valid_slugs.append(slug)
+        turns += sum(1 for turn in _read_json(mdir / "transcript.spk.json", [])
+                     if turn.get("voice") in voice_ids)
+    return {"person_id": person_id,
+            "old_name": vb.person_name(bank, person_id), "new_name": display,
+            "meetings": len(valid_slugs), "turns": turns, "slugs": valid_slugs,
+            "model_calls": 0}
+
+
 @router.put("/api/speakers/person/{person_id}")
 def update_person(person_id: str, req: PersonPutReq):
     display = req.display_name.strip()
@@ -220,31 +249,55 @@ def update_person(person_id: str, req: PersonPutReq):
                       "verified": bool(item.get("verified", True))})
     if not any(vb.normalize_name(n["value"]) == vb.normalize_name(display) for n in typed):
         typed.append({"value": display, "type": "other", "verified": True})
-    with BANK_LOCK:
-        bank = vb.load_bank(BANK_DIR)
-        person = next((p for p in bank["persons"] if p["id"] == person_id), None)
-        if person is None:
-            raise HTTPException(404, "没有这个人")
-        person["display_name"] = display
-        person["names"] = typed
-        vb.normalize_person(person)
-        linked_voices = [v for v in bank["voices"] if v.get("person_id") == person_id]
-        vb.save_bank(BANK_DIR, bank)
-    changed_turns, changed_meeting_ids = 0, set()
-    for voice in linked_voices:
-        for slug in voice.get("sources", []):
-            mdir = (MEETINGS / slug).resolve()
-            if mdir.parent != MEETINGS.resolve() or not mdir.is_dir():
-                continue
-            count = _rename_voice_in_meeting(mdir, slug, voice["id"], display)
-            changed_turns += count
-            if count:
-                changed_meeting_ids.add(slug)
-    for slug in changed_meeting_ids:
-        _refresh_evidence(MEETINGS / slug)
+    impact = person_rename_impact(person_id, display)
+    with SPEAKER_OP_LOCK:
+        op_dir = prh.begin(BANK_DIR, MEETINGS, person_id, impact["slugs"])
+        try:
+            with BANK_LOCK:
+                bank = vb.load_bank(BANK_DIR)
+                person = next((p for p in bank["persons"] if p["id"] == person_id), None)
+                if person is None:
+                    raise HTTPException(404, "没有这个人")
+                person["display_name"] = display
+                person["names"] = typed
+                vb.normalize_person(person)
+                linked_voices = [v for v in bank["voices"] if v.get("person_id") == person_id]
+                vb.save_bank(BANK_DIR, bank)
+            changed_turns, changed_meeting_ids = 0, set()
+            for voice in linked_voices:
+                for slug in voice.get("sources", []):
+                    mdir = (MEETINGS / slug).resolve()
+                    if mdir.parent != MEETINGS.resolve() or not mdir.is_dir():
+                        continue
+                    count = _rename_voice_in_meeting(mdir, slug, voice["id"], display, False)
+                    changed_turns += count
+                    if count:
+                        changed_meeting_ids.add(slug)
+            for slug in changed_meeting_ids:
+                _refresh_evidence(MEETINGS / slug)
+            prh.complete(op_dir, BANK_DIR, MEETINGS)
+        except Exception:
+            prh.rollback(op_dir, BANK_DIR, MEETINGS, require_current=False)
+            raise
     return {"ok": True, "id": person_id, "display_name": person["display_name"],
             "names": person["names"], "meetings": len(changed_meeting_ids),
-            "turns": changed_turns}
+            "turns": changed_turns, "undo_available": True, "model_calls": 0}
+
+
+def undo_person_rename(person_id: str):
+    with SPEAKER_OP_LOCK:
+        available = prh.latest(BANK_DIR, MEETINGS, person_id)
+        if available is None:
+            raise HTTPException(404, "没有可撤销的显示名称修改，或此后数据已经变化")
+        op_dir, manifest = available
+        try:
+            with BANK_LOCK:
+                prh.rollback(op_dir, BANK_DIR, MEETINGS, require_current=True)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        for slug in manifest["slugs"]:
+            _refresh_evidence(MEETINGS / slug)
+    return {"ok": True, "operation": "display_rename", "person_id": person_id}
 
 
 @router.post("/api/speakers/bind")

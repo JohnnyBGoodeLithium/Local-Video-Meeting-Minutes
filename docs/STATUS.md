@@ -21,6 +21,10 @@
 
 ## 已实现，仍在验证（Implemented, under validation）
 
+- Companion 已扩展为 Phone／Tablet／Laptop 自适应 review：Home 固定 5 条最近内容，任务轮询不再夺取导航；详情提供概览、章节、人物、逐字稿四个 Tab，并共享音频／视频播放器与原文、翻译、双语字幕。
+- 匿名人物可确认已有人员或新建并绑定；已确认人物可单独预览并修改 canonical 显示名，跨会议修改有 revision guard 与撤销，简单绑定和显示改名均为 0 model calls。
+- MeetingPack Viewer 的匿名人物改名仍是按包隔离的本地 alias，不会变成 canonical 身份；新包可携带确定性 caption cue，旧包继续启动。
+
 - 公开视频链接与本地产品/发布会/讲解视频共用媒体分析核心，但叙事切分、复杂图表理解和长期质量矩阵仍弱于会议主旅程。
 - AI Context、KB Markdown/HTML 与 provider-neutral `KnowledgeSink` 已实现；真实知识库的权限、删除、规模和评测仍需受控验证。
 - 本地关键词、dense retrieval 与 reranker 已可用于单场证据问答；跨会议价值尚未形成稳定评测结论。

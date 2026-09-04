@@ -84,7 +84,7 @@ minutes = """# 会议纪要
 ![第2页](slides/page2.png)
 
 - **本页结论**：未形成结论
-- 讨论结束。 <!-- mm:evidence kind=discussion status=informational confidence=high turns=T000003 pages=P0002 -->
+- **决定**：结束本次合成评审。 <!-- mm:evidence kind=decision status=informational confidence=high turns=T000003 pages=P0002 -->
 """
 (mdir / "minutes.md").write_text(minutes, encoding="utf-8")
 

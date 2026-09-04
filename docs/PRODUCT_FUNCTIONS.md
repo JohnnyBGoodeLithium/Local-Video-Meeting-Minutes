@@ -120,6 +120,10 @@
 | 9.1.2.5 | 双语 UI 发布门禁 | 新增或修改的工作台/Viewer 用户文案必须同批提供中英投影；独立 DOM 模块显式接收语言/copy，Headless Chromium 实际切换语言并打开新增界面，避免只检查字典键。 | v0.14.2 | — | `ac55ae9` | P1 | 已实现，仍在验证 |
 | 9.1.3.1 | 统一内存资源护栏 | 健康时允许两个文本模型驻留；音频/视觉重阶段收缩为一个，120B 精修独占；越过安全线自动卸载并显示可恢复等待，避免会议与知识库争抢导致整机 OOM。 | v0.11.1 | — | `d0d9055` | P0 | 已实现，仍在验证 |
 
+| 10.1.1.1 | Companion 自适应回顾 | Home 显示 5 条 recent 与最多 2 条后台任务；Phone 单列、Tablet 内容＋播放器双列、Laptop Library＋正文＋播放器三列，轮询不改变路由。 | Unreleased | — | `fe58360` | P0 | 已实现，仍在真机验证 |
+| 10.1.1.2 | 统一视频与字幕 | Companion/Viewer 支持 audio-only 或 video、206 seek、关闭／原文／翻译／双语字幕；translation 必须匹配 source revision。 | Unreleased | — | `5eb77ce` | P0 | 已实现，仍在真机验证 |
+| 10.1.1.3 | 人物显示名与本地别名 | Companion 分开处理 canonical identity bind 和 display rename，均预览、可撤销且 0 model calls；Viewer alias 只存于单个 pack 的 localStorage。 | Unreleased | — | `4f9ab82` | P0 | 已实现，仍在真机验证 |
+
 ## 维护规则
 
 - 新增用户可感知功能时，必须在同一批提交中新增叶功能编号；不要等发布后补账。

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="color-scheme" content="light dark">
   <title>Meeting Context Companion</title>
-  <link rel="stylesheet" href="/static/companion.css?v=20260903p116">
+  <link rel="stylesheet" href="/static/companion.css?v=20260904r2">
 </head>
 <body>
   <header class="topbar">
@@ -23,23 +23,27 @@
     </section>
 
     <section id="home-view" class="view" hidden>
-      <p class="eyebrow">Companion · Experimental</p>
-      <h1 data-i18n="homeTitle">轻交互，重处理留在 X Ultra</h1>
-      <div class="actions">
-        <button id="send-link-open" class="action" type="button"><span>↗</span><strong data-i18n="sendLink">发送链接</strong></button>
-        <label class="action file-action"><span>▣</span><strong data-i18n="sendVideo">发送视频</strong><input id="video-file" type="file" accept="video/*"></label>
-        <label class="action file-action"><span>＋</span><strong data-i18n="sendFile">发送文件</strong><input id="file" type="file" accept="audio/*,video/*,.vtt,.docx"></label>
-      </div>
+      <p class="eyebrow" data-i18n="connected">X Ultra · 已连接</p>
+      <h1 data-i18n="homeTitle">继续处理会议内容</h1>
+      <button id="send-open" class="primary send-primary" type="button" data-i18n="sendToX">＋ 发送到 X Ultra</button>
       <div id="upload-progress" class="upload-progress" hidden><span id="upload-label">0%</span><progress id="upload-bar" max="100" value="0"></progress></div>
-      <div class="section-head"><h2 data-i18n="recent">最近项目</h2><button id="refresh" class="quiet" type="button" data-i18n="refresh">刷新</button></div>
+      <section id="processing-section" hidden><div class="section-head"><h2 data-i18n="processing">处理中</h2></div><div id="processing-list" class="list" aria-live="polite"></div></section>
+      <div class="section-head"><h2 data-i18n="recent">最近内容</h2><button id="refresh" class="quiet" type="button" data-i18n="refresh">刷新</button></div>
       <div id="recent" class="list" aria-live="polite"></div>
+      <button id="library-open" class="secondary full-width" type="button" data-i18n="viewAll">查看全部</button>
     </section>
 
-    <section id="link-view" class="view" hidden>
+    <section id="library-view" class="view" hidden>
       <button class="back quiet" type="button" data-back data-i18n="back">返回</button>
-      <h1 data-i18n="pasteLink">粘贴媒体链接</h1>
-      <form id="link-form"><label><span>URL</span><input id="url" type="url" inputmode="url" required placeholder="https://…"></label><button class="primary" data-i18n="sendTo">发送到 X Ultra</button></form>
-      <p id="link-state" class="status" role="status"></p>
+      <h1 data-i18n="library">内容库</h1>
+      <form id="library-filters" class="filters" role="search">
+        <label><span data-i18n="search">搜索</span><input id="library-query" type="search" autocomplete="off"></label>
+        <label><span data-i18n="contentType">类型</span><select id="library-type"><option value="" data-i18n="all">全部</option><option value="meeting">Meeting</option><option value="video">Video</option></select></label>
+        <label><span data-i18n="status">状态</span><select id="library-status"><option value="" data-i18n="all">全部</option><option value="processing" data-i18n="processing">处理中</option><option value="ready" data-i18n="ready">已完成</option></select></label>
+      </form>
+      <div id="library-list" class="list" aria-live="polite"></div>
+      <p id="library-empty" class="empty" data-i18n="noContent" hidden>暂无内容</p>
+      <button id="library-more" class="secondary full-width" type="button" data-i18n="loadMore" hidden>加载更多</button>
     </section>
 
     <section id="job-view" class="view" hidden>
@@ -49,24 +53,58 @@
       <button id="job-retry" class="secondary" type="button" data-i18n="retry">重试连接</button>
     </section>
 
-    <section id="item-view" class="view" hidden>
-      <button class="back quiet" type="button" data-back data-i18n="back">返回</button>
-      <p id="item-kind" class="eyebrow"></p><h1 id="item-title"></h1><p id="item-meta" class="lead"></p>
-      <section><h2 data-i18n="map">议题脉络</h2><div id="topics" class="list"></div></section>
-      <section><h2 data-i18n="people">人物</h2><div id="people" class="chips"></div></section>
-      <section><h2 data-i18n="conclusions">重要结论</h2><div id="conclusions" class="list"></div></section>
-      <section><h2 data-i18n="evidence">证据</h2><div id="evidence" class="list"></div></section>
+    <section id="item-view" class="view item-view" hidden>
+      <button class="back quiet" type="button" data-back data-i18n="backRecent">‹ 最近</button>
+      <header class="item-head"><p id="item-kind" class="eyebrow"></p><h1 id="item-title"></h1><p id="item-meta" class="lead"></p></header>
+      <div class="review-layout">
+        <div id="item-tabs" class="item-tabs" role="tablist" aria-label="Review views">
+          <button id="tab-overview" role="tab" aria-controls="panel-overview" data-tab="overview" data-i18n="overview">概览</button>
+          <button id="tab-chapters" role="tab" aria-controls="panel-chapters" data-tab="chapters" data-i18n="chapters">章节</button>
+          <button id="tab-people" role="tab" aria-controls="panel-people" data-tab="people" data-i18n="people">人物</button>
+          <button id="tab-transcript" role="tab" aria-controls="panel-transcript" data-tab="transcript" data-i18n="transcript">逐字稿</button>
+        </div>
+        <div class="tab-panels">
+          <section id="panel-overview" role="tabpanel" aria-labelledby="tab-overview">
+            <p id="item-summary" class="lead"></p>
+            <h2 data-i18n="conclusions">关键结论</h2><div id="conclusions" class="list"></div>
+          </section>
+          <section id="panel-chapters" role="tabpanel" aria-labelledby="tab-chapters" hidden><div id="chapters" class="list"></div><p id="chapters-empty" class="empty" hidden data-i18n="noChapters">章节尚未就绪</p></section>
+          <section id="panel-people" role="tabpanel" aria-labelledby="tab-people" hidden><div id="people" class="list"></div><p id="people-empty" class="empty" hidden data-i18n="noPeople">未找到人物</p></section>
+          <section id="panel-transcript" role="tabpanel" aria-labelledby="tab-transcript" hidden>
+            <form id="transcript-filters" class="transcript-filters" role="search"><label><span data-i18n="search">搜索</span><input id="transcript-query" type="search"></label><label><span data-i18n="people">人物</span><select id="transcript-speaker"><option value="" data-i18n="all">全部</option></select></label></form>
+            <div id="transcript" class="transcript-list"></div><p id="transcript-empty" class="empty" hidden data-i18n="transcriptNotReady">逐字稿尚未就绪</p><button id="transcript-more" class="secondary full-width" type="button" data-i18n="loadMore" hidden>加载更多</button>
+          </section>
+        </div>
+        <aside id="media-panel" class="media-panel">
+          <div id="media-placeholder" class="media-placeholder"><span aria-hidden="true">▶</span><strong data-i18n="player">播放器</strong><small data-i18n="chooseMoment">选择原文片段开始播放</small></div>
+          <div id="media-review" class="media-review" hidden>
+            <video id="video-player" controls playsinline preload="metadata" hidden></video>
+            <audio id="audio-player" controls preload="metadata" hidden></audio>
+            <div class="media-tools"><button id="media-previous" type="button" aria-label="Previous moment">←</button><button id="media-toggle" type="button" data-i18n="play">播放</button><button id="media-next" type="button" aria-label="Next moment">→</button></div>
+            <label><span data-i18n="captions">字幕</span><select id="caption-mode"><option value="off" data-i18n="off">关闭</option><option value="source" data-i18n="original">原文</option><option value="translation" data-i18n="translation">翻译</option><option value="bilingual" data-i18n="bilingual">双语</option></select></label>
+            <p id="caption-state" class="status" role="status"></p>
+          </div>
+        </aside>
+      </div>
     </section>
 
     <section id="person-view" class="view" hidden>
       <button class="back quiet" type="button" data-back-item data-i18n="back">返回</button><h1 id="person-name"></h1><p id="person-count" class="lead"></p>
       <div class="player-controls"><button id="previous" type="button">←</button><button id="play-person" class="primary" type="button" data-i18n="play">播放</button><button id="next" type="button">→</button></div>
       <div id="moments" class="list"></div>
-      <section id="speaker-correction" hidden><h2 data-i18n="who">这是谁？</h2><audio id="speaker-sample" controls preload="none"></audio><label><span data-i18n="knownPeople">已知人物</span><select id="candidate"></select></label><button id="preview-speaker" class="secondary" type="button" data-i18n="preview">预览更改</button><div id="speaker-preview" hidden><p id="speaker-preview-text" class="status"></p><button id="confirm-speaker" class="primary" type="button" data-i18n="confirm">确认身份</button></div><button id="undo-speaker" class="quiet" type="button" data-i18n="undo">撤销上次人物修改</button></section>
+      <section id="speaker-correction" hidden><h2 data-i18n="who">这是谁？</h2><audio id="speaker-sample" controls preload="none"></audio><div id="identity-choice"><label><span data-i18n="knownPeople">搜索已有人员</span><select id="candidate"></select></label><label class="check"><input id="create-person" type="checkbox"><span data-i18n="createPerson">输入新名称</span></label><label id="new-person-field" hidden><span data-i18n="newPersonName">新人物名称</span><input id="new-person-name" maxlength="120" autocomplete="off"></label><button id="preview-speaker" class="secondary" type="button" data-i18n="preview">预览更改</button><div id="speaker-preview" hidden><p id="speaker-preview-text" class="status"></p><button id="confirm-speaker" class="primary" type="button" data-i18n="confirm">确认身份</button></div><button id="undo-speaker" class="quiet" type="button" data-i18n="undo">撤销上次人物修改</button></div><div id="display-rename" hidden><button id="rename-open" class="quiet" type="button" data-i18n="editDisplayName">编辑显示名称</button><div id="rename-form" hidden><p class="muted" data-i18n="renameScope">这个名称会用于当前人物在其他已绑定会议中的显示。</p><label><span data-i18n="displayName">显示名称</span><input id="rename-name" maxlength="120" autocomplete="off"></label><button id="preview-rename" class="secondary" type="button" data-i18n="preview">预览更改</button><div id="rename-preview" hidden><p id="rename-preview-text" class="status"></p><button id="confirm-rename" class="primary" type="button" data-i18n="confirmRename">确认改名</button></div><button id="undo-rename" class="quiet" type="button" data-i18n="undoRename">撤销显示名修改</button></div></div></section>
     </section>
-    <audio id="player" preload="metadata"></audio>
     <div id="offline" class="offline" role="alert" hidden><strong data-i18n="cantReach">无法连接 X Ultra</strong><span id="last-connected"></span><button id="retry" type="button" data-i18n="retry">重试</button></div>
   </main>
-  <script type="module" src="/static/companion.js?v=20260903p116"></script>
+  <dialog id="send-dialog" aria-labelledby="send-title">
+    <form method="dialog" class="dialog-head"><h2 id="send-title" data-i18n="sendToX">发送到 X Ultra</h2><button id="send-close" class="quiet" value="cancel" aria-label="Close">×</button></form>
+    <form id="link-form"><label><span data-i18n="sendLink">发送链接</span><input id="url" type="url" inputmode="url" required placeholder="https://…"></label><button class="secondary full-width" data-i18n="sendLink">发送链接</button></form>
+    <div class="send-options">
+      <label class="file-option"><span>▣</span><strong data-i18n="sendVideo">从照片选择视频</strong><input id="video-file" type="file" accept="video/*"></label>
+      <label class="file-option"><span>＋</span><strong data-i18n="sendFile">选择音频或文件</strong><input id="file" type="file" accept="audio/*,video/*,.vtt,.docx"></label>
+    </div>
+    <p id="link-state" class="status" role="status"></p>
+  </dialog>
+  <script type="module" src="/static/companion.js?v=20260904r2"></script>
 </body>
 </html>

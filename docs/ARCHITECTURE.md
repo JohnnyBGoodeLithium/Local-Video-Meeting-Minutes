@@ -198,3 +198,17 @@ ASR、说话人或覆盖当前可读结果。该模式不改变 canonical schema
 Experimental Companion 的 transport 固定为 `Phone → tailnet HTTPS → Tailscale Serve → http://127.0.0.1:<port>`。Serve 与 Funnel 是不同边界；本原型禁止 Funnel，也不把 FastAPI 改为 `0.0.0.0`。
 
 `/api/companion/**` 是独立 controller/projection 层。它复用现有 jobs、canonical meeting、evidence/media 和 speaker correction 服务，不拥有第二套会议、人物或队列状态。应用授权由哈希保存的一次性 pairing token、可撤销 HttpOnly session、能力白名单、同源检查和双提交 CSRF 共同约束。Tailscale identity header 只作为近似 metadata，不能替代应用 session。
+
+### Review、media 与 caption 合同
+
+- `GET /library` 使用 opaque offset cursor，服务端限制每页最多 50；Home 请求 5，完整 Library 请求 20。
+- `GET /items/{id}` 只返回 allowlist 概览；章节和逐字稿分别按需读取，逐字稿每页最多 50。
+- `GET /items/{id}/media/{audio|video}` 复用 Starlette `FileResponse`，首包为 200，合法 byte range 为 206，并返回 `Accept-Ranges`／`Content-Range`。
+- `GET /items/{id}/captions/{source|translation|bilingual}.vtt` 以当前逐字稿和人物 display revision 投影 WebVTT；translation 只接受 revision 匹配的 ready sidecar，否则 409 stale。
+- MeetingPack 可选写入相同 caption cue 数据；Viewer 运行时安装原生 `TextTrack`，旧包缺少 cue 时保持无字幕兼容路径。
+
+导航状态只由 `companion-router.js` 管理，后台 job poll 只更新安全 sessionStorage 指针和卡片，不得调用路由。播放器状态独立于 Tab／人物 projection，所以人物确认或显示改名不会重置时间。
+
+### 人物显示与语义身份
+
+简单 bind 改变 voice→person attribution；display rename 只改变已确认 person 的首选显示名。二者都只重建逐字稿显示、people/evidence/caption 等确定性投影，不触发 ASR、diarization、VL、纪要、Topic Map 或翻译模型。跨会议 display rename 在私有 bank history 中保存 bank 与相关逐字稿 revision 快照，撤销前拒绝覆盖更新的数据。旧纪要自然语言正文不做全局字符串替换。

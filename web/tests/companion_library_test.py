@@ -43,6 +43,23 @@ with tempfile.TemporaryDirectory(prefix="companion-library-") as tmp:
     encoded = json.dumps(item)
     assert "Synthetic topic" in encoded and "Synthetic conclusion" in encoded
     assert str(root) not in encoded and "voice_ids" not in encoded
-    assert item["people"] == [{"name": "Speaker A", "moment_count": 1}]
+    assert item["people"] == [{"name": "Speaker A", "moment_count": 1,
+                               "duration": 3.0, "needs_confirmation": True}]
+    chapter_page = projection.chapters(mdir)
+    assert chapter_page["state"] == "ready"
+    assert chapter_page["chapters"][0]["title"] == "Synthetic topic"
+    many_turns = [{"speaker": "Speaker A" if index % 2 else "Alex", "start": index,
+                   "end": index + 1, "text": f"Synthetic turn {index}"}
+                  for index in range(55)]
+    (mdir / "transcript.spk.json").write_text(
+        json.dumps(many_turns), encoding="utf-8")
+    first_turns = projection.transcript_page(mdir)
+    assert len(first_turns["turns"]) == 50 and first_turns["next_cursor"]
+    second_turns = projection.transcript_page(mdir, cursor=first_turns["next_cursor"])
+    assert len(second_turns["turns"]) == 5 and second_turns["next_cursor"] is None
+    assert projection.transcript_page(mdir, speaker="Alex")["total"] == 28
+    page = projection.library_page(root, limit=1, query="synthetic", content_type="meeting")
+    assert len(page["items"]) == 1 and page["next_cursor"] is None
+    assert projection.library_page(root, status="processing")["items"] == []
 
 print("companion library: safe recent/item projection passed")

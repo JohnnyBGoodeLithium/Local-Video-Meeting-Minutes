@@ -14,11 +14,12 @@ from routers import companion  # noqa: E402
 
 grant = SessionGrant("synthetic", "Phone", ("review",))
 companion.companion_projection.item = lambda _mdir: {
-    "evidence": [{"id": "C00001", "start": 2, "end": 4, "text": "Synthetic"}]}
+    "evidence": [{"id": "C00001", "start": 2, "end": 4, "text": "Synthetic"}],
+    "media": {"video": True, "audio": True}}
 companion._mdir = lambda slug: Path("/tmp/synthetic") if slug == "item-a" else (_ for _ in ()).throw(
     HTTPException(404, "meeting not found"))
 value = companion.companion_evidence("item-a", "C00001", grant)
-assert value["media_url"].endswith("/item-a/media/audio")
+assert value["media_kind"] == "video" and value["media_url"].endswith("/item-a/media/video")
 try:
     companion.companion_evidence("item-a", "OTHER", grant)
 except HTTPException as exc:

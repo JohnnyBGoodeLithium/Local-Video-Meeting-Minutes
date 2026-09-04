@@ -90,7 +90,10 @@ package-check:
 	$(PY) web/tests/speaker_history_test.py
 	$(PY) web/tests/voice_fragment_merge_test.py
 	$(PY) web/tests/speaker_navigation_test.py
+	$(PY) web/tests/identity_no_rerun_test.py
+	$(PY) web/tests/person_rename_history_test.py
 	$(PY) web/tests/translation_service_test.py
+	$(PY) web/tests/caption_projection_test.py
 	$(PY) web/tests/keyword_service_test.py
 	$(PY) web/tests/keyword_index_test.py
 	$(PY) web/tests/kb_document_test.py
@@ -103,12 +106,14 @@ package-check:
 	$(PY) web/tests/companion_library_test.py
 	$(PY) web/tests/companion_job_status_test.py
 	$(PY) web/tests/companion_evidence_test.py
+	$(PY) web/tests/companion_media_range_test.py
+	$(PY) web/tests/companion_caption_test.py
 	$(PY) web/tests/companion_import_url_test.py
 	$(PY) web/tests/companion_upload_test.py
 	$(PY) web/tests/companion_speaker_confirmation_test.py
 	$(PY) web/tests/companion_tailscale_doctor_test.py
 	$(PY) web/tests/viewer_boot_test.py
-	@if command -v node >/dev/null 2>&1; then node --check web/static/app.js && node --check web/static/admin.js && node --check web/static/product-copy.js && node --check web/static/product-demo.js && node --check web/static/product.js && node --check web/static/companion.js && node web/tests/frontend_modules_test.mjs && node web/tests/live_context_frontend_test.mjs && node web/tests/job_progress_frontend_test.mjs && node web/tests/photo_import_frontend_test.mjs && node web/tests/speaker_correction_frontend_test.mjs && node web/tests/assistant_intent_test.mjs && node web/tests/product_demo_frontend_test.mjs && node web/tests/companion_frontend_test.mjs; else echo "Node unavailable: skipped JS syntax check"; fi
+	@if command -v node >/dev/null 2>&1; then node --check web/static/app.js && node --check web/static/admin.js && node --check web/static/product-copy.js && node --check web/static/product-demo.js && node --check web/static/product.js && node --check web/static/companion.js && node --check web/static/companion-state.js && node --check web/static/companion-router.js && node web/tests/frontend_modules_test.mjs && node web/tests/live_context_frontend_test.mjs && node web/tests/job_progress_frontend_test.mjs && node web/tests/photo_import_frontend_test.mjs && node web/tests/speaker_correction_frontend_test.mjs && node web/tests/assistant_intent_test.mjs && node web/tests/product_demo_frontend_test.mjs && node web/tests/companion_frontend_test.mjs && node web/tests/companion_navigation_test.mjs; else echo "Node unavailable: skipped JS syntax check"; fi
 
 smoke: export MEETING_RESOURCE_GUARD=0
 smoke:
