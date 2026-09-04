@@ -297,6 +297,19 @@ if chrome:
           in companion_browser.stdout,
           f"rc={companion_browser.returncode}, out={companion_browser.stdout[-500:]!r}, "
           f"err={companion_browser.stderr[-500:]!r}")
+    screenshot_root = os.environ.get("MM_COMPANION_SCREENSHOT_DIR")
+    if screenshot_root:
+        expected_ux = {
+            "phone-home-393.png", "phone-send-sheet-393.png", "phone-processing-393.png",
+            "phone-overview-393.png", "phone-chapters-393.png", "phone-people-393.png",
+            "phone-transcript-player-393.png", "phone-speaker-confirm-393.png",
+            "phone-video-caption-393.png", "tablet-review-820.png",
+            "tablet-landscape-1180.png", "laptop-review-1440.png",
+            "viewer-caption-1440.png", "viewer-local-rename-1440.png",
+        }
+        actual_ux = {path.name for path in Path(screenshot_root).glob("*.png")}
+        check("Companion/Viewer 生成 14 张合成视觉走查截图",
+              expected_ux <= actual_ux, f"missing={sorted(expected_ux - actual_ux)}")
     # Companion 旅程真实执行了 speaker bind/undo 往返；undo 恢复逐字稿与声纹库，
     # 但按现有事务语义保留改名后的试听样本文件。这里把夹具样本恢复到旅程前快照，
     # 避免污染后序主线断言（与 undo 的产品语义无关）。

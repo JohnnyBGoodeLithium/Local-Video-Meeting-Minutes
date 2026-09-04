@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from meeting_core import photos as meeting_photos
+from person_display import display_person
 
 
 EVIDENCE_SCHEMA = "meeting-minutes-evidence/v1"
@@ -176,7 +177,7 @@ def load_speaker_profiles(turns: list[dict], bank_dir: Path | None) -> list[dict
             "speaker": speaker,
             "voice_ids": voice_ids,
             "person_id": pid,
-            "display_name": person.get("display_name") or person.get("name") or speaker,
+            "display_name": display_person(person, session_label=speaker),
             "identity_basis": "verified_voice_binding" if pid else "speaker_label_only",
             "title": str((entry or {}).get("title") or ""),
             "team": str((entry or {}).get("team") or ""),

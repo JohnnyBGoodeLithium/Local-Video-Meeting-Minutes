@@ -8,16 +8,21 @@ from pathlib import Path
 import secrets
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, Cookie, Depends, File, Header, HTTPException, Request, Response, UploadFile
+from fastapi import APIRouter, Cookie, Depends, File, Header, HTTPException, Query, Request, Response, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import qrcode
 import qrcode.image.svg
+import hashlib
 
+import translation_service
+import caption_service
+import caption_projection
 from companion_security import (CSRF_COOKIE, SESSION_COOKIE, CompanionStore, SessionGrant,
                                 enabled)
 import companion_projection
-from deps import DATA_ROOT, MEETINGS, STATIC, _audio_path, _mdir, _video_path
+from deps import (BANK_DIR, DATA_ROOT, MEETINGS, STATIC, _audio_path, _current_evidence,
+                  _mdir, _meeting_identity, _read_json, _video_path)
 from job_store import JOBS
 from routers import jobs as job_routes
 from routers import media as media_routes
@@ -103,6 +108,13 @@ class LinkImport(BaseModel):
 class SpeakerConfirmation(BaseModel):
     voice_id: str
     person_name: str
+    confirm: bool = False
+    create: bool = False
+
+
+class PersonDisplayRename(BaseModel):
+    voice_id: str
+    display_name: str
     confirm: bool = False
 
 
@@ -192,18 +204,76 @@ def current_session(grant: SessionGrant = Depends(_session)):
 
 
 @router.get("/library")
-def companion_library(_grant: SessionGrant = Depends(require("review"))):
-    return {"items": companion_projection.library(MEETINGS)}
+def companion_library(limit: int = Query(20, ge=1, le=50), cursor: str | None = None,
+                      query: str = Query("", max_length=120),
+                      content_type: str = Query("", alias="type", pattern="^(|meeting|video)$"),
+                      status: str = Query("", pattern="^(|processing|ready)$"),
+                      _grant: SessionGrant = Depends(require("review"))):
+    return companion_projection.library_page(
+        MEETINGS, limit=limit, cursor=cursor, query=query,
+        content_type=content_type, status=status)
 
 
 @router.get("/items/{item_id}")
 def companion_item(item_id: str, _grant: SessionGrant = Depends(require("review"))):
-    return companion_projection.item(_mdir(item_id))
+    mdir = _mdir(item_id)
+    value = companion_projection.item(mdir)
+    title = str(_meeting_identity(item_id).get("title") or item_id)
+    evidence = _current_evidence(mdir)
+    translations = {target: translation_service.translation_payload(
+        mdir, title, evidence, target=target).get("state")
+        for target in translation_service.TARGETS}
+    value["captions"] = {"source": bool(_read_json(mdir / "transcript.spk.json", [])),
+                         "translations": translations}
+    return value
+
+
+def _caption_payload(item_id: str, target: str) -> tuple[dict, list[dict]]:
+    mdir = _mdir(item_id)
+    title = str(_meeting_identity(item_id).get("title") or item_id)
+    return caption_service.payload(mdir, title, _current_evidence(mdir), BANK_DIR, target)
+
+
+@router.get("/items/{item_id}/captions/{track}.vtt")
+def companion_captions(item_id: str, track: str,
+                       target: str = Query("en", pattern="^(en|zh-CN)$"),
+                       speaker: str = Query("auto", pattern="^(auto|show|hide)$"),
+                       if_none_match: str = Header("", alias="If-None-Match"),
+                       _grant: SessionGrant = Depends(require("review"))):
+    mode = track.removesuffix(".vtt")
+    if mode not in {"source", "translation", "bilingual"}:
+        raise HTTPException(404, "Caption track unavailable")
+    translation, cues = _caption_payload(item_id, target)
+    if mode != "source" and translation.get("state") != "ready":
+        raise HTTPException(409, "Translation is unavailable or awaiting revision refresh")
+    content_type = str(_meeting_identity(item_id).get("content_type") or "meeting")
+    body = caption_projection.render_vtt(
+        cues, mode=mode, speaker=speaker, content_type=content_type)
+    etag = '"' + hashlib.sha256(body.encode("utf-8")).hexdigest()[:24] + '"'
+    headers = {"ETag": etag, "Cache-Control": "private, max-age=300, must-revalidate"}
+    if if_none_match == etag:
+        return Response(status_code=304, headers=headers)
+    return Response(body, media_type="text/vtt", headers=headers)
 
 
 @router.get("/items/{item_id}/people")
 def companion_people(item_id: str, _grant: SessionGrant = Depends(require("review"))):
     return {"people": companion_projection.item(_mdir(item_id))["people"]}
+
+
+@router.get("/items/{item_id}/chapters")
+def companion_chapters(item_id: str, _grant: SessionGrant = Depends(require("review"))):
+    return companion_projection.chapters(_mdir(item_id))
+
+
+@router.get("/items/{item_id}/transcript")
+def companion_transcript(item_id: str, limit: int = Query(50, ge=1, le=100),
+                         cursor: str | None = None,
+                         speaker: str = Query("", max_length=120),
+                         query: str = Query("", max_length=120),
+                         _grant: SessionGrant = Depends(require("review"))):
+    return companion_projection.transcript_page(
+        _mdir(item_id), limit=limit, cursor=cursor, speaker=speaker, query=query)
 
 
 @router.get("/items/{item_id}/people/{name}")
@@ -222,7 +292,12 @@ def companion_evidence(item_id: str, evidence_id: str,
     evidence = next((row for row in value["evidence"] if row["id"] == evidence_id), None)
     if evidence is None:
         raise HTTPException(404, "Evidence not found in this item")
-    return {**evidence, "media_url": f"/api/companion/items/{item_id}/media/audio"}
+    media_kind = "video" if value.get("media", {}).get("video") else "audio"
+    if not value.get("media", {}).get(media_kind):
+        raise HTTPException(404, "Approved meeting media unavailable")
+    return {**evidence, "media_kind": media_kind,
+            "media_url": f"/api/companion/items/{item_id}/media/{media_kind}",
+            "caption_availability": value.get("captions", {})}
 
 
 @router.get("/items/{item_id}/media/{kind}")
@@ -260,12 +335,13 @@ async def companion_import_file(file: UploadFile = File(...),
     return companion_projection.job(result, [result])
 
 
-def _voice_in_item(item_id: str, voice_id: str) -> None:
+def _voice_in_item(item_id: str, voice_id: str) -> int:
     mdir = _mdir(item_id)
     turns = companion_projection._read_json(mdir / "transcript.spk.json", [])
     if not any(voice_id in row["voice_ids"]
                for row in companion_projection.people_rows(mdir, turns)):
         raise HTTPException(404, "Speaker cluster not found in this item")
+    return sum(1 for turn in turns if turn.get("voice") == voice_id)
 
 
 @router.get("/items/{item_id}/speaker-correction/{voice_id}")
@@ -275,7 +351,12 @@ def speaker_correction_options(item_id: str, voice_id: str,
     people = speaker_routes.list_speakers()["persons"]
     candidates = [{"id": row["id"], "name": row["display_name"]}
                   for row in people if row.get("display_name")][:40]
+    bank = speaker_routes.vb.load_bank(speaker_routes.BANK_DIR)
+    voice = next((row for row in bank["voices"] if row["id"] == voice_id), None)
+    person_id = voice.get("person_id") if voice else None
     return {"voice_id": voice_id, "candidates": candidates,
+            "confirmed_person": ({"id": person_id,
+                "name": speaker_routes.vb.person_name(bank, person_id)} if person_id else None),
             "sample_url": f"/api/companion/items/{item_id}/speaker-sample/{voice_id}",
             "confirmation_required": True, "provenance": "human_confirmed"}
 
@@ -291,15 +372,18 @@ def companion_speaker_sample(item_id: str, voice_id: str,
 def companion_speaker_confirmation(
         item_id: str, payload: SpeakerConfirmation,
         _grant: SessionGrant = Depends(require("speaker_confirm", write=True))):
-    _voice_in_item(item_id, payload.voice_id)
+    count = _voice_in_item(item_id, payload.voice_id) or 0
     preview = {"voice_id": payload.voice_id, "person_name": payload.person_name.strip(),
-               "provenance": "human_confirmed", "will_update": "existing speaker correction"}
+               "provenance": "human_confirmed", "create": payload.create,
+               "turns": count,
+               "will_update": ["people", "transcript labels", "captions", "evidence display"],
+               "will_not_run": ["ASR", "diarization", "visual analysis", "minutes generation"]}
     if not payload.person_name.strip():
         raise HTTPException(400, "Choose an existing person")
     if not payload.confirm:
         return {"state": "preview", "preview": preview}
     result = speaker_routes.bind_in_meeting(item_id, speaker_routes.BindReq(
-        voice=payload.voice_id, name=payload.person_name.strip(), create=False))
+        voice=payload.voice_id, name=payload.person_name.strip(), create=payload.create))
     return {"state": "confirmed", "preview": preview, "result": result,
             "undo_available": bool(result.get("undo_available"))}
 
@@ -308,3 +392,34 @@ def companion_speaker_confirmation(
 def companion_speaker_undo(
         item_id: str, _grant: SessionGrant = Depends(require("speaker_confirm", write=True))):
     return speaker_routes.undo_speaker_operation(item_id)
+
+
+@router.post("/items/{item_id}/person-display-name")
+def companion_person_display_name(
+        item_id: str, payload: PersonDisplayRename,
+        _grant: SessionGrant = Depends(require("speaker_confirm", write=True))):
+    _voice_in_item(item_id, payload.voice_id)
+    bank = speaker_routes.vb.load_bank(speaker_routes.BANK_DIR)
+    voice = next((row for row in bank["voices"] if row["id"] == payload.voice_id), None)
+    if not voice or not voice.get("person_id"):
+        raise HTTPException(409, "Confirm this person's identity before editing the display name")
+    impact = speaker_routes.person_rename_impact(voice["person_id"], payload.display_name)
+    if not payload.confirm:
+        return {"state": "preview", "preview": impact,
+                "notice": "This name is used in other meetings already bound to this person"}
+    result = speaker_routes.update_person(voice["person_id"], speaker_routes.PersonPutReq(
+        display_name=payload.display_name, names=[]))
+    return {"state": "confirmed", "preview": impact, "result": result,
+            "legacy_minutes_notice": "Older minutes prose is not destructively rewritten"}
+
+
+@router.post("/items/{item_id}/person-display-name/undo")
+def companion_person_display_name_undo(
+        item_id: str, payload: PersonDisplayRename,
+        _grant: SessionGrant = Depends(require("speaker_confirm", write=True))):
+    _voice_in_item(item_id, payload.voice_id)
+    bank = speaker_routes.vb.load_bank(speaker_routes.BANK_DIR)
+    voice = next((row for row in bank["voices"] if row["id"] == payload.voice_id), None)
+    if not voice or not voice.get("person_id"):
+        raise HTTPException(409, "This voice is not bound to a canonical person")
+    return speaker_routes.undo_person_rename(voice["person_id"])

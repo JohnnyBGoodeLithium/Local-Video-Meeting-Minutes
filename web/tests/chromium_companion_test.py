@@ -53,10 +53,29 @@ def screenshot(cdp: CDP, name: str) -> None:
     (path / name).write_bytes(base64.b64decode(data["data"]))
 
 
+def viewport(cdp: CDP, width: int, height: int) -> None:
+    cdp.call("Emulation.setDeviceMetricsOverride", {
+        "width": width, "height": height, "deviceScaleFactor": 1, "mobile": width < 600,
+    })
+    time.sleep(.2)
+
+
 def main() -> int:
     if not CHROME:
         print("companion browser: chromium not found, skipped")
         return 0
+    generated_video = None
+    test_root = os.environ.get("MM_TEST_ROOT")
+    if test_root and shutil.which("ffmpeg"):
+        candidate = Path(test_root) / "meetings" / "_smoke" / "source_video.mp4"
+        if not candidate.exists():
+            subprocess.run([
+                "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                "-f", "lavfi", "-i", "color=c=0x172033:s=640x360:d=10",
+                "-f", "lavfi", "-i", "anullsrc=r=16000:cl=mono", "-shortest",
+                "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", str(candidate),
+            ], check=True)
+            generated_video = candidate
     pairing = http("/api/companion/admin/pairings", "POST", {})
     with tempfile.TemporaryDirectory(prefix="mm-chromium-companion-",
                                      ignore_cleanup_errors=True) as tmp:
@@ -64,7 +83,7 @@ def main() -> int:
         process = subprocess.Popen([
             CHROME, "--headless=new", "--disable-gpu", "--no-sandbox",
             "--remote-debugging-port=0", "--remote-allow-origins=*",
-            f"--user-data-dir={profile}", "--window-size=390,844",
+            f"--user-data-dir={profile}", "--window-size=393,852",
             "about:blank",
         ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         try:
@@ -129,38 +148,77 @@ def main() -> int:
                 assert cdp.evaluate("document.documentElement.scrollWidth<=innerWidth")
                 assert pairing["token"] not in cdp.evaluate("location.href"), \
                     "pairing token must be cleared from the address bar after connect"
-                screenshot(cdp, "companion-390-zh.png")
+                screenshot(cdp, "phone-home-393.png")
 
-                cdp.evaluate("document.querySelector('#send-link-open').click();document.querySelector('#url').value='https://example.test/synthetic';document.querySelector('#link-form').requestSubmit()")
-                wait(cdp, "!document.querySelector('#job-view').hidden", "send URL and job status")
-                cdp.evaluate("document.querySelector('[data-back]').click();document.querySelector('#refresh').click()")
+                cdp.evaluate("document.querySelector('#send-open').click()")
+                screenshot(cdp, "phone-send-sheet-393.png")
+                cdp.evaluate("document.querySelector('#url').value='https://example.test/synthetic';document.querySelector('#link-form').requestSubmit()")
+                wait(cdp, "!document.querySelector('#home-view').hidden", "send URL returns home")
+                wait(cdp, "document.querySelector('#processing-list .row')!==null", "processing card")
+                screenshot(cdp, "phone-processing-393.png")
+                time.sleep(3)
+                assert cdp.evaluate("!document.querySelector('#home-view').hidden"), \
+                    "background polling must not navigate away from Home"
+                if cdp.evaluate("document.querySelector('#processing-list .row')!==null"):
+                    cdp.evaluate("document.querySelector('#processing-list .row').click()")
+                    wait(cdp, "!document.querySelector('#job-view').hidden", "open job manually")
+                    cdp.call("Runtime.evaluate", {"expression": "history.back()"})
+                    wait(cdp, "!document.querySelector('#home-view').hidden", "browser Back returns Home")
+                cdp.evaluate("document.querySelector('#refresh').click()")
                 wait(cdp, "document.querySelectorAll('#recent .row').length", "recent")
-                wait(cdp, "sessionStorage.getItem('companion:job-pointer:v1')===null",
+                wait(cdp, "JSON.parse(sessionStorage.getItem('companion:tracked-jobs:v2')||'[]').length===0",
                      "URL import job reached a terminal state")
                 cdp.evaluate("(()=>{const f=new File([new Blob([new Uint8Array(2*1024*1024)],{type:'audio/wav'})],'synthetic-upload.wav',{type:'audio/wav'});const dt=new DataTransfer();dt.items.add(f);const input=document.querySelector('#file');input.files=dt.files;input.dispatchEvent(new Event('change',{bubbles:true}))})()")
                 wait(cdp, "!document.querySelector('#upload-progress').hidden && document.querySelector('#upload-label').textContent.includes('%')", "upload progress UI")
-                wait(cdp, "!document.querySelector('#job-view').hidden", "upload created a job")
-                wait(cdp, "sessionStorage.getItem('companion:job-pointer:v1')!==null",
-                     "active job leaves a sessionStorage recovery pointer")
-                pointer_id = cdp.evaluate("JSON.parse(sessionStorage.getItem('companion:job-pointer:v1')).id")
+                wait(cdp, "!document.querySelector('#home-view').hidden", "upload returns Home")
+                wait(cdp, "JSON.parse(sessionStorage.getItem('companion:tracked-jobs:v2')||'[]').length>0",
+                     "active job leaves a safe tracked-jobs record")
+                pointer_id = cdp.evaluate("JSON.parse(sessionStorage.getItem('companion:tracked-jobs:v2'))[0].id")
                 assert pointer_id, "active job must leave a sessionStorage recovery pointer"
-                cdp.evaluate(f"sessionStorage.setItem('companion:job-pointer:v1',JSON.stringify({{id:{json.dumps(pointer_id)},title:'synthetic'}}))")
                 cdp.call("Page.navigate", {"url": f"{BASE}/companion"})
                 wait(cdp, "document.readyState==='complete' && performance.getEntriesByType('resource')"
                           f".some(x=>x.name.includes('/api/companion/jobs/{pointer_id}'))",
                      "refresh re-queries the tracked job from the API")
-                wait(cdp, "sessionStorage.getItem('companion:job-pointer:v1')===null",
+                assert cdp.evaluate("!document.querySelector('#home-view').hidden"), \
+                    "refresh with a running job must open Home"
+                wait(cdp, "JSON.parse(sessionStorage.getItem('companion:tracked-jobs:v2')||'[]').length===0",
                      "tracked job reached a terminal state")
-                cdp.evaluate("if(!document.querySelector('#job-view').hidden)document.querySelector('#job-view [data-back]').click()")
                 wait(cdp, "!document.querySelector('#home-view').hidden && document.querySelectorAll('#recent .row').length", "home after refresh recovery")
                 cdp.evaluate("document.querySelector('#recent .row').click()")
-                wait(cdp, "!document.querySelector('#item-view').hidden && document.querySelectorAll('#people button').length", "open meeting")
-                cdp.evaluate("document.querySelector('#evidence .row')?.click()")
+                wait(cdp, "!document.querySelector('#item-view').hidden && document.querySelectorAll('#people .row').length", "open meeting")
+                assert cdp.evaluate("document.querySelectorAll('[role=tabpanel]:not([hidden])').length===1")
+                assert cdp.evaluate("document.querySelectorAll('#recent .row').length<=5")
+                screenshot(cdp, "phone-overview-393.png")
+                cdp.evaluate("document.querySelector('#tab-chapters').click()")
+                wait(cdp, "!document.querySelector('#panel-chapters').hidden && document.querySelectorAll('#chapters .row').length", "Chapters tab")
+                screenshot(cdp, "phone-chapters-393.png")
+                cdp.evaluate("document.querySelector('#tab-people').click()")
+                wait(cdp, "!document.querySelector('#panel-people').hidden", "People tab")
+                screenshot(cdp, "phone-people-393.png")
+                cdp.evaluate("document.querySelector('#tab-transcript').click()")
+                wait(cdp, "!document.querySelector('#panel-transcript').hidden && document.querySelectorAll('#transcript .transcript-turn').length", "Transcript tab")
+                assert cdp.evaluate("document.querySelectorAll('#transcript .transcript-turn').length<=50")
+                cdp.evaluate("document.querySelector('#transcript .transcript-turn button').click()")
+                screenshot(cdp, "phone-transcript-player-393.png")
+                cdp.evaluate("document.querySelector('#caption-mode').value='source';document.querySelector('#caption-mode').dispatchEvent(new Event('change',{bubbles:true}))")
+                screenshot(cdp, "phone-video-caption-393.png")
+                viewport(cdp, 820, 1180)
+                cdp.evaluate("document.querySelector('#tab-overview').click()")
+                screenshot(cdp, "tablet-review-820.png")
+                viewport(cdp, 1180, 820)
+                screenshot(cdp, "tablet-landscape-1180.png")
+                viewport(cdp, 1440, 900)
+                screenshot(cdp, "laptop-review-1440.png")
+                viewport(cdp, 393, 852)
+                cdp.evaluate("document.querySelector('#conclusions .row')?.click()")
                 wait(cdp, "performance.getEntriesByType('resource').some(x=>x.name.includes('/media/audio'))", "evidence request")
-                cdp.evaluate("document.querySelector('#people button').click()")
+                cdp.evaluate("document.querySelector('#tab-people').click()")
+                wait(cdp, "!document.querySelector('#panel-people').hidden", "People tab")
+                cdp.evaluate("document.querySelector('#people .row').click()")
                 wait(cdp, "!document.querySelector('#person-view').hidden && !document.querySelector('#speaker-correction').hidden", "person focus")
                 cdp.evaluate("document.querySelector('#preview-speaker').click()")
                 wait(cdp, "!document.querySelector('#speaker-preview').hidden", "speaker preview")
+                screenshot(cdp, "phone-speaker-confirm-393.png")
                 original_person = cdp.evaluate("document.querySelector('#person-name').textContent")
                 target_person = cdp.evaluate("document.querySelector('#candidate').value")
                 cdp.evaluate("document.querySelector('#confirm-speaker').click()")
@@ -172,13 +230,13 @@ def main() -> int:
                      "undo restored the original person projection")
                 cdp.evaluate("document.querySelector('#language').click()")
                 assert cdp.evaluate("document.documentElement.lang==='en' && document.querySelectorAll('button:not([disabled])').length>5")
-                screenshot(cdp, "companion-390-en.png")
+                assert cdp.evaluate("[...document.querySelectorAll('[role=tab]')].every(x=>x.getAttribute('aria-selected')==='true'||x.getAttribute('aria-selected')==='false')")
 
                 sessions = http("/api/companion/admin/sessions")["sessions"]
                 http(f"/api/companion/admin/sessions/{sessions[0]['id']}/revoke", "POST", {})
                 cdp.evaluate("document.querySelector('#refresh').click()")
                 wait(cdp, "!document.querySelector('#offline').hidden && document.querySelector('#offline').textContent.includes('revoked')", "revoked session")
-                assert cdp.evaluate("sessionStorage.getItem('companion:job-pointer:v1')===null"), \
+                assert cdp.evaluate("sessionStorage.getItem('companion:tracked-jobs:v2')===null"), \
                     "revoke must clear the local job recovery pointer"
                 cdp.evaluate("document.querySelector('#retry').click()")
                 wait(cdp, "!document.querySelector('#offline').hidden", "retry keeps the revoked offline state")
@@ -193,6 +251,8 @@ def main() -> int:
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait(timeout=5)
+            if generated_video:
+                generated_video.unlink(missing_ok=True)
     print("companion browser: pairing, URL, upload progress, status, review, evidence, person, "
           "speaker confirm/undo, refresh recovery, revoke, bilingual and 390px passed")
     return 0

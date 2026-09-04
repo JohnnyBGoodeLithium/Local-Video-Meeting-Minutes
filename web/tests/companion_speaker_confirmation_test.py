@@ -17,6 +17,7 @@ calls = []
 companion._voice_in_item = lambda item, voice: calls.append(("scope", item, voice))
 companion.speaker_routes.list_speakers = lambda: {"persons": [
     {"id": "p_1", "display_name": "Synthetic Person", "aliases": ["not exposed"]}]}
+companion.speaker_routes.vb.load_bank = lambda _path: {"persons": [], "voices": []}
 companion.speaker_routes.bind_in_meeting = lambda item, req: calls.append(
     ("bind", item, req.voice, req.name, req.create)) or {
         "ok": True, "name": req.name, "turns": 2, "how": "精确", "undo_available": True}
@@ -36,6 +37,11 @@ confirmed = companion.companion_speaker_confirmation(
     "synthetic-item", payload.model_copy(update={"confirm": True}), grant)
 assert confirmed["state"] == "confirmed" and confirmed["undo_available"]
 assert ("bind", "synthetic-item", "v_1", "Synthetic Person", False) in calls
+created = companion.companion_speaker_confirmation(
+    "synthetic-item", payload.model_copy(update={
+        "person_name": "New Synthetic Person", "create": True, "confirm": True}), grant)
+assert created["state"] == "confirmed"
+assert ("bind", "synthetic-item", "v_1", "New Synthetic Person", True) in calls
 assert companion.companion_speaker_undo("synthetic-item", grant)["ok"]
 assert ("undo", "synthetic-item") in calls
 

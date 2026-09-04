@@ -4,10 +4,13 @@ import mimetypes
 import re
 
 from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 
 import voice_bank as vb
-from deps import BANK_DIR, _audio_path, _mdir, _safe, _video_path
+import caption_projection
+import caption_service
+from deps import (BANK_DIR, _audio_path, _current_evidence, _meeting_identity, _mdir,
+                  _safe, _video_path)
 
 router = APIRouter()
 
@@ -28,6 +31,23 @@ def media_video(slug: str):
         raise HTTPException(404, "没有源视频")
     media_type = mimetypes.guess_type(p.name)[0] or "video/mp4"
     return FileResponse(p, media_type=media_type)
+
+
+@router.get("/api/meetings/{slug}/captions/{track}.vtt")
+def media_captions(slug: str, track: str,
+                   target: str = Query("en", pattern="^(en|zh-CN)$")):
+    mode = track.removesuffix(".vtt")
+    if mode not in {"source", "translation"}:
+        raise HTTPException(404, "Caption track unavailable")
+    mdir = _mdir(slug)
+    translation, cues = caption_service.payload(
+        mdir, str(_meeting_identity(slug).get("title") or slug),
+        _current_evidence(mdir), BANK_DIR, target)
+    if mode == "translation" and translation.get("state") != "ready":
+        raise HTTPException(409, "Translation is unavailable or awaiting revision refresh")
+    return Response(caption_projection.render_vtt(
+        cues, mode=mode, content_type=str(_meeting_identity(slug).get("content_type") or "meeting")),
+        media_type="text/vtt", headers={"Cache-Control": "private, max-age=300"})
 
 
 @router.get("/api/meetings/{slug}/file")

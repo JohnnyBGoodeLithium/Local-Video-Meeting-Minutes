@@ -1280,6 +1280,15 @@ function renderPlayer() {
   if (b.has_video) {
     el = document.createElement("video");
     el.src = `/api/meetings/${encodeURIComponent(state.slug)}/media/video`;
+    for (const [mode, label] of [["source", "Original"], ["translation", "Translation"]]) {
+      const track = document.createElement("track");
+      track.kind = "subtitles";
+      track.label = label;
+      track.srclang = mode === "source" ? "und" : "en";
+      track.src = `/api/meetings/${encodeURIComponent(state.slug)}/captions/${mode}.vtt`;
+      if (mode === "source") track.default = true;
+      el.append(track);
+    }
     el.controls = true;
   } else if (b.has_audio) {
     el = document.createElement("audio");

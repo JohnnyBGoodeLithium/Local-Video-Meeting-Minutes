@@ -102,3 +102,7 @@ Live Context 的任务是在会议或直播进行时持续编译可回顾上下�
 Companion 验证一个窄闭环：重处理与 canonical 数据留在 X Ultra，手机只做 Connect、Send、Check、Review、Correct。它不是缩小版桌面工作台，也不是已获企业批准的远程部署方案。
 
 首个原型通过私有 Tailscale tailnet HTTPS 接入 localhost FastAPI，并在 tailnet 身份之外要求 5 分钟一次性应用配对。移动端只获得最近项目、处理状态、议题、人物、重要结论、证据媒体和人物确认的安全投影；删除、清理、模型配置、重转写、批量导出和管理 API 均不开放。
+
+Review 体验按屏幕宽度渐进增强：Phone 使用单列和 sticky mini-player；Tablet 使用内容＋播放器双列；Laptop 使用内容库、正文、sticky player 三列。提交链接或文件后保持 Home，由最多两张处理中卡片更新状态；只有用户主动打开卡片才进入 Job。
+
+视频回放使用同一受保护媒体端点并支持真实 HTTP Range seek。字幕来自逐字稿的确定性投影，提供关闭、原文、翻译、双语四种模式；翻译 sidecar revision 不匹配时明确标 stale，不把旧翻译伪装为当前字幕。

@@ -13,6 +13,10 @@
 
 重要的未发布用户变化才写入本节；普通实现细节留在 Git。
 
+- Companion 新增不抢导航的后台任务卡、5 条精简 Home、分页 Library，以及 Phone 单列、Tablet 双列、Laptop 三列的自适应回顾布局。
+- Companion 现在统一回放音频与视频，支持真实 206 Range seek、原文／翻译／双语原生字幕和 stale translation 防护；MeetingPack Viewer 复用相同 cue 投影并保持旧包兼容。
+- 人物确认支持选择已有人员或新建并绑定；canonical 显示名修改提供跨会议影响预览与安全撤销，简单身份操作以测试证明 0 model calls；Viewer 匿名改名继续是按包隔离的本地 alias。
+
 - 新增默认关闭的 Experimental Live Context：可直接粘贴能够安全解析为公开、无 DRM 原生 HLS 的直播页面或 HLS 地址，在不可听播放、不打开浏览器的情况下持续累积暂定上下文；启动后进入独立工作区查看真实滚动文字、状态和时长，退出工作区不中断后台采集，结束后再复用现有视觉补完与 canonical 输出流程。
 - 新增可恢复 `.live/` 中间层、Teams/WebVTT 来源适配、HLS 滑动列表、字幕 OCR 合并、近实时 ASR/暂定人物、资源降级和选择性画面触发；browser 静音捕获仍保持为未验证限制。
 - 说话人模型改为本地优先级解析且禁止隐式下载；单独 runtime pack 只能在 license、归属、版本和子模型再分发条件全部明确时构建，应用发布包仍无权重。
@@ -23,6 +27,7 @@
 - 新导入的白板、纸面笔记和现场照片会按批次进入本地 Vision；解读进入纪要、Viewer 与知识投影，已有终稿优先复用缓存快速同步，图片本身仍不能独立证明会议决定。
 - 新增默认关闭的 Experimental Companion：通过私有 Tailscale Serve HTTPS 与应用内一次性配对，让手机发送链接/小文件、查看安全进度与会议投影、回听 evidence 并复用现有人物确认和撤销。FastAPI 仍仅监听 localhost，不使用 Funnel。
 - Companion 配对链接改为 URL fragment 携带一次性 token，token 不再出现在 HTTP request target 与访问日志中；手机端刷新后可通过本地 job 指针继续追踪已提交任务，revoke 后立即失效。
+- Offline Viewer 支持给匿名/未绑定说话人设置本地显示名（如 Speaker A → Peter）：只改显示层、按包指纹存入 localStorage，不写回 MeetingPack，人物选择、仅听此人与 evidence 标签同步更新；audio-only 与 video 包的媒体区高度统一，桌面 Tab 移到内容 header 中间偏右。
 
 ## v0.15.3 — 2026-09-01
 

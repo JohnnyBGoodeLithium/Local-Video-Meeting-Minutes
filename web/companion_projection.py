@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import base64
 from pathlib import Path
 from typing import Any
 
@@ -46,6 +47,30 @@ def library(meetings_root: Path, *, limit: int = 30) -> list[dict[str, Any]]:
     return sorted(rows, key=lambda row: (row["updated_at"], row["id"]), reverse=True)[:limit]
 
 
+def library_page(meetings_root: Path, *, limit: int = 20, cursor: str | None = None,
+                 query: str = "", content_type: str = "", status: str = "") -> dict[str, Any]:
+    """Return one allowlisted page; the opaque cursor contains only the next offset."""
+    limit = max(1, min(int(limit), 50))
+    try:
+        offset = int(base64.urlsafe_b64decode((cursor or "MA==") + "===").decode("ascii"))
+    except (ValueError, UnicodeDecodeError):
+        offset = 0
+    rows = [library_item(path) for path in meetings_root.iterdir()
+            if path.is_dir() and not path.name.startswith(".")] if meetings_root.is_dir() else []
+    needle = query.strip().casefold()[:120]
+    filtered = [row for row in rows
+                if (not needle or needle in row["title"].casefold())
+                and (not content_type or row["content_type"] == content_type)
+                and (not status or (status == "ready" and row["ready"])
+                     or (status == "processing" and not row["ready"]))]
+    filtered.sort(key=lambda row: (row["updated_at"], row["id"]), reverse=True)
+    page = filtered[offset:offset + limit]
+    next_offset = offset + len(page)
+    next_cursor = (base64.urlsafe_b64encode(str(next_offset).encode("ascii")).decode("ascii")
+                   if next_offset < len(filtered) else None)
+    return {"items": page, "next_cursor": next_cursor}
+
+
 def _turn_id_index(value: str) -> int | None:
     if value.startswith("T") and value[1:].isdigit():
         return max(0, int(value[1:]) - 1)
@@ -81,7 +106,10 @@ def people_rows(mdir: Path, turns: list[dict]) -> list[dict[str, Any]]:
     grouped: dict[str, dict[str, Any]] = {}
     for index, turn in enumerate(turns):
         name = str(turn.get("speaker") or "Unknown")[:120]
-        row = grouped.setdefault(name, {"name": name, "voice_ids": set(), "moments": []})
+        row = grouped.setdefault(name, {"name": name, "voice_ids": set(), "moments": [],
+                                        "moment_count": 0, "duration": 0.0})
+        row["moment_count"] += 1
+        row["duration"] += max(0.0, _time(turn.get("end")) - _time(turn.get("start")))
         if turn.get("voice"):
             row["voice_ids"].add(str(turn["voice"]))
         if len(row["moments"]) < 80:
@@ -90,27 +118,78 @@ def people_rows(mdir: Path, turns: list[dict]) -> list[dict[str, Any]]:
                 "end": round(_time(turn.get("end")), 3),
                 "text": str(turn.get("text") or "")[:800],
             })
-    return [{"name": row["name"], "voice_ids": sorted(row["voice_ids"]),
-             "moment_count": len(row["moments"]), "moments": row["moments"]}
-            for row in grouped.values()]
+    rows = [{"name": row["name"], "voice_ids": sorted(row["voice_ids"]),
+             "moment_count": row["moment_count"], "duration": round(row["duration"], 3),
+             "needs_confirmation": row["name"].casefold().startswith(("speaker ", "unknown")),
+             "moments": row["moments"]} for row in grouped.values()]
+    return sorted(rows, key=lambda row: (not row["needs_confirmation"], -row["duration"], row["name"]))
 
 
 def item(mdir: Path) -> dict[str, Any]:
     base = library_item(mdir)
     turns = _read_json(mdir / "transcript.spk.json", [])
     topic_state, topic_map = meeting_topic_map.load_current_topic_map(mdir)
-    topics = [{"title": str(row.get("title") or "")[:200],
-               "summary": str(row.get("summary") or "")[:800]}
-              for row in (topic_map.get("topics") or [])[:30]] if topic_state == "ready" else []
+    topics = [{"id": str(row.get("id") or f"M{index + 1:02d}"),
+               "title": str(row.get("title") or "")[:200],
+               "summary": str(row.get("summary") or "")[:800],
+               "start": _time(row.get("start")), "end": _time(row.get("end"))}
+              for index, row in enumerate((topic_map.get("topics") or [])[:30])] if topic_state == "ready" else []
     evidence = evidence_rows(mdir, turns)
     conclusions = [row for row in evidence if row["kind"] in {"decision", "action"}][:20]
-    return {**base, "map_state": topic_state, "topics": topics,
+    return {**base, "map_state": topic_state,
+            "summary": str(topic_map.get("meeting_summary") or "")[:1200], "topics": topics,
             "people": [{key: value for key, value in row.items()
                         if key not in {"moments", "voice_ids"}}
                        for row in people_rows(mdir, turns)],
             "conclusions": conclusions, "evidence": evidence,
             "media": {"audio": (mdir / "audio.wav").is_file(),
                       "video": _video_path(mdir) is not None}}
+
+
+def chapters(mdir: Path) -> dict[str, Any]:
+    state, topic_map = meeting_topic_map.load_current_topic_map(mdir)
+    if state != "ready":
+        return {"state": state, "chapters": []}
+    rows = []
+    for index, topic in enumerate((topic_map.get("topics") or [])[:40]):
+        ranges = [[round(_time(pair[0]), 3), round(_time(pair[1]), 3)]
+                  for pair in (topic.get("ranges") or []) if len(pair) == 2]
+        rows.append({
+            "id": str(topic.get("id") or f"M{index + 1:02d}"),
+            "number": index + 1, "title": str(topic.get("title") or "")[:200],
+            "summary": str(topic.get("summary") or "")[:1000],
+            "start": round(_time(topic.get("start") if topic.get("start") is not None
+                                 else ranges[0][0] if ranges else 0), 3),
+            "end": round(_time(topic.get("end") if topic.get("end") is not None
+                               else ranges[-1][1] if ranges else 0), 3),
+            "ranges": ranges,
+        })
+    return {"state": "ready", "chapters": rows}
+
+
+def transcript_page(mdir: Path, *, limit: int = 50, cursor: str | None = None,
+                    speaker: str = "", query: str = "") -> dict[str, Any]:
+    turns = _read_json(mdir / "transcript.spk.json", [])
+    limit = max(1, min(int(limit), 100))
+    try:
+        offset = max(0, int(base64.urlsafe_b64decode((cursor or "MA==") + "===").decode("ascii")))
+    except (ValueError, UnicodeDecodeError):
+        offset = 0
+    needle = query.strip().casefold()[:120]
+    rows = []
+    for index, turn in enumerate(turns):
+        name = str(turn.get("speaker") or "Unknown")[:120]
+        text = str(turn.get("text") or "")[:4000]
+        if speaker and name != speaker or needle and needle not in text.casefold():
+            continue
+        rows.append({"turn_id": str(turn.get("id") or f"T{index + 1:06d}"),
+                     "speaker": name, "start": round(_time(turn.get("start")), 3),
+                     "end": round(_time(turn.get("end")), 3), "text": text})
+    page = rows[offset:offset + limit]
+    next_offset = offset + len(page)
+    next_cursor = (base64.urlsafe_b64encode(str(next_offset).encode()).decode()
+                   if next_offset < len(rows) else None)
+    return {"turns": page, "next_cursor": next_cursor, "total": len(rows)}
 
 
 def person(mdir: Path, name: str) -> dict[str, Any] | None:
