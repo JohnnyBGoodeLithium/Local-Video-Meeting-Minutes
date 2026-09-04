@@ -78,3 +78,44 @@ jobs:
           done
           echo "Production Pages smoke failed: ${base}/" >&2
           exit 1
+
+  publish-authorized-tag:
+    name: publish-authorized-tag
+    needs: deploy
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout verified main commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Create explicitly authorized release tag
+        env:
+          VERIFIED_SHA: ${{ github.event.workflow_run.head_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$VERIFIED_SHA"
+
+          version="$(tr -d '[:space:]' < VERSION)"
+          release_tag="v${version}"
+          authorized_tag="$(tr -d '[:space:]' < release/authorized-tag.txt)"
+          if [[ "$authorized_tag" != "$release_tag" ]]; then
+            echo "Release tag is not authorized: expected ${release_tag}, found ${authorized_tag}"
+            exit 0
+          fi
+
+          if git ls-remote --exit-code --tags origin "refs/tags/${release_tag}" >/dev/null 2>&1; then
+            echo "Authorized release tag already exists: ${release_tag}"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$release_tag" -m "Meeting Context ${release_tag}"
+          git push origin "refs/tags/${release_tag}"
