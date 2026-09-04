@@ -5,20 +5,22 @@
 ## 一页摘要
 
 ```text
-Source
-  Teams VTT/DOCX · audio · recording · public media URL · live source · photos
+Sources: Meeting · Video · Live
   ↓
-Local model-enhanced processing
-  ASR · diarization · visual understanding · text generation
+Canonical context: Transcript · Identity · Topics · Facts · Evidence · Visuals
   ↓
-Canonical transcript / identity / evidence
-  ↓
-Meeting and media projections
-  ↓
-Web · Viewer · AI Context · KB · RAG
+Projections: Workbench · Companion · MeetingPack · AI Context · KB
 ```
 
 系统的稳定边界不是某一模型的输出，而是来源、人工确认、稳定 ID、revision 与只读 projection。模型可以提出文字、人物或结构候选；代码负责路径、ID、证据、写入、删除和版本校验。
+
+身份更新遵循三条原则：**Names are presentation. Identity is data. Facts are evidence-linked semantics.**
+
+- 只改显示名：确定性刷新受影响投影，不调用模型。
+- 绑定稳定 identity、但不改变 turn attribution：通常只更新身份投影，不做语义重生成。
+- 改变 turn attribution 或逐字稿事实：按 revision 做定向失效与必要重算。
+
+Viewer 的 local alias 只属于单个 MeetingPack 的展示层；Companion 的 canonical display rename 与“这段是谁说的”是不同操作。
 
 ## 部署形态
 

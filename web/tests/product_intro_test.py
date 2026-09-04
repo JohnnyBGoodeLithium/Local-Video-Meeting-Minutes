@@ -33,23 +33,30 @@ assert html_version.group(1) == meta_version.group(1) == expected_content_versio
     f"产品版本 v{version} 与介绍页内容基线不一致"
 )
 
-# Seven sections tell one user journey; deleted technical chapters cannot return.
+# Nine sections tell one user journey; deleted technical chapters cannot return.
 section_tags = re.findall(r"<section\b([^>]*)>", html)
 section_ids = [
     re.search(r'id="([^"]+)"', attributes).group(1)
     for attributes in section_tags if "data-product-section" in attributes
 ]
 assert section_ids == [
-    "overview", "find", "verify", "correct", "reuse", "use-cases", "trust",
+    "overview", "meeting-video", "find", "verify", "correct", "review-anywhere",
+    "playback", "live", "reuse",
 ], f"产品页一级信息架构漂移：{section_ids}"
-for removed_id in ("identity", "capabilities", "architecture", "cores", "experience"):
+for removed_id in (
+    "identity", "capabilities", "architecture", "cores", "experience", "use-cases", "trust",
+):
     assert f'id="{removed_id}"' not in html, f"旧技术章节重新出现：{removed_id}"
 
 required_journey = (
     "两小时会议，不该再花两小时复盘。",
+    "同一套可信上下文，两种不同的回顾起点。",
     "不从 00:00 开始，从真正重要的人或议题开始。",
     "每一条重要结论，都能回到原始证据。",
     "发现错误，不必从头再来。",
+    "深度工作留在本机，回顾跟着你走。",
+    "从结论回到这段讨论，不丢人物、时间和画面。",
+    "Live Context · Experimental",
     "核对过的会议和视频，可以继续交给下一步。",
     "MeetingPack", "AI Context", "Knowledge Base &amp; RAG",
     "虚构演示数据", "Northstar Launch Review", "Northstar Product Launch",
@@ -128,6 +135,6 @@ missing_refs = sorted(bare_refs - defined - {"--wave", "--at", "--length", "--st
 assert not missing_refs, f"产品介绍引用未定义 token：{missing_refs}"
 
 print(
-    f"product site: v{expected_content_version}, seven sections, "
+    f"product site: v{expected_content_version}, nine sections, "
     f"{len(html_keys)} bilingual keys, fictional demo and tokens passed"
 )

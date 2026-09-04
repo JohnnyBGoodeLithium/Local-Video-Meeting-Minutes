@@ -1,56 +1,78 @@
-# Local Video Meeting Minutes
+# Meeting Context
 
 English | [简体中文](README.zh-CN.md)
 
 [Product site](https://johnnybgoodlithium.github.io/Local-Video-Meeting-Minutes/)
 
 <!-- maturity: controlled-single-machine-poc -->
-<!-- product-version: v0.15.3 -->
+<!-- product-version: v0.16.0 -->
 
-## Overview
+Find what matters.
+Verify it against the source.
+Correct what is wrong.
+Reuse trusted context anywhere.
 
-Local Video Meeting Minutes is a local-first workflow that turns meetings and first-party videos into evidence-linked, reusable context. It connects configurable speech recognition, speaker separation, visual understanding, and text generation while keeping transcripts, confirmed identities, revisions, and source links independent from any one model.
+Meeting Context is a local-first context compiler for meetings and videos. It keeps transcripts,
+identity, topics, facts, source-linked evidence, and visuals independent from any one model, then
+projects them into review and reuse surfaces.
 
-The application can deliver an offline MeetingPack, portable AI Context, and knowledge-base (KB) projection for downstream RAG. It is model-agnostic: providers may run locally or through explicitly approved endpoints, and the system does not silently cross the configured privacy boundary.
+## What it does
 
-## Why it exists
+- **Meetings:** follow who said what, review decisions and follow-ups, return to the exact audio,
+  transcript, or screen, and correct identity or transcript mistakes with revision history.
+- **Videos:** start with a fast minutes path or run full visual analysis, browse the argument and
+  important shots, and return to the original source when a claim needs checking.
 
-Meeting summaries are useful only when people can check where a statement came from and correct the source when it is wrong. This project keeps review close to the original audio, transcript, speaker identity, screen evidence, and first-party material. Model output assists interpretation; it is not the source of truth.
+## Review anywhere
 
-The project also explores how one controlled local machine can compile trusted context for humans, general-purpose AI tools, and knowledge systems without requiring private meetings to become cloud training or troubleshooting material.
+- **Workbench** is the deep local review surface for transcript, identity, visual context, recovery,
+  and exports.
+- **Companion** is an adaptive Phone / Tablet / Laptop endpoint for sending inputs, checking jobs,
+  reviewing source-linked context, captions, and small identity decisions. Hosted Chromium coverage
+  passes; real iPhone and Tailscale transport validation is still pending.
+- **MeetingPack** is a portable offline review package that needs no server, model, or CDN.
 
-## Core capabilities
+## Core journey
 
-- **Identity correction:** review who said what, confirm or correct identities, and preserve reversible history.
-- **Source-linked review:** move from a conclusion back to the relevant transcript, audio, screen, or supplied material.
-- **Progressive meeting processing:** make transcript and voice draft outputs available before optional visual enrichment finishes.
-- **MeetingPack:** export an offline, reviewable meeting package.
-- **AI Context:** produce portable context for explicitly chosen AI tools without binding the meeting to one model.
-- **KB projection and RAG:** project validated material into a knowledge-base-friendly form and retrieve evidence-linked context.
-- **Meeting and first-party video routes:** support controlled meeting review and videos supplied or authorized by the operator.
+1. Import a meeting, recording, first-party video, or explicitly authorized public video URL.
+2. Find important topics, decisions, people, transcript moments, and visual material.
+3. Verify a conclusion against the original audio, transcript, screen, or supplied photo.
+4. Correct names, identity attribution, or transcript facts at the appropriate data layer.
+5. Reuse the trusted result as MeetingPack, AI Context, KB projection, or evidence-linked RAG input.
 
-## How it works
+## v0.16.0 highlights
 
-The workflow imports local or explicitly authorized media, builds transcript and speaker context, adds visual and supplied material when available, and projects the result into review and export views. Canonical meeting artifacts stay separate from model-specific outputs. Human corrections create new revisions instead of silently rewriting the evidence history.
-
-The default Web workflow runs on one controlled host. Local providers are preferred; any remote provider must be configured deliberately. The application never treats a page description, generated summary, or model answer as independent proof of a meeting decision.
+- Adaptive Companion review across Phone, Tablet, and Laptop layouts.
+- One audio/video playback model with Off, Original, Translation, and Bilingual captions.
+- Separate canonical identity binding, display-name editing, and per-pack local aliases.
+- Fast minutes first, with later visual enrichment that reuses existing transcript and identity work.
+- Experimental Live Context workspace for authorized public, non-DRM native HLS sources.
+- Clearer source-return language: original text, screen, and “back to this discussion.”
 
 ## Current maturity
 
-Current product version: **v0.15.3**.
-
 | Area | Maturity | Current boundary |
 |---|---|---|
-| Meeting import, transcript and identity correction, evidence navigation, MeetingPack | Validated | Used in controlled real workflows with synthetic CI coverage |
-| First-party video understanding, AI Context, KB projection, local RAG | Implemented, under validation | Functional, but quality and scale baselines are still developing |
-| Cross-content comparison and experimental retrieval routes | Experimental | Not a stable product commitment |
-| SSO, ACLs, tenant isolation, and multi-user production service | Out of scope | A local port must not be treated as production deployment |
+| Meeting review, identity correction, source return, MeetingPack | Validated | Controlled real workflows plus synthetic and browser regression coverage |
+| Video analysis, Companion adaptive review, captions, AI Context, KB projection | Implemented / validating | Functional; target-device, quality, and scale baselines are incomplete |
+| Live Context and private Companion transport | Experimental | Synthetic/replay and hosted-browser evidence only; no real live event or iPhone + Tailscale validation |
+| SSO, ACLs, tenant isolation, multi-user production service | Planned / out of scope | A local port or tailnet prototype is not production approval |
 
-This is a controlled single-machine proof of concept, not a production multi-user service. Meeting review is validated more deeply than video understanding and cross-content RAG. See [current status](docs/STATUS.md) for the maintained validation state.
+This is a controlled single-machine PoC. The release-candidate evidence table is in the
+[v0.16.0 reality matrix](docs/releases/v0.16.0-reality-matrix.md).
+
+## Local-first boundary
+
+The default backend listens on localhost. Providers may run locally or through endpoints explicitly
+approved and configured by the operator; the application does not silently cross that boundary.
+Companion is transport-independent, with Tailscale Serve as the first private prototype and Funnel
+disabled by default. Public repository fixtures and documentation are synthetic and sanitized.
 
 ## Quick start
 
-Linux, Python 3.11+, and `ffmpeg/ffprobe` are required. Full model execution also requires hardware-compatible PyTorch, model services, and model files; consult the [deployment runbook](docs/runbooks/DEPLOYMENT.md) before changing a working CUDA or ROCm environment.
+Requires Linux, Python 3.11+, and `ffmpeg` / `ffprobe`. Full model execution also needs compatible
+model services and hardware; read the [deployment runbook](docs/runbooks/DEPLOYMENT.md) before
+changing a working CUDA or ROCm environment.
 
 ```bash
 git clone <repository-url> meeting-minutes
@@ -58,40 +80,29 @@ cd meeting-minutes
 python3 -m venv .venv
 .venv/bin/pip install --upgrade pip
 .venv/bin/pip install -e .
-
 make doctor
 make check
 make run
 ```
 
-Open `http://127.0.0.1:8899/`. `make smoke` uses an isolated temporary data root and synthetic fixtures; it must not read real meetings.
-
-## Privacy and trust boundary
-
-The public repository contains code, synthetic fixtures, templates, and sanitized documentation only. Do not commit real meetings, transcripts, minutes, names, voiceprints, organization structures, credentials, internal URLs, raw logs, exports, or private reports.
-
-Local-first does not mean every configured provider is local. Remote endpoints are allowed only when the operator explicitly approves and configures them. The application must fail clearly rather than silently changing the privacy boundary. See [SECURITY.md](SECURITY.md) and [open risks](docs/RISKS.md).
+Open `http://127.0.0.1:8899/`. `make smoke` uses a temporary data root and synthetic fixtures; it
+must not read real meetings.
 
 ## Documentation
 
-| Question | Authoritative document |
+| Need | Source |
 |---|---|
-| Where should I start? | [Documentation index](docs/INDEX.md) |
-| What is validated now? | [Current status](docs/STATUS.md) |
-| What is the product boundary? | [Product definition](docs/PRODUCT.md) |
-| Which capabilities exist? | [Product functions](docs/PRODUCT_FUNCTIONS.md) |
-| How do canonical data, revisions, and providers work? | [Architecture](docs/ARCHITECTURE.md) |
-| What interaction contracts are stable? | [UX](docs/UX.md) |
-| How is the application operated and recovered? | [Operations](docs/OPERATIONS.md) |
-| How do MeetingPack, AI Context, KB projection, and RAG relate? | [Knowledge and RAG](docs/KNOWLEDGE_RAG.md) |
-| What remains risky or unresolved? | [Risks](docs/RISKS.md) |
-| What changed by version? | [Changelog](CHANGELOG.md) |
+| All documentation | [Documentation index](docs/INDEX.md) |
+| Product story | [Product site](https://johnnybgoodlithium.github.io/Local-Video-Meeting-Minutes/) |
+| Latest release candidate | [v0.16.0 release notes](docs/releases/v0.16.0.md) |
+| Capability inventory | [Product functions](docs/PRODUCT_FUNCTIONS.md) |
+| Current validation state | [Status](docs/STATUS.md) |
+| Canonical data and projections | [Architecture](docs/ARCHITECTURE.md) |
+| Deployment and recovery | [Operations](docs/OPERATIONS.md) |
+| Security boundary | [Security](SECURITY.md) |
 
-## Release and installation status
-
-The current distribution models are a source checkout and a verified **Application Release Bundle** containing the application scripts, Web assets, prompts, deployment examples, locked lightweight dependencies, and required documentation.
-
-This is not a PyPI package. `pip install -e .` currently installs base dependencies and project metadata while the application continues to run from the repository or bundle directory. There is no stable public Python import API and no promise that a pip installation can be launched from an arbitrary directory.
+The supported distributions are source checkout and the verified Application Release Bundle. This
+is not a PyPI package and does not expose a stable public Python API.
 
 ## License status
 

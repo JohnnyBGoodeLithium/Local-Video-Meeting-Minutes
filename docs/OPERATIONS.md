@@ -130,6 +130,10 @@ Live 运行数据位于会议目录下 `.live/`。不要手工把它复制进发
 
 Companion 默认由 `MEETING_COMPANION=0` 关闭。实验启用、Tailscale 检测、Serve 建议命令、Funnel 警告和人工手机验收见 [Companion Tailscale runbook](runbooks/COMPANION_TAILSCALE.md)。`make companion-doctor` 只读检测安全 metadata，不登录账号、不保存 auth key、不改 ACL、不执行 Serve 或 Funnel。
 
+FastAPI backend 必须继续只监听 localhost；Tailscale Serve 是首个私有 transport prototype，默认不使用 Funnel，也不能被当作企业网络审批。启用时使用项目实际支持的 `MEETING_COMPANION` 配置与 runbook，不在文档中保存真实 tailnet hostname、私有 URL 或设备凭据。
+
 配对与设备 session 状态位于私有数据根的 `companion/auth.json`，文件权限收紧为 owner-only；状态不含会议正文或永久明文 token。应用发布包包含 Companion 代码与文档，但不包含状态文件、Tailscale binary、凭据或真实网络配置。
 
 自适应 review 的托管验收在 `check-and-smoke` 中使用 Headless Chromium。PR run 必须上传 `companion-ux-<sha>` artifact，含 `artifacts/companion-ux/` 下 14 张纯合成截图；缺一张即失败。自动化不能替代真机 Safari，全量步骤见 [Companion 真机检查](runbooks/COMPANION_DEVICE_CHECK.md)。
+
+Caption 不需要独立字幕模型：原文、翻译与双语 WebVTT 由已有 canonical transcript 和 revision-matched translation 确定性投影。translation stale 时拒绝输出旧译文；不要通过新增模型或静默重翻译绕过该边界。

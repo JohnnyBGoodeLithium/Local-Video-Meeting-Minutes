@@ -18,7 +18,7 @@ IN_REPOSITORY = (ROOT / ".git").exists()
 
 REQUIRED = {
     "README.md", "README.zh-CN.md", "SECURITY.md", "CONTRIBUTING.md",
-    "CHANGELOG.md", "VERSION",
+    "CHANGELOG.md", "RELEASE_NOTES.md", "VERSION",
     "docs/INDEX.md", "docs/STATUS.md", "docs/PRODUCT.md",
     "docs/ARCHITECTURE.md", "docs/UX.md", "docs/OPERATIONS.md",
     "docs/KNOWLEDGE_RAG.md", "docs/RISKS.md", "docs/PRODUCT_FUNCTIONS.md",
@@ -27,6 +27,7 @@ REQUIRED = {
     "docs/runbooks/WEKNORA.md", "docs/runbooks/DEVELOPMENT.md",
     "docs/runbooks/RELEASES.md", "docs/runbooks/DISTRIBUTION.md",
     "docs/releases/README.md", "docs/releases/TEMPLATE.md",
+    "docs/releases/v0.16.0.md", "docs/releases/v0.16.0-reality-matrix.md",
     "docs/reference/DESIGN_SYSTEM.md", "docs/reference/MODELS.md",
     "docs/reference/COST_MODEL.md",
 }
@@ -70,7 +71,7 @@ EXPECTED_FUNCTION_IDS = """
 8.1.1.1 8.1.1.2 8.1.1.3 8.1.1.4 8.1.1.5 8.1.1.6 8.1.2.1
 8.1.2.2 8.1.2.3 8.1.2.4 8.1.2.5 8.1.2.6 9.1.1.1 9.1.1.2
 9.1.2.1 9.1.2.2 9.1.2.3 9.1.2.4 9.1.2.5 9.1.3.1 10.1.1.1
-10.1.1.2 10.1.1.3
+10.1.1.2 10.1.1.3 10.1.1.4 10.1.1.5 10.1.1.6 10.1.1.7
 """.split()
 
 
@@ -139,13 +140,13 @@ assert "[简体中文](README.zh-CN.md)" in readme
 assert "[English](README.md)" in readme_zh
 
 english_sections = [
-    "Overview", "Why it exists", "Core capabilities", "How it works",
-    "Current maturity", "Quick start", "Privacy and trust boundary",
-    "Documentation", "Release and installation status", "License status",
+    "What it does", "Review anywhere", "Core journey", "v0.16.0 highlights",
+    "Current maturity", "Local-first boundary", "Quick start", "Documentation",
+    "License status",
 ]
 chinese_sections = [
-    "项目概览", "为什么做", "核心能力", "工作方式", "当前成熟度", "快速开始",
-    "隐私与可信边界", "文档导航", "发布与安装状态", "许可证状态",
+    "它能做什么", "随处回顾", "核心旅程", "v0.16.0 重点", "当前成熟度",
+    "本地优先边界", "快速开始", "文档导航", "许可证状态",
 ]
 assert re.findall(r"^## (.+)$", readme, re.MULTILINE) == english_sections
 assert re.findall(r"^## (.+)$", readme_zh, re.MULTILINE) == chinese_sections
@@ -206,8 +207,20 @@ assert release_headers, "CHANGELOG has no formal releases"
 for index, match in enumerate(release_headers):
     next_heading = re.search(r"^## ", changelog[match.end():], re.MULTILINE)
     end = match.end() + next_heading.start() if next_heading else len(changelog)
-    bullets = re.findall(r"^- ", changelog[match.end():end], re.MULTILINE)
-    assert 3 <= len(bullets) <= 5, f"{match.group(1)} must contain 3-5 top-level bullets, got {len(bullets)}"
+    release_body = changelog[match.end():end]
+    groups = re.split(r"^### .+$", release_body, flags=re.MULTILINE)
+    grouped_bullets = [
+        len(re.findall(r"^- ", group, re.MULTILINE)) for group in groups[1:]
+    ]
+    if grouped_bullets:
+        assert all(1 <= count <= 5 for count in grouped_bullets), (
+            f"{match.group(1)} groups must contain 1-5 bullets: {grouped_bullets}"
+        )
+    else:
+        bullets = re.findall(r"^- ", release_body, re.MULTILINE)
+        assert 3 <= len(bullets) <= 5, (
+            f"{match.group(1)} must contain 3-5 top-level bullets, got {len(bullets)}"
+        )
 
 function_text = (ROOT / "docs/PRODUCT_FUNCTIONS.md").read_text(encoding="utf-8")
 function_ids = re.findall(r"^\| (\d+\.\d+\.\d+\.\d+) \|", function_text, re.MULTILINE)

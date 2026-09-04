@@ -1,6 +1,7 @@
 # Exact tracked-file allowlist for the Application Release Bundle.
 README.md
 README.zh-CN.md
+RELEASE_NOTES.md
 VERSION
 CHANGELOG.md
 SECURITY.md

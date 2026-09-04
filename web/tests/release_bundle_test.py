@@ -34,6 +34,7 @@ def repository(root: Path, tag: str | None = None) -> Path:
     command(root, "git", "config", "user.email", "synthetic@example.invalid")
     write(root, "README.md", "[简体中文](README.zh-CN.md)\n")
     write(root, "README.zh-CN.md", "[English](README.md)\n")
+    write(root, "RELEASE_NOTES.md", "# Synthetic release notes\n")
     write(root, "VERSION", "0.15.1\n")
     write(root, "CHANGELOG.md", "## v0.15.1 — 2026-08-31\n")
     write(root, "Makefile")
@@ -48,6 +49,7 @@ def repository(root: Path, tag: str | None = None) -> Path:
     write(root, "release/authorized-tag.txt", "v0.15.1\n")
     write(root, "release/bundle-include.txt", """README.md
 README.zh-CN.md
+RELEASE_NOTES.md
 VERSION
 CHANGELOG.md
 Makefile
