@@ -1,4 +1,4 @@
-# Meeting Context
+# Local Video Meeting Minutes
 
 English | [简体中文](README.zh-CN.md)
 
@@ -12,7 +12,7 @@ Verify it against the source.
 Correct what is wrong.
 Reuse trusted context anywhere.
 
-Meeting Context is a local-first context compiler for meetings and videos. It keeps transcripts,
+Local Video Meeting Minutes is a local-first context compiler for meetings and videos. It keeps transcripts,
 identity, topics, facts, source-linked evidence, and visuals independent from any one model, then
 projects them into review and reuse surfaces.
 
