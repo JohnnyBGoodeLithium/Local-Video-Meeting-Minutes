@@ -239,7 +239,7 @@ window.fetch = (input, init) => {
   errors: window.__productErrors,
 })
 """)
-                assert english["title"].startswith("Meeting Context |")
+                assert english["title"].startswith("Local Video Meeting Minutes |")
                 assert english["description"].startswith("Review meetings and product videos")
                 assert english["hero"].startswith("A two-hour meeting")
                 assert "supplier validation" in english["demo"].lower()

@@ -1,4 +1,4 @@
-# Meeting Context
+# Local Video Meeting Minutes
 
 [English](README.md) | 简体中文
 
@@ -12,7 +12,7 @@
 修正错误。
 把可信上下文继续用下去。
 
-Meeting Context 是一个本地优先的会议与视频上下文编译器。逐字稿、身份、议题、事实、
+Local Video Meeting Minutes 是一个本地优先的会议与视频上下文编译器。逐字稿、身份、议题、事实、
 来源依据和画面不绑定任何单一模型，再由同一份 canonical context 投影到回顾与复用界面。
 
 ## 它能做什么

@@ -136,6 +136,13 @@ assert not broken, "broken Markdown links:\n" + "\n".join(broken)
 
 readme = (ROOT / "README.md").read_text(encoding="utf-8")
 readme_zh = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
+project_name = "Local Video Meeting Minutes"
+version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+release_notes = (ROOT / "RELEASE_NOTES.md").read_text(encoding="utf-8")
+versioned_release_notes = (ROOT / "docs/releases" / f"v{version}.md").read_text(encoding="utf-8")
+for public_document in (readme, readme_zh, release_notes, versioned_release_notes):
+    assert public_document.startswith(f"# {project_name}"), "canonical project name drift"
+    assert "# Meeting Context" not in public_document
 assert "[简体中文](README.zh-CN.md)" in readme
 assert "[English](README.md)" in readme_zh
 
