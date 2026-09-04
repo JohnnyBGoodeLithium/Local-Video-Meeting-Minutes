@@ -228,7 +228,8 @@ def main() -> int:
                 wait(cdp, f"document.querySelector('#person-name').textContent==={json.dumps(target_person)}",
                      "speaker confirm applied through the existing correction service")
                 cdp.evaluate("document.querySelector('#undo-speaker').click()")
-                wait(cdp, "!document.querySelector('#item-view').hidden", "speaker undo returned to the meeting")
+                wait(cdp, f"!document.querySelector('#person-view').hidden && document.querySelector('#person-name').textContent==={json.dumps(original_person)}",
+                     "speaker undo retained and restored person context")
                 wait(cdp, f"[...document.querySelectorAll('#people button')].some(b=>b.textContent.startsWith({json.dumps(original_person)}))",
                      "undo restored the original person projection")
                 cdp.evaluate("document.querySelector('#language').click()")
