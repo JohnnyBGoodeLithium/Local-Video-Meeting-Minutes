@@ -2,9 +2,11 @@
 # 当前状态
 
 - 更新时间：2026-09-04
-- 产品版本：v0.15.3
+- 当前发布候选版本：v0.16.0
+- 最近发布版本：v0.15.3
+- 发布状态：v0.16.0 release candidate
 - Web 构建号：20260904p117
-- 源代码基线：以不可移动的 `v0.15.3` tag 所指 commit 为准
+- Release candidate 基线：`release/v0.16.0`；正式 tag 尚未创建
 - Owner：Local AI PoC maintainer
 - 当前阶段：受控 PoC 验证（Controlled PoC validation）
 
@@ -18,10 +20,11 @@
 - 真实内部试用推动了人物选择、逐段回听、逐字稿修正、处理进度、失败恢复和导出体验的多轮迭代；公开仓库不记录人员与会议身份。
 - MeetingPack 可在无服务、无模型、无 CDN 的环境中回听并核对逐字稿、纪要、人物和画面。
 - 人工修正逐字稿后，完整视觉缓存可被严格复用，快速发布新纪要与 evidence；缓存不足时拒绝伪完整结果。
+- 人物核听、canonical 人物确认、撤销和来源回跳已经过真实受控工作流与合成回归共同验证。
 
 ## 已实现，仍在验证（Implemented, under validation）
 
-- Companion 已扩展为 Phone／Tablet／Laptop 自适应 review：Home 固定 5 条最近内容，任务轮询不再夺取导航；详情提供概览、章节、人物、逐字稿四个 Tab，并共享音频／视频播放器与原文、翻译、双语字幕。
+- Companion 已扩展为 Phone／Tablet／Laptop 自适应 review：Home 固定 5 条最近内容，任务轮询不再夺取导航；详情提供概览、章节、人物、逐字稿四个 Tab，并共享音频／视频播放器与原文、翻译、双语字幕。Hosted Chromium 已通过；真实 iPhone／Tablet 仍待验证。
 - 匿名人物可确认已有人员或新建并绑定；已确认人物可单独预览并修改 canonical 显示名，跨会议修改有 revision guard 与撤销，简单绑定和显示改名均为 0 model calls。
 - MeetingPack Viewer 的匿名人物改名仍是按包隔离的本地 alias，不会变成 canonical 身份；新包可携带确定性 caption cue，旧包继续启动。
 
@@ -35,7 +38,7 @@
 
 - Live Context 可在开启 `MEETING_LIVE_CONTEXT=1` 后直接接收能安全解析为公开、无 DRM 原生 HLS 的直播页面或 HLS 地址，执行无浏览器后台分析；启动后进入可随时退出的 Live 工作区，读取真实滚动文字与采集状态，结束后再交给现有 canonical pipeline 收尾。实时要点模型尚未接入运行时，为避免与 ASR 抢占资源，当前明确在停止后统一提炼。
 - Browser-assisted 音频尚未在当前 AMD/PipeWire 主机上证明可靠静音捕获；能力不足时必须请用户保持来源窗口，不会自动播放、抓取全系统音频或切换捕获方式。
-- Companion 私有 tailnet 原型已实现应用内配对、URL/小文件发送、进度、安全轻量 review、evidence 回听和人物确认；真实手机与 X Ultra 的 Tailscale Serve transport 仍待人工实验验证，默认关闭且不使用 Funnel。
+- Companion 私有 tailnet 原型已实现应用内配对、URL/小文件发送、进度、安全轻量 review、evidence 回听和人物确认；真实 iPhone 15 Pro 与 X Ultra 的 Tailscale Serve transport 仍为 **NOT TESTED**，默认关闭且不使用 Funnel。传输原型存在不代表已经获得企业部署批准。
 - 跨会议序列比较、主题演进和部门知识交付。
 - 新 embedding、reranker、模型替换和视觉疑难页路由。
 - 由历史材料生成汇报演练辅助；必须保持证据、反例、时效和人工确认，不能固化人物画像。
@@ -79,3 +82,7 @@
 ## 当前开放风险
 
 开放风险及 Owner、检查时间见 [RISKS.md](RISKS.md)，本文件不复制风险详情。
+
+## v0.16.0 验证索引
+
+逐能力证据、Hosted CI、真机缺口与公开表述见 [v0.16.0 Reality Matrix](releases/v0.16.0-reality-matrix.md)。

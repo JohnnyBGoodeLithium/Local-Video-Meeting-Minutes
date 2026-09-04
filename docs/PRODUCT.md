@@ -4,7 +4,7 @@
 
 ## 一句话定义
 
-Local Video Meeting Minutes 是一个本地优先的会议上下文编译器：把会议和高信息密度视频整理为身份明确、证据可回跳、允许人工校正并能被不同消费方继续使用的上下文。
+Meeting Context 是一个本地优先的会议与视频上下文编译器：找到重点，回到原始依据，修正错误，再继续使用可信上下文。
 
 它不是靠某一个模型成立的纪要应用。长期价值放在人员身份、原声和画面的证据关系、可逆修正，以及同一份事实向 Viewer、通用 AI 工具和知识库的可移植投影。
 
@@ -35,6 +35,20 @@ Local Video Meeting Minutes 是一个本地优先的会议上下文编译器：�
 ### 实验性 Live Context
 
 Live Context 的任务是在会议或直播进行时持续编译可回顾上下文，而不是另做一个实时字幕产品。直播活动默认“后台分析”，会议默认“会议伴随”；文字、人物和画面都保持暂定与 provenance，结束后经 reconcile 和延迟视觉补完才进入现有输出。当前只对无 DRM 原生 HLS 后台路径有可执行实现；browser 和 meeting audio 仍是明确受限的适配器。
+
+## 主价值链
+
+**Find what matters → Verify against source → Correct → Reuse.**
+
+会议从人物开始：谁说了什么、哪些是决定、哪些需要跟进。视频从主题开始：讲了什么、展示了什么、哪一段值得回来确认。修正作用于明确的数据层级；显示名变化不冒充事实变化，事实或归属变化才触发相应失效。
+
+## 三个消费 Surface
+
+- **Workbench**：在本地进行深度回顾、人物核听、逐字稿修正和恢复。
+- **Companion**：transport-independent endpoint experience；手机、平板或笔记本负责发送、查看和小决策，重处理与 canonical 数据留在边缘机器。Tailscale 只是首个私有传输原型。
+- **MeetingPack**：无需服务、模型或 CDN 的便携离线回顾。
+
+AI Context 与 KB projection 是继续使用可信上下文的下游投影，不是新的 canonical surface。
 
 ## 三类输出
 
@@ -81,6 +95,7 @@ Live Context 的任务是在会议或直播进行时持续编译可回顾上下�
 | 跨会议知识 | 实验中 | 仅对显式序列和固定问题有意义 |
 | 多人部门服务 | 当前不在范围 | 缺完整 SSO、ACL、租户与运营机制 |
 | Live Context | 实验中 | 原生 HLS 可后台运行；browser 静音捕获、实时延迟和说话人质量尚未在目标主机验证 |
+| Companion 自适应回顾与字幕 | 已实现，仍在验证 | Hosted Chromium 已覆盖 Phone/Tablet/Laptop；真实 iPhone/Tailscale 与全屏字幕待验证 |
 
 ## 产品不是什么
 
