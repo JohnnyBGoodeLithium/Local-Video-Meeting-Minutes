@@ -54,3 +54,27 @@ jobs:
       - name: Deploy verified product site
         id: deployment
         uses: actions/deploy-pages@v4
+
+      - name: Verify production Pages responses
+        env:
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          set -euo pipefail
+          base="${PAGE_URL%/}"
+          for attempt in $(seq 1 12); do
+            if curl --fail --silent --show-error --location --max-time 15 \
+                --output /tmp/product-index.html "${base}/" && \
+               curl --fail --silent --show-error --location --max-time 15 \
+                --output /tmp/product.css "${base}/static/product.css" && \
+               curl --fail --silent --show-error --location --max-time 15 \
+                --output /tmp/product.js "${base}/static/product.js" && \
+               grep --quiet 'data-design-direction="source-fold"' /tmp/product-index.html && \
+               grep --quiet 'data-product-content-version="0.16"' /tmp/product-index.html; then
+              echo "Production product site verified: ${base}/"
+              exit 0
+            fi
+            echo "Pages not ready yet (attempt ${attempt}/12)"
+            sleep 10
+          done
+          echo "Production Pages smoke failed: ${base}/" >&2
+          exit 1
