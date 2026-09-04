@@ -68,7 +68,8 @@ def main() -> int:
                 cdp.call("Page.enable")
                 cdp.call("Runtime.enable")
                 cdp.call("Page.addScriptToEvaluateOnNewDocument", {"source": r"""
-window.__liveE2E = {errors: [], playCalls: 0, stopCalls: 0, polls: 0, session: null};
+window.__liveE2E = {errors: [], playCalls: 0, stopCalls: 0, polls: 0,
+  finalizePolls: 0, session: null, requests: []};
 addEventListener('error', event => window.__liveE2E.errors.push(String(event.message)));
 addEventListener('unhandledrejection', event =>
   window.__liveE2E.errors.push(String(event.reason?.message || event.reason)));
@@ -84,6 +85,7 @@ const jsonResponse = (value, status = 200) => new Response(JSON.stringify(value)
 window.fetch = async (input, init = {}) => {
   const url = String(input);
   const method = String(init.method || 'GET').toUpperCase();
+  if (url.includes('/api/live/')) window.__liveE2E.requests.push(`${method} ${url}`);
   // Switching the UI language normally schedules derived translations. Keep this
   // browser journey isolated so the later API smoke still starts from missing sidecars.
   if (url.includes('/translations/') && method === 'POST')
@@ -106,10 +108,30 @@ window.fetch = async (input, init = {}) => {
     window.__liveE2E.session = {...window.__liveE2E.session, state: 'FINALIZING'};
     return jsonResponse(window.__liveE2E.session);
   }
+  if (url === '/api/live/sessions/live-synthetic-browser/workspace' && method === 'GET') {
+    window.__liveE2E.polls += 1;
+    if (window.__liveE2E.session?.state === 'FINALIZING') {
+      window.__liveE2E.finalizePolls += 1;
+      if (window.__liveE2E.finalizePolls >= 2)
+        window.__liveE2E.session = {...window.__liveE2E.session, state: 'COMPLETE'};
+    }
+    return jsonResponse({
+      schema: 'meeting-live-workspace/v1', session: window.__liveE2E.session,
+      source: {source_kind: 'hls', display_url: 'https://example.invalid/watch/live-event'},
+      transcript: {total_turns: 2, truncated: false, provisional: true, turns: [
+        {start: 4, end: 7, speaker: null, text: 'Synthetic live transcript.'},
+        {start: 10, end: 13, speaker: 'Speaker A', text: 'A second verifiable statement.'}
+      ]},
+      takeaways: {state: 'deferred_until_finalize', provisional: true, items: []}
+    });
+  }
   if (url === '/api/live/sessions/live-synthetic-browser' && method === 'GET') {
     window.__liveE2E.polls += 1;
-    if (window.__liveE2E.session?.state === 'FINALIZING')
-      window.__liveE2E.session = {...window.__liveE2E.session, state: 'COMPLETE'};
+    if (window.__liveE2E.session?.state === 'FINALIZING') {
+      window.__liveE2E.finalizePolls += 1;
+      if (window.__liveE2E.finalizePolls >= 2)
+        window.__liveE2E.session = {...window.__liveE2E.session, state: 'COMPLETE'};
+    }
     return jsonResponse(window.__liveE2E.session);
   }
   return originalFetch(input, init);
@@ -164,17 +186,21 @@ window.fetch = async (input, init = {}) => {
   while (Date.now() < end && document.querySelector('#live-active-status').classList.contains('hidden'))
     await new Promise(resolve => setTimeout(resolve, 25));
   return {state: document.querySelector('#live-active-state').textContent,
+    workspace: !document.querySelector('#live-workspace').classList.contains('hidden'),
+    transcript: document.querySelector('#live-transcript-list').textContent,
     playCalls: window.__liveE2E.playCalls, errors: window.__liveE2E.errors};
 })()
 """)
                 assert started["state"].startswith("LIVE")
+                assert started["workspace"] is True
+                assert "Synthetic live transcript" in started["transcript"]
                 assert started["playCalls"] == 0
                 assert not started["errors"], started["errors"]
 
                 closed = cdp.evaluate(r"""
 (() => {
-  document.querySelector('#live-context-close').click();
-  return {hidden: document.querySelector('#live-context-mask').classList.contains('hidden'),
+  document.querySelector('#live-workspace-back').click();
+  return {hidden: document.querySelector('#live-workspace').classList.contains('hidden'),
     stopCalls: window.__liveE2E.stopCalls};
 })()
 """)
@@ -187,14 +213,14 @@ window.fetch = async (input, init = {}) => {
                 cdp.call("Input.dispatchKeyEvent", {"type": "char", **enter,
                                                      "text": "\r", "unmodifiedText": "\r"})
                 cdp.call("Input.dispatchKeyEvent", {"type": "keyUp", **enter})
-                wait_for(cdp, "!document.querySelector('#live-context-mask').classList.contains('hidden')",
+                wait_for(cdp, "!document.querySelector('#live-workspace').classList.contains('hidden')",
                          "keyboard reopen")
                 resumed = cdp.evaluate(r"""
-({visible: !document.querySelector('#live-active-status').classList.contains('hidden'),
-  state: document.querySelector('#live-active-state').textContent,
+({visible: !document.querySelector('#live-workspace').classList.contains('hidden'),
+  state: document.querySelector('#live-workspace-status').textContent,
   stopCalls: window.__liveE2E.stopCalls})
 """)
-                assert resumed["visible"] and resumed["state"].startswith("LIVE")
+                assert resumed["visible"] and "Capturing" in resumed["state"]
                 assert resumed["stopCalls"] == 0
 
                 cdp.call("Emulation.setEmulatedMedia", {"features": [{
@@ -205,25 +231,47 @@ window.fetch = async (input, init = {}) => {
                 })
                 responsive = cdp.evaluate(r"""
 (() => {
-  const form = document.querySelector('#live-context-form');
+  const form = document.querySelector('#live-workspace');
   const rect = form.getBoundingClientRect();
+  const style = getComputedStyle(form);
+  const widest = [...form.querySelectorAll('*')].map(node => ({
+    tag: node.tagName, id: node.id, cls: node.className,
+    width: node.getBoundingClientRect().width, scroll: node.scrollWidth,
+  })).sort((a, b) => b.width - a.width)[0];
   return {client: document.documentElement.clientWidth, left: rect.left, right: rect.right,
-    dialog: rect.width, animations: form.getAnimations({subtree: true}).length};
+    dialog: rect.width, position: style.position, width: style.width,
+    minWidth: style.minWidth, maxWidth: style.maxWidth, widest,
+    animations: form.getAnimations({subtree: true}).length};
 })()
 """)
                 assert responsive["left"] >= 0 and responsive["right"] <= responsive["client"], responsive
                 assert responsive["dialog"] <= responsive["client"], responsive
                 assert responsive["animations"] == 0, responsive
 
-                cdp.evaluate("document.querySelector('#live-stop').click(); "
-                             "document.querySelector('#live-stop-finalize').click()")
-                wait_for(cdp, "document.querySelector('#live-active-state').textContent.includes('Finalizing')",
+                stop_started = cdp.evaluate(r"""
+(async () => {
+  const stopButton = document.querySelector('#live-workspace-stop');
+  const before = {stopDisabled: stopButton.disabled,
+    finalizeDisabled: document.querySelector('#live-workspace-stop-finalize').disabled,
+    confirmHidden: document.querySelector('#live-workspace-stop-confirm').classList.contains('hidden')};
+  stopButton.click();
+  await new Promise(resolve => setTimeout(resolve, 50));
+  const afterOpen = document.querySelector('#live-workspace-stop-confirm').classList.contains('hidden');
+  document.querySelector('#live-workspace-stop-finalize').click();
+  await new Promise(resolve => setTimeout(resolve, 150));
+  return {status: document.querySelector('#live-workspace-status').textContent,
+    stopCalls: window.__liveE2E.stopCalls, errors: window.__liveE2E.errors,
+    before, afterOpen, requests: window.__liveE2E.requests.slice(-8)};
+})()
+""")
+                assert stop_started["stopCalls"] == 1, stop_started
+                wait_for(cdp, "document.querySelector('#live-workspace-status').textContent.includes('Finalizing')",
                          "finalizing state")
-                wait_for(cdp, "document.querySelector('#live-active-state').textContent.startsWith('Complete')",
+                wait_for(cdp, "document.querySelector('#live-workspace-status').textContent.startsWith('Complete')",
                          "complete state", timeout=8)
                 result = cdp.evaluate(r"""
 ({stopCalls: window.__liveE2E.stopCalls, playCalls: window.__liveE2E.playCalls,
-  errors: window.__liveE2E.errors, state: document.querySelector('#live-active-state').textContent})
+  errors: window.__liveE2E.errors, state: document.querySelector('#live-workspace-status').textContent})
 """)
                 assert result["stopCalls"] == 1
                 assert result["playCalls"] == 0

@@ -30,6 +30,14 @@ turns, provenance = fuse_text_signals([automatic, corrected])
 assert turns[0]["text"] == "校对后的字幕"
 assert provenance[0]["selected"] == "corrected"
 
+rolling = [TimedTextSignal(
+    id=f"rolling-{index}", start=index * 6, end=index * 6 + 5,
+    text=f"Segment {index}", speaker=None, text_source="local_asr",
+) for index in range(4)]
+bounded, _ = fuse_text_signals(rolling, max_turn_seconds=12, max_turn_chars=80)
+assert len(bounded) == 2
+assert bounded[0]["text"] == "Segment 0 Segment 1"
+
 
 with tempfile.TemporaryDirectory(prefix="mm-live-finalizer-") as tmp:
     meeting = Path(tmp) / "meetings" / "synthetic-live"

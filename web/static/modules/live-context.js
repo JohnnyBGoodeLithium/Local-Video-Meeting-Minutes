@@ -48,3 +48,41 @@ export function livePersonFocusNavigation(turns, duration, speaker, currentIndex
     target: delta === 0 ? currentIndex : adjacentReviewUnit(indexes, currentIndex, delta),
   };
 }
+
+export function normalizeLiveWorkspace(value) {
+  const session = value?.session && typeof value.session === "object" ? value.session : {};
+  const rawTurns = Array.isArray(value?.transcript?.turns) ? value.transcript.turns : [];
+  const turns = rawTurns.map((item, index) => ({
+    id: String(item?.id || `live-turn-${index}`),
+    start: Math.max(0, Number(item?.start) || 0),
+    end: Math.max(Number(item?.start) || 0, Number(item?.end) || 0),
+    speaker: String(item?.speaker || ""),
+    text: String(item?.text || "").trim(),
+  })).filter(item => item.text);
+  const items = Array.isArray(value?.takeaways?.items)
+    ? value.takeaways.items.map(item => ({
+      text: String(item?.text || item || "").trim(),
+      start: Math.max(0, Number(item?.start) || 0),
+    })).filter(item => item.text)
+    : [];
+  return {
+    schema: value?.schema === "meeting-live-workspace/v1"
+      ? value.schema : "meeting-live-workspace/v1",
+    session,
+    source: {
+      displayUrl: String(value?.source?.display_url || ""),
+      kind: String(value?.source?.source_kind || ""),
+    },
+    transcript: {
+      turns,
+      totalTurns: Math.max(turns.length, Number(value?.transcript?.total_turns) || 0),
+      truncated: Boolean(value?.transcript?.truncated),
+      provisional: value?.transcript?.provisional !== false,
+    },
+    takeaways: {
+      state: String(value?.takeaways?.state || "collecting"),
+      items,
+      provisional: value?.takeaways?.provisional !== false,
+    },
+  };
+}

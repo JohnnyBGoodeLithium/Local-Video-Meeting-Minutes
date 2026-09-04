@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>会议纪要</title>
-<link rel="stylesheet" href="/static/fluent-foundation.css?v=20260903p115">
-<link rel="stylesheet" href="/static/style.css?v=20260903p115">
-<link rel="stylesheet" href="/static/theme.css?v=20260903p115">
+<link rel="stylesheet" href="/static/fluent-foundation.css?v=20260904p117">
+<link rel="stylesheet" href="/static/style.css?v=20260904p117">
+<link rel="stylesheet" href="/static/theme.css?v=20260904p117">
 </head>
 <body class="page-index">
 <header class="topbar">
@@ -285,6 +285,67 @@
   </form>
 </div>
 
+<section id="live-workspace" class="live-workspace hidden" aria-labelledby="live-workspace-title">
+  <header class="live-workspace-head">
+    <div class="live-workspace-heading">
+      <span id="live-workspace-badge" class="live-workspace-badge">LIVE</span>
+      <div>
+        <h1 id="live-workspace-title">Live Context</h1>
+        <p id="live-workspace-status" aria-live="polite">正在连接来源…</p>
+      </div>
+    </div>
+    <div class="live-workspace-actions">
+      <a id="live-workspace-source" class="fluent-button fluent-button--subtle hidden" href="#"
+         target="_blank" rel="noopener noreferrer">打开原直播</a>
+      <button id="live-workspace-back" class="fluent-button fluent-button--subtle" type="button">返回资料库</button>
+      <button id="live-workspace-stop" class="fluent-button" type="button">停止并整理</button>
+    </div>
+  </header>
+  <div class="live-workspace-body">
+    <main class="live-transcript-panel">
+      <header>
+        <div>
+          <h2 id="live-transcript-title">实时文字</h2>
+          <p id="live-transcript-meta">内容仍在更新，停止后会统一校正。</p>
+        </div>
+        <label class="live-follow-control">
+          <input id="live-follow" type="checkbox" checked>
+          <span id="live-follow-label">跟随最新内容</span>
+        </label>
+      </header>
+      <div id="live-transcript-feed" class="live-transcript-feed" tabindex="0"
+           aria-labelledby="live-transcript-title">
+        <ol id="live-transcript-list"></ol>
+        <div id="live-transcript-empty" class="live-empty-state">
+          <strong>正在等待第一段文字</strong>
+          <span>采集会在后台继续，你可以返回资料库。</span>
+        </div>
+      </div>
+    </main>
+    <aside class="live-takeaways-panel" aria-labelledby="live-takeaways-title">
+      <header>
+        <p class="live-eyebrow">PROVISIONAL</p>
+        <h2 id="live-takeaways-title">实时要点（暂定）</h2>
+        <p id="live-takeaways-boundary">这里只显示有当前文字依据的临时判断；停止后才生成完整整理。</p>
+      </header>
+      <div id="live-takeaways-list"></div>
+      <div id="live-takeaways-empty" class="live-empty-state">
+        <strong>先积累一些上下文</strong>
+        <span>为避免与实时语音识别争抢本机资源，本版在停止后统一提炼要点。</span>
+      </div>
+    </aside>
+  </div>
+  <div id="live-workspace-stop-confirm" class="live-workspace-confirm hidden" role="alertdialog"
+       aria-labelledby="live-workspace-stop-question">
+    <div>
+      <strong id="live-workspace-stop-question">停止采集并整理目前的内容？</strong>
+      <span id="live-workspace-stop-detail">已经捕获的文字和媒体会保留，并进入现有整理流程。</span>
+    </div>
+    <button id="live-workspace-stop-cancel" type="button">继续采集</button>
+    <button id="live-workspace-stop-finalize" class="primary" type="button">停止并整理</button>
+  </div>
+</section>
+
 <div id="quote-pop" class="quote-pop hidden">
   <button type="button" data-intent="ask">问助手</button>
   <button type="button" data-intent="edit">用这段更新纪要</button>
@@ -417,6 +478,6 @@
 
 <div id="tl-tip" class="tl-tip hidden"></div>
 
-<script type="module" src="/static/app.js?v=20260903p115"></script>
+<script type="module" src="/static/app.js?v=20260904p117"></script>
 </body>
 </html>

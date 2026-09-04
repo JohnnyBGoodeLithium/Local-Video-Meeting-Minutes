@@ -17,6 +17,7 @@ from meeting_core.asr import create_provider
 from .asr import ASRChunk, ExistingASRProviderAdapter
 from .capabilities import LiveSourceCapabilities
 from .finalizer import LiveFinalizationError, mark_finalization_complete, prepare_finalization
+from .fusion import fuse_text_signals
 from .hls import HLSSubtitleSource, parse_media_playlist
 from .models import TimedTextSignal
 from .source import ProbedLiveSource, PublicSourceFetcher, SourceProbeError, probe_live_source
@@ -84,6 +85,38 @@ class HLSBackgroundWorker:
             "error": self.error,
             "content_type": self.content_type,
             "mode": self.mode,
+        }
+
+    def workspace(self, *, limit: int = 120, signal_window: int = 480) -> dict:
+        """Project private live signals into a bounded, user-facing workspace.
+
+        The session list intentionally stays metadata-only. Transcript text is
+        returned only from the explicit per-session workspace endpoint and the
+        signed media playlist URL never leaves the worker.
+        """
+        bounded_limit = max(1, min(int(limit), 240))
+        bounded_window = max(bounded_limit, min(int(signal_window), 960))
+        signals = self.store.signals()
+        recent_signals = signals[-bounded_window:]
+        turns, _provenance = fuse_text_signals(
+            recent_signals, max_turn_seconds=24.0, max_turn_chars=360)
+        recent = turns[-bounded_limit:]
+        return {
+            "schema": "meeting-live-workspace/v1",
+            "session": self.status(),
+            "source": self.source.public_dict(),
+            "transcript": {
+                "turns": recent,
+                "total_turns": len(turns),
+                "signal_observations": len(signals),
+                "truncated": len(signals) > len(recent_signals) or len(turns) > len(recent),
+                "provisional": True,
+            },
+            "takeaways": {
+                "state": "deferred_until_finalize",
+                "items": [],
+                "provisional": True,
+            },
         }
 
     def _capture_command(self, capture: Path, with_pcm: bool) -> list[str]:

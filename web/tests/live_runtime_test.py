@@ -80,6 +80,13 @@ with tempfile.TemporaryDirectory(prefix="mm-live-runtime-") as tmp:
     assert not worker.thread.is_alive()
     status = worker.status()
     assert status["state"] == "COMPLETE" and status["text_signals"] == 1
+    workspace = worker.workspace()
+    assert workspace["schema"] == "meeting-live-workspace/v1"
+    assert workspace["transcript"]["total_turns"] == 1
+    assert workspace["transcript"]["turns"][0]["text"] == "Synthetic live text."
+    assert workspace["source"]["display_url"] == "https://example.invalid/master.m3u8"
+    assert "media_playlist_url" not in json.dumps(workspace)
+    assert workspace["takeaways"]["state"] == "deferred_until_finalize"
     assert (meeting / "transcript.spk.json").is_file()
     assert all("--autoplay" not in part for part in worker.capture_process.command)
     stored_source = json.loads((meeting / ".live" / "source.json").read_text())
