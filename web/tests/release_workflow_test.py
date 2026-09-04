@@ -78,6 +78,13 @@ def main() -> int:
         "pages: write",
         "id-token: write",
         "actions/deploy-pages@v4",
+        "publish-authorized-tag:",
+        "needs: deploy",
+        "Create explicitly authorized release tag",
+        "release/authorized-tag.txt",
+        "git ls-remote --exit-code --tags origin",
+        'git tag -a "$release_tag"',
+        'git push origin "refs/tags/${release_tag}"',
     ):
         require(pages, marker, str(pages_path))
     assert "pull_request_target" not in pages
