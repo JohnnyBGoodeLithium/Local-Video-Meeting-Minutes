@@ -211,7 +211,9 @@ def main() -> int:
                 screenshot(cdp, "laptop-review-1440.png")
                 viewport(cdp, 393, 852)
                 cdp.evaluate("document.querySelector('#conclusions .row')?.click()")
-                wait(cdp, "performance.getEntriesByType('resource').some(x=>x.name.includes('/media/audio'))", "evidence request")
+                wait(cdp, "performance.getEntriesByType('resource').some(x=>x.name.includes('/evidence/'))", "evidence lookup")
+                assert cdp.evaluate("['audio','video'].some(kind=>document.querySelector(`#${kind}-player`).src.includes(`/media/${kind}`))"), \
+                    "evidence playback must keep an approved audio or video source"
                 cdp.evaluate("document.querySelector('#tab-people').click()")
                 wait(cdp, "!document.querySelector('#panel-people').hidden", "People tab")
                 cdp.evaluate("document.querySelector('#people .row').click()")
