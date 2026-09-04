@@ -2,7 +2,7 @@
 
 [English](README.md) | 简体中文
 
-[产品介绍站](https://johnnybgoodlithium.github.io/Local-Video-Meeting-Minutes/)
+[产品介绍站](https://johnnybgoodelithium.github.io/Local-Video-Meeting-Minutes/)
 
 <!-- maturity: controlled-single-machine-poc -->
 <!-- product-version: v0.16.0 -->
@@ -91,7 +91,7 @@ make run
 | 需要 | 权威来源 |
 |---|---|
 | 全部文档 | [文档导航](docs/INDEX.md) |
-| 产品叙事 | [产品介绍站](https://johnnybgoodlithium.github.io/Local-Video-Meeting-Minutes/) |
+| 产品叙事 | [产品介绍站](https://johnnybgoodelithium.github.io/Local-Video-Meeting-Minutes/) |
 | 最新发布候选 | [v0.16.0 发布说明](docs/releases/v0.16.0.md) |
 | 能力清单 | [产品功能表](docs/PRODUCT_FUNCTIONS.md) |
 | 当前验证状态 | [状态](docs/STATUS.md) |
