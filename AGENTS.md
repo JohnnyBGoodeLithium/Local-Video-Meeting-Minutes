@@ -72,6 +72,8 @@
 
 唯一真源见 [docs/INDEX.md](docs/INDEX.md)。同一事实不要在 README、HANDOFF、STATUS 和计划文档中重复维护。
 
+`STATUS.md` 保存随仓库提交可稳定判断的产品版本、成熟度、验证边界和近期重点；不保存 tag、GitHub Release 或短期 release candidate 当前是否存在等外部动态状态。正式分发记录与制品以 GitHub Releases 为准。
+
 | 变化类型 | 必须更新 | 通常不更新 |
 |---|---|---|
 | 重要 Bug 修复 | CHANGELOG 的 Unreleased | PRODUCT、ARCHITECTURE |

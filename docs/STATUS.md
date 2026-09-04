@@ -2,13 +2,12 @@
 # 当前状态
 
 - 更新时间：2026-09-04
-- 产品版本：v0.16.0（release candidate）
-- 最近发布版本：v0.15.3
-- 发布状态：v0.16.0 release candidate
+- 产品版本：v0.16.0
+- 正式分发：发布记录、可下载制品与校验和以 [GitHub Releases](https://github.com/JohnnyBGoodeLithium/Local-Video-Meeting-Minutes/releases) 为准
+- 发布验证：正式发布按不可移动 tag 校验版本元数据、完整 CI 与全新目录 bundle smoke
 - Web 构建号：20260904p120
 - Workbench asset baseline：20260904p117
-- Release candidate 基线：`release/v0.16.0`；正式 tag 尚未创建
-- 源代码基线：`release/v0.16.0`，base `e93d22cc7cc9a1ff0992d266717d516476bbd67e`
+- 源代码基线：当前 `main`；准确实现与历史以代码、测试和 Git 为准
 - Owner：Local AI PoC maintainer
 - 当前阶段：受控 PoC 验证（Controlled PoC validation）
 

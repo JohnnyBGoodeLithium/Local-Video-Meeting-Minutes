@@ -196,6 +196,15 @@ for marker in (
 ):
     assert marker in status, f"STATUS missing marker: {marker}"
 
+for transient_release_marker in (
+    "release candidate", "最近发布版本：", "发布状态：",
+    "正式 tag 尚未创建", "GitHub Release 尚未",
+):
+    assert transient_release_marker.lower() not in status.lower(), (
+        "STATUS must not persist transient external release state: "
+        f"{transient_release_marker}"
+    )
+
 if IN_REPOSITORY:
     reporting = [
         ROOT / "docs/reporting/EXECUTIVE_BRIEF.md",
