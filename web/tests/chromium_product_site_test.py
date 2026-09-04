@@ -174,11 +174,14 @@ window.fetch = (input, init) => {
 }))()
 """)
                 assert baseline["sections"] == [
-                    "overview", "find", "verify", "correct", "reuse", "use-cases", "trust",
+                    "overview", "meeting-video", "find", "verify", "correct",
+                    "review-anywhere", "playback", "live", "reuse",
                 ]
                 assert baseline["meetingVisible"] and baseline["videoHidden"]
                 assert baseline["selectedMode"] == "meeting"
-                assert baseline["maturity"] == ["validated", "working", "early"]
+                assert baseline["maturity"] == [
+                    "validated", "working", "early", "experimental", "implemented",
+                ]
                 assert baseline["fictional"]
                 assert baseline["fetches"] == ["/api/health"], baseline["fetches"]
                 assert not baseline["errors"], baseline["errors"]
