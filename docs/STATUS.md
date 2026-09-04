@@ -1,9 +1,9 @@
 <!-- current-status-source -->
 # 当前状态
 
-- 更新时间：2026-09-03
+- 更新时间：2026-09-04
 - 产品版本：v0.15.3
-- Web 构建号：20260903p115
+- Web 构建号：20260904p117
 - 源代码基线：以不可移动的 `v0.15.3` tag 所指 commit 为准
 - Owner：Local AI PoC maintainer
 - 当前阶段：受控 PoC 验证（Controlled PoC validation）
@@ -29,7 +29,7 @@
 
 ## 实验中（Experimental）
 
-- Live Context 可在开启 `MEETING_LIVE_CONTEXT=1` 后直接接收能安全解析为公开、无 DRM 原生 HLS 的直播页面或 HLS 地址，执行无浏览器后台分析，累积暂定文字、人物、议题和选择性画面，结束后再交给现有 canonical pipeline 收尾。
+- Live Context 可在开启 `MEETING_LIVE_CONTEXT=1` 后直接接收能安全解析为公开、无 DRM 原生 HLS 的直播页面或 HLS 地址，执行无浏览器后台分析；启动后进入可随时退出的 Live 工作区，读取真实滚动文字与采集状态，结束后再交给现有 canonical pipeline 收尾。实时要点模型尚未接入运行时，为避免与 ASR 抢占资源，当前明确在停止后统一提炼。
 - Browser-assisted 音频尚未在当前 AMD/PipeWire 主机上证明可靠静音捕获；能力不足时必须请用户保持来源窗口，不会自动播放、抓取全系统音频或切换捕获方式。
 - Companion 私有 tailnet 原型已实现应用内配对、URL/小文件发送、进度、安全轻量 review、evidence 回听和人物确认；真实手机与 X Ultra 的 Tailscale Serve transport 仍待人工实验验证，默认关闭且不使用 Funnel。
 - 跨会议序列比较、主题演进和部门知识交付。

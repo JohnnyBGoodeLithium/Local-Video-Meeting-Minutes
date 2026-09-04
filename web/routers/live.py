@@ -106,6 +106,17 @@ def get_live_session(session_id: str):
     return worker.status()
 
 
+@router.get("/api/live/sessions/{session_id}/workspace")
+def get_live_workspace(session_id: str):
+    """Return bounded live review content without exposing signed source URLs."""
+    _enabled()
+    _recover_once()
+    worker = MANAGER.get(session_id)
+    if worker is None:
+        raise HTTPException(404, "Live session not found")
+    return worker.workspace()
+
+
 @router.post("/api/live/sessions/{session_id}/stop")
 def stop_live_session(session_id: str):
     _enabled()

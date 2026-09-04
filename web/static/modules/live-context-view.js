@@ -1,6 +1,6 @@
 "use strict";
 
-import { createLiveContextState, selectLiveContentType, selectLiveMode }
+import { createLiveContextState, normalizeLiveWorkspace, selectLiveContentType, selectLiveMode }
   from "./live-context.js";
 
 const COPY = {
@@ -24,6 +24,19 @@ const COPY = {
     textWaiting: "正在等待来源", audioSilent: "静默采集中", speakersProvisional: "暂定",
     visualWaiting: "选择性分析；允许稍后补完", openSource: "打开来源并分析", stop: "停止",
     stopQuestion: "停止并整理目前已捕获的内容？", stopCancel: "取消", stopFinalize: "停止并整理",
+    workspaceTitle: "Live Context", transcriptTitle: "实时文字",
+    transcriptHelp: "内容仍在更新，停止后会统一校正。",
+    follow: "跟随最新内容", waitingTitle: "正在等待第一段文字",
+    waitingDetail: "采集会在后台继续，你可以返回资料库。",
+    takeawaysTitle: "实时要点（暂定）",
+    takeawaysBoundary: "这里只显示有当前文字依据的临时判断；停止后才生成完整整理。",
+    takeawaysWaitingTitle: "先积累一些上下文",
+    takeawaysWaitingDetail: "为避免与实时语音识别争抢本机资源，本版在停止后统一提炼要点。",
+    sourceLink: "打开原直播", back: "返回资料库", stopAndFinalize: "停止并整理",
+    workspaceStopQuestion: "停止采集并整理目前的内容？",
+    workspaceStopDetail: "已经捕获的文字和媒体会保留，并进入现有整理流程。",
+    continueCapture: "继续采集", provisionalSpeaker: "说话人待确认", liveText: "段实时文字",
+    truncatedText: "仅显示最近内容", collecting: "正在采集和识别",
   },
   en: {
     entry: "Live Context", title: "Start Live Context",
@@ -49,6 +62,19 @@ const COPY = {
     visualWaiting: "Selective analysis; may finish later", openSource: "Open source & analyze", stop: "Stop",
     stopQuestion: "Stop and finalize what has been captured so far?", stopCancel: "Cancel",
     stopFinalize: "Stop & finalize",
+    workspaceTitle: "Live Context", transcriptTitle: "Live transcript",
+    transcriptHelp: "Content is still changing and will be reconciled after capture stops.",
+    follow: "Follow latest", waitingTitle: "Waiting for the first transcript segment",
+    waitingDetail: "Capture continues in the background while you return to the library.",
+    takeawaysTitle: "Live takeaways (provisional)",
+    takeawaysBoundary: "Only provisional points with current transcript support appear here; full synthesis happens after capture stops.",
+    takeawaysWaitingTitle: "Building enough context",
+    takeawaysWaitingDetail: "This release synthesizes takeaways after capture stops to avoid competing with live ASR for local resources.",
+    sourceLink: "Open live source", back: "Back to library", stopAndFinalize: "Stop & finalize",
+    workspaceStopQuestion: "Stop capture and finalize what is available?",
+    workspaceStopDetail: "Captured text and media will be preserved and passed to the existing finalization workflow.",
+    continueCapture: "Keep capturing", provisionalSpeaker: "Speaker pending", liveText: "live transcript segments",
+    truncatedText: "showing recent content", collecting: "Capturing and transcribing",
   },
 };
 
@@ -62,11 +88,14 @@ export function mountLiveContext(root = document, { request = fetch, pollEvery =
   const entry = root.querySelector("#live-context-entry");
   const mask = root.querySelector("#live-context-mask");
   const form = root.querySelector("#live-context-form");
+  const workspace = root.querySelector("#live-workspace");
+  const transcriptFeed = root.querySelector("#live-transcript-feed");
   let state = { ...createLiveContextState(), busy: false, notice: "", session: null,
-    fallbackOpen: false };
+    fallbackOpen: false, workspace: null, workspaceOpen: false };
   let language = "zh-CN";
   let returnFocus = null;
   let poller = null;
+  let renderedTurnCount = 0;
 
   function copy() { return COPY[language] || COPY["zh-CN"]; }
 
@@ -89,12 +118,29 @@ export function mountLiveContext(root = document, { request = fetch, pollEvery =
     return body;
   }
 
+  function currentSession() {
+    return state.session || state.workspace?.session || null;
+  }
+
+  function sessionPath(suffix = "") {
+    return `/api/live/sessions/${encodeURIComponent(currentSession().id)}${suffix}`;
+  }
+
+  async function refreshWorkspace() {
+    if (!currentSession()?.id) return;
+    const body = await jsonRequest(sessionPath("/workspace"));
+    state = { ...state, workspace: normalizeLiveWorkspace(body),
+      session: body.session || state.session };
+  }
+
   function schedulePoll() {
     clearTimeout(poller);
-    if (!state.session?.id || ["COMPLETE", "FAILED", "CANCELLED"].includes(state.session.state)) return;
+    const session = currentSession();
+    if (!session?.id || ["COMPLETE", "FAILED", "CANCELLED"].includes(session.state)) return;
     poller = setTimeout(async () => {
       try {
-        state = { ...state, session: await jsonRequest(`/api/live/sessions/${encodeURIComponent(state.session.id)}`) };
+        if (state.workspaceOpen) await refreshWorkspace();
+        else state = { ...state, session: await jsonRequest(sessionPath()) };
         render();
       } catch (_) {
         // A transient UI poll failure must not stop the backend session.
@@ -118,9 +164,78 @@ export function mountLiveContext(root = document, { request = fetch, pollEvery =
     }
   }
 
+  function renderWorkspace() {
+    const c = copy();
+    const active = Boolean(state.workspaceOpen && state.session);
+    workspace.classList.toggle("hidden", !active);
+    if (!active) return;
+    const projected = state.workspace;
+    const session = projected?.session || state.session;
+    const statusLabel = ({
+      LIVE: c.collecting, CONNECTING: c.starting, STALLED: c.unavailable,
+      RECOVERING: c.starting, ENDING: c.finalizing, FINALIZING: c.finalizing,
+      COMPLETE: c.complete, FAILED: c.failed, CANCELLED: c.failed,
+    })[session.state] || String(session.state || c.starting);
+    root.querySelector("#live-workspace-title").textContent = c.workspaceTitle;
+    root.querySelector("#live-workspace-status").textContent =
+      `${statusLabel} · ${formatDuration(session.duration)}`;
+    root.querySelector("#live-transcript-title").textContent = c.transcriptTitle;
+    root.querySelector("#live-transcript-meta").textContent = projected
+      ? `${projected.transcript.turns.length} ${c.liveText}${projected.transcript.truncated ? ` · ${c.truncatedText}` : ""}`
+      : c.transcriptHelp;
+    root.querySelector("#live-follow-label").textContent = c.follow;
+    root.querySelector("#live-transcript-empty strong").textContent = c.waitingTitle;
+    root.querySelector("#live-transcript-empty span").textContent = c.waitingDetail;
+    root.querySelector("#live-takeaways-title").textContent = c.takeawaysTitle;
+    root.querySelector("#live-takeaways-boundary").textContent = c.takeawaysBoundary;
+    root.querySelector("#live-takeaways-empty strong").textContent = c.takeawaysWaitingTitle;
+    root.querySelector("#live-takeaways-empty span").textContent = c.takeawaysWaitingDetail;
+    root.querySelector("#live-workspace-back").textContent = c.back;
+    root.querySelector("#live-workspace-stop").textContent = c.stopAndFinalize;
+    root.querySelector("#live-workspace-stop-question").textContent = c.workspaceStopQuestion;
+    root.querySelector("#live-workspace-stop-detail").textContent = c.workspaceStopDetail;
+    root.querySelector("#live-workspace-stop-cancel").textContent = c.continueCapture;
+    root.querySelector("#live-workspace-stop-finalize").textContent = c.stopAndFinalize;
+
+    const turns = projected?.transcript.turns || [];
+    root.querySelector("#live-transcript-empty").classList.toggle("hidden", turns.length > 0);
+    root.querySelector("#live-transcript-list").innerHTML = turns.map(item => `
+      <li class="live-transcript-turn">
+        <time datetime="PT${Math.round(item.start)}S">${escapeHtml(formatDuration(item.start))}</time>
+        <div class="live-transcript-copy">
+          <b>${escapeHtml(item.speaker || c.provisionalSpeaker)}</b>
+          <p>${escapeHtml(item.text)}</p>
+        </div>
+      </li>`).join("");
+    if (turns.length !== renderedTurnCount && root.querySelector("#live-follow").checked) {
+      transcriptFeed.scrollTop = transcriptFeed.scrollHeight;
+    }
+    renderedTurnCount = turns.length;
+
+    const takeaways = projected?.takeaways.items || [];
+    root.querySelector("#live-takeaways-empty").classList.toggle("hidden", takeaways.length > 0);
+    root.querySelector("#live-takeaways-list").innerHTML = takeaways.map(item => `
+      <article class="live-takeaway"><p>${escapeHtml(item.text)}</p>
+        <time datetime="PT${Math.round(item.start)}S">${escapeHtml(formatDuration(item.start))}</time>
+      </article>`).join("");
+
+    const sourceLink = root.querySelector("#live-workspace-source");
+    const displayUrl = projected?.source.displayUrl || state.source;
+    const validSource = /^https?:\/\//i.test(displayUrl);
+    sourceLink.classList.toggle("hidden", !validSource);
+    sourceLink.href = validSource ? displayUrl : "#";
+    sourceLink.textContent = c.sourceLink;
+    root.querySelector("#live-workspace-stop").disabled =
+      ["ENDING", "FINALIZING", "COMPLETE", "FAILED", "CANCELLED"].includes(session.state);
+  }
+
   function render() {
     const c = copy();
-    entry.textContent = c.entry;
+    const sessionActive = state.session
+      && !["COMPLETE", "FAILED", "CANCELLED"].includes(state.session.state);
+    entry.textContent = sessionActive
+      ? `● ${c.live} · ${formatDuration(state.session.duration)}` : c.entry;
+    entry.classList.toggle("live-context-entry--active", Boolean(sessionActive));
     root.querySelector("#live-context-title").textContent = c.title;
     root.querySelector("#live-context-summary").textContent = c.summary;
     root.querySelector("#live-content-legend").textContent = c.contentLegend;
@@ -192,6 +307,7 @@ export function mountLiveContext(root = document, { request = fetch, pollEvery =
       root.querySelector("#live-stop").disabled = ["ENDING", "FINALIZING", "COMPLETE", "FAILED"]
         .includes(state.session.state);
     }
+    renderWorkspace();
   }
 
   function close() {
@@ -200,7 +316,36 @@ export function mountLiveContext(root = document, { request = fetch, pollEvery =
     returnFocus?.focus();
   }
 
+  async function openWorkspace(trigger = null) {
+    returnFocus = trigger || returnFocus;
+    state = { ...state, open: false, workspaceOpen: true };
+    mask.classList.add("hidden");
+    render();
+    try {
+      await refreshWorkspace();
+    } catch (_) {
+      // Metadata still communicates that capture is alive while content catches up.
+    }
+    render();
+    transcriptFeed.focus();
+    schedulePoll();
+  }
+
+  function closeWorkspace() {
+    const terminal = ["COMPLETE", "FAILED", "CANCELLED"].includes(state.session?.state);
+    state = { ...state, workspaceOpen: false,
+      session: terminal ? null : state.session,
+      workspace: terminal ? null : state.workspace };
+    workspace.classList.add("hidden");
+    root.querySelector("#live-workspace-stop-confirm").classList.add("hidden");
+    entry.focus();
+  }
+
   entry.addEventListener("click", event => {
+    if (state.session) {
+      openWorkspace(event.currentTarget);
+      return;
+    }
     returnFocus = event.currentTarget;
     state = { ...state, open: true };
     mask.classList.remove("hidden");
@@ -251,7 +396,7 @@ export function mountLiveContext(root = document, { request = fetch, pollEvery =
       });
       state = { ...state, busy: false, notice: "", session, fallbackOpen: false };
       render();
-      schedulePoll();
+      await openWorkspace(entry);
     } catch (error) {
       state = { ...state, busy: false, notice: error.message || c.unavailable };
       render();
@@ -271,7 +416,7 @@ export function mountLiveContext(root = document, { request = fetch, pollEvery =
     root.querySelector("#live-stop").focus();
   });
   root.querySelector("#live-stop-finalize").addEventListener("click", async () => {
-    if (!state.session?.id) return;
+    if (!currentSession()?.id) return;
     root.querySelector("#live-stop-confirm").classList.add("hidden");
     try {
       state = { ...state, session: await jsonRequest(
@@ -281,6 +426,34 @@ export function mountLiveContext(root = document, { request = fetch, pollEvery =
     } catch (error) {
       state = { ...state, notice: error.message || copy().failed };
       render();
+    }
+  });
+  root.querySelector("#live-workspace-back").addEventListener("click", closeWorkspace);
+  root.querySelector("#live-workspace-stop").addEventListener("click", () => {
+    root.querySelector("#live-workspace-stop-confirm").classList.remove("hidden");
+    root.querySelector("#live-workspace-stop-finalize").focus();
+  });
+  root.querySelector("#live-workspace-stop-cancel").addEventListener("click", () => {
+    root.querySelector("#live-workspace-stop-confirm").classList.add("hidden");
+    root.querySelector("#live-workspace-stop").focus();
+  });
+  root.querySelector("#live-workspace-stop-finalize").addEventListener("click", async () => {
+    if (!currentSession()?.id) return;
+    root.querySelector("#live-workspace-stop-confirm").classList.add("hidden");
+    try {
+      state = { ...state, session: await jsonRequest(
+        sessionPath("/stop"), { method: "POST" }) };
+      render();
+      schedulePoll();
+    } catch (error) {
+      state = { ...state, notice: error.message || copy().failed };
+      render();
+    }
+  });
+  workspace.addEventListener("keydown", event => {
+    if (event.key === "Escape"
+        && root.querySelector("#live-workspace-stop-confirm").classList.contains("hidden")) {
+      closeWorkspace();
     }
   });
   render();

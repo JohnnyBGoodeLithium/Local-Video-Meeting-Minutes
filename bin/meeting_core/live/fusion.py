@@ -40,7 +40,8 @@ def _same_observation(left: TimedTextSignal, right: TimedTextSignal) -> bool:
     return temporal >= 0.5 and textual >= 0.55
 
 
-def fuse_text_signals(signals: list[TimedTextSignal]) -> tuple[list[dict], list[dict]]:
+def fuse_text_signals(signals: list[TimedTextSignal], *, max_turn_seconds: float | None = None,
+                      max_turn_chars: int | None = None) -> tuple[list[dict], list[dict]]:
     """Choose stronger duplicate sources while retaining a provenance audit."""
     selected: list[TimedTextSignal] = []
     provenance: list[dict] = []
@@ -68,8 +69,13 @@ def fuse_text_signals(signals: list[TimedTextSignal]) -> tuple[list[dict], list[
         speaker = signal.speaker or "未具名"
         item = {"speaker": speaker, "start": round(signal.start, 3),
                 "end": round(signal.end, 3), "text": signal.text}
+        within_time = (max_turn_seconds is None or not turns
+                       or item["end"] - turns[-1]["start"] <= max_turn_seconds)
+        within_text = (max_turn_chars is None or not turns
+                       or len(turns[-1]["text"]) + len(item["text"]) + 1 <= max_turn_chars)
         if (turns and turns[-1]["speaker"] == speaker
-                and item["start"] - turns[-1]["end"] <= 1.0):
+                and item["start"] - turns[-1]["end"] <= 1.0
+                and within_time and within_text):
             turns[-1]["end"] = max(turns[-1]["end"], item["end"])
             turns[-1]["text"] = f"{turns[-1]['text']} {item['text']}".strip()
         else:

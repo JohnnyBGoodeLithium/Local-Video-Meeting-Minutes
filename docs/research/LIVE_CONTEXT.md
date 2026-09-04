@@ -13,6 +13,7 @@
 - Generic HLS 支持 master/media playlist、`EXT-X-MEDIA` 字幕、media sequence checkpoint、新分片去重、暂时网络失败恢复、target-duration 轮询和 `ENDLIST` 结束。URL 日志不保留 query。
 - 已授权的公开直播页面先由现有 `yt-dlp` 能力进行无下载探测；只有 `is_live` 且选中格式为原生 HLS 时才接入 Generic HLS worker。下载器配置与日志被禁用，解析后的 CDN 再做公网校验；原页面只保存在私有 `.live/` 恢复状态，临时 HLS 签名不进入用户投影，服务恢复时重新解析以避免继续使用过期地址。
 - Native HLS worker 通过 `ffmpeg` 直接解调音频，有原生字幕时不运行主 ASR；无字幕时可使用 rolling chunk ASR。不创建可听播放元素。
+- 启动对话只承担来源与模式选择；会话开始后进入独立 Live 工作区。`meeting-live-workspace/v1` 只在单场会话端点投影经过融合的最近文字、脱敏来源和状态，列表 API 继续保持无正文，临时 HLS 签名不返回前端。
 - Visual Caption Capture 支持手工区域，也支持全帧低频检测、区域跟踪和局部 1–5 fps（默认 2）识别；前缀扩展、后缀重叠、重复和闪烁经时序合并。没有 cloud OCR fallback。
 - 近实时 ASR 是明确的 rolling chunk + overlap，不声称 native streaming。人物使用 stable anonymous ID，display label 可在会后 reconcile；platform/human identity 不会被本地 cluster 降级。
 - 资源优先级固定为 audio → text/ASR + speaker → topic → OCR → VL → final heavy analysis。压力增加时先降 VL 频率、暂停 VL、降 OCR、暂停 live topic；丢 audio 块是硬失败。
@@ -30,6 +31,8 @@ Browser adapter 定义 foreground、background-headful 和 headless-verified，�
 `ENDLIST` 是最强结束信号。媒体序列、音视频进展和字幕都停止时先进入 `ENDING`，等待可配 30–60 秒 grace；恢复时回到 `LIVE`。同页从 Live 变 VOD 时结束当前 session，不从 00:00 重复分析 replay。
 
 `.live/` 不进入 Git、MeetingPack、AI Context、KB 或 Application Release Bundle。只有 finalizer 校验后才写 `transcript.spk.json`、视觉页和现有正式结果。关闭 UI 不停 worker；用户显式 Stop 会 finalize 已捕获内容，不丢弃。
+
+当前 Live 工作区预留“实时要点（暂定）”投影，但运行时尚未调用文本模型生成在线总结。界面明确说明停止后统一提炼，不用最近逐字稿、关键词或规则句冒充结论；后续若接入，必须独立限频、缓存、附时间依据，并服从 ASR 优先的资源策略。
 
 ## 测量与当前结果
 
