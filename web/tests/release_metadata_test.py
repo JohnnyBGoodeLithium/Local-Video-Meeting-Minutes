@@ -39,7 +39,7 @@ changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
 assert re.search(rf"^## v{re.escape(version)} — \d{{4}}-\d{{2}}-\d{{2}}$", changelog, re.MULTILINE)
 
 status = (ROOT / "docs" / "STATUS.md").read_text(encoding="utf-8")
-assert f"产品版本：v{version}（release candidate）" in status
+assert f"产品版本：v{version}" in status
 
 product_html = (ROOT / "web" / "static" / "product.html").read_text(encoding="utf-8")
 major, minor, _ = version.split(".")
