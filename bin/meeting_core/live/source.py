@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import ipaddress
 import socket
-from typing import Callable
+from typing import Any, Callable
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -20,6 +20,22 @@ MAX_PROBE_BYTES = 2 * 1024 * 1024
 
 class SourceProbeError(RuntimeError):
     """A source is unsafe, unavailable, authenticated, or unsupported."""
+
+
+class _SilentYTDLPLogger:
+    """Discard downloader messages because they may contain titles or signed URLs."""
+
+    def debug(self, _message):
+        return None
+
+    def info(self, _message):
+        return None
+
+    def warning(self, _message):
+        return None
+
+    def error(self, _message):
+        return None
 
 
 def validate_public_url(url: str,
@@ -43,6 +59,54 @@ def validate_public_url(url: str,
                 or address.is_link_local or address.is_reserved):
             raise SourceProbeError("private or local source addresses are unsupported")
     return url.strip()
+
+
+def _extract_live_page(url: str) -> dict[str, Any] | None:
+    """Resolve a public live page without downloading media or loading user config."""
+    try:
+        import yt_dlp
+    except ImportError:
+        return None
+    options = {
+        "format": "best",
+        "noplaylist": True,
+        "playlistend": 1,
+        "skip_download": True,
+        "quiet": True,
+        "no_warnings": True,
+        "ignoreconfig": True,
+        "cachedir": False,
+        "socket_timeout": 15,
+        "retries": 1,
+        "extractor_retries": 1,
+        "logger": _SilentYTDLPLogger(),
+    }
+    try:
+        with yt_dlp.YoutubeDL(options) as downloader:
+            info = downloader.extract_info(url, download=False)
+    except Exception:
+        return None
+    return info if isinstance(info, dict) else None
+
+
+def resolve_live_webpage(
+        url: str, *, extract: Callable[[str], dict[str, Any] | None] | None = None,
+        resolve: Callable[..., list] = socket.getaddrinfo) -> str | None:
+    """Return a public native-HLS URL only when the page is live right now.
+
+    The resolved URL may contain a short-lived CDN signature. It stays inside the
+    private live worker; user-facing projections remove its query string.
+    """
+    info = (extract or _extract_live_page)(url)
+    if not isinstance(info, dict) or info.get("_type") in {"playlist", "multi_video"}:
+        return None
+    if info.get("is_live") is not True and info.get("live_status") != "is_live":
+        return None
+    protocol = str(info.get("protocol") or "").lower()
+    resolved = str(info.get("url") or "").strip()
+    if protocol not in {"m3u8", "m3u8_native"} or not resolved:
+        return None
+    return validate_public_url(resolved, resolve=resolve)
 
 
 class _PublicRedirects(HTTPRedirectHandler):
@@ -89,6 +153,7 @@ class ProbedLiveSource:
     media_playlist_url: str | None = None
     subtitle_playlist_url: str | None = None
     target_duration: float = 6.0
+    resolved_from_page: bool = False
 
     def public_dict(self) -> dict:
         return {
@@ -98,13 +163,25 @@ class ProbedLiveSource:
         }
 
 
-def probe_live_source(url: str, *, fetch: Callable[[str], tuple[str, str | None]] | None = None,
-                      validate: bool = True) -> ProbedLiveSource:
+def probe_live_source(
+        url: str, *, fetch: Callable[[str], tuple[str, str | None]] | None = None,
+        validate: bool = True,
+        webpage_resolver: Callable[[str], str | None] | None = resolve_live_webpage,
+        resolve: Callable[..., list] = socket.getaddrinfo) -> ProbedLiveSource:
     if validate:
-        validate_public_url(url)
+        validate_public_url(url, resolve=resolve)
     parsed = urlsplit(url)
     looks_hls = parsed.path.lower().endswith(".m3u8")
     if not looks_hls:
+        resolved = webpage_resolver(url) if webpage_resolver else None
+        if resolved:
+            if validate:
+                validate_public_url(resolved, resolve=resolve)
+            native = probe_live_source(
+                resolved, fetch=fetch, validate=False, webpage_resolver=None, resolve=resolve)
+            return ProbedLiveSource(
+                native.source_kind, url, native.capabilities, native.media_playlist_url,
+                native.subtitle_playlist_url, native.target_duration, True)
         return ProbedLiveSource(
             "web_player", url,
             LiveSourceCapabilities(

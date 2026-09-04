@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """A native-HLS worker continues independently and finalizes through existing stages."""
 
+import json
 import sys
 import tempfile
 from pathlib import Path
@@ -9,8 +10,10 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "bin"))
 
 from meeting_core.live.capabilities import LiveSourceCapabilities
-from meeting_core.live.runtime import HLSBackgroundWorker
+import meeting_core.live.runtime as live_runtime
+from meeting_core.live.runtime import HLSBackgroundWorker, LiveSessionManager
 from meeting_core.live.source import ProbedLiveSource
+from meeting_core.live.store import LiveSessionStore
 
 
 class FakeProcess:
@@ -79,5 +82,38 @@ with tempfile.TemporaryDirectory(prefix="mm-live-runtime-") as tmp:
     assert status["state"] == "COMPLETE" and status["text_signals"] == 1
     assert (meeting / "transcript.spk.json").is_file()
     assert all("--autoplay" not in part for part in worker.capture_process.command)
+    stored_source = json.loads((meeting / ".live" / "source.json").read_text())
+    assert stored_source["resolved_from_page"] is False
+
+with tempfile.TemporaryDirectory(prefix="mm-live-page-recovery-") as tmp:
+    meetings = Path(tmp) / "meetings"
+    meeting = meetings / "live-page-synthetic"
+    store = LiveSessionStore(meeting)
+    store.initialize(
+        {"id": meeting.name, "content_type": "media", "mode": "analyze_background"},
+        {
+            "type": "hls",
+            "url": "https://example.invalid/watch/live-event",
+            "media_playlist_url": "https://media.example.invalid/expired.m3u8?token=old",
+            "subtitle_playlist_url": None,
+            "resolved_from_page": True,
+            "capabilities": source.capabilities.to_dict(),
+        },
+    )
+    store.save_checkpoint({"state": "LIVE", "media_time": 2, "text_signals": 0})
+    refreshed = ProbedLiveSource(
+        "hls", "https://example.invalid/watch/live-event", source.capabilities,
+        "https://media.example.invalid/fresh.m3u8?token=new", None, 6, True)
+    original_probe = live_runtime.probe_live_source
+    manager = LiveSessionManager()
+    started = []
+    try:
+        live_runtime.probe_live_source = lambda url: refreshed
+        manager.start_hls = lambda chosen, *_args, **_kwargs: started.append(chosen)
+        recovered = manager.recover(meetings, dry_run=True)
+    finally:
+        live_runtime.probe_live_source = original_probe
+    assert recovered == [meeting.name]
+    assert started and started[0].media_playlist_url.endswith("fresh.m3u8?token=new")
 
 print("live runtime tests: OK")
