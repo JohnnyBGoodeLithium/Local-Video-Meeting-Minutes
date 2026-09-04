@@ -41,9 +41,18 @@ with tempfile.TemporaryDirectory(prefix="product-pages-test-") as tmp:
     assert 'href="/static/' not in html and 'src="/static/' not in html
     assert 'href="/"' not in html
     assert "查看安装方式" in html and 'data-i18n="viewRepository"' in html
+    assert 'data-review-group="surfaces"' in html
+    assert 'data-review-group="continuation"' in html
     assert "recordings/" not in html and "private_reports/" not in html
     copy_source = (output / "static" / "product-copy.js").read_text(encoding="utf-8")
     assert 'viewRepository: "View setup"' in copy_source
     assert 'openWorkspace: "Open workspace"' not in copy_source
+    assert 'reuseBridge: "纪要讲清这一次，知识库连接下一次。"' in copy_source
+    assert (
+        'reuseBridge: "Minutes make this session clear. '
+        'The knowledge base carries it into the next task."' in copy_source
+    )
+    assert "Implemented / validating" not in copy_source
+    assert "Transport does not define the product experience" not in copy_source
 
 print("product pages: portable static assets, version and privacy boundary passed")
