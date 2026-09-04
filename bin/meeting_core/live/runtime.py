@@ -19,7 +19,7 @@ from .capabilities import LiveSourceCapabilities
 from .finalizer import LiveFinalizationError, mark_finalization_complete, prepare_finalization
 from .hls import HLSSubtitleSource, parse_media_playlist
 from .models import TimedTextSignal
-from .source import ProbedLiveSource, PublicSourceFetcher
+from .source import ProbedLiveSource, PublicSourceFetcher, SourceProbeError, probe_live_source
 from .store import LiveSessionStore
 
 
@@ -63,6 +63,7 @@ class HLSBackgroundWorker:
             {"type": "hls", "url": self.source.source_url,
              "media_playlist_url": self.source.media_playlist_url,
              "subtitle_playlist_url": self.source.subtitle_playlist_url,
+             "resolved_from_page": self.source.resolved_from_page,
              "capabilities": self.source.capabilities.to_dict()},
         )
         self.thread = threading.Thread(target=self._run, name="live-hls-worker", daemon=True)
@@ -266,16 +267,19 @@ class LiveSessionManager:
                 session_data = json.loads((store.root / "session.json").read_text(encoding="utf-8"))
                 if source_data.get("type") != "hls":
                     continue
-                capabilities_data = dict(source_data.get("capabilities") or {})
-                capabilities_data["end_detection"] = tuple(
-                    capabilities_data.get("end_detection") or ())
-                source = ProbedLiveSource(
-                    "hls", str(source_data["url"]),
-                    LiveSourceCapabilities(**capabilities_data),
-                    str(source_data["media_playlist_url"]),
-                    (str(source_data["subtitle_playlist_url"])
-                     if source_data.get("subtitle_playlist_url") else None),
-                )
+                if source_data.get("resolved_from_page"):
+                    source = probe_live_source(str(source_data["url"]))
+                else:
+                    capabilities_data = dict(source_data.get("capabilities") or {})
+                    capabilities_data["end_detection"] = tuple(
+                        capabilities_data.get("end_detection") or ())
+                    source = ProbedLiveSource(
+                        "hls", str(source_data["url"]),
+                        LiveSourceCapabilities(**capabilities_data),
+                        str(source_data["media_playlist_url"]),
+                        (str(source_data["subtitle_playlist_url"])
+                         if source_data.get("subtitle_playlist_url") else None),
+                    )
                 self.start_hls(
                     source, meeting_dir,
                     content_type=str(session_data.get("content_type") or "meeting"),
@@ -283,6 +287,7 @@ class LiveSessionManager:
                     dry_run=dry_run,
                 )
                 recovered.append(meeting_dir.name)
-            except (KeyError, OSError, TypeError, ValueError, json.JSONDecodeError, LiveRuntimeError):
+            except (KeyError, OSError, TypeError, ValueError, json.JSONDecodeError,
+                    LiveRuntimeError, SourceProbeError):
                 continue
         return recovered

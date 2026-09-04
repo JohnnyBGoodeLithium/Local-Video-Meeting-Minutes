@@ -8,7 +8,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "bin"))
 
-from meeting_core.live.source import SourceProbeError, probe_live_source, validate_public_url
+from meeting_core.live.source import (
+    SourceProbeError,
+    probe_live_source,
+    resolve_live_webpage,
+    validate_public_url,
+)
 
 
 def global_resolve(host, port, **_kwargs):
@@ -41,9 +46,60 @@ assert source.capabilities.native_subtitle is True
 assert source.media_playlist_url.endswith("/live/video.m3u8")
 assert "token=" not in source.public_dict()["display_url"]
 
-web = probe_live_source("https://example.invalid/watch?id=private", validate=False)
+web = probe_live_source(
+    "https://example.invalid/watch?id=private", validate=False, webpage_resolver=None)
 assert web.source_kind == "web_player"
 assert web.capabilities.browser_required is True
 assert web.capabilities.background_safe is False
+
+page_url = "https://example.invalid/room?session=private"
+resolved_url = "https://media.example.invalid/live/index.m3u8?token=private"
+assert resolve_live_webpage(
+    page_url,
+    extract=lambda _url: {
+        "is_live": True,
+        "live_status": "is_live",
+        "protocol": "m3u8_native",
+        "url": resolved_url,
+    },
+    resolve=global_resolve,
+) == resolved_url
+
+resolved = probe_live_source(
+    page_url,
+    fetch=lambda _url: ("#EXTM3U\n#EXT-X-TARGETDURATION:6\n", "application/x-mpegURL"),
+    validate=False,
+    webpage_resolver=lambda _url: resolved_url,
+)
+assert resolved.source_kind == "hls"
+assert resolved.source_url == page_url
+assert resolved.resolved_from_page is True
+assert resolved.capabilities.native_audio is True
+assert resolved.capabilities.background_safe is True
+assert resolved.media_playlist_url == resolved_url
+assert "token=" not in resolved.public_dict()["display_url"]
+assert "session=" not in resolved.public_dict()["display_url"]
+
+assert resolve_live_webpage(
+    page_url,
+    extract=lambda _url: {
+        "is_live": False,
+        "live_status": "was_live",
+        "protocol": "m3u8_native",
+        "url": resolved_url,
+    },
+    resolve=global_resolve,
+) is None
+
+assert resolve_live_webpage(
+    page_url,
+    extract=lambda _url: {
+        "is_live": True,
+        "live_status": "is_live",
+        "protocol": "https",
+        "url": "https://media.example.invalid/video.mp4",
+    },
+    resolve=global_resolve,
+) is None
 
 print("live source probe tests: OK")

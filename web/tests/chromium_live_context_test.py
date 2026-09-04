@@ -157,7 +157,7 @@ window.fetch = async (input, init = {}) => {
 (async () => {
   document.querySelector('[name="live-content-type"][value="live_event"]').click();
   const input = document.querySelector('#live-source-input');
-  input.value = 'https://example.invalid/live/master.m3u8';
+  input.value = 'https://example.invalid/watch/live-event';
   input.dispatchEvent(new Event('input', {bubbles: true}));
   document.querySelector('#live-context-form').requestSubmit();
   const end = Date.now() + 5000;
