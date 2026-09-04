@@ -78,26 +78,39 @@ def set_language(cdp: CDP, language: str) -> None:
 
 
 def create_screenshots(cdp: CDP, output: Path) -> None:
-    for width, height in ((393, 852), (820, 1180), (1440, 900), (1920, 1080), (2560, 1440)):
+    for width, height, filename in (
+        (393, 852, "review-surfaces-393-zh.png"),
+        (820, 1180, "review-surfaces-820-zh.png"),
+        (1440, 900, "review-surfaces-1440-zh.png"),
+        (1920, 1080, "review-surfaces-1920-zh.png"),
+        (2560, 1440, "review-surfaces-2560-zh.png"),
+    ):
         set_viewport(cdp, width, height)
         set_language(cdp, "zh-CN")
         capture(
-            cdp, output / f"review-surfaces-{width}-zh.png",
+            cdp, output / filename,
             selector="#review-anywhere",
         )
 
-    for width, height in ((1440, 900), (1920, 1080)):
+    for width, height, filename in (
+        (1440, 900, "review-surfaces-1440-en.png"),
+        (1920, 1080, "review-surfaces-1920-en.png"),
+    ):
         set_viewport(cdp, width, height)
         set_language(cdp, "en")
         capture(
-            cdp, output / f"review-surfaces-{width}-en.png",
+            cdp, output / filename,
             selector="#review-anywhere",
         )
 
-    for width, height in ((393, 852), (1920, 1080), (2560, 1440)):
+    for width, height, filename in (
+        (393, 852, "closing-cta-393-zh.png"),
+        (1920, 1080, "closing-cta-1920-zh.png"),
+        (2560, 1440, "closing-cta-2560-zh.png"),
+    ):
         set_viewport(cdp, width, height)
         set_language(cdp, "zh-CN")
-        capture(cdp, output / f"closing-cta-{width}-zh.png", selector=".final-cta")
+        capture(cdp, output / filename, selector=".final-cta")
 
     set_viewport(cdp, 1920, 1080)
     set_language(cdp, "en")

@@ -32,6 +32,13 @@ projects them into review and reuse surfaces.
   passes; real iPhone and Tailscale transport validation is still pending.
 - **MeetingPack** is a portable offline review package that needs no server, model, or CDN.
 
+Minutes and knowledge bases are continuation layers, not additional review surfaces. Minutes make
+this session clear and retain the path back to the original words, audio, or screen. A knowledge
+base such as WeKnora makes verified results searchable and reusable later without becoming a new
+source of meeting truth.
+
+**Minutes make this session clear. The knowledge base carries it into the next task.**
+
 ## Core journey
 
 1. Import a meeting, recording, first-party video, or explicitly authorized public video URL.

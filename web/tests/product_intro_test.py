@@ -19,6 +19,9 @@ demo_script = (STATIC / "product-demo.js").read_text(encoding="utf-8")
 copy_source = (STATIC / "product-copy.js").read_text(encoding="utf-8")
 foundation = (STATIC / "fluent-foundation.css").read_text(encoding="utf-8")
 product_css = (STATIC / "product.css").read_text(encoding="utf-8")
+browser_test = (ROOT / "web" / "tests" / "chromium_product_site_test.py").read_text(
+    encoding="utf-8"
+)
 
 # A MINOR or MAJOR version bump must update both product-content markers.
 version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
@@ -154,6 +157,13 @@ for forbidden_term in (
         f"普通阅读路径残留内部实现词：{forbidden_term}"
     )
 assert "https://fonts." not in html and "analytics" not in html.lower()
+for private_marker in (
+    "ts.net", "localhost", "credentials", "/home/", "/Users/", "192.168.",
+    "10.0.0.", "172.16.",
+):
+    assert private_marker.lower() not in public_sources.lower(), (
+        f"产品站残留私有或本机标记：{private_marker}"
+    )
 
 # Internal anchors resolve; the technical route is an explicit public GitHub link.
 ids = set(re.findall(r'id="([^"]+)"', html))
@@ -185,6 +195,20 @@ assert ".final-cta-content::before" in product_css
 assert "height: 100vh" not in product_css and "min-height: 100vh" not in product_css
 assert "scroll-snap" not in product_css
 assert "text-wrap: balance" in product_css
+for screenshot in (
+    "review-surfaces-393-zh.png",
+    "review-surfaces-820-zh.png",
+    "review-surfaces-1440-zh.png",
+    "review-surfaces-1920-zh.png",
+    "review-surfaces-2560-zh.png",
+    "review-surfaces-1440-en.png",
+    "review-surfaces-1920-en.png",
+    "closing-cta-393-zh.png",
+    "closing-cta-1920-zh.png",
+    "closing-cta-2560-zh.png",
+    "closing-cta-1920-en.png",
+):
+    assert screenshot in browser_test, f"截图旅程缺少：{screenshot}"
 defined = set(re.findall(r"(--[\w-]+)\s*:", foundation + product_css))
 bare_refs = set(re.findall(r"var\(\s*(--[\w-]+)\s*\)", product_css))
 missing_refs = sorted(bare_refs - defined - {"--wave", "--at", "--length", "--start"})

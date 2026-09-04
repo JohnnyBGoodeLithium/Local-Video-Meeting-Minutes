@@ -444,12 +444,17 @@ check("产品介绍页使用九段双语用户旅程与虚构演示",
       and b'Northstar Product Launch' in product_page
       and b'data-product-content-version="0.16"' in product_page
       and b'data-ui-language="en"' in product_page
-      and b'/static/fluent-foundation.css?v=20260904p118' in product_page
+      and b'/static/fluent-foundation.css?v=20260904p119' in product_page
       and b'data-demo-mode="meeting"' in product_page
       and b'data-demo-mode="video"' in product_page
       and b'data-demo-evidence' in product_page
-      and b'MeetingPack' in product_page
-      and b'AI Context' in product_page
+      and b'data-review-group="surfaces"' in product_page
+      and b'data-review-surface="workbench"' in product_page
+      and b'data-review-surface="companion"' in product_page
+      and b'data-review-surface="meetingpack"' in product_page
+      and b'data-review-group="continuation"' in product_page
+      and b'data-continuation-layer="minutes"' in product_page
+      and b'data-continuation-layer="knowledge"' in product_page
       and b'id="architecture"' not in product_page
       and b'/api/meetings' not in product_page
       and b'href="/"' in product_page and "no-store" in product_cache)
