@@ -180,6 +180,11 @@ assert "--foldShadow" in product_css and "clip-path: polygon" in product_css
 assert "grid-column: 1 / 9" in product_css, "主标题与副标题必须共享左侧栅格"
 assert ".demo-window-bar i" not in product_css, "不得恢复浏览器三圆点装饰"
 assert "hero-steps" not in html + product_css, "不得恢复装饰编号步骤"
+assert ".final-cta::before" not in product_css, "CTA 不得恢复贯穿 section 的 rail"
+assert ".final-cta-content::before" in product_css
+assert "height: 100vh" not in product_css and "min-height: 100vh" not in product_css
+assert "scroll-snap" not in product_css
+assert "text-wrap: balance" in product_css
 defined = set(re.findall(r"(--[\w-]+)\s*:", foundation + product_css))
 bare_refs = set(re.findall(r"var\(\s*(--[\w-]+)\s*\)", product_css))
 missing_refs = sorted(bare_refs - defined - {"--wave", "--at", "--length", "--start"})

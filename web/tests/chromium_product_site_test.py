@@ -78,34 +78,30 @@ def set_language(cdp: CDP, language: str) -> None:
 
 
 def create_screenshots(cdp: CDP, output: Path) -> None:
-    set_viewport(cdp, 1440, 1000)
-    set_language(cdp, "zh-CN")
-    time.sleep(0.5)
-    capture(cdp, output / "hero-zh-1440.png")
-    capture(cdp, output / "full-zh-1440.png", full=True)
-    capture(cdp, output / "hero-meeting.png", selector=".product-demo")
-
-    cdp.evaluate('document.querySelector(\'[data-demo-mode="video"]\').click()')
-    time.sleep(0.25)
-    capture(cdp, output / "hero-video.png", selector=".product-demo")
-    cdp.evaluate('document.querySelector(\'[data-demo-mode="meeting"]\').click()')
-
-    set_language(cdp, "en")
-    cdp.evaluate("scrollTo(0, 0)")
-    capture(cdp, output / "hero-en-1440.png")
-    capture(cdp, output / "full-en-1440.png", full=True)
-
-    for width, height in ((1024, 900), (390, 844)):
+    for width, height in ((393, 852), (820, 1180), (1440, 900), (1920, 1080), (2560, 1440)):
         set_viewport(cdp, width, height)
         set_language(cdp, "zh-CN")
-        capture(cdp, output / f"full-zh-{width}.png", full=True)
-        set_language(cdp, "en")
-        capture(cdp, output / f"full-en-{width}.png", full=True)
+        capture(
+            cdp, output / f"review-surfaces-{width}-zh.png",
+            selector="#review-anywhere",
+        )
 
-    set_viewport(cdp, 1440, 1000)
-    set_language(cdp, "zh-CN")
-    cdp.evaluate("document.querySelector('[data-verify-toggle]').click()")
-    capture(cdp, output / "verify-evidence.png", selector=".evidence-workbench")
+    for width, height in ((1440, 900), (1920, 1080)):
+        set_viewport(cdp, width, height)
+        set_language(cdp, "en")
+        capture(
+            cdp, output / f"review-surfaces-{width}-en.png",
+            selector="#review-anywhere",
+        )
+
+    for width, height in ((393, 852), (1920, 1080), (2560, 1440)):
+        set_viewport(cdp, width, height)
+        set_language(cdp, "zh-CN")
+        capture(cdp, output / f"closing-cta-{width}-zh.png", selector=".final-cta")
+
+    set_viewport(cdp, 1920, 1080)
+    set_language(cdp, "en")
+    capture(cdp, output / "closing-cta-1920-en.png", selector=".final-cta")
 
 
 def main() -> int:
@@ -167,7 +163,10 @@ window.fetch = (input, init) => {
   meetingVisible: !document.querySelector('[data-demo-panel="meeting"]').hidden,
   videoHidden: document.querySelector('[data-demo-panel="video"]').hidden,
   selectedMode: document.querySelector('[data-demo-mode][aria-selected="true"]').dataset.demoMode,
-  maturity: [...document.querySelectorAll('[data-maturity]')].map(node => node.dataset.maturity),
+                  maturity: [...document.querySelectorAll('[data-maturity]')].map(node => node.dataset.maturity),
+                  surfaces: [...document.querySelectorAll('[data-review-surface]')].map(node => node.dataset.reviewSurface),
+                  continuation: [...document.querySelectorAll('[data-continuation-layer]')].map(node => node.dataset.continuationLayer),
+                  capabilities: [...document.querySelectorAll('.companion-capabilities dt')].map(node => node.textContent),
   fictional: document.body.textContent.includes('虚构演示数据'),
   fetches: window.__productFetches,
   errors: window.__productErrors,
@@ -179,9 +178,10 @@ window.fetch = (input, init) => {
                 ]
                 assert baseline["meetingVisible"] and baseline["videoHidden"]
                 assert baseline["selectedMode"] == "meeting"
-                assert baseline["maturity"] == [
-                    "validated", "working", "early", "experimental", "implemented",
-                ]
+                assert baseline["maturity"] == ["experimental", "implemented"]
+                assert baseline["surfaces"] == ["workbench", "companion", "meetingpack"]
+                assert baseline["continuation"] == ["minutes", "knowledge"]
+                assert baseline["capabilities"] == ["发送", "跟进", "回顾", "核对"]
                 assert baseline["fictional"]
                 assert baseline["fetches"] == ["/api/health"], baseline["fetches"]
                 assert not baseline["errors"], baseline["errors"]
@@ -246,17 +246,119 @@ window.fetch = (input, init) => {
                 }
                 assert all(value <= 0.001 for value in reduced_seconds.values()), reduced
 
-                for width, height in ((768, 900), (390, 844)):
-                    set_viewport(cdp, width, height)
-                    metric = cdp.evaluate(r"""
-({clientWidth: document.documentElement.clientWidth,
-  scrollWidth: document.documentElement.scrollWidth,
-  headerNav: getComputedStyle(document.querySelector('.product-nav')).display,
-  meetingVisible: !document.querySelector('[data-demo-panel="meeting"]').hidden})
+                viewport_matrix = (
+                    (393, 852), (430, 932), (820, 1180), (1180, 820),
+                    (1440, 900), (1920, 1080), (2560, 1440),
+                )
+                for language in ("zh-CN", "en"):
+                    set_language(cdp, language)
+                    for width, height in viewport_matrix:
+                        set_viewport(cdp, width, height)
+                        metric = cdp.evaluate(r"""
+(() => {
+  const viewport = document.documentElement.clientWidth;
+  const checked = [...document.querySelectorAll(
+    '[data-product-section], .review-card, .companion-capabilities, ' +
+    '.final-cta-content, .final-actions a'
+  )];
+  const overflow = checked.map(node => {
+    const rect = node.getBoundingClientRect();
+    return {name: node.id || node.className, left: rect.left, right: rect.right};
+  }).filter(rect => rect.left < -1 || rect.right > viewport + 1);
+  const content = document.querySelector('.final-cta-content');
+  const contentRect = content.getBoundingClientRect();
+  const rail = getComputedStyle(content, '::before');
+  const railRect = {
+    left: contentRect.left + parseFloat(rail.left),
+    top: contentRect.top + parseFloat(rail.top),
+    right: contentRect.left + parseFloat(rail.left) + parseFloat(rail.width),
+    bottom: contentRect.top + parseFloat(rail.top) + parseFloat(rail.height),
+  };
+  const railInside = railRect.left >= contentRect.left - 1 &&
+    railRect.right <= contentRect.right + 1 &&
+    railRect.top >= contentRect.top - 1 &&
+    railRect.bottom <= contentRect.bottom + 1;
+  const capabilityVisible = [...document.querySelectorAll('.companion-capabilities div')]
+    .filter(node => {
+      const rect = node.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0 && getComputedStyle(node).visibility !== 'hidden';
+    }).length;
+  const statusOverlap = [...document.querySelectorAll('.review-card')].some(card => {
+    const status = card.querySelector('.status-badge');
+    const body = card.querySelector('.review-body');
+    if (!status || !body) return false;
+    const a = status.getBoundingClientRect();
+    const b = body.getBoundingClientRect();
+    return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+  });
+  const lineTexts = element => {
+    const text = [...element.textContent];
+    const lines = new Map();
+    text.forEach((character, index) => {
+      const range = document.createRange();
+      range.setStart(element.firstChild, index);
+      range.setEnd(element.firstChild, index + 1);
+      const rect = range.getBoundingClientRect();
+      const key = Math.round(rect.top);
+      lines.set(key, (lines.get(key) || '') + character);
+    });
+    return [...lines.values()].map(line => line.trim()).filter(Boolean);
+  };
+  const closingLines = lineTexts(document.querySelector('.final-cta h2'));
+  const orphanLine = closingLines.some(line =>
+    line.length === 1 && /[\u3000-\u303f\u3400-\u9fff]/u.test(line)
+  );
+  return {
+    clientWidth: viewport,
+    scrollWidth: document.documentElement.scrollWidth,
+    overflow,
+    railInside,
+    capabilityVisible,
+    statusOverlap,
+    closingLines,
+    orphanLine,
+    headerNav: getComputedStyle(document.querySelector('.product-nav')).display,
+  };
+})()
 """)
-                    assert metric["scrollWidth"] <= metric["clientWidth"], (width, metric)
-                    assert metric["headerNav"] == "none", (width, metric)
-                    assert metric["meetingVisible"], (width, metric)
+                        assert metric["scrollWidth"] <= metric["clientWidth"], (
+                            language, width, metric,
+                        )
+                        assert not metric["overflow"], (language, width, metric["overflow"])
+                        assert metric["railInside"], (language, width, metric)
+                        assert metric["capabilityVisible"] == 4, (language, width, metric)
+                        assert not metric["statusOverlap"], (language, width, metric)
+                        if width >= 1440:
+                            assert not metric["orphanLine"], (language, width, metric["closingLines"])
+                        assert metric["headerNav"] == ("none" if width <= 768 else "flex"), (
+                            language, width, metric,
+                        )
+
+                interaction = cdp.evaluate(r"""
+(() => {
+  const primary = document.querySelector('.final-primary');
+  const secondary = document.querySelector('.final-actions a:last-child');
+  primary.focus();
+  const primaryFocused = document.activeElement === primary;
+  secondary.focus();
+  return {
+    primaryHref: primary.getAttribute('href'),
+    secondaryHref: secondary.getAttribute('href'),
+    primaryFocused,
+    secondaryFocused: document.activeElement === secondary,
+    anchorsResolve: [...document.querySelectorAll('a[href^="#"]')].every(
+      link => document.querySelector(link.getAttribute('href'))
+    ),
+  };
+})()
+""")
+                assert interaction == {
+                    "primaryHref": "/",
+                    "secondaryHref": "#find",
+                    "primaryFocused": True,
+                    "secondaryFocused": True,
+                    "anchorsResolve": True,
+                }
 
                 if screenshot_dir:
                     cdp.call("Emulation.setEmulatedMedia", {"features": []})
