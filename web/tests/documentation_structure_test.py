@@ -143,6 +143,11 @@ versioned_release_notes = (ROOT / "docs/releases" / f"v{version}.md").read_text(
 for public_document in (readme, readme_zh, release_notes, versioned_release_notes):
     assert public_document.startswith(f"# {project_name}"), "canonical project name drift"
     assert "# Meeting Context" not in public_document
+pages_url = "https://johnnybgoodelithium.github.io/Local-Video-Meeting-Minutes/"
+product_site_runbook = (ROOT / "docs/runbooks/PRODUCT_SITE.md").read_text(encoding="utf-8")
+for public_document in (readme, readme_zh, product_site_runbook):
+    assert pages_url in public_document, "canonical GitHub Pages URL drift"
+    assert "johnnybgoodlithium.github.io" not in public_document
 assert "[简体中文](README.zh-CN.md)" in readme
 assert "[English](README.md)" in readme_zh
 

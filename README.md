@@ -2,7 +2,7 @@
 
 English | [简体中文](README.zh-CN.md)
 
-[Product site](https://johnnybgoodlithium.github.io/Local-Video-Meeting-Minutes/)
+[Product site](https://johnnybgoodelithium.github.io/Local-Video-Meeting-Minutes/)
 
 <!-- maturity: controlled-single-machine-poc -->
 <!-- product-version: v0.16.0 -->
@@ -100,7 +100,7 @@ must not read real meetings.
 | Need | Source |
 |---|---|
 | All documentation | [Documentation index](docs/INDEX.md) |
-| Product story | [Product site](https://johnnybgoodlithium.github.io/Local-Video-Meeting-Minutes/) |
+| Product story | [Product site](https://johnnybgoodelithium.github.io/Local-Video-Meeting-Minutes/) |
 | Latest release candidate | [v0.16.0 release notes](docs/releases/v0.16.0.md) |
 | Capability inventory | [Product functions](docs/PRODUCT_FUNCTIONS.md) |
 | Current validation state | [Status](docs/STATUS.md) |
