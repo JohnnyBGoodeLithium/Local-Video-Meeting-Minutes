@@ -204,6 +204,7 @@ def main() -> int:
                 screenshot(cdp, "phone-video-caption-393.png")
                 viewport(cdp, 820, 1180)
                 cdp.evaluate("document.querySelector('#tab-overview').click()")
+                wait(cdp, "!document.querySelector('#panel-overview').hidden && document.querySelector('#conclusions .row')", "overview conclusion after route reload")
                 screenshot(cdp, "tablet-review-820.png")
                 viewport(cdp, 1180, 820)
                 screenshot(cdp, "tablet-landscape-1180.png")
