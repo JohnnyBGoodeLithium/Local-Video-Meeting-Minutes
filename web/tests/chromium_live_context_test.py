@@ -183,7 +183,8 @@ window.fetch = async (input, init = {}) => {
   input.dispatchEvent(new Event('input', {bubbles: true}));
   document.querySelector('#live-context-form').requestSubmit();
   const end = Date.now() + 5000;
-  while (Date.now() < end && document.querySelector('#live-active-status').classList.contains('hidden'))
+  while (Date.now() < end && (document.querySelector('#live-active-status').classList.contains('hidden') ||
+         !document.querySelector('#live-transcript-list').textContent.includes('Synthetic live transcript')))
     await new Promise(resolve => setTimeout(resolve, 25));
   return {state: document.querySelector('#live-active-state').textContent,
     workspace: !document.querySelector('#live-workspace').classList.contains('hidden'),
