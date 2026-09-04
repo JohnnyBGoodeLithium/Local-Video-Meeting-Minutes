@@ -14,8 +14,8 @@
 <meta name="twitter:description" content="按人物或议题回顾会议与产品视频，从重要结论返回原声和画面，再将核对后的上下文交给同事、AI 或知识库。">
 <meta name="theme-color" content="#f4f7fb">
 <title>Meeting Context｜从重点回到会议与视频的原始证据</title>
-<link rel="stylesheet" href="/static/fluent-foundation.css?v=20260904p118">
-<link rel="stylesheet" href="/static/product.css?v=20260904p118">
+<link rel="stylesheet" href="/static/fluent-foundation.css?v=20260904p119">
+<link rel="stylesheet" href="/static/product.css?v=20260904p119">
 </head>
 <body>
 <header class="product-header">
@@ -137,8 +137,47 @@
   </section>
 
   <section id="review-anywhere" class="content-section section-shell use-cases-section" data-product-section>
-    <div class="section-heading"><span class="section-index" data-i18n="useCasesIndex">随处回顾</span><h2 data-i18n="useCasesTitle">深度工作留在本机，回顾跟着你走。</h2><p data-i18n="useCasesBody">Workbench、Companion 与 MeetingPack 使用同一份可信上下文，但承担不同深度的工作。Transport 不定义产品体验。</p></div>
-    <div class="maturity-grid"><article><span class="maturity-state validated" data-maturity="validated" data-i18n="validated">Validated</span><h3 data-i18n="meetingReviewTitle">Workbench</h3><p data-i18n="meetingReviewBody">在边缘机器深度核听、修正逐字稿与人物、恢复处理并生成交付物。</p></article><article><span class="maturity-state working" data-maturity="working" data-i18n="workingPoc">Implemented / validating</span><h3 data-i18n="videoUseTitle">Companion</h3><p data-i18n="videoUseBody">Phone、Tablet 与 Laptop 自适应回顾已通过 Hosted Chromium；真实 iPhone 与 Tailscale 尚未验证。</p></article><article><span class="maturity-state early" data-maturity="early" data-i18n="earlyValidation">Validated</span><h3 data-i18n="knowledgeUseTitle">MeetingPack</h3><p data-i18n="knowledgeUseBody">离线阅读、播放和回到来源，不依赖服务、模型或 CDN。</p></article></div>
+    <div class="section-heading"><span class="section-index" data-i18n="reviewAnywhereEyebrow"></span><h2 data-i18n="reviewAnywhereTitle"></h2><p data-i18n="reviewAnywhereLead"></p></div>
+    <div class="review-story">
+      <section class="review-group review-surfaces-group" data-review-group="surfaces" aria-labelledby="review-surfaces-title">
+        <header class="review-group-heading"><span aria-hidden="true">01</span><h3 id="review-surfaces-title" data-i18n="reviewSurfaceGroup"></h3></header>
+        <div class="review-surface-grid">
+          <article class="review-card workbench-card" data-review-surface="workbench">
+            <header><span class="product-label" data-i18n="workbenchProductLabel"></span><span class="status-badge validated" data-i18n="workbenchStatus"></span></header>
+            <h4 data-i18n="workbenchTitle"></h4><p class="review-descriptor" data-i18n="workbenchDescriptor"></p><p class="review-body" data-i18n="workbenchBody"></p>
+          </article>
+          <article class="review-card companion-card" data-review-surface="companion">
+            <header><span class="product-label" data-i18n="companionProductLabel"></span><span class="status-badge working" data-i18n="companionStatus"></span></header>
+            <h4 data-i18n="companionTitle"></h4><p class="review-descriptor" data-i18n="companionDescriptor"></p><p class="review-body" data-i18n="companionBody"></p>
+            <dl class="companion-capabilities">
+              <div><dt data-i18n="companionSendLabel"></dt><dd data-i18n="companionSendBody"></dd></div>
+              <div><dt data-i18n="companionTrackLabel"></dt><dd data-i18n="companionTrackBody"></dd></div>
+              <div><dt data-i18n="companionReviewLabel"></dt><dd data-i18n="companionReviewBody"></dd></div>
+              <div><dt data-i18n="companionVerifyLabel"></dt><dd data-i18n="companionVerifyBody"></dd></div>
+            </dl>
+            <small class="status-note" data-i18n="companionStatusNote"></small>
+          </article>
+          <article class="review-card meetingpack-card" data-review-surface="meetingpack">
+            <header><span class="product-label" data-i18n="meetingPackProductLabel"></span><span class="status-badge validated" data-i18n="meetingPackStatus"></span></header>
+            <h4 data-i18n="meetingPackTitle"></h4><p class="review-descriptor" data-i18n="meetingPackDescriptor"></p><p class="review-body" data-i18n="meetingPackBody"></p>
+          </article>
+        </div>
+      </section>
+      <section class="review-group continuation-group" data-review-group="continuation" aria-labelledby="continuation-title">
+        <header class="review-group-heading"><span aria-hidden="true">02</span><h3 id="continuation-title" data-i18n="reuseGroup"></h3></header>
+        <div class="continuation-grid">
+          <article class="review-card minutes-card" data-continuation-layer="minutes">
+            <header><span class="product-label" data-i18n="minutesLabel"></span><span class="status-badge validated" data-i18n="minutesStatus"></span></header>
+            <h4 data-i18n="minutesTitle"></h4><p class="review-descriptor" data-i18n="minutesDescriptor"></p><p class="review-body" data-i18n="minutesBody"></p>
+          </article>
+          <article class="review-card knowledge-card" data-continuation-layer="knowledge">
+            <header><span class="product-label" data-i18n="knowledgeLabel"></span><span class="status-badge working" data-i18n="knowledgeStatus"></span></header>
+            <h4 data-i18n="knowledgeTitle"></h4><p class="review-descriptor" data-i18n="knowledgeDescriptor"></p><p class="review-body" data-i18n="knowledgeBody"></p>
+          </article>
+        </div>
+        <p class="reuse-bridge" data-i18n="reuseBridge"></p>
+      </section>
+    </div>
     <p class="poc-boundary" data-i18n="pocBoundary">当前为单机或受控环境 PoC，不是正式多人生产服务。</p>
   </section>
 
@@ -155,13 +194,7 @@
   </section>
 
   <section id="reuse" class="content-section reuse-section" data-product-section>
-    <div class="section-shell">
-      <div class="section-heading"><span class="section-index" data-i18n="reuseIndex">继续使用</span><h2 data-i18n="reuseTitle">核对过的会议和视频，可以继续交给下一步。</h2><p data-i18n="reuseBody">同一份可信来源可以交给同事、常用 AI 或知识库。使用方式不同，但人物、时间和来源关系不会随着导出而丢失。</p></div>
-      <div class="context-flow"><div class="verified-context"><span>✓</span><b data-i18n="verifiedContext">已核对内容</b><small data-i18n="verifiedContextBody">人物 · 时间 · 原文 · 画面 · 结论</small></div><div class="context-line" aria-hidden="true"></div>
-        <div class="destination-grid"><article><small data-i18n="forColleague">给同事</small><h3>MeetingPack</h3><p data-i18n="meetingPackBody">无需模型或在线服务，也能阅读、播放和核对来源。</p></article><article><small data-i18n="forAi">给常用 AI</small><h3>AI Context</h3><p data-i18n="aiContextBody">将逐字稿、画面说明、结论和来源约束放入可携带文件。</p></article><article><small data-i18n="forKnowledge">进入知识库</small><h3>Knowledge Base &amp; RAG</h3><p data-i18n="knowledgeBody">在获准内容中继续搜索，并随时返回原始会议或视频核对。</p></article></div>
-      </div>
-    </div>
-    <div class="final-cta"><div class="section-shell"><span data-i18n="finalEyebrow">MEETING &amp; VIDEO → TRUSTED CONTEXT</span><h2 data-i18n="finalTitle">下一次，从真正重要的地方开始。</h2><p data-i18n="finalBody">无论是一场会议，还是一段产品视频，先找到关键人物、议题和结论，再决定如何核对、修正和继续使用。</p><div class="final-actions"><a class="final-primary" href="/" data-i18n="openWorkspace">打开工作台</a><a href="#find" data-i18n="reviewFlow">回到产品流程</a></div></div></div>
+    <div class="final-cta"><div class="section-shell final-cta-content"><span data-i18n="closingEyebrow"></span><h2 data-i18n="closingTitle"></h2><p data-i18n="closingBody"></p><div class="final-actions"><a class="final-primary" href="/" data-i18n="closingPrimary"></a><a href="#find" data-i18n="closingSecondary"></a></div></div></div>
   </section>
 </main>
 
@@ -169,6 +202,6 @@
   <div><b>Meeting Context</b><span>Meeting &amp; Video Review</span></div>
   <nav><a href="https://github.com/JohnnyBGoodeLithium/Local-Video-Meeting-Minutes/blob/main/docs/reporting/TECHNICAL_BRIEF.md" data-i18n="technicalBrief">技术实现与数据边界</a><a href="#overview" data-i18n="backToTop">返回顶部</a></nav>
 </footer>
-<script type="module" src="/static/product.js?v=20260904p118"></script>
+<script type="module" src="/static/product.js?v=20260904p119"></script>
 </body>
 </html>

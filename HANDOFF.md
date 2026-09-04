@@ -1,29 +1,30 @@
-# v0.16.0 Release Handoff
-- Current release target: `v0.16.0`
-- Previous release: `v0.15.3`
-- Release branch: `release/v0.16.0`
-- Base SHA: `e93d22cc7cc9a1ff0992d266717d516476bbd67e`
-- Feature freeze: **yes**
-- State: release-preparation PR; no tag or GitHub Release
+# Product Site Handoff
+- Current task: Product site clarity and wide-screen stabilization
+- Branch: `fix/product-site-surfaces-and-reuse`
+- Base main: `cc7ea75cc7830cee462e27d1d3aac0dbcf6c0d6e`
+- Version: `0.16.0` unchanged
+- Remote `v0.16.0` tag / Release at task start: **absent**
 
-## Capabilities
-- Voice-first minutes with later visual completion; person-focused review, source return, conservative speaker correction, field-photo analysis, and MeetingPack.
-- Adaptive Companion Phone/Tablet/Laptop review: jobs, Library, URL/file/video send, playback, captions, identity binding, display rename, and undo.
-- Viewer local speaker alias, aligned audio/video layout, transcript-linked captions, and old-pack compatibility.
-- Experimental Live Context for authorized public, non-DRM native HLS. Full evidence: [reality matrix](docs/releases/v0.16.0-reality-matrix.md).
+## Commits
+- `feat(site): separate review surfaces from knowledge reuse`
+- `fix(site): stabilize wide-screen review and closing sections`
+- `test(site): lock bilingual responsive product story`
 
-## Boundaries and validation
-- Live is **Experimental**: synthetic/replay and Hosted Chromium pass; real live event, target-host latency, and browser audio capture are **NOT TESTED**.
-- Companion hosted layouts/journeys pass; iPhone 15 Pro + X Ultra Tailscale Serve and iPhone fullscreen captions are **NOT TESTED**.
-- Companion transport is not enterprise approval; backend remains localhost-only, Funnel disabled. No adaptive video proxy; broader KB/RAG scale remains early.
-- Integrated main `e93d22c`: hosted check/smoke, 216 checks, Chromium/screenshots, and clean-bundle verification passed.
-- Release branch local `make check` and 216-check smoke pass; bundle structure/checksums pass. Hosted `check-and-smoke` and full clean-extraction `release-candidate` pass with Chromium. Pages HTTP result is pending merge.
+## Information architecture
+- Review surfaces: Workbench, Companion, MeetingPack
+- Continuation layers: Minutes, Knowledge Base / WeKnora
+- Locked line: 纪要讲清这一次，知识库连接下一次。
 
-## Blockers and publish
-- Keep the green release PR checks intact; post-merge production Pages smoke must pass before publication.
-- `release/authorized-tag.txt` remains `v0.15.3` until the user explicitly says **Publish v0.16.0**.
-- Then: verify clean green `main` and device record; set authorization to `v0.16.0`; run `RELEASE_TAG=v0.16.0 make release-verify`; merge authorization.
-- Tag exactly that commit with `git tag -a v0.16.0 -m "Meeting Context v0.16.0"`; run `git push origin v0.16.0`.
-- Let `.github/workflows/release.yml` create the pre-release/assets; verify ZIP, tar.gz, manifest, checksums, and public product page.
+## Wide-screen bug and fix
+- Root cause: `.final-cta::before` used viewport-derived horizontal positioning and `top: 0; bottom: 0`, so a decorative rail spanned the full CTA and detached visually from its fixed-width content on wide screens.
+- Fix: a short clamped accent now belongs to the positioned `.final-cta-content`; section height is padding plus content, and balanced headline wrapping is constrained by readable inline size.
 
-TAG CREATED: **NO**
+## Validation
+- Targeted copy / DOM / Pages tests: passed
+- `make check`: passed; `make smoke`: 216 passed, 0 failed (local Chromium journeys skipped because the binary is unavailable)
+- Screenshot matrix: 393, 820, 1440, 1920, 2560 plus English 1440 / 1920; local Chromium unavailable, so the Hosted CI artifact is the visual acceptance source
+- Existing main Pages build/deploy/production HTTP smoke: passed in run `33865462469`
+
+## Release impact
+- No VERSION change, tag action, Release action, or automatic `0.16.1`
+- Main has no automatic tag publisher; open PR #26 would add one if separately merged
