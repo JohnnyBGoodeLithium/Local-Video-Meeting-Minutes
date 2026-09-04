@@ -1,4 +1,4 @@
-import { EN_COPY, EN_META } from "./product-copy.js?v=20260904p118";
+import { EN_COPY, EN_META, ZH_COPY } from "./product-copy.js?v=20260904p118";
 import { enhanceProductDemo } from "./product-demo.js?v=20260904p118";
 
 "use strict";
@@ -39,8 +39,9 @@ function writeWorkspaceLanguage(language) {
   }
 }
 
-function translated(key, fallback) {
-  return EN_COPY[key] ?? fallback;
+function translated(key, fallback, language) {
+  const localized = language === "en" ? EN_COPY : ZH_COPY;
+  return localized[key] ?? fallback;
 }
 
 function setMeta(selector, value) {
@@ -77,19 +78,16 @@ function applyLanguage(language, {persist = false} = {}) {
   document.documentElement.dataset.uiLanguage = next;
 
   for (const node of textNodes) {
-    node.textContent = english
-      ? translated(node.dataset.i18n, originalText.get(node))
-      : originalText.get(node);
+    node.textContent = translated(node.dataset.i18n, originalText.get(node), next);
   }
   for (const node of htmlNodes) {
-    node.innerHTML = english
-      ? translated(node.dataset.i18nHtml, originalHtml.get(node))
-      : originalHtml.get(node);
+    node.innerHTML = translated(node.dataset.i18nHtml, originalHtml.get(node), next);
   }
   for (const node of ariaNodes) {
-    node.setAttribute("aria-label", english
-      ? translated(node.dataset.i18nAria, originalAria.get(node))
-      : originalAria.get(node));
+    node.setAttribute(
+      "aria-label",
+      translated(node.dataset.i18nAria, originalAria.get(node), next),
+    );
   }
 
   const title = english ? EN_META.title : originalMeta.title;

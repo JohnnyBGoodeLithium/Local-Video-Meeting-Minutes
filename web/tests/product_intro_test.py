@@ -54,20 +54,51 @@ required_journey = (
     "不从 00:00 开始，从真正重要的人或议题开始。",
     "每一条重要结论，都能回到原始证据。",
     "发现错误，不必从头再来。",
-    "深度工作留在本机，回顾跟着你走。",
     "从结论回到这段讨论，不丢人物、时间和画面。",
     "Live Context · Experimental",
-    "核对过的会议和视频，可以继续交给下一步。",
-    "MeetingPack", "AI Context", "Knowledge Base &amp; RAG",
     "虚构演示数据", "Northstar Launch Review", "Northstar Product Launch",
 )
 for marker in required_journey:
     assert marker in html, f"产品页缺少用户旅程标记：{marker}"
 
-# Chinese is the no-JS baseline; each projected node has exactly one English entry.
+# Review surfaces and continuation layers are separate parts of one story.
+assert 'data-review-group="surfaces"' in html
+assert 'data-review-group="continuation"' in html
+assert re.findall(r'data-review-surface="([^"]+)"', html) == [
+    "workbench", "companion", "meetingpack",
+]
+assert re.findall(r'data-continuation-layer="([^"]+)"', html) == [
+    "minutes", "knowledge",
+]
+for capability in ("Send", "Track", "Review", "Verify"):
+    assert f'companion{capability}Label' in html
+assert 'data-i18n="reuseBridge"' in html
+
+# Locked Chinese and English copy share the same keys in product-copy.js.
 html_keys = set(re.findall(r'data-i18n(?:-html|-aria)?="([A-Za-z][A-Za-z0-9]*)"', html))
-copy_body = copy_source.split("export const EN_META", 1)[0]
-english_keys = set(re.findall(r"^\s{2}([A-Za-z][A-Za-z0-9]*):", copy_body, re.MULTILINE))
+zh_body = re.search(
+    r"export const ZH_COPY = Object\.freeze\(\{(.*?)\}\);",
+    copy_source, re.DOTALL,
+).group(1)
+en_body = re.search(
+    r"export const EN_COPY = Object\.freeze\(\{(.*?)\}\);",
+    copy_source, re.DOTALL,
+).group(1)
+zh_keys = set(re.findall(r"^\s{2}([A-Za-z][A-Za-z0-9]*):", zh_body, re.MULTILINE))
+english_keys = set(re.findall(r"^\s{2}([A-Za-z][A-Za-z0-9]*):", en_body, re.MULTILINE))
+review_html = html[html.index('<section id="review-anywhere"'):html.index('<section id="playback"')]
+closing_html = html[html.index('<div class="final-cta"'):html.index("</main>")]
+locked_keys = set(re.findall(
+    r'data-i18n="([A-Za-z][A-Za-z0-9]*)"', review_html + closing_html,
+))
+locked_keys.discard("pocBoundary")
+assert zh_keys == locked_keys, (
+    f"锁定中文词典键漂移：missing={sorted(locked_keys - zh_keys)}, "
+    f"unused={sorted(zh_keys - locked_keys)}"
+)
+assert locked_keys <= english_keys, (
+    f"锁定英文词典缺键：{sorted(locked_keys - english_keys)}"
+)
 runtime_keys = set(re.findall(r"EN_COPY\.([A-Za-z][A-Za-z0-9]*)", script))
 used_english_keys = html_keys | runtime_keys
 assert used_english_keys == english_keys, (
@@ -79,6 +110,22 @@ assert 'data-ui-language="zh-CN"' in html and 'data-ui-language="en"' in html
 assert 'meeting-minutes:workspace:v1' in script, "介绍页语言必须与工作台共享偏好"
 assert 'document.documentElement.lang = next' in script
 assert 'EN_META.description' in script and 'meta[property="og:title"]' in script
+assert 'import { EN_COPY, EN_META, ZH_COPY }' in script
+
+for marker in (
+    "深度处理留在本机，回顾跟着你走。",
+    "回顾发生在哪里",
+    "发送", "跟进", "回顾", "核对",
+    "结果如何继续",
+    "纪要讲清这一次，知识库连接下一次。",
+    "下一次，不必从头开始。",
+    "Heavy processing stays local. Review follows you.",
+    "WHERE REVIEW HAPPENS",
+    "WHAT CONTINUES",
+    "Minutes make this session clear. The knowledge base carries it into the next task.",
+    "The next task does not have to start from zero.",
+):
+    assert marker in copy_source, f"锁定产品文案缺失：{marker}"
 
 # Meeting is visible without JavaScript; video, evidence, and correction are real controls.
 assert 'data-demo-panel="meeting"' in html
@@ -98,6 +145,10 @@ for forbidden_term in (
     "KnowledgeSink", "Agent-ready", "multi-stage pipeline", "Map/Reduce",
     "reranker", "embedding", "provider-neutral", "Voice ID", "Person ID",
     "Org Node", "Turn ID", "Page ID", "Claim ID", "canonical", "revision",
+    "Transport does not define the product experience",
+    "Implemented / validating",
+    "Hosted Chromium",
+    "Tailscale transport",
 ):
     assert forbidden_term.lower() not in public_sources.lower(), (
         f"普通阅读路径残留内部实现词：{forbidden_term}"
