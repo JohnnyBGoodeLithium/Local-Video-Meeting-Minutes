@@ -11,6 +11,7 @@
 - `TimedTextSignal` 记录文本与人物 provenance、时间、语言、暂定和待复核状态。Teams VTT/DOCX 复用现有 parser，普通 WebVTT 使用 native subtitle 语义。
 - Replay-as-Live 可以 1×/10×/100× 速率重放本地媒体与时间文本，media timestamp 不随墙钟倍速改变。
 - Generic HLS 支持 master/media playlist、`EXT-X-MEDIA` 字幕、media sequence checkpoint、新分片去重、暂时网络失败恢复、target-duration 轮询和 `ENDLIST` 结束。URL 日志不保留 query。
+- 已授权的公开直播页面先由现有 `yt-dlp` 能力进行无下载探测；只有 `is_live` 且选中格式为原生 HLS 时才接入 Generic HLS worker。下载器配置与日志被禁用，解析后的 CDN 再做公网校验；原页面只保存在私有 `.live/` 恢复状态，临时 HLS 签名不进入用户投影，服务恢复时重新解析以避免继续使用过期地址。
 - Native HLS worker 通过 `ffmpeg` 直接解调音频，有原生字幕时不运行主 ASR；无字幕时可使用 rolling chunk ASR。不创建可听播放元素。
 - Visual Caption Capture 支持手工区域，也支持全帧低频检测、区域跟踪和局部 1–5 fps（默认 2）识别；前缀扩展、后缀重叠、重复和闪烁经时序合并。没有 cloud OCR fallback。
 - 近实时 ASR 是明确的 rolling chunk + overlap，不声称 native streaming。人物使用 stable anonymous ID，display label 可在会后 reconcile；platform/human identity 不会被本地 cluster 降级。
@@ -20,7 +21,7 @@
 
 ## 能力与安全边界
 
-Source probe 只接受用户提供的公开或明确授权来源，拒绝 loopback/private address、凭据、过大响应、不安全 redirect 和 DRM。不绕过登录、cookie、下载限制或保护流。
+Source probe 只接受用户提供的公开或明确授权来源，拒绝 loopback/private address、凭据、过大响应、不安全 redirect 和 DRM。不读取浏览器 Cookie，不绕过登录、下载限制或保护流；录播页面和只能解析为 DASH/普通文件的页面不会被伪装为 Live HLS。
 
 Browser adapter 定义 foreground、background-headful 和 headless-verified，但只有当 media/audio/caption 持续且无后台节流的 capability test 全部通过才能启用 headless。当前主机没有 `pactl`/`pw-cli`/`wpctl`，尚未建立 Chromium → dedicated virtual sink → monitor 的稳定实证。因此 browser source 只返回明确的 background unavailable，绝不自动播放或切换到 system-wide loopback。后者必须告知可能捕获其他应用并获得单独确认。
 
