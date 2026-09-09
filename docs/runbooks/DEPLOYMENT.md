@@ -1,5 +1,9 @@
 # 跨机器与 GPU 部署
 
+首次安装按第 1–5 节顺序进行；OEM 预装 GPU 软件栈先读第 0 节。命令以 Linux/Bash 为准，
+不能直接作为 Windows/macOS 的安装承诺。先跑通“本地录音 → 逐字稿 → 说话人确认 → 纪要”；
+VL、知识库、Companion、精修大模型后续按需启用。仅查看 Web 界面可以使用 README 的轻量启动步骤。
+
 ## 结论
 
 项目业务代码不依赖 AMD。当前机器使用 ROCm，但 PyTorch 的 ROCm 构建同样暴露 `torch.cuda` 设备 API；项目现在会把实际 backend 诊断为 `rocm` 或 `cuda`，并按显卡能力选择 BF16/FP16。迁移到 NVIDIA 的关键不是改业务流程，而是安装 CUDA 版 PyTorch、CUDA 版 `llama.cpp`，并配置模型路径。
@@ -23,7 +27,7 @@ PyTorch 官方也明确说明 ROCm 构建沿用 `torch.cuda.is_available()` 语�
 
 - PyTorch 优先使用平台验证渠道：系统 deb（如 `python3-torch-rocm`）或 AMD TheRock 对应 gfx 目标的构建；
 - 项目 venv 用 `python3 -m venv --system-site-packages` 继承系统验证版 torch/torchaudio/torchvision，再安装项目依赖；
-- torch、torchaudio、torchvision 必须同版本、同来源。上游索引存在版本错位（例如 rocm7.1 索引 torch 已到 2.13 而 torchaudio 仅到 2.11），混装 PyPI 的 CUDA 版 torchaudio 会在运行时报 `libcudart.so` 缺失；
+- torch、torchaudio、torchvision 必须属于相互兼容的平台版本组合和构建渠道；三个包的版本号不必相同。不要混装 CUDA 和 ROCm 构建；
 - 安装项目依赖前先做 10 秒 GPU 冒烟，确认实际计算可用而不只是枚举可用：
 
 ```bash
@@ -47,27 +51,39 @@ python3 --version
 ## 2. 安装 Python 环境
 
 ```bash
-git clone <private-repository-url> meeting-minutes
+git clone https://github.com/JohnnyBGoodeLithium/Local-Video-Meeting-Minutes.git meeting-minutes
 cd meeting-minutes
+# 普通机器；OEM 预装验证栈改用 python3 -m venv --system-site-packages .venv
 python3 -m venv .venv
 .venv/bin/pip install --upgrade pip
 ```
 
-先从 PyTorch 官方选择器安装目标机器对应的构建，再安装项目。顺序很重要：`pyannote.audio` 会依赖 PyTorch，提前安装正确构建可避免被通用 wheel 替换。
+普通机器先从 PyTorch 官方选择器安装对应构建，命令中的 pip 应使用 `.venv/bin/python -m pip`。
+OEM 机器先验证 venv 能导入平台提供的 torch。提前安装并不能保证依赖解析时不被替换，
+因此先记录已验证的版本作为本机约束，再安装管线；发生依赖冲突时应解决平台组合，不删除约束硬装。
 
 ```bash
-# 这里执行 pytorch.org 为目标 CUDA/ROCm 给出的命令
 .venv/bin/python -c 'import torch; print(torch.__version__, torch.cuda.is_available(), torch.version.cuda, torch.version.hip)'
-
-.venv/bin/pip install -e .
-.venv/bin/pip install -e '.[pipeline]'
+.venv/bin/python - <<'PY' > .env.torch-constraints.txt
+from importlib.metadata import version
+for name in ("torch", "torchaudio", "torchvision"):
+    print(f"{name}=={version(name)}")
+PY
+.venv/bin/python -m pip install -c .env.torch-constraints.txt -e '.[pipeline]'
+.venv/bin/python -m pip check
 ```
+
+约束文件只保留在本机。安装前后都要用该 venv 做实际计算：GPU 机器运行
+`.venv/bin/python -c 'import torch; x=torch.randn(1024,1024,device="cuda"); print((x@x).sum().item())'`；
+CPU 安装把 `device="cuda"` 改为 `device="cpu"`。仅 import 成功不代表 GPU 可用。
 
 不建议把某个 CUDA 或 ROCm wheel 固定进 `pyproject.toml`：那会使另一类显卡无法安装。
 
 ## 3. 安装 llama.cpp
 
-目标是让 `llama-server` 位于 `PATH`。按照官方构建文档选择 backend：
+已有可用的 OpenAI-compatible 文本服务可跳过编译，直接配置第 4 节的端点和模型 ID。
+自行构建时，先获取 llama.cpp 源码并进入其目录，再按官方构建文档选择 backend。
+以下不是在 meeting-minutes 仓库内执行的命令；构建后把 `build/bin/llama-server` 加入 PATH：
 
 ```bash
 # NVIDIA 示例
@@ -83,7 +99,40 @@ cmake --build build --config Release -j
 
 ## 4. 配置模型与服务
 
-复制 [环境变量示例](../../deploy/meeting-minutes.env.example)，把路径改成目标机器实际位置。关键变量：
+从 meeting-minutes 仓库根执行；已有 `.env` 时直接编辑，不覆盖：
+
+```bash
+test -e .env || (umask 077; cp deploy/meeting-minutes.env.example .env)
+```
+
+编辑 `.env`，所有路径使用本机实际的绝对路径。首次只需要：
+
+1. `MEETING_DATA_ROOT` 指向可写的私有数据目录，`MEETING_WEB_JOBS` 指向其中的 `jobs`。
+2. **同时设置 `MEETING_WEB_BANK` 和 `MEETING_BANK_DIR` 为同一个绝对路径**，通常是数据根下的 `speaker_bank`。目前各模块读取变量仍有差异，仅设置数据根或仅设置 `MEETING_BANK_DIR` 不足以让所有入口一致。
+3. `MEETING_PYTHON` 指向当前仓库 `.venv/bin/python`，不要沿用另一台机器的解释器路径。
+4. native ASR 需要准备完整的 ASR、ForcedAligner 模型目录并填写路径；包内只附带说话人区分模型，不包含这两个模型或文本/VL 权重。也可使用下文满足时间戳合同的兼容 ASR 服务。
+5. 先让 `MEETING_LLM_MODEL`、`MEETING_DRAFT_MODEL`、`MEETING_MINUTES_MODEL` 使用同一个已部署文本模型 ID。精修、VL、知识库暂时保留为注释；首次视频导入选择“快速纪要”。
+
+native ASR 权重可按 [Qwen 官方模型说明](https://huggingface.co/Qwen/Qwen3-ASR-1.7B)获取，
+对齐模型见 [ForcedAligner](https://huggingface.co/Qwen/Qwen3-ForcedAligner-0.6B)。离线部署可从获准联网设备
+复制完整模型目录；不能只复制 config.json 或缓存软链接。文本 GGUF 也需自行准备，下面的 `/models/text-model.gguf` 是待替换路径。
+
+项目不会自动加载 `.env`。每次新终端启动 Web、doctor 或 CLI 管线前，在仓库根加载自己编辑的文件：
+
+```bash
+set -a
+. ./.env
+set +a
+mkdir -p "$MEETING_DATA_ROOT/meetings" "$MEETING_DATA_ROOT/recordings" "$MEETING_WEB_BANK" "$MEETING_WEB_JOBS"
+test "$MEETING_WEB_BANK" = "$MEETING_BANK_DIR"
+test -x "$MEETING_PYTHON"
+curl --fail --silent --show-error "${MEETING_LLM_API%/}/models"
+```
+
+确认返回列表包含三个文本角色配置的 ID；服务健康不代表请求的模型存在。环境文件若也用于 systemd，
+使用 `KEY=value` 和必要的引号，不能依赖 shell 的 `$HOME`、`~` 展开或命令替换。
+
+关键变量参考：
 
 | 变量 | 默认 | 作用 |
 |---|---|---|
@@ -115,16 +164,20 @@ cmake --build build --config Release -j
 | `MEETING_VL_WORKERS` | `2` | VL 逐页解读的并发请求数；需与 VL 服务 `--parallel` 槽位匹配 |
 | `MEETING_VL_GPU_LAYERS` | `999` | llama.cpp GPU offload；显存不足可降低 |
 | `MEETING_DATA_ROOT` | 仓库根 | 私有会议数据根 |
-| `MEETING_BANK_DIR` | `<MEETING_DATA_ROOT>/speaker_bank` | 可选的独立声纹/身份/术语私有目录；兼容旧 `MEETING_WEB_BANK` |
+| `MEETING_WEB_BANK` | Web 默认 `<MEETING_DATA_ROOT>/speaker_bank`；部分 CLI 默认仓库内 | 当前 Web、视频和 Teams 管线读取的声纹库路径；部署时必须显式设置 |
+| `MEETING_BANK_DIR` | 术语模块回退到 `MEETING_WEB_BANK` / 数据根 | 不能替代所有模块的 `MEETING_WEB_BANK`；两者设置相同路径 |
 | `MEETING_PYTHON` | 当前解释器/Web venv | 作业子进程解释器 |
 
 文本服务示例：
 
 ```bash
 llama-server --model /models/text-model.gguf \
+  --alias local-text \
   --host 127.0.0.1 --port 11435 --ctx-size 65536 \
   --gpu-layers 999 --flash-attn auto --jinja --no-webui
 ```
+
+此单模型示例对应环境模板的 `local-text`；改用其他服务时以其 `/v1/models` 返回值为准。
 
 ASR 兼容端点必须支持 `multipart/form-data` 的 `/audio/transcriptions`，并在
 `response_format=verbose_json`、`timestamp_granularities[]=word` 下返回 `text`、`language` 与
@@ -173,23 +226,46 @@ llama-server --model /models/vl-model.gguf --mmproj /models/mmproj.gguf \
 
 回填不是批量纠错：它不读取或改写 canonical 逐字稿，只从已有 `page_desc.json` 建候选。部署验收应对同一段脱敏音频分别运行默认 context 与 `--no-context`，记录目标术语召回、普通词误识别和 ASR 阶段耗时；再构造一条确认术语混淆，验证短片复核失败时仍保留第一遍逐字稿。
 
-## 5. 首次验收
+## 5. 首次验收与启动
 
 ```bash
-make doctor
+.venv/bin/python bin/doctor.py --profile web
 .venv/bin/python bin/doctor.py --profile all --json
-make check
-make smoke
+make run
 ```
 
-`doctor` 应显示：
+打开 `http://127.0.0.1:8899/`。`doctor` 应显示：
 
 - NVIDIA：`backend=cuda`、`torch.version.cuda` 非空、`torch.version.hip` 为空；
 - AMD：`backend=rocm`、`torch.version.hip` 非空；
 - 模型路径存在，`llama-router` 可达；
-- `hardware_test.py` 验证 NVIDIA FP16 回退、AMD BF16 和 CPU FP32 选择。
+- 实际计算另按第 2 节验证；doctor 的设备枚举不是 GPU 运算测试。
 
-之后只用一段经过脱敏、约 3 分钟的测试媒体跑端到端。不要把真实会议复制到第三方测试机。通过后再做 30–60 分钟 soak test。
+不启用 VL 时，VL 模型缺失的 warn 可以预期；文本服务不可达的 warn 会阻止纪要生成，不能忽略。
+目前 `--profile all` 仍检查 native ASR 依赖和路径，即使配置了兼容 ASR 服务；应结合实际 provider 单独验收，不能靠重复下载模型消除所有提示。
+
+用一段虚构内容、约 3 分钟且至少两人发言的测试录音或快速模式视频跑端到端：
+
+1. 导入后逐字稿可读、音频可跳播，纪要最终完成。
+2. 新建一个测试人员并确认声音组，再将另一组绑定到已有测试人员；刷新后仍保留，并验证撤销。
+3. 图例和泳道中已绑定人员在前，两组内部各按发言时长降序；这不是按编号或全局首次出现排序。
+4. 检查声纹文件确实写入配置的库，且服务和 CLI 使用同一路径。通过后再处理长会议。
+
+`make check` / `make smoke` 是开发回归，不替代以上安装验收；修改代码准备 PR 时按 AGENTS 要求运行。
+
+## 迁移已有数据与常见故障
+
+迁移时同时保留原始媒体、会议目录、人工修改历史和完整声纹库（含 bank.json、向量及组织/术语资料）。
+内置模型是通用权重，不能恢复个人声纹库。复制前后比对文件数量、大小和校验和；不能用“目录存在”判定成功。
+发现关键 JSON 或向量是零字节时先从有效备份恢复。外部媒体路径和软链接需要在新机重新核对，不能仅复制链接本身。
+
+| 现象 | 先检查 | 处理方向 |
+|---|---|---|
+| 确认身份报“找不到这个声音组”/404 | 会议 voice ID 是否存在于 Web 实际读取的库，管线是否写到另一目录 | 备份两边后核对来源；不能直接覆盖或拼接两个库，重复 ID 可能指向不同声音 |
+| 绑定返回“没有精确命中”/409 | 是否选择了已有人员，还是输入新名字 | 新名字用“新建人员并确认”，不需要重装模型 |
+| PR 已合并但排序未变化 | 服务工作目录、提交、实际返回的 app.js | 按运维入口安全升级；确认服务资源更新后再硬刷新 |
+| import torch 正常但 GPU 计算崩溃 | 平台构建与安装前后版本 | 回到第 0–2 节验证平台栈 |
+| 能打开网页但处理失败 | 是否仅安装 Web 依赖、环境是否加载、模型 ID 是否存在 | 完成第 2–5 节，不把网页打开当作安装完成 |
 
 ## NVIDIA 测试矩阵
 

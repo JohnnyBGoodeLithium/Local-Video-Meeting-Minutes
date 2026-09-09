@@ -172,9 +172,9 @@ assert "本仓库当前未附带开源许可证。" in readme_zh
 assert "转载、再分发或商业使用前，应先确认代码归属与公司政策。" in readme_zh
 
 quick_start_commands = [
-    "git clone <repository-url> meeting-minutes", "cd meeting-minutes",
+    "git clone https://github.com/JohnnyBGoodeLithium/Local-Video-Meeting-Minutes.git meeting-minutes", "cd meeting-minutes",
     "python3 -m venv .venv", ".venv/bin/pip install --upgrade pip",
-    ".venv/bin/pip install -e .", "make doctor", "make check", "make run",
+    ".venv/bin/pip install -e .", ".venv/bin/python bin/doctor.py --profile web", "make run",
 ]
 for command in quick_start_commands:
     assert command in readme and command in readme_zh, f"README quick start drift: {command}"

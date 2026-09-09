@@ -77,16 +77,17 @@ Backend 默认只监听 localhost。Provider 可以在本机运行，或使用�
 改变可用的 CUDA 或 ROCm 环境前，先阅读[部署 runbook](docs/runbooks/DEPLOYMENT.md)。
 
 ```bash
-git clone <repository-url> meeting-minutes
+git clone https://github.com/JohnnyBGoodeLithium/Local-Video-Meeting-Minutes.git meeting-minutes
 cd meeting-minutes
 python3 -m venv .venv
 .venv/bin/pip install --upgrade pip
 .venv/bin/pip install -e .
-make doctor
-make check
+.venv/bin/python bin/doctor.py --profile web
 make run
 ```
 
+以上只启动 Web 界面。处理新录音请继续按[首次部署步骤](docs/runbooks/DEPLOYMENT.md)安装适配硬件的
+管线依赖、配置 ASR 和一个文本模型、加载环境文件，再用短录音验收。OEM 预装 PyTorch 的机器应先按该文档创建继承平台环境的 venv。
 浏览器打开 `http://127.0.0.1:8899/`。`make smoke` 使用临时数据根和虚构夹具，不得读取真实会议。
 
 ## 文档导航

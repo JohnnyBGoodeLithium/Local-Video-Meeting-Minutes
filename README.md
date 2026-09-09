@@ -86,16 +86,19 @@ model services and hardware; read the [deployment runbook](docs/runbooks/DEPLOYM
 changing a working CUDA or ROCm environment.
 
 ```bash
-git clone <repository-url> meeting-minutes
+git clone https://github.com/JohnnyBGoodeLithium/Local-Video-Meeting-Minutes.git meeting-minutes
 cd meeting-minutes
 python3 -m venv .venv
 .venv/bin/pip install --upgrade pip
 .venv/bin/pip install -e .
-make doctor
-make check
+.venv/bin/python bin/doctor.py --profile web
 make run
 ```
 
+This starts the Web interface only. To process new recordings, follow the
+[first-install deployment steps](docs/runbooks/DEPLOYMENT.md): install the hardware-specific
+pipeline dependencies, configure ASR and a text model, load the environment file, and validate a short recording.
+On OEM systems with a validated PyTorch stack, use the venv instructions there before installing dependencies.
 Open `http://127.0.0.1:8899/`. `make smoke` uses a temporary data root and synthetic fixtures; it
 must not read real meetings.
 
