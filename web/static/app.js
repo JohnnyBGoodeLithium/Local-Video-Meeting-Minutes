@@ -1935,13 +1935,13 @@ function speakerStats() {
   return { stats, total };
 }
 
-// 说话人按发言占比降序（已绑定者在前，未绑定/会议机沉底），图例/节奏条/逐人车道共用。
+// 说话人按发言占比降序（已绑定者在前，未绑定/会议机沉底但组内同样按占比降序），图例/节奏条/逐人车道共用。
 function speakerOrderByShare() {
   const { stats } = speakerStats();
   const names = [...stats.keys()];
-  const bound = names.filter(name => !isUnboundSpeaker(name))
-    .sort((a, b2) => (stats.get(b2) || 0) - (stats.get(a) || 0));
-  const unbound = names.filter(name => isUnboundSpeaker(name));
+  const byShare = (a, b2) => (stats.get(b2) || 0) - (stats.get(a) || 0);
+  const bound = names.filter(name => !isUnboundSpeaker(name)).sort(byShare);
+  const unbound = names.filter(name => isUnboundSpeaker(name)).sort(byShare);
   return { bound, unbound };
 }
 
