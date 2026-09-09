@@ -44,7 +44,7 @@ import meeting_generation
 ROOT = Path(__file__).resolve().parent.parent
 BIN = ROOT / "bin"
 PY = Path(os.environ.get("MEETING_PYTHON", sys.executable)).expanduser()
-BANK_DIR = ROOT / "speaker_bank"
+BANK_DIR = Path(os.environ.get("MEETING_WEB_BANK", str(ROOT / "speaker_bank"))).expanduser()
 
 
 def enroll(name2vec, slug, threshold=0.70):

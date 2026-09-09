@@ -28,6 +28,7 @@
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -53,7 +54,7 @@ import meeting_generation
 import voice_bank as vb
 
 ROOT = Path(__file__).resolve().parent.parent
-BANK_DIR = ROOT / "speaker_bank"
+BANK_DIR = Path(os.environ.get("MEETING_WEB_BANK", str(ROOT / "speaker_bank"))).expanduser()
 
 
 def slugify(name: str) -> str:
