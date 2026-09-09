@@ -5,14 +5,26 @@
 当前支持两种分发方式：
 
 1. **Source checkout**：从 Git 仓库运行，适合开发与受控部署。
-2. **Application Release Bundle**：包含应用脚本、Web 静态资源、prompts、部署样例、轻量依赖锁和必要文档的经过校验目录。
+2. **Application Release Bundle**：包含应用脚本、Web 静态资源、prompts、部署样例、轻量依赖锁、必要文档及已固定版本的说话人模型的经过校验目录。
 
 当前明确不提供：
 
 - PyPI package；
 - 能够在任意目录启动的 wheel；
 - 稳定的 Python public import API；
-- 模型权重、CUDA/ROCm/PyTorch 的通用运行时包。
+- ASR/LLM/VL 权重或 CUDA/ROCm/PyTorch 的通用运行时包。
+
+## 内置说话人模型
+
+源码和应用 ZIP/tar.gz 均携带 `pyannote/speaker-diarization-community-1`，约增加 32 MiB。
+权重使用普通 Git 文件保存，GitHub 下载 ZIP 和 `git clone` 不需要 Git LFS、HF 账号、token 或再次下载。
+应用自动发现 `models/pyannote/speaker-diarization-community-1/`；`make doctor` 使用相同的发现顺序。
+仅在覆盖内置模型时设置 `MEETING_PYANNOTE_MODEL`。目标机器仍需按硬件安装 PyTorch 和 pyannote.audio。
+
+模型使用 CC BY 4.0；上游署名、许可链接、未修改声明及子模型归属保存在包内
+`THIRD_PARTY_NOTICES.md` 和原始 model cards。版本与逐文件 SHA-256 固定在
+[`release/diarization-model.json`](../../release/diarization-model.json)。升级模型须同时更新这些记录，
+重新核对许可并在目标机器完成无 token、空 HF cache、禁用网络的加载验证。
 
 `pip install -e .` 当前主要安装基础依赖与项目元数据。应用仍从 source checkout 或 Application Release Bundle 的目录布局运行。`[tool.setuptools] packages = []` 会保留到项目完成资源、入口点与 package data 的正式迁移设计。
 
@@ -53,7 +65,10 @@ dirty 本地构建会在名称和 manifest 中明确标记，不能用于正式 
 
 ## 安全边界
 
-默认拒绝运行数据、`.env`、凭据、私有报告、会议目录、声纹身份数据、模型权重、大型缓存、绝对路径、`..` 路径和 symlink。speaker bank 只允许 `*.template.json`。
+默认拒绝运行数据、`.env`、凭据、私有报告、会议目录、声纹身份数据、其他模型权重、大型缓存、绝对路径、`..` 路径和 symlink。speaker bank 只允许 `*.template.json`。
+
+唯一模型例外是上述 manifest 固定的 9 个文件。构建和解压验证都检查许可记录、准确文件集合、大小及 SHA-256；
+缺失权重、LFS 指针、篡改文件或额外模型不能通过发布检查。CI 只校验文件，不安装或运行模型。
 
 归档内包含 `release-manifest.json`；外部同时生成 ZIP、tar.gz、manifest 和 `SHA256SUMS`。ZIP 与 tar.gz 必须具有相同的顶层目录和文件集合。
 

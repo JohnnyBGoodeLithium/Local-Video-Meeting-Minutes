@@ -80,7 +80,7 @@ cmake --build build --config Release -j
 | `MEETING_ASR_CONTEXT_MODE` | `auto` | `auto` 拒绝 prompt 后同端点无 context 重试；`required` 硬失败；`off` 不发送 |
 | `MEETING_ASR_FALLBACK_PROVIDER` | 空 | 只有显式设置才允许跨 provider 故障切换；默认绝不切云端 |
 | `MEETING_ASR_REVIEW` | `1` | 已知术语混淆的短音频定点复核；失败保留第一遍结果 |
-| `MEETING_PYANNOTE_MODEL` | 用户模型缓存 | pyannote pipeline 路径 |
+| `MEETING_PYANNOTE_MODEL` | 包内 community-1，其次用户模型缓存 | 可选覆盖；内置说话人模型无需 HF 授权或另行下载 |
 | `MEETING_LLM_API` | `http://127.0.0.1:11435/v1` | OpenAI-compatible 文本端点 |
 | `MEETING_LLM_MODEL` | `qwen3.6-35b-a3b-operator` | AI 对话、翻译与通用文本模型 ID |
 | `MEETING_DRAFT_MODEL` | 跟随 `MEETING_LLM_MODEL` | 视频会议早期语音草稿模型 ID |

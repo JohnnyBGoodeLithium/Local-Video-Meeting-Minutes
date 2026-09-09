@@ -77,6 +77,10 @@ disabled by default. Public repository fixtures and documentation are synthetic 
 
 ## Quick start
 
+The speaker diarization model is included in both source downloads and application bundles.
+It loads automatically without a Hugging Face account, token, or additional model download.
+See the [distribution notes](docs/runbooks/DISTRIBUTION.md) for attribution and deployment scope.
+
 Requires Linux, Python 3.11+, and `ffmpeg` / `ffprobe`. Full model execution also needs compatible
 model services and hardware; read the [deployment runbook](docs/runbooks/DEPLOYMENT.md) before
 changing a working CUDA or ROCm environment.

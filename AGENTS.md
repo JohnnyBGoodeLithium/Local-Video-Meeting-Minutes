@@ -43,6 +43,7 @@
 
 ## Provider、资源与隐私
 
+- 说话人区分模型 community-1 已随源码和应用发布包放在 `models/pyannote/speaker-diarization-community-1/`，运行时和 `make doctor` 自动发现。新安装默认不需要 HF 账号、token、单独下载或设置 `MEETING_PYANNOTE_MODEL`；该变量仅用于管理员覆盖。先检查包内文件与 `release/diarization-model.json`，不要把包损坏误诊为需要重新授权。PyTorch/pyannote.audio 依赖仍按硬件安装，ASR/LLM/VL 配置不在此模型范围内。
 - 业务流程依赖能力合同，不写死具体模型供应商、GPU 或操作系统；配置与回退由 provider adapter 管理。
 - 默认本地优先，不静默上云，不静默切换模型或高质量恢复路径。远端端点必须由管理员显式配置并符合政策。
 - 资源问题优先等待、卸载空闲模型或从检查点恢复；不能通过无限重试让主机 OOM。
