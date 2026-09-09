@@ -15,6 +15,23 @@
 
 PyTorch 官方也明确说明 ROCm 构建沿用 `torch.cuda.is_available()` 语义；安装时应在官方选择器中选择与机器匹配的 CUDA、ROCm 或 CPU 构建：[PyTorch Start Locally](https://docs.pytorch.org/get-started/locally/)。`llama.cpp` 官方构建文档分别提供 CUDA 与 HIP backend：[Build llama.cpp locally](https://github.com/ggml-org/llama.cpp/blob/master/docs/build.md)。
 
+## 0. 平台验证栈优先（OEM AI 工作站）
+
+在 Lenovo/AMD rex 等 OEM 验证平台（如 gfx1151 统一内存机型）上，**不要**用 pytorch.org 通用 ROCm wheel 覆盖系统预装的 PyTorch。通用 wheel 的典型故障模式是：`import torch`、`torch.cuda.is_available()` 全部正常，但任何 GPU 计算立即段错误，无 Python 报错，极易误判为项目代码问题。
+
+正确做法：
+
+- PyTorch 优先使用平台验证渠道：系统 deb（如 `python3-torch-rocm`）或 AMD TheRock 对应 gfx 目标的构建；
+- 项目 venv 用 `python3 -m venv --system-site-packages` 继承系统验证版 torch/torchaudio/torchvision，再安装项目依赖；
+- torch、torchaudio、torchvision 必须同版本、同来源。上游索引存在版本错位（例如 rocm7.1 索引 torch 已到 2.13 而 torchaudio 仅到 2.11），混装 PyPI 的 CUDA 版 torchaudio 会在运行时报 `libcudart.so` 缺失；
+- 安装项目依赖前先做 10 秒 GPU 冒烟，确认实际计算可用而不只是枚举可用：
+
+```bash
+python3 -c 'import torch; x=torch.randn(1024,1024,device="cuda"); print("GPU OK", (x@x).sum().item())'
+```
+
+自装 ROCm 的通用（非 OEM 验证）机器仍按第 2 节从 PyTorch 官方选择器安装。
+
 ## 1. 系统准备
 
 建议 Linux、Python 3.11 或 3.12。系统工具至少包括：
