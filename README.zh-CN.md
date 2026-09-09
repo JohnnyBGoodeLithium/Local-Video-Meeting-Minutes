@@ -70,6 +70,9 @@ Backend 默认只监听 localhost。Provider 可以在本机运行，或使用�
 
 ## 快速开始
 
+说话人区分模型已随源码和应用发布包提供，自动加载，无需 Hugging Face 账号、token 或额外下载。
+模型许可与部署范围见[分发说明](docs/runbooks/DISTRIBUTION.md#内置说话人模型)。
+
 需要 Linux、Python 3.11+ 和 `ffmpeg` / `ffprobe`。完整模型运行还需要兼容的模型服务与硬件；
 改变可用的 CUDA 或 ROCm 环境前，先阅读[部署 runbook](docs/runbooks/DEPLOYMENT.md)。
 
