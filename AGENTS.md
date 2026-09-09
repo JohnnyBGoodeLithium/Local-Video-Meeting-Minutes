@@ -55,7 +55,7 @@
 - 使用 `rg` 搜索；不可用时使用 `grep`/`find`。文件编辑优先 `apply_patch`，批量纯机械移动使用 `git mv`。
 - 不以减少行数为目的机械拆模块。只有责任域高频变化、输入输出清楚且能独立测试时才拆分。
 - 诊断请求默认只读；用户要求修复或构建时才写入。不得用 `git reset --hard` 或其他破坏性命令清理工作区。
-- Commit 使用 `OpenAI Codex <codex@openai.com>`。提交正文说明用户变化、根因/边界、验证和剩余限制；可独立验证的变更及时提交，不在本地长期堆积。
+- Commit 使用当前执行工作的 agent 自己的身份，邮箱用该 agent 在 GitHub 上可点击进主页的 noreply 形式（`<id>+<login>@users.noreply.github.com`）。例如 Kimi Code 用 `Kimi Code <75630276+kimi-code@users.noreply.github.com>`（主页 https://github.com/kimi-code）；Codex 用 `OpenAI Codex <codex@openai.com>`。提交正文说明用户变化、根因/边界、验证和剩余限制；可独立验证的变更及时提交，不在本地长期堆积。
 - 推送前确认目标远端和公开/私有边界；对公开远端的敏感风险必须再次核对。版本发布按 `docs/runbooks/RELEASES.md` 执行。
 - 代码修改默认从最新 `main` 建 feature branch，经 Pull Request 和 GitHub hosted `check-and-smoke` 后合并；CI 失败不得绕过。`main` 的 branch protection/ruleset 由仓库管理员维护。
 
