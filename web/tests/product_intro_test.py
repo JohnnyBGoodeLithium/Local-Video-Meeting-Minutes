@@ -22,6 +22,16 @@ product_css = (STATIC / "product.css").read_text(encoding="utf-8")
 browser_test = (ROOT / "web" / "tests" / "chromium_product_site_test.py").read_text(
     encoding="utf-8"
 )
+project_name = "Local Video Meeting Minutes"
+
+for marker in (
+    f'<meta property="og:site_name" content="{project_name}">',
+    f"<title>{project_name}｜",
+    f'>{project_name} <em id="product-version"',
+    f'title: "{project_name} |',
+):
+    assert marker in html + copy_source, f"产品站正式名称漂移：{marker}"
+assert "Meeting Context" not in html + copy_source
 
 # A MINOR or MAJOR version bump must update both product-content markers.
 version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()

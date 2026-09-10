@@ -17,12 +17,14 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
+from bundled_diarization import verified_model_files
+
 
 RELEASE_SCHEMA = "local-meeting-minutes-release/v1"
 ARCHIVE_PREFIX = "local-video-meeting-minutes"
 FORBIDDEN_ROOTS = {
     ".git", ".github", ".venv", ".cache", "dist", "recordings", "meetings",
-    "evaluations", "private_reports",
+    "evaluations", "private_reports", "models",
 }
 FORBIDDEN_DIR_NAMES = {
     "__pycache__", ".pytest_cache", ".ruff_cache",
@@ -134,12 +136,13 @@ def tracked_files(root: Path) -> dict[str, int]:
 
 def select_files(root: Path, allowlist: Path) -> list[tuple[str, int]]:
     rules = load_allowlist(allowlist)
+    model_paths = verified_model_files(root)
     selected = []
     for path, mode in tracked_files(root).items():
         if not allowed(path, rules):
             continue
         reason = forbidden_reason(path)
-        if reason:
+        if reason and path not in model_paths:
             raise ReleaseError(f"allowlisted path rejected ({reason}): {path}")
         source = root / path
         if stat.S_ISLNK(source.lstat().st_mode) or mode == 0o120000:
@@ -155,6 +158,7 @@ def select_files(root: Path, allowlist: Path) -> list[tuple[str, int]]:
         "pyproject.toml", "Makefile",
     }
     missing = required - {path for path, _ in selected}
+    missing |= model_paths - {path for path, _ in selected}
     if missing:
         raise ReleaseError(f"release allowlist missed required files: {sorted(missing)}")
     return selected

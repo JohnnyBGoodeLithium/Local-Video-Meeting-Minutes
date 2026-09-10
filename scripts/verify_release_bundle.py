@@ -17,6 +17,7 @@ import zipfile
 from pathlib import Path, PurePosixPath
 
 from build_release_bundle import RELEASE_SCHEMA, forbidden_reason
+from bundled_diarization import verified_model_files
 
 
 class VerificationError(RuntimeError):
@@ -101,6 +102,7 @@ def verify_checksums(dist: Path, expected_assets: set[str]) -> None:
 
 
 def verify_tree(root: Path, manifest: dict) -> None:
+    model_paths = verified_model_files(root)
     required = {
         "README.md", "README.zh-CN.md", "RELEASE_NOTES.md", "VERSION", "CHANGELOG.md",
         "SECURITY.md", "CONTRIBUTING.md", "Makefile", "pyproject.toml",
@@ -121,7 +123,7 @@ def verify_tree(root: Path, manifest: dict) -> None:
         if relative == "release-manifest.json":
             continue
         reason = forbidden_reason(relative)
-        if reason:
+        if reason and relative not in model_paths:
             raise VerificationError(f"forbidden archive entry ({reason}): {relative}")
         if os.path.isabs(relative) or ".." in PurePosixPath(relative).parts:
             raise VerificationError(f"unsafe extracted path: {relative}")

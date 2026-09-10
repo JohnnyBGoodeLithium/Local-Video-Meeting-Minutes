@@ -767,9 +767,29 @@ def _extract_blocks(text: str):
     return blocks
 
 
+def _wait_transcript_stable(path: Path, quiet_seconds: int = 60,
+                            max_wait_seconds: int = 1800,
+                            poll_seconds: int = 15) -> None:
+    """人工确认说话人通常连续操作多次；等逐字稿内容稳定后再重跑，避免反复推倒重来。"""
+    deadline = time.time() + max_wait_seconds
+    last = file_revision(path)
+    stable = 0
+    while time.time() < deadline:
+        time.sleep(poll_seconds)
+        rev = file_revision(path)
+        if rev == last:
+            stable += poll_seconds
+            if stable >= quiet_seconds:
+                return
+        else:
+            last = rev
+            stable = 0
+            print("[meta] 说话人身份仍在更新，等待稳定后再重跑", flush=True)
+
+
 def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
              refine_model: str = None, reuse_vl_cache_only: bool = False,
-             _identity_retry: int = 1):
+             _identity_retry: int = 2):
     requested_model = refine_model or MODEL
     workload = "exclusive" if any(token in requested_model.lower()
                                       for token in ("120b", "122b")) \
@@ -959,6 +979,7 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
     if current_transcript_revision != transcript_revision:
         if _identity_retry > 0:
             print("[meta] 文本生成期间说话人身份已更新，复用 VL 缓存重跑纪要", flush=True)
+            _wait_transcript_stable(mdir / "transcript.spk.json")
             return generate(
                 mdir, out, vl=vl, video=video, refine_model=refine_model,
                 reuse_vl_cache_only=bool(vl), _identity_retry=_identity_retry - 1)
