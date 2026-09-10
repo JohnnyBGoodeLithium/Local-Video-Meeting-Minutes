@@ -668,11 +668,11 @@ function restoreReadingPosition() {
 
 /* ---------- 会议列表 ---------- */
 
-async function loadMeetings() {
+async function loadMeetings({ selectInitial = true } = {}) {
   const d = await jget("/api/meetings");
   state.meetings = d.meetings;
   renderMeetingList();
-  if (!state.slug && state.meetings.length) {
+  if (selectInitial && !state.slug && state.meetings.length) {
     const params = new URLSearchParams(location.search);
     const linked = params.get("meeting");
     // 外链深链（如知识库文档的时间码链接）：?meeting=<slug>&t=<秒>，支持小数秒；
@@ -2139,6 +2139,29 @@ function showSpeakerTip(ev, run) {
 const LEGEND_TOP_N = 6;   // 直接显示:占比 ≥5% 或前 6 名(并集)
 const PERSON_LANES_TOP_N = 6;  // 逐人车道默认展开前 6 人
 
+function speakerIdentityButton(speaker) {
+  const turns = state.bundle?.transcript || [];
+  const voices = [...new Set(turns.filter(t => t.speaker === speaker && t.voice).map(t => t.voice))];
+  if (!voices.length) return null;
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "chip-bind";
+  button.textContent = ui("bindAction");
+  button.setAttribute("aria-label", `${ui("bindAction")} ${speaker}`);
+  button.addEventListener("click", event => {
+    event.stopPropagation();
+    if (voices.length > 1) {
+      toast(isEnglishUi() ? "Multiple voice groups: choose a transcript segment to confirm its identity."
+        : "此人包含多个声音组，请点击逐字稿中的具体发言确认身份。");
+      return;
+    }
+    openSpeakerIdentity(voices[0], speaker, {
+      anchor: button, index: turns.findIndex(t => t.speaker === speaker && t.voice === voices[0]),
+    });
+  });
+  return button;
+}
+
 function legendChip(speaker, pct) {
   const chip = document.createElement("button");
   chip.type = "button";
@@ -2151,7 +2174,12 @@ function legendChip(speaker, pct) {
   chip.addEventListener("click", () => {
     selectPlaybackSpeaker(speaker, true);
   });
-  return chip;
+  const group = document.createElement("span");
+  group.className = "speaker-chip-group";
+  group.appendChild(chip);
+  const bind = speakerIdentityButton(speaker);
+  if (bind) group.appendChild(bind);
+  return group;
 }
 
 function renderSpeakerLegend() {
@@ -2198,18 +2226,8 @@ function renderSpeakerLegend() {
       chip.addEventListener("mouseleave", () => { state.speakerHover = null; applySpeakerFocus(); });
       chip.addEventListener("click", () => selectPlaybackSpeaker(name, true));
     }
-    const turn = transcript.find(item => item.speaker === name && item.voice);
-    if (turn) {
-      const bind = document.createElement("button");
-      bind.type = "button";
-      bind.className = "chip-bind";
-      bind.textContent = ui("bindAction");
-      bind.addEventListener("click", event => {
-        event.stopPropagation();
-        openBind(turn.voice, name);
-      });
-      chip.appendChild(bind);
-    }
+    const bind = speakerIdentityButton(name);
+    if (bind) chip.appendChild(bind);
     box.appendChild(chip);
   }
   box.classList.remove("hidden");
@@ -2268,6 +2286,8 @@ function renderPersonLanes() {
     if (selectable)
       label.addEventListener("click", () => selectPlaybackSpeaker(speaker, true));
     row.appendChild(label);
+    const bind = speakerIdentityButton(speaker);
+    if (bind) row.appendChild(bind);
     const track = document.createElement("div");
     track.className = "person-lane-track";
     for (const run of runs) {
@@ -5759,12 +5779,18 @@ function pollJob(id, onUpdate) {
 async function pollJobs() {
   try {
     const d = await jget("/api/jobs");
+    const activeUpload = job => job.kind === "upload"
+      && ["queued", "running", "recovering", "waiting_resource"].includes(job.status);
+    const refreshLibrary = d.jobs.some(activeUpload) || state.jobs.some(activeUpload);
     state.jobs = d.jobs;
     state.jobPriorityAvailable = d.capabilities?.job_priority === true;
+    state.jobQueueReorderAvailable = d.capabilities?.job_queue_reorder === true;
     state.jobPreemptionAvailable = d.capabilities?.checkpointed_preemption === true;
     state.jobRecoveryAvailable = d.capabilities?.job_recovery === true;
     state.jobHideAvailable = d.capabilities?.job_hide === true;
     renderJobs(d.jobs);
+    // Refresh new/partial outputs and the final transition without changing the reader's selection.
+    if (refreshLibrary) await loadMeetings({ selectInitial: false });
     const completed = d.jobs.filter(job => job.meeting === state.slug
       && ((["upload", "topic_map", "regen", "retranscribe", "photo_analysis"].includes(job.kind)
         && job.status === "done")
@@ -5920,6 +5946,15 @@ async function handleJobAction(action, model, trigger) {
     if (!response.ok) toast(`${isEnglishUi() ? "Could not reprioritize" : "调整失败"}：${body.detail || response.status}`);
     return pollJobs();
   }
+  if (action === "move_up" || action === "move_down") {
+    trigger.disabled = true;
+    try {
+      const response = await api(`/api/jobs/${encodeURIComponent(job.id)}/move?direction=${action === "move_up" ? "up" : "down"}`, { method: "POST" });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) toast(body.detail || (isEnglishUi() ? "Queue changed; refresh and retry" : "队列已变化，请刷新后重试"));
+    } finally { trigger.disabled = false; }
+    return pollJobs();
+  }
   if (action === "cancel") {
     await api(`/api/jobs/${encodeURIComponent(job.id)}/cancel`, { method: "POST" });
     return pollJobs();
@@ -5951,13 +5986,21 @@ function renderJobsStructured(jobs) {
         const actions = [];
         if (state.jobPriorityAvailable && job.status === "queued"
             && (!job.priority_boost || Number(job.queue_position) > 1)) {
-          actions.push({ id: "priority", label: isEnglishUi() ? "Next" : "优先",
+          actions.push({ id: "priority", label: isEnglishUi() ? "Next" : "下一项",
             title: isEnglishUi() ? "Move after the current task" : "排到当前任务之后" });
         }
-        if (state.jobPreemptionAvailable && job.status === "queued"
-            && runningJob?.preemptible && runningJob.id !== job.id) {
-          actions.push({ id: "preempt", label: isEnglishUi() ? "Now" : "立即",
-            title: isEnglishUi() ? "Pause safely and process this item" : "安全暂停当前任务并先处理此项" });
+        if (state.jobQueueReorderAvailable && job.status === "queued") {
+          if (Number(job.queue_position) > 1) actions.push({ id: "move_up", label: isEnglishUi() ? "Up" : "上移", title: isEnglishUi() ? "Move one queue position earlier" : "在等待队列中前移一位" });
+          if (Number(job.queue_position) < allActiveJobs.filter(item => item.status === "queued").length) actions.push({ id: "move_down", label: isEnglishUi() ? "Down" : "下移", title: isEnglishUi() ? "Move one queue position later" : "在等待队列中后移一位" });
+        }
+        if (state.jobPreemptionAvailable && job.status === "queued" && runningJob) {
+          const sameMeeting = runningJob.meeting && runningJob.meeting === job.meeting;
+          const canSwitch = runningJob?.preemptible && !sameMeeting;
+          actions.push({ id: "preempt", label: isEnglishUi() ? "Switch safely" : "安全切换",
+            disabled: !canSwitch,
+            title: canSwitch
+              ? (isEnglishUi() ? "Pause safely; resume the original task afterward" : "安全暂停当前任务，完成此项后自动续跑")
+              : (isEnglishUi() ? "Wait for a safe checkpoint; Next only changes queue order" : "当前阶段尚不能安全切换；可用“下一项”调整等待顺序") });
         }
         return actions;
       },

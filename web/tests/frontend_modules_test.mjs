@@ -199,3 +199,26 @@ live = selectLiveContentType(live, "meeting");
 assert.equal(live.mode, "meeting_companion");
 
 console.log("frontend modules: source/import/job/library/player/transcript-view/export/minutes-view policies passed");
+
+// Run the real polling function with a synthetic job lifecycle; no DOM or service.
+const { readFileSync } = await import("node:fs");
+const { default: vm } = await import("node:vm");
+const appSource = readFileSync(new URL("../static/app.js", import.meta.url), "utf8");
+const polling = appSource.match(/async function pollJobs\(\) \{[\s\S]*?\n\}/)[0];
+const stateForPoll = { jobs: [], slug: "already-reading", refreshedArtifactJobs: new Set() };
+let nextJobs = [], libraryRefreshes = 0;
+const context = vm.createContext({state: stateForPoll,
+  jget: async () => ({ jobs: nextJobs }), renderJobs: () => {},
+  loadMeetings: async options => { assert.equal(options.selectInitial, false); libraryRefreshes++; },
+});
+vm.runInContext(polling, context);
+nextJobs = [{ id: "new-upload", kind: "upload", status: "running", meeting: "new-meeting" }];
+await context.pollJobs();
+assert.equal(libraryRefreshes, 1);
+nextJobs = [{ ...nextJobs[0], status: "done" }];
+await context.pollJobs();
+assert.equal(libraryRefreshes, 2);
+await context.pollJobs();
+assert.equal(libraryRefreshes, 2);
+assert.equal(stateForPoll.slug, "already-reading");
+console.log("Job polling refreshes new output and completion without navigation");
