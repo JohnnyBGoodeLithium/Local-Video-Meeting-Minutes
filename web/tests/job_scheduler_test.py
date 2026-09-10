@@ -43,6 +43,12 @@ assert executor.prioritize("translation") is True
 snapshot = executor.snapshot()
 assert [item["id"] for item in snapshot] == ["translation", "upload"]
 assert snapshot[0]["position"] == 1 and snapshot[0]["priority_boost"] is True
+assert executor.move("translation", "up") is False
+assert executor.move("running", "down") is False
+assert executor.move("translation", "down") is True
+assert [item["id"] for item in executor.snapshot()] == ["upload", "translation"]
+assert executor.move("translation", "up") is True
+assert [item["id"] for item in executor.snapshot()] == ["translation", "upload"]
 release.set()
 assert done.wait(2)
 executor.shutdown()

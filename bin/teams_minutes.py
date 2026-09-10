@@ -28,6 +28,7 @@
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -53,7 +54,7 @@ import meeting_generation
 import voice_bank as vb
 
 ROOT = Path(__file__).resolve().parent.parent
-BANK_DIR = ROOT / "speaker_bank"
+BANK_DIR = Path(os.environ.get("MEETING_WEB_BANK", str(ROOT / "speaker_bank"))).expanduser()
 
 
 def slugify(name: str) -> str:
@@ -196,7 +197,9 @@ def main() -> int:
 
     date_m = re.search(r"(\d{8})", args.mp4.name)
     title_slug = args.slug or slugify(args.transcript.stem)
-    mdir = for_teams(ROOT, title_slug, date_m.group(1) if date_m else "")
+    data_root = Path(os.environ.get(
+        "MEETING_DATA_ROOT", os.environ.get("MEETING_MINUTES_ROOT", ROOT))).expanduser().resolve()
+    mdir = for_teams(data_root, title_slug, date_m.group(1) if date_m else "")
     mdir.mkdir(parents=True, exist_ok=True)
     original_mp4, original_transcript = args.mp4.resolve(), args.transcript.resolve()
     source_mp4 = materialize_source(original_mp4, mdir / f"source_video{args.mp4.suffix.lower()}")

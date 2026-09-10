@@ -2,7 +2,7 @@
 
 公开产品站只发布 `web/static/product.html` 及其五个前端资源，不连接会议、作业、人物库或私有报告。
 
-- 线上地址：<https://johnnybgoodlithium.github.io/Local-Video-Meeting-Minutes/>
+- 线上地址：<https://johnnybgoodelithium.github.io/Local-Video-Meeting-Minutes/>
 - 本地构建：`make product-site-build`
 - 默认输出：`dist/product-site/`
 - 构建器：`scripts/build_product_pages.py`

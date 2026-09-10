@@ -67,6 +67,7 @@ package-check:
 	$(PY) web/tests/live_runtime_test.py
 	$(PY) web/tests/model_resolver_test.py
 	$(PY) web/tests/diarization_pack_test.py
+	$(PY) web/tests/bundled_diarization_test.py
 	$(PY) web/tests/live_release_boundary_test.py
 	$(PY) web/tests/slide_pages_test.py
 	$(PY) web/tests/media_shots_test.py

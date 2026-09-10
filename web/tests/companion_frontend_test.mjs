@@ -4,6 +4,7 @@ const source=fs.readFileSync(new URL("../static/companion.js",import.meta.url),"
 const state=fs.readFileSync(new URL("../static/companion-state.js",import.meta.url),"utf8");
 const router=fs.readFileSync(new URL("../static/companion-router.js",import.meta.url),"utf8");
 const html=fs.readFileSync(new URL("../static/companion.html",import.meta.url),"utf8");
+const setupHtml=fs.readFileSync(new URL("../static/companion-setup.html",import.meta.url),"utf8");
 const css=fs.readFileSync(new URL("../static/companion.css",import.meta.url),"utf8");
 const frontend=source+state+router;
 
@@ -21,6 +22,10 @@ if(/Authorization|Bearer/i.test(source))throw new Error("Companion must not carr
 if(!state.includes(".map(({id, title}) => ({id, title}))"))throw new Error("tracked jobs must persist only id and safe title");
 if(/async function pollTrackedJobs[\s\S]*?setRoute\(/.test(source.split("async function openJob")[0]))throw new Error("job polling must never control navigation");
 if(html.includes("/static/app.js"))throw new Error("Companion must not load desktop app.js");
+for(const page of [html,setupHtml]){
+  if(!page.includes("Local Video Meeting Minutes"))throw new Error("canonical project name missing");
+  if(page.includes("Meeting Context"))throw new Error("deprecated project name returned");
+}
 if(!html.includes('name="viewport"')||!css.includes("max-width:599px"))throw new Error("compact viewport contract missing");
 if(!source.includes("COPY={zh:")||!source.includes(",en:"))throw new Error("bilingual copy missing");
 if(css.includes("min-width:390px"))throw new Error("horizontal overflow floor detected");

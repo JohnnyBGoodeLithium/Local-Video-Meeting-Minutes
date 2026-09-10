@@ -43,6 +43,7 @@
 
 ## Provider、资源与隐私
 
+- 说话人区分模型 community-1 已随源码和应用发布包放在 `models/pyannote/speaker-diarization-community-1/`，运行时和 `make doctor` 自动发现。新安装默认不需要 HF 账号、token、单独下载或设置 `MEETING_PYANNOTE_MODEL`；该变量仅用于管理员覆盖。先检查包内文件与 `release/diarization-model.json`，不要把包损坏误诊为需要重新授权。PyTorch/pyannote.audio 依赖仍按硬件安装，ASR/LLM/VL 配置不在此模型范围内。
 - 业务流程依赖能力合同，不写死具体模型供应商、GPU 或操作系统；配置与回退由 provider adapter 管理。
 - 默认本地优先，不静默上云，不静默切换模型或高质量恢复路径。远端端点必须由管理员显式配置并符合政策。
 - 资源问题优先等待、卸载空闲模型或从检查点恢复；不能通过无限重试让主机 OOM。
@@ -54,7 +55,7 @@
 - 使用 `rg` 搜索；不可用时使用 `grep`/`find`。文件编辑优先 `apply_patch`，批量纯机械移动使用 `git mv`。
 - 不以减少行数为目的机械拆模块。只有责任域高频变化、输入输出清楚且能独立测试时才拆分。
 - 诊断请求默认只读；用户要求修复或构建时才写入。不得用 `git reset --hard` 或其他破坏性命令清理工作区。
-- Commit 使用 `OpenAI Codex <codex@openai.com>`。提交正文说明用户变化、根因/边界、验证和剩余限制；可独立验证的变更及时提交，不在本地长期堆积。
+- Commit 使用当前执行工作的 agent 自己的身份，邮箱用该 agent 在 GitHub 上可点击进主页的 noreply 形式（`<id>+<login>@users.noreply.github.com`）。例如 Kimi Code 用 `Kimi Code <75630276+kimi-code@users.noreply.github.com>`（主页 https://github.com/kimi-code）；Codex 用 `OpenAI Codex <codex@openai.com>`。提交正文说明用户变化、根因/边界、验证和剩余限制；可独立验证的变更及时提交，不在本地长期堆积。
 - 推送前确认目标远端和公开/私有边界；对公开远端的敏感风险必须再次核对。版本发布按 `docs/runbooks/RELEASES.md` 执行。
 - 代码修改默认从最新 `main` 建 feature branch，经 Pull Request 和 GitHub hosted `check-and-smoke` 后合并；CI 失败不得绕过。`main` 的 branch protection/ruleset 由仓库管理员维护。
 
@@ -71,6 +72,8 @@
 ## 文档唯一真源与更新矩阵
 
 唯一真源见 [docs/INDEX.md](docs/INDEX.md)。同一事实不要在 README、HANDOFF、STATUS 和计划文档中重复维护。
+
+`STATUS.md` 保存随仓库提交可稳定判断的产品版本、成熟度、验证边界和近期重点；不保存 tag、GitHub Release 或短期 release candidate 当前是否存在等外部动态状态。正式分发记录与制品以 GitHub Releases 为准。
 
 | 变化类型 | 必须更新 | 通常不更新 |
 |---|---|---|

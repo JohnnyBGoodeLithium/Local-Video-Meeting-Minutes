@@ -2,11 +2,16 @@
 
 本文回答非开发维护者和技术人员如何安装、启动、检查、升级与恢复，以及哪些数据可以清理。它是入口，不复制所有命令。完整安装看 [部署 runbook](runbooks/DEPLOYMENT.md)，处理恢复看 [处理与恢复 runbook](runbooks/PROCESSING_AND_RECOVERY.md)，开发测试看 [开发 runbook](runbooks/DEVELOPMENT.md)。
 
-## 最短运行路径
+## 已配置机器的运行路径
+
+新机器从[首次部署步骤](runbooks/DEPLOYMENT.md)开始。下列命令假定依赖、模型服务已经就绪；
+每个新终端都要先加载自己编辑的私有环境文件。项目不会自动读取 `.env`。
 
 ```bash
-make doctor
-make check
+set -a
+. ./.env
+set +a
+.venv/bin/python bin/doctor.py --profile web
 make run
 ```
 
@@ -18,7 +23,7 @@ make run
 2. 在工作台确认是否有 `queued / running / waiting_resource / paused / recovering` 作业。
 3. 使用 `make doctor` 检查媒体工具、provider、硬件和受保护目录。
 4. 模型或知识库问题先检查对应 loopback 健康端点，不读取或打印会议正文。
-5. UI 变更后确认 Web build；若浏览器仍显示旧资源，先硬刷新而不是重复改代码。
+5. UI 变更后先核对服务的 WorkingDirectory、代码提交和实际返回的静态文件，再硬刷新浏览器。GitHub PR 合并不会自动更新本机服务；版本号或 Web build 未变化也不能证明运行的是最新提交。
 
 ## Live Context（实验）
 
