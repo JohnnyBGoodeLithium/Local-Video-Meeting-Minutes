@@ -13,6 +13,7 @@ import urllib.request
 from pathlib import Path
 
 from meeting_core.hardware import accelerator_backend, configured_path
+from meeting_core.model_resolver import ModelNotInstalledError, resolve_pyannote_model
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -66,9 +67,6 @@ def main() -> int:
             "model:forced-aligner": configured_path(
                 "MEETING_ALIGNER_MODEL",
                 Path.home() / ".local/share/models/hf/Qwen/Qwen3-ForcedAligner-0.6B"),
-            "model:pyannote": configured_path(
-                "MEETING_PYANNOTE_MODEL",
-                Path.home() / ".local/share/models/hf/pyannote/speaker-diarization-community-1"),
             "model:miloco-vl": configured_path(
                 "MEETING_VL_MODEL",
                 Path.home() / "视频/joyai-test/models/MiMo-VL-Miloco-7B_Q4_0.gguf"),
@@ -78,6 +76,10 @@ def main() -> int:
         }
         for name, path in model_paths.items():
             add(name, path.exists(), name not in {"model:miloco-vl", "model:vl-mmproj"}, str(path))
+        try:
+            add("model:pyannote", True, True, str(resolve_pyannote_model(ROOT)))
+        except ModelNotInstalledError as exc:
+            add("model:pyannote", False, True, str(exc))
         if module_exists("torch"):
             try:
                 import torch

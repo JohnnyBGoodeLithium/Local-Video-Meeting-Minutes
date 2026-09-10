@@ -1,4 +1,4 @@
-# Meeting Context v0.16.0
+# Local Video Meeting Minutes v0.16.0
 
 ## English
 

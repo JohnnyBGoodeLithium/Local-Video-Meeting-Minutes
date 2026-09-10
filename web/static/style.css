@@ -610,8 +610,13 @@ body.page-index { overflow: hidden; }
 .job-card .j-st { grid-column: auto; grid-row: auto; white-space: normal; }
 .job-card .j-task { color: var(--text); font-size: var(--fs-12); font-weight: 600; line-height: 1.35; }
 .job-card .j-detail { color: var(--dim); line-height: 1.4; }
-.job-card .j-actions { grid-column: auto; grid-row: auto; justify-content: flex-start; }
-.job-card .j-actions button { min-height: 26px; padding: 2px var(--sp-8); }
+.job-card .j-actions { grid-column: auto; grid-row: auto; justify-content: flex-start; flex-wrap: wrap; }
+.job-card .j-actions button { min-height: 30px; padding: 2px var(--sp-8); white-space: nowrap; flex-shrink: 0; }
+.j-actions-more { min-width: 0; }
+.j-actions-more summary { cursor: pointer; white-space: nowrap; padding: 5px var(--sp-8); font-size: var(--fs-11); border-radius: 4px; }
+.j-actions-more summary:focus-visible { outline: 2px solid var(--accent); }
+.j-actions-more[open] { flex-basis: 100%; }
+.j-actions-menu { display: flex; flex-wrap: wrap; gap: var(--sp-4); padding: var(--sp-4) 0; }
 .job-progress-track { width: 100%; height: 3px; overflow: hidden; border-radius: 999px; background: var(--panel2); }
 .job-progress-track i { display: block; height: 100%; border-radius: inherit; background: var(--accent); transition: width .2s ease; }
 .j-name { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
@@ -1043,6 +1048,8 @@ body.resizing-panes { cursor: col-resize; user-select: none; }
 .speaker-chip i { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; }
 .speaker-chip small { color: var(--dim); }
 .speaker-chip:hover { border-color: var(--accent); }
+.speaker-chip-group { display: inline-flex; align-items: center; gap: 2px; }
+.person-lane > .chip-bind { flex: 0 0 auto; }
 .speaker-chip.active { border-color: #fff; background: rgba(255, 255, 255, .08); }
 .legend-more { border-style: dashed; color: var(--dim); }
 .legend-more:hover { color: var(--accent); }

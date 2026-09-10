@@ -1,5 +1,6 @@
 # Exact tracked-file allowlist for the Application Release Bundle.
 README.md
+AGENTS.md
 README.zh-CN.md
 RELEASE_NOTES.md
 VERSION
@@ -25,6 +26,9 @@ scripts/verify_release_bundle.py
 scripts/smoke_release_bundle.py
 scripts/build_diarization_runtime_pack.py
 scripts/verify_diarization_runtime_pack.py
+scripts/bundled_diarization.py
+release/diarization-model.json
+models/pyannote/speaker-diarization-community-1/**
 release/bundle-include.txt
 release/authorized-tag.txt
 docs/INDEX.md

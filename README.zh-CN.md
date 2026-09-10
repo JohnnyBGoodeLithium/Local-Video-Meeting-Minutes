@@ -1,8 +1,8 @@
-# Meeting Context
+# Local Video Meeting Minutes
 
 [English](README.md) | 简体中文
 
-[产品介绍站](https://johnnybgoodlithium.github.io/Local-Video-Meeting-Minutes/)
+[产品介绍站](https://johnnybgoodelithium.github.io/Local-Video-Meeting-Minutes/)
 
 <!-- maturity: controlled-single-machine-poc -->
 <!-- product-version: v0.16.0 -->
@@ -12,7 +12,7 @@
 修正错误。
 把可信上下文继续用下去。
 
-Meeting Context 是一个本地优先的会议与视频上下文编译器。逐字稿、身份、议题、事实、
+Local Video Meeting Minutes 是一个本地优先的会议与视频上下文编译器。逐字稿、身份、议题、事实、
 来源依据和画面不绑定任何单一模型，再由同一份 canonical context 投影到回顾与复用界面。
 
 ## 它能做什么
@@ -70,20 +70,24 @@ Backend 默认只监听 localhost。Provider 可以在本机运行，或使用�
 
 ## 快速开始
 
+说话人区分模型已随源码和应用发布包提供，自动加载，无需 Hugging Face 账号、token 或额外下载。
+模型许可与部署范围见[分发说明](docs/runbooks/DISTRIBUTION.md#内置说话人模型)。
+
 需要 Linux、Python 3.11+ 和 `ffmpeg` / `ffprobe`。完整模型运行还需要兼容的模型服务与硬件；
 改变可用的 CUDA 或 ROCm 环境前，先阅读[部署 runbook](docs/runbooks/DEPLOYMENT.md)。
 
 ```bash
-git clone <repository-url> meeting-minutes
+git clone https://github.com/JohnnyBGoodeLithium/Local-Video-Meeting-Minutes.git meeting-minutes
 cd meeting-minutes
 python3 -m venv .venv
 .venv/bin/pip install --upgrade pip
 .venv/bin/pip install -e .
-make doctor
-make check
+.venv/bin/python bin/doctor.py --profile web
 make run
 ```
 
+以上只启动 Web 界面。处理新录音请继续按[首次部署步骤](docs/runbooks/DEPLOYMENT.md)安装适配硬件的
+管线依赖、配置 ASR 和一个文本模型、加载环境文件，再用短录音验收。OEM 预装 PyTorch 的机器应先按该文档创建继承平台环境的 venv。
 浏览器打开 `http://127.0.0.1:8899/`。`make smoke` 使用临时数据根和虚构夹具，不得读取真实会议。
 
 ## 文档导航
@@ -91,7 +95,7 @@ make run
 | 需要 | 权威来源 |
 |---|---|
 | 全部文档 | [文档导航](docs/INDEX.md) |
-| 产品叙事 | [产品介绍站](https://johnnybgoodlithium.github.io/Local-Video-Meeting-Minutes/) |
+| 产品叙事 | [产品介绍站](https://johnnybgoodelithium.github.io/Local-Video-Meeting-Minutes/) |
 | 最新发布候选 | [v0.16.0 发布说明](docs/releases/v0.16.0.md) |
 | 能力清单 | [产品功能表](docs/PRODUCT_FUNCTIONS.md) |
 | 当前验证状态 | [状态](docs/STATUS.md) |

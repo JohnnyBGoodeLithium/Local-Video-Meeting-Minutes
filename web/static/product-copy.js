@@ -212,7 +212,7 @@ export const EN_COPY = Object.freeze({
 });
 
 export const EN_META = Object.freeze({
-  title: "Meeting Context | Start with what matters in meetings and video",
+  title: "Local Video Meeting Minutes | Start with what matters in meetings and video",
   description: "Review meetings and product videos by person or topic, return important conclusions to their original words and screen, and carry verified context into people, AI tools, or knowledge bases.",
 });
 

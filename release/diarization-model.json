@@ -1,0 +1,92 @@
+{
+  "schema": "bundled-diarization-model/v1",
+  "upstream_id": "pyannote/speaker-diarization-community-1",
+  "revision": "3533c8cf8e369892e6b79ff1bf80f7b0286a54ee",
+  "license": "CC-BY-4.0",
+  "attribution": "pyannote contributors; Plaquet and Bredin; WeSpeaker authors; BUT Speech@FIT group. See bundled THIRD_PARTY_NOTICES.md and upstream model cards.",
+  "redistribution": {
+    "allowed": true,
+    "verified_by": "Upstream model card and CC BY 4.0 terms review",
+    "verified_at": "2026-09-09",
+    "terms": "CC BY 4.0: retain attribution and license link, indicate changes; weights and configuration values unmodified; formatting changes documented."
+  },
+  "submodels": [
+    {
+      "upstream_id": "pyannote/speaker-diarization-community-1/segmentation",
+      "revision": "3533c8cf8e369892e6b79ff1bf80f7b0286a54ee",
+      "license": "CC-BY-4.0",
+      "attribution": "Alexis Plaquet and Hervé Bredin",
+      "redistribution": {
+        "allowed": true,
+        "terms": "CC BY 4.0: retain attribution and license link, indicate changes; weights and configuration values unmodified; formatting changes documented."
+      }
+    },
+    {
+      "upstream_id": "pyannote/speaker-diarization-community-1/embedding",
+      "revision": "3533c8cf8e369892e6b79ff1bf80f7b0286a54ee",
+      "license": "CC-BY-4.0",
+      "attribution": "WeSpeaker authors; see embedding/README.md",
+      "redistribution": {
+        "allowed": true,
+        "terms": "CC BY 4.0: retain attribution and license link, indicate changes; weights and configuration values unmodified; formatting changes documented."
+      }
+    },
+    {
+      "upstream_id": "pyannote/speaker-diarization-community-1/plda",
+      "revision": "3533c8cf8e369892e6b79ff1bf80f7b0286a54ee",
+      "license": "CC-BY-4.0",
+      "attribution": "BUT Speech@FIT; Jiangyu Han and Petr Pálka",
+      "redistribution": {
+        "allowed": true,
+        "terms": "CC BY 4.0: retain attribution and license link, indicate changes; weights and configuration values unmodified; formatting changes documented."
+      }
+    }
+  ],
+  "files": [
+    {
+      "path": "models/pyannote/speaker-diarization-community-1/README.md",
+      "size": 9970,
+      "sha256": "b1131bf6c2194df097a6db0e8c6c304a1088fe6040b75a703f881931af5abb52"
+    },
+    {
+      "path": "models/pyannote/speaker-diarization-community-1/THIRD_PARTY_NOTICES.md",
+      "size": 1831,
+      "sha256": "aa5d52bbf0e5771bcf04a7c3e8966f682a376bee156e1052518bc77bc7889edf"
+    },
+    {
+      "path": "models/pyannote/speaker-diarization-community-1/config.yaml",
+      "size": 439,
+      "sha256": "42ef792d58956374c1f61688b30fcf63462d11f32dbecbe5015cd54c06644f1e"
+    },
+    {
+      "path": "models/pyannote/speaker-diarization-community-1/embedding/README.md",
+      "size": 938,
+      "sha256": "fa9e5105ae95edb231d841476cdb91eef4be0621c372ed4f7d3421294b5f8ad7"
+    },
+    {
+      "path": "models/pyannote/speaker-diarization-community-1/embedding/pytorch_model.bin",
+      "size": 26646242,
+      "sha256": "6f10ff60898a1d185fa22e1d11e0bfa8a92efec811f11bca48cb8cafebefd929"
+    },
+    {
+      "path": "models/pyannote/speaker-diarization-community-1/plda/README.md",
+      "size": 220,
+      "sha256": "e1316dbbeb3261431478d48ceebbd4bba395c3587e7b80c254dbab00f1209d0a"
+    },
+    {
+      "path": "models/pyannote/speaker-diarization-community-1/plda/plda.npz",
+      "size": 133852,
+      "sha256": "9b77bcd840692710dd3496f62ecfeed8d8e5f002fd991b785079b244eab7d255"
+    },
+    {
+      "path": "models/pyannote/speaker-diarization-community-1/plda/xvec_transform.npz",
+      "size": 134376,
+      "sha256": "325f1ce8e48f7e55e9c8aa47e05d2766b7c48c4b25b8de8dd751e7a4cc5fbe8f"
+    },
+    {
+      "path": "models/pyannote/speaker-diarization-community-1/segmentation/pytorch_model.bin",
+      "size": 5906507,
+      "sha256": "7ad24338d844fb95985486eb1a464e32d229f6d7a03c9abe60f978bacf3f816e"
+    }
+  ]
+}

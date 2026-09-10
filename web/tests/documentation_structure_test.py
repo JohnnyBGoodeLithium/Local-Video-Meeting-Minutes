@@ -136,6 +136,18 @@ assert not broken, "broken Markdown links:\n" + "\n".join(broken)
 
 readme = (ROOT / "README.md").read_text(encoding="utf-8")
 readme_zh = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
+project_name = "Local Video Meeting Minutes"
+version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+release_notes = (ROOT / "RELEASE_NOTES.md").read_text(encoding="utf-8")
+versioned_release_notes = (ROOT / "docs/releases" / f"v{version}.md").read_text(encoding="utf-8")
+for public_document in (readme, readme_zh, release_notes, versioned_release_notes):
+    assert public_document.startswith(f"# {project_name}"), "canonical project name drift"
+    assert "# Meeting Context" not in public_document
+pages_url = "https://johnnybgoodelithium.github.io/Local-Video-Meeting-Minutes/"
+product_site_runbook = (ROOT / "docs/runbooks/PRODUCT_SITE.md").read_text(encoding="utf-8")
+for public_document in (readme, readme_zh, product_site_runbook):
+    assert pages_url in public_document, "canonical GitHub Pages URL drift"
+    assert "johnnybgoodlithium.github.io" not in public_document
 assert "[简体中文](README.zh-CN.md)" in readme
 assert "[English](README.md)" in readme_zh
 
@@ -160,9 +172,9 @@ assert "本仓库当前未附带开源许可证。" in readme_zh
 assert "转载、再分发或商业使用前，应先确认代码归属与公司政策。" in readme_zh
 
 quick_start_commands = [
-    "git clone <repository-url> meeting-minutes", "cd meeting-minutes",
+    "git clone https://github.com/JohnnyBGoodeLithium/Local-Video-Meeting-Minutes.git meeting-minutes", "cd meeting-minutes",
     "python3 -m venv .venv", ".venv/bin/pip install --upgrade pip",
-    ".venv/bin/pip install -e .", "make doctor", "make check", "make run",
+    ".venv/bin/pip install -e .", ".venv/bin/python bin/doctor.py --profile web", "make run",
 ]
 for command in quick_start_commands:
     assert command in readme and command in readme_zh, f"README quick start drift: {command}"
@@ -183,6 +195,15 @@ for marker in (
     "## 已实现，仍在验证", "## 实验中", "## 当前边界",
 ):
     assert marker in status, f"STATUS missing marker: {marker}"
+
+for transient_release_marker in (
+    "release candidate", "最近发布版本：", "发布状态：",
+    "正式 tag 尚未创建", "GitHub Release 尚未",
+):
+    assert transient_release_marker.lower() not in status.lower(), (
+        "STATUS must not persist transient external release state: "
+        f"{transient_release_marker}"
+    )
 
 if IN_REPOSITORY:
     reporting = [
