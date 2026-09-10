@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import re
+import threading
 from typing import Any, Iterable
 
 from .models import TimedTextSignal
@@ -28,6 +29,9 @@ class LiveSessionStore:
     def __init__(self, meeting_dir: Path):
         self.meeting_dir = Path(meeting_dir).resolve()
         self.root = self.meeting_dir / ".live"
+        self._signal_ids: set[str] = set()
+        self._signal_size = -1
+        self._signal_lock = threading.Lock()
 
     def initialize(self, session: dict[str, Any], source: dict[str, Any]) -> None:
         self.meeting_dir.mkdir(parents=True, exist_ok=True)
@@ -61,6 +65,16 @@ class LiveSessionStore:
     def append(self, name: str, value: dict[str, Any]) -> None:
         path = self._path(name)
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if path.exists() and path.stat().st_size:
+            with path.open("r+b") as handle:
+                handle.seek(-1, os.SEEK_END)
+                if handle.read(1) != b"\n":
+                    # Recovery must remove a torn tail before adding a complete record.
+                    handle.seek(0)
+                    valid_end = handle.read().rfind(b"\n") + 1
+                    handle.truncate(valid_end)
+                    handle.flush()
+                    os.fsync(handle.fileno())
         payload = (json.dumps(value, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
         fd = os.open(path, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o600)
         try:
@@ -88,11 +102,18 @@ class LiveSessionStore:
         return values
 
     def append_signal(self, signal: TimedTextSignal) -> bool:
-        existing = {item.get("id") for item in self.read_jsonl("text-signals.jsonl")}
-        if signal.id in existing:
-            return False
-        self.append("text-signals.jsonl", signal.to_dict())
-        return True
+        with self._signal_lock:
+            path = self._path("text-signals.jsonl")
+            size = path.stat().st_size if path.exists() else 0
+            if size != self._signal_size:
+                self._signal_ids = {item.get("id") for item in self.read_jsonl("text-signals.jsonl")}
+            if signal.id in self._signal_ids:
+                self._signal_size = size
+                return False
+            self.append("text-signals.jsonl", signal.to_dict())
+            self._signal_ids.add(signal.id)
+            self._signal_size = path.stat().st_size
+            return True
 
     def signals(self) -> list[TimedTextSignal]:
         return [TimedTextSignal.from_dict(item)
