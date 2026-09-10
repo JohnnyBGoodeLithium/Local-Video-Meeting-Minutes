@@ -248,7 +248,7 @@ def list_jobs():
         jobs.append(job)
     return {
         "jobs": sorted(jobs, key=lambda j: j["created"], reverse=True),
-        "capabilities": {"job_priority": True, "running_preemption": True,
+        "capabilities": {"job_priority": True, "job_queue_reorder": True, "running_preemption": True,
                          "checkpointed_preemption": True,
                          "job_recovery": True, "job_hide": True,
                          "job_progress_v2": True, "attempt_history": True},
@@ -363,6 +363,21 @@ def prioritize_job(jid: str):
     return {"ok": True, "id": jid,
             "queue_position": next((item["position"] for item in queue
                                     if item["id"] == jid), None)}
+
+
+@router.post("/api/jobs/{jid}/move")
+def move_job(jid: str, direction: str = Query(..., pattern="^(up|down)$")):
+    job = JOBS.get(jid)
+    if not job:
+        raise HTTPException(404, "没有这条作业")
+    if job.get("status") != "queued" or not EXEC.move(jid, direction):
+        raise HTTPException(409, "队列已经变化或已到边界，请刷新后重试")
+    queue = EXEC.snapshot()
+    with BANK_LOCK:
+        for item in queue:
+            if item["id"] in JOBS:
+                _save_job(JOBS[item["id"]])
+    return {"ok": True, "id": jid, "queue": queue}
 
 
 def _terminate_process_group(jid: str) -> None:

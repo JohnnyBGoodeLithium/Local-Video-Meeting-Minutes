@@ -83,6 +83,27 @@ class SerialPriorityExecutor:
                 self._condition.notify()
             return removed
 
+    def move(self, jid: str, direction: str) -> bool:
+        """Swap adjacent pending slots atomically; never touch the active task."""
+        if direction not in {"up", "down"}:
+            raise ValueError("invalid_queue_direction")
+        with self._condition:
+            ordered = sorted(self._pending.values(),
+                             key=lambda item: (item["priority"], item["sequence"]))
+            index = next((i for i, item in enumerate(ordered)
+                          if item["job"]["id"] == str(jid)), -1)
+            other = index + (-1 if direction == "up" else 1)
+            if index < 0 or not 0 <= other < len(ordered):
+                return False
+            left, right = ordered[index], ordered[other]
+            for key in ("priority", "sequence"):
+                left[key], right[key] = right[key], left[key]
+            for item in (left, right):
+                item["job"]["queue_priority"] = item["priority"]
+                item["job"]["priority_boost"] = item["priority"] == USER_PRIORITY
+            self._condition.notify()
+            return True
+
     def snapshot(self) -> list[dict]:
         with self._condition:
             ordered = sorted(
