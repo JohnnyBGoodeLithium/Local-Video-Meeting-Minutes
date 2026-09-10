@@ -31,7 +31,7 @@ const COPY = {
     takeawaysTitle: "实时要点（暂定）",
     takeawaysBoundary: "这里只显示有当前文字依据的临时判断；停止后才生成完整整理。",
     takeawaysWaitingTitle: "先积累一些上下文",
-    takeawaysWaitingDetail: "为避免与实时语音识别争抢本机资源，本版在停止后统一提炼要点。",
+    takeawaysWaitingDetail: "积累文字与定期截图后更新；模型不可用时保留素材并显示待确认。",
     sourceLink: "打开原直播", back: "返回资料库", stopAndFinalize: "停止并整理",
     workspaceStopQuestion: "停止采集并整理目前的内容？",
     workspaceStopDetail: "已经捕获的文字和媒体会保留，并进入现有整理流程。",
@@ -69,7 +69,7 @@ const COPY = {
     takeawaysTitle: "Live takeaways (provisional)",
     takeawaysBoundary: "Only provisional points with current transcript support appear here; full synthesis happens after capture stops.",
     takeawaysWaitingTitle: "Building enough context",
-    takeawaysWaitingDetail: "This release synthesizes takeaways after capture stops to avoid competing with live ASR for local resources.",
+    takeawaysWaitingDetail: "Updates use recent text and periodic screenshots. Evidence remains available if the model is unavailable.",
     sourceLink: "Open live source", back: "Back to library", stopAndFinalize: "Stop & finalize",
     workspaceStopQuestion: "Stop capture and finalize what is available?",
     workspaceStopDetail: "Captured text and media will be preserved and passed to the existing finalization workflow.",
@@ -218,6 +218,64 @@ export function mountLiveContext(root = document, { request = fetch, pollEvery =
       <article class="live-takeaway"><p>${escapeHtml(item.text)}</p>
         <time datetime="PT${Math.round(item.start)}S">${escapeHtml(formatDuration(item.start))}</time>
       </article>`).join("");
+
+    const assets = `/api/live/sessions/${encodeURIComponent(session.id)}/assets`;
+    const recording = projected?.recording || {};
+    const replay = root.querySelector("#live-replay");
+    const ready = Boolean(recording.replay);
+    const replayUrl = `${assets}/replay/full`;
+    replay.classList.toggle("hidden", !ready);
+    if (ready && replay.getAttribute("src") !== replayUrl) replay.src = replayUrl;
+    const download = root.querySelector("#live-replay-download");
+    download.classList.toggle("hidden", !ready);
+    download.href = ready ? replayUrl : "#";
+    download.download = "live-replay.mp4";
+    const zh = language !== "en";
+    const recordingLabel = ({recording: zh ? "录制中" : "Recording",
+      ready: zh ? "回放已就绪" : "Replay ready", ready_with_gaps: zh ? "回放有缺口" : "Replay has gaps",
+      segments_only: zh ? "片段已保留，整场回放待恢复" : "Segments retained; replay needs recovery",
+      empty: zh ? "尚未录到媒体" : "No media captured"})[recording.state] || (zh ? "准备录制" : "Preparing");
+    const topicLabel = ({ready: zh ? "话题已更新，待核对" : "Topic updated; provisional",
+      unavailable: zh ? "话题模型暂不可用，素材已保留" : "Topic model unavailable; evidence retained",
+      insufficient_evidence: zh ? "话题证据不足" : "Insufficient topic evidence"})[projected?.takeaways.state]
+      || (zh ? "正在积累话题依据" : "Collecting topic evidence");
+    root.querySelector("#live-recording-status").textContent =
+      `${recordingLabel} · ${formatDuration(recording.duration || 0)} · `
+      + `${(recording.gaps || []).length} ${zh ? "处缺口" : "gaps"} · ${topicLabel}`;
+    root.querySelector("#live-bookmark").textContent = zh ? "标记此刻" : "Bookmark";
+    download.textContent = zh ? "下载整场回放" : "Download full replay";
+    root.querySelector("#live-frames").innerHTML = (projected?.frames || []).map(f =>
+      `<button type="button" data-live-at="${f.at}" title="${escapeHtml(formatDuration(f.at))}">`
+      + `<img loading="lazy" style="width:100%" src="${assets}/frame/${encodeURIComponent(f.id)}" alt="${escapeHtml(formatDuration(f.at))}">`
+      + `<span>${escapeHtml(formatDuration(f.at))}</span></button>`).join("");
+    root.querySelectorAll("[data-live-at]").forEach(button => {
+      button.onclick = () => {
+        if (ready) { replay.currentTime = Number(button.dataset.liveAt); replay.focus(); }
+        else window.open(button.querySelector("img").src, "_blank", "noopener");
+      };
+    });
+    root.querySelectorAll("#live-takeaways-list .live-takeaway").forEach((card, i) => {
+      for (const frameId of takeaways[i].frames) {
+        const link = document.createElement("a");
+        link.href = `${assets}/frame/${encodeURIComponent(frameId)}`;
+        link.target = "_blank";
+        link.rel = "noopener";
+        link.textContent = zh ? "查看截图依据 " : "View screenshot evidence ";
+        card.appendChild(link);
+      }
+      const button = document.createElement("button");
+      button.textContent = zh ? "定位回放依据" : "Locate replay evidence";
+      button.disabled = !ready;
+      button.onclick = () => { replay.currentTime = takeaways[i].start; replay.focus(); };
+      card.appendChild(button);
+    });
+    root.querySelector("#live-segments").innerHTML = (recording.segments || []).map(s =>
+      `<a download href="${assets}/segment/${Number(s.index)}">${escapeHtml(formatDuration(s.start))}–${escapeHtml(formatDuration(s.end))}</a>`).join(" · ");
+    root.querySelector("#live-bookmark").disabled = ["ENDING", "FINALIZING", "COMPLETE", "FAILED"].includes(session.state);
+    root.querySelector("#live-bookmark").onclick = async () => {
+      try { await jsonRequest(sessionPath("/bookmark"), { method: "POST" }); }
+      catch (error) { state = { ...state, notice: error.message }; render(); }
+    };
 
     const sourceLink = root.querySelector("#live-workspace-source");
     const displayUrl = projected?.source.displayUrl || state.source;

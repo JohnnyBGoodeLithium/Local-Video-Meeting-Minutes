@@ -57,6 +57,12 @@ Viewer 的 local alias 只属于单个 MeetingPack 的展示层；Companion 的 
 
 Live 中间层位于单场目录的 `.live/`：尽量 append-only 保存 timed text、speaker/frame event 和脱敏 metrics，checkpoint 原子替换。主页关闭不改变 worker；重启时从 checkpoint 恢复媒体序号。该目录不进入 Git、应用发布包、MeetingPack 或 KB，也不作为事实真源。
 
+Live 音视频母版分段保存在 `live-recording/<epoch>/*.ts`，与模型线程解耦；manifest 记录片段时间、缺口和回放状态。
+这些文件是来源媒体，不能当作 `.live/` 分析缓存删除。重连使用新 epoch，恢复已关闭片段，不覆盖旧录制。
+结束后先生成 `source_video.mp4`，再等待分析收尾；分析失败仍提供回放或原片段下载。
+媒体时间按已接收片段累计，断网缺口单独记录，不伪装成连续完整的原直播墙钟时间。
+`.live/topics.json` 是转写和截图 OCR 的暂定话题，不是 canonical 结论；图片/回放 API 仅允许 manifest 中的本地资源。
+
 `CONNECTING → LIVE → STALLED/RECOVERING → ENDING → FINALIZING → COMPLETE`
 是结构化状态合同。HLS `ENDLIST` 是强结束信号；无进展只先进入宽限期，恢复后回到 `LIVE`。输入冻结后，finalizer 按来源优先级融合信号，物化已选画面，调用现有 `minutes_by_page.py`/`summarize.py`；不重跑 ASR、说话人或已有 logical frame。
 

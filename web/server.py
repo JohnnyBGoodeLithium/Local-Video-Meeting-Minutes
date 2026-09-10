@@ -41,6 +41,12 @@ from routers import all_routers  # noqa: E402
 
 app = FastAPI(title="meeting-minutes web", docs_url=None, redoc_url=None)
 
+
+@app.on_event("shutdown")
+def stop_live_recorders():
+    from routers.live import MANAGER
+    MANAGER.shutdown()
+
 for _router in all_routers:
     app.include_router(_router)
 

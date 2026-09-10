@@ -30,6 +30,10 @@ with tempfile.TemporaryDirectory(prefix="mm-live-checkpoint-") as tmp:
     with (store.root / "text-signals.jsonl").open("ab") as handle:
         handle.write(b'{"id":"torn"')
     assert [item.id for item in store.signals()] == ["L1"]
+    from dataclasses import replace
+    assert store.append_signal(replace(signal, id="L2", start=2, end=3))
+    assert [item.id for item in store.signals()] == ["L1", "L2"]
+    assert not LiveSessionStore(meeting).append_signal(signal)
 
     store.save_checkpoint({"state": "LIVE", "media_time": 2.0, "text_signals": 1})
     checkpoint = store.checkpoint()
