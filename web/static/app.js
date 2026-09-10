@@ -2139,6 +2139,29 @@ function showSpeakerTip(ev, run) {
 const LEGEND_TOP_N = 6;   // 直接显示:占比 ≥5% 或前 6 名(并集)
 const PERSON_LANES_TOP_N = 6;  // 逐人车道默认展开前 6 人
 
+function speakerIdentityButton(speaker) {
+  const turns = state.bundle?.transcript || [];
+  const voices = [...new Set(turns.filter(t => t.speaker === speaker && t.voice).map(t => t.voice))];
+  if (!voices.length) return null;
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "chip-bind";
+  button.textContent = ui("bindAction");
+  button.setAttribute("aria-label", `${ui("bindAction")} ${speaker}`);
+  button.addEventListener("click", event => {
+    event.stopPropagation();
+    if (voices.length > 1) {
+      toast(isEnglishUi() ? "Multiple voice groups: choose a transcript segment to confirm its identity."
+        : "此人包含多个声音组，请点击逐字稿中的具体发言确认身份。");
+      return;
+    }
+    openSpeakerIdentity(voices[0], speaker, {
+      anchor: button, index: turns.findIndex(t => t.speaker === speaker && t.voice === voices[0]),
+    });
+  });
+  return button;
+}
+
 function legendChip(speaker, pct) {
   const chip = document.createElement("button");
   chip.type = "button";
@@ -2151,7 +2174,12 @@ function legendChip(speaker, pct) {
   chip.addEventListener("click", () => {
     selectPlaybackSpeaker(speaker, true);
   });
-  return chip;
+  const group = document.createElement("span");
+  group.className = "speaker-chip-group";
+  group.appendChild(chip);
+  const bind = speakerIdentityButton(speaker);
+  if (bind) group.appendChild(bind);
+  return group;
 }
 
 function renderSpeakerLegend() {
@@ -2198,18 +2226,8 @@ function renderSpeakerLegend() {
       chip.addEventListener("mouseleave", () => { state.speakerHover = null; applySpeakerFocus(); });
       chip.addEventListener("click", () => selectPlaybackSpeaker(name, true));
     }
-    const turn = transcript.find(item => item.speaker === name && item.voice);
-    if (turn) {
-      const bind = document.createElement("button");
-      bind.type = "button";
-      bind.className = "chip-bind";
-      bind.textContent = ui("bindAction");
-      bind.addEventListener("click", event => {
-        event.stopPropagation();
-        openBind(turn.voice, name);
-      });
-      chip.appendChild(bind);
-    }
+    const bind = speakerIdentityButton(name);
+    if (bind) chip.appendChild(bind);
     box.appendChild(chip);
   }
   box.classList.remove("hidden");
@@ -2268,6 +2286,8 @@ function renderPersonLanes() {
     if (selectable)
       label.addEventListener("click", () => selectPlaybackSpeaker(speaker, true));
     row.appendChild(label);
+    const bind = speakerIdentityButton(speaker);
+    if (bind) row.appendChild(bind);
     const track = document.createElement("div");
     track.className = "person-lane-track";
     for (const run of runs) {
