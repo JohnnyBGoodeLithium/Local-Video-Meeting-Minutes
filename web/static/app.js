@@ -668,11 +668,11 @@ function restoreReadingPosition() {
 
 /* ---------- 会议列表 ---------- */
 
-async function loadMeetings() {
+async function loadMeetings({ selectInitial = true } = {}) {
   const d = await jget("/api/meetings");
   state.meetings = d.meetings;
   renderMeetingList();
-  if (!state.slug && state.meetings.length) {
+  if (selectInitial && !state.slug && state.meetings.length) {
     const params = new URLSearchParams(location.search);
     const linked = params.get("meeting");
     // 外链深链（如知识库文档的时间码链接）：?meeting=<slug>&t=<秒>，支持小数秒；
@@ -5779,12 +5779,17 @@ function pollJob(id, onUpdate) {
 async function pollJobs() {
   try {
     const d = await jget("/api/jobs");
+    const activeUpload = job => job.kind === "upload"
+      && ["queued", "running", "recovering", "waiting_resource"].includes(job.status);
+    const refreshLibrary = d.jobs.some(activeUpload) || state.jobs.some(activeUpload);
     state.jobs = d.jobs;
     state.jobPriorityAvailable = d.capabilities?.job_priority === true;
     state.jobPreemptionAvailable = d.capabilities?.checkpointed_preemption === true;
     state.jobRecoveryAvailable = d.capabilities?.job_recovery === true;
     state.jobHideAvailable = d.capabilities?.job_hide === true;
     renderJobs(d.jobs);
+    // Refresh new/partial outputs and the final transition without changing the reader's selection.
+    if (refreshLibrary) await loadMeetings({ selectInitial: false });
     const completed = d.jobs.filter(job => job.meeting === state.slug
       && ((["upload", "topic_map", "regen", "retranscribe", "photo_analysis"].includes(job.kind)
         && job.status === "done")

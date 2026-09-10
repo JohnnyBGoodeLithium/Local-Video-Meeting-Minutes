@@ -107,3 +107,31 @@ with tempfile.TemporaryDirectory(prefix="mm_teams_transcript_") as tmp:
     assert parse_transcript(vtt)[0]["end"] == 4.0
 
 print("teams transcript tests: OK")
+
+# The CLI must materialize inside the configured private root, before model work.
+import os
+from unittest.mock import patch
+import teams_minutes
+class CapturedDestination(Exception):
+    pass
+with tempfile.TemporaryDirectory() as temp:
+    base = Path(temp)
+    video, transcript = base / "20260910_demo.mp4", base / "demo.vtt"
+    video.touch(); transcript.write_text("WEBVTT\n")
+    for env in ({"MEETING_DATA_ROOT": str(base / "data"), "MEETING_MINUTES_ROOT": str(base / "legacy")},
+                {"MEETING_MINUTES_ROOT": str(base / "legacy")}):
+        expected = Path(env.get("MEETING_DATA_ROOT", env["MEETING_MINUTES_ROOT"]))
+        def capture(source, destination):
+            assert destination.parent.parent == expected / "meetings", destination
+            raise CapturedDestination
+        with patch.dict(os.environ, env, clear=True), patch.object(teams_minutes, "ROOT", base / "code"), \
+             patch.object(sys, "argv", ["teams_minutes", str(video), str(transcript)]), \
+             patch.object(teams_minutes, "materialize_source", side_effect=capture):
+            try:
+                teams_minutes.main()
+            except CapturedDestination:
+                pass
+            else:
+                raise AssertionError("CLI did not materialize source")
+        assert not (base / "code/meetings").exists()
+print("Teams output root: explicit and legacy environment routing passed")
