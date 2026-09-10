@@ -45,13 +45,20 @@ export function renderCompactJob(model, handlers = {}) {
   }
   const actions = document.createElement("div");
   actions.className = "j-actions";
+  const more = document.createElement("details");
+  more.className = "j-actions-more";
+  const summary = document.createElement("summary");
+  summary.textContent = handlers.language === "en" ? "More" : "更多";
+  const menu = document.createElement("div");
+  menu.className = "j-actions-menu";
+  more.append(summary, menu);
   (handlers.extraActions?.(model) || []).forEach(extra => {
     const extraButton = button(extra.label, extra.id);
     extraButton.title = extra.title || "";
     extraButton.disabled = !!extra.disabled;
     extraButton.addEventListener("click", event => handlers.onAction?.(
       extra.id, model, event.currentTarget));
-    actions.appendChild(extraButton);
+    (extra.id === "priority" ? actions : menu).appendChild(extraButton);
   });
   const primary = button(model.primary.label, model.primary.id, model.primary.id !== "details");
   primary.addEventListener("click", event => handlers.onAction?.(model.primary.id, model, event.currentTarget));
@@ -59,12 +66,13 @@ export function renderCompactJob(model, handlers = {}) {
   if (["queued", "running", "waiting_resource", "recovering"].includes(model.state)) {
     const cancel = button(handlers.language === "en" ? "Cancel" : "取消", "cancel");
     cancel.addEventListener("click", event => handlers.onAction?.("cancel", model, event.currentTarget));
-    actions.appendChild(cancel);
+    menu.appendChild(cancel);
   } else if (handlers.allowHide) {
     const hide = button(handlers.language === "en" ? "Hide" : "隐藏", "hide");
     hide.addEventListener("click", event => handlers.onAction?.("hide", model, event.currentTarget));
-    actions.appendChild(hide);
+    menu.appendChild(hide);
   }
+  if (menu.childElementCount) actions.appendChild(more);
   item.appendChild(actions);
   if (model.legacy) {
     item.title = handlers.language === "en"

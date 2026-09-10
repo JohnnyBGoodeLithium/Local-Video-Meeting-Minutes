@@ -127,6 +127,23 @@ void (async () => {
     throw new Error('Queue move/disabled safe switch interaction failed');
   const queueTaskClear = queueFixture.textContent.includes('自动补充 · 将会议脉络翻译为英文')
     && queueFixture.textContent.includes('队列第 2');
+  queueFixture.id = 'jobs-list';
+  document.body.appendChild(queueFixture);
+  for (const width of [210, 280, 340]) {
+    queueFixture.style.width = `${width}px`;
+    const disclosure = queueFixture.querySelector('details');
+    for (const expanded of [false, true]) {
+      disclosure.open = expanded;
+      const row = queueFixture.querySelector('.j-actions');
+      if (row.scrollWidth > row.clientWidth + 1)
+        throw new Error(`Queue actions overflow at ${width}px`);
+      for (const control of row.querySelectorAll('button')) {
+        if (getComputedStyle(control).whiteSpace !== 'nowrap')
+          throw new Error('Queue button text can break into vertical characters');
+      }
+    }
+  }
+  queueFixture.remove();
   const phases = [
     {id:'prepare',state:'done',elapsed_seconds:18},
     {id:'teams_alignment',state:'done',elapsed_seconds:130},
