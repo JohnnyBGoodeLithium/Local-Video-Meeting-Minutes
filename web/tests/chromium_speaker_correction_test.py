@@ -221,6 +221,17 @@ void (async () => {
   const oneImportIcon = document.querySelectorAll('#pick-btn svg').length === 1
     && !/^[+＋]/.test(document.querySelector('#pick-btn span')?.textContent.trim() || '');
 
+  // Both timeline entry points must open the same identity card as transcript chips.
+  const legendBind = await waitFor(() => document.querySelector('#speaker-legend .chip-bind'), 'legend bind');
+  legendBind.click();
+  await waitFor(() => document.querySelector('#speaker-identity-popover:not(.hidden) [data-person-input]'), 'legend identity');
+  document.querySelector('#speaker-identity-popover [data-close]').click();
+  if (!document.querySelector('#person-lanes .chip-bind')) document.querySelector('#person-lanes-toggle').click();
+  const laneBind = await waitFor(() => document.querySelector('#person-lanes .chip-bind'), 'lane bind');
+  laneBind.click();
+  await waitFor(() => document.querySelector('#speaker-identity-popover:not(.hidden) [data-person-input]'), 'lane identity');
+  document.querySelector('#speaker-identity-popover [data-close]').click();
+
   // Lightweight identity confirmation followed by the nearby undo action.
   document.querySelector('#turn-1 .chip').click();
   const identity = await waitFor(() => document.querySelector(

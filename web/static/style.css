@@ -1043,6 +1043,8 @@ body.resizing-panes { cursor: col-resize; user-select: none; }
 .speaker-chip i { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; }
 .speaker-chip small { color: var(--dim); }
 .speaker-chip:hover { border-color: var(--accent); }
+.speaker-chip-group { display: inline-flex; align-items: center; gap: 2px; }
+.person-lane > .chip-bind { flex: 0 0 auto; }
 .speaker-chip.active { border-color: #fff; background: rgba(255, 255, 255, .08); }
 .legend-more { border-style: dashed; color: var(--dim); }
 .legend-more:hover { color: var(--accent); }
