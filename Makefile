@@ -23,6 +23,7 @@ package-check:
 	$(PY) web/tests/minutes_policy_test.py
 	$(PY) web/tests/minutes_restructure_test.py
 	$(PY) web/tests/assistant_transport_test.py
+	$(PY) web/tests/assistant_term_edit_test.py
 	$(PY) web/tests/minutes_overview_test.py
 	$(PY) web/tests/minutes_overview_direct_test.py
 	$(PY) web/tests/minutes_degenerate_test.py
