@@ -35,7 +35,7 @@ jobs:
           cache-dependency-path: requirements/ci.lock
 
       - name: Set up Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: "22"
           package-manager-cache: false
@@ -152,7 +152,7 @@ jobs:
 
       - name: Set up Node for full candidate verification
         if: steps.release-scope.outputs.full == 'true'
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: "22"
           package-manager-cache: false
