@@ -86,7 +86,7 @@ with tempfile.TemporaryDirectory(prefix="mm-live-runtime-") as tmp:
     assert workspace["transcript"]["turns"][0]["text"] == "Synthetic live text."
     assert workspace["source"]["display_url"] == "https://example.invalid/master.m3u8"
     assert "media_playlist_url" not in json.dumps(workspace)
-    assert workspace["takeaways"]["state"] == "deferred_until_finalize"
+    assert workspace["takeaways"]["state"] == "collecting"
     assert (meeting / "transcript.spk.json").is_file()
     assert all("--autoplay" not in part for part in worker.capture_process.command)
     stored_source = json.loads((meeting / ".live" / "source.json").read_text())
@@ -122,5 +122,20 @@ with tempfile.TemporaryDirectory(prefix="mm-live-page-recovery-") as tmp:
         live_runtime.probe_live_source = original_probe
     assert recovered == [meeting.name]
     assert started and started[0].media_playlist_url.endswith("fresh.m3u8?token=new")
+
+with tempfile.TemporaryDirectory(prefix="mm-live-shutdown-") as tmp:
+    worker = HLSBackgroundWorker(source, Path(tmp) / "live", content_type="media",
+        mode="analyze_background", popen=FakeProcess, dry_run=True)
+    def suspend_fetch(_url):
+        worker.suspend()
+        return media, None
+    worker.fetch = suspend_fetch
+    worker.start()
+    worker.thread.join(5)
+    assert not worker.thread.is_alive()
+    assert worker.capture_process.poll() is not None
+    assert worker.status()["state"] == "RECOVERING"
+    assert worker.recording_done.is_set()
+    assert not (worker.store.meeting_dir / "transcript.spk.json").exists()
 
 print("live runtime tests: OK")

@@ -65,6 +65,7 @@ package-check:
 	$(PY) web/tests/live_finalizer_test.py
 	$(PY) web/tests/live_source_probe_test.py
 	$(PY) web/tests/live_runtime_test.py
+	$(PY) web/tests/live_recording_test.py
 	$(PY) web/tests/model_resolver_test.py
 	$(PY) web/tests/diarization_pack_test.py
 	$(PY) web/tests/bundled_diarization_test.py

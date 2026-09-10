@@ -103,6 +103,7 @@ window.fetch = async (input, init = {}) => {
   }
   if (url === '/api/live/sessions' && method === 'GET')
     return jsonResponse({sessions: window.__liveE2E.session ? [window.__liveE2E.session] : []});
+  if (url.endsWith('/bookmark') && method === 'POST') return jsonResponse({queued: true});
   if (url === '/api/live/sessions/live-synthetic-browser/stop' && method === 'POST') {
     window.__liveE2E.stopCalls += 1;
     window.__liveE2E.session = {...window.__liveE2E.session, state: 'FINALIZING'};
@@ -122,7 +123,10 @@ window.fetch = async (input, init = {}) => {
         {start: 4, end: 7, speaker: null, text: 'Synthetic live transcript.'},
         {start: 10, end: 13, speaker: 'Speaker A', text: 'A second verifiable statement.'}
       ]},
-      takeaways: {state: 'deferred_until_finalize', provisional: true, items: []}
+      takeaways: {state: 'ready', provisional: true, items: [{text: 'Synthetic topic with evidence', start: 4, end: 13}]},
+      frames: [{id: 'synthetic-frame', at: 4, reason: 'periodic_safety'}],
+      recording: {state: 'ready_with_gaps', duration: 38, replay: 'source_video.mp4',
+        gaps: [{at: 20, reason: 'connection_interrupted'}], segments: [{index: 0, start: 0, end: 38}]}
     });
   }
   if (url === '/api/live/sessions/live-synthetic-browser' && method === 'GET') {
@@ -197,6 +201,21 @@ window.fetch = async (input, init = {}) => {
                 assert "Synthetic live transcript" in started["transcript"]
                 assert started["playCalls"] == 0
                 assert not started["errors"], started["errors"]
+                evidence = cdp.evaluate(r"""
+(() => {
+  document.querySelector('#live-bookmark').click();
+  return {frames: document.querySelectorAll('#live-frames img').length,
+    topic: document.querySelector('#live-takeaways-list').textContent,
+    replay: document.querySelector('#live-replay-download').getAttribute('href'),
+    gap: document.querySelector('#live-recording-status').textContent,
+    segments: document.querySelectorAll('#live-segments a').length,
+    autoplay: document.querySelector('#live-replay').autoplay};
+})()
+""")
+                assert evidence["frames"] == 1 and evidence["segments"] == 1
+                assert "Synthetic topic" in evidence["topic"]
+                assert evidence["replay"].endswith('/assets/replay/full')
+                assert "1" in evidence["gap"] and evidence["autoplay"] is False
 
                 closed = cdp.evaluate(r"""
 (() => {
