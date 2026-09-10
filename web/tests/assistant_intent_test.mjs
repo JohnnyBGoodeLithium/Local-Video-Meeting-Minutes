@@ -16,5 +16,7 @@ assert.equal(globalThis.__inferAssistantIntent(
 ), "restructure");
 assert.equal(globalThis.__inferAssistantIntent("这次确认了什么？"), "ask");
 assert.equal(globalThis.__inferAssistantIntent("把总体摘要精简一些"), "edit");
+assert.equal(globalThis.__inferAssistantIntent("Alpha Forum，全部改为Beta Forum"), "edit");
+assert.equal(globalThis.__inferAssistantIntent("我要的是修改纪要，关键词替换"), "edit");
 
 console.log("Assistant intent: free-form ask/edit/restructure routing passed");

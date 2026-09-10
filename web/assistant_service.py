@@ -391,6 +391,21 @@ def _store_proposal(minutes_path: Path, before: str, after: str, summary: str,
     }
 
 
+def _term_replacement(message: str) -> tuple[str, str] | None:
+    """Only explicit, single literal replacements; ambiguous requests use the editor."""
+    match = re.fullmatch(
+        r"\s*(?:请\s*)?(?:(?:把|将)\s*)?(.+?)[，,：:]?\s*"
+        r"(?:全部|全文|全篇|统一)\s*(?:改为|改成|替换为|替换成)\s*(.+?)\s*[。！!]?\s*",
+        message)
+    if not match:
+        return None
+    terms = tuple(value.strip().strip('，,：: \"\'“”‘’') for value in match.groups())
+    if any(not value or len(value) > 120 or re.search(r"[\n\r<>\[\]`{}]", value)
+           for value in terms):
+        return None
+    return terms
+
+
 def preview_minutes_edit(minutes_path: Path, transcript_path: Path, message: str,
                          turn_indexes: list[int], expected_transcript_revision: str | None,
                          expected_minutes_revision: str | None, target_heading: str | None,
@@ -404,6 +419,19 @@ def preview_minutes_edit(minutes_path: Path, transcript_path: Path, message: str
     turns = json.loads(transcript_path.read_text(encoding="utf-8"))
     sources, evidence = transcript_sources(turns, message, turn_indexes)
     minutes = minutes_path.read_text(encoding="utf-8")
+    replacement_terms = _term_replacement(message) if not target_heading else None
+    if replacement_terms:
+        old, new = replacement_terms
+        # Evidence comments and Markdown link destinations are identifiers, not prose.
+        pieces = re.split(r"(<!--[\s\S]*?-->|\]\([^\n)]*\))", minutes)
+        count = sum(part.count(old) for part in pieces[::2])
+        if not count:
+            raise AssistantError("纪要正文中未找到该术语，请核对原文；逐字稿需在逐字稿修订入口修改")
+        pieces[::2] = [part.replace(old, new) for part in pieces[::2]]
+        return _store_proposal(
+            minutes_path, minutes, "".join(pieces),
+            f"按用户指定替换纪要正文 {count} 处术语；不修改逐字稿，确认后生效",
+            "全文术语替换", min_rev, scope="term-replacement", sources=sources)
     candidates = _candidate_sections(minutes, message, evidence, target_heading)
 
     if dry_run:

@@ -22,6 +22,7 @@ class TranscriptEditReq(BaseModel):
 
 def _ensure_idle(slug: str) -> None:
     if any(job.get("meeting") == slug and job.get("status") in {"queued", "running"}
+           and job.get("kind") not in {"translation", "keywords"}
            for job in JOBS.values()):
         raise HTTPException(409, "这场会议仍在处理，完成后才能修正逐字稿")
 
