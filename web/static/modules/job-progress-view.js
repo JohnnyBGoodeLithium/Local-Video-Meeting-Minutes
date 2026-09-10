@@ -48,6 +48,7 @@ export function renderCompactJob(model, handlers = {}) {
   (handlers.extraActions?.(model) || []).forEach(extra => {
     const extraButton = button(extra.label, extra.id);
     extraButton.title = extra.title || "";
+    extraButton.disabled = !!extra.disabled;
     extraButton.addEventListener("click", event => handlers.onAction?.(
       extra.id, model, event.currentTarget));
     actions.appendChild(extraButton);

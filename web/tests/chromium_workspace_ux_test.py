@@ -111,7 +111,20 @@ void (async () => {
   };
   const queueModel = jp.jobPresentation(
     queuedTranslation, 'Synthetic review', 'zh-CN', jobs.jobTaskLabel(queuedTranslation, 'zh-CN'));
-  queueFixture.appendChild(view.renderCompactJob(queueModel, {language:'zh-CN'}));
+  const queueActions = [];
+  queueFixture.appendChild(view.renderCompactJob(queueModel, {
+    language:'zh-CN',
+    extraActions:()=>[
+      {id:'move_up',label:'上移'},
+      {id:'preempt',label:'安全切换',disabled:true,title:'当前阶段尚不能安全切换'},
+    ],
+    onAction:action=>queueActions.push(action),
+  }));
+  queueFixture.querySelector('[data-job-action="move_up"]').click();
+  queueFixture.querySelector('[data-job-action="preempt"]').click();
+  if (queueActions.join(',') !== 'move_up'
+      || !queueFixture.querySelector('[data-job-action="preempt"]').disabled)
+    throw new Error('Queue move/disabled safe switch interaction failed');
   const queueTaskClear = queueFixture.textContent.includes('自动补充 · 将会议脉络翻译为英文')
     && queueFixture.textContent.includes('队列第 2');
   const phases = [

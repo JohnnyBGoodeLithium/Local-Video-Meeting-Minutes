@@ -5784,6 +5784,7 @@ async function pollJobs() {
     const refreshLibrary = d.jobs.some(activeUpload) || state.jobs.some(activeUpload);
     state.jobs = d.jobs;
     state.jobPriorityAvailable = d.capabilities?.job_priority === true;
+    state.jobQueueReorderAvailable = d.capabilities?.job_queue_reorder === true;
     state.jobPreemptionAvailable = d.capabilities?.checkpointed_preemption === true;
     state.jobRecoveryAvailable = d.capabilities?.job_recovery === true;
     state.jobHideAvailable = d.capabilities?.job_hide === true;
@@ -5945,6 +5946,15 @@ async function handleJobAction(action, model, trigger) {
     if (!response.ok) toast(`${isEnglishUi() ? "Could not reprioritize" : "调整失败"}：${body.detail || response.status}`);
     return pollJobs();
   }
+  if (action === "move_up" || action === "move_down") {
+    trigger.disabled = true;
+    try {
+      const response = await api(`/api/jobs/${encodeURIComponent(job.id)}/move?direction=${action === "move_up" ? "up" : "down"}`, { method: "POST" });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) toast(body.detail || (isEnglishUi() ? "Queue changed; refresh and retry" : "队列已变化，请刷新后重试"));
+    } finally { trigger.disabled = false; }
+    return pollJobs();
+  }
   if (action === "cancel") {
     await api(`/api/jobs/${encodeURIComponent(job.id)}/cancel`, { method: "POST" });
     return pollJobs();
@@ -5976,13 +5986,21 @@ function renderJobsStructured(jobs) {
         const actions = [];
         if (state.jobPriorityAvailable && job.status === "queued"
             && (!job.priority_boost || Number(job.queue_position) > 1)) {
-          actions.push({ id: "priority", label: isEnglishUi() ? "Next" : "优先",
+          actions.push({ id: "priority", label: isEnglishUi() ? "Next" : "下一项",
             title: isEnglishUi() ? "Move after the current task" : "排到当前任务之后" });
         }
-        if (state.jobPreemptionAvailable && job.status === "queued"
-            && runningJob?.preemptible && runningJob.id !== job.id) {
-          actions.push({ id: "preempt", label: isEnglishUi() ? "Now" : "立即",
-            title: isEnglishUi() ? "Pause safely and process this item" : "安全暂停当前任务并先处理此项" });
+        if (state.jobQueueReorderAvailable && job.status === "queued") {
+          if (Number(job.queue_position) > 1) actions.push({ id: "move_up", label: isEnglishUi() ? "Up" : "上移", title: isEnglishUi() ? "Move one queue position earlier" : "在等待队列中前移一位" });
+          if (Number(job.queue_position) < allActiveJobs.filter(item => item.status === "queued").length) actions.push({ id: "move_down", label: isEnglishUi() ? "Down" : "下移", title: isEnglishUi() ? "Move one queue position later" : "在等待队列中后移一位" });
+        }
+        if (state.jobPreemptionAvailable && job.status === "queued" && runningJob) {
+          const sameMeeting = runningJob.meeting && runningJob.meeting === job.meeting;
+          const canSwitch = runningJob?.preemptible && !sameMeeting;
+          actions.push({ id: "preempt", label: isEnglishUi() ? "Switch safely" : "安全切换",
+            disabled: !canSwitch,
+            title: canSwitch
+              ? (isEnglishUi() ? "Pause safely; resume the original task afterward" : "安全暂停当前任务，完成此项后自动续跑")
+              : (isEnglishUi() ? "Wait for a safe checkpoint; Next only changes queue order" : "当前阶段尚不能安全切换；可用“下一项”调整等待顺序") });
         }
         return actions;
       },
