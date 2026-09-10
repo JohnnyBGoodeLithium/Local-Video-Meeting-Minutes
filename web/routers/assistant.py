@@ -30,6 +30,7 @@ class AssistantEditReq(BaseModel):
     transcript_revision: str | None = None
     minutes_revision: str | None = None
     target_heading: str | None = None
+    replacement: dict[str, str] | None = None
 
 
 class AssistantApplyReq(BaseModel):
@@ -81,6 +82,24 @@ def _answer_html(value: str) -> str:
     """把助手 Markdown 安全渲染为 HTML，并把来源编号变成可绑定的本地锚点。"""
     linked = re.sub(r"【([RT]\d+)】", r"[\1](#assistant-source-\1)", str(value or ""))
     return MD.render(linked)
+
+
+@router.post("/api/meetings/{slug}/assistant/intent")
+def assistant_intent(slug: str, req: AssistantChatReq):
+    mdir = _mdir(slug)
+    try:
+        path = mdir / "transcript.spk.json"
+        if req.transcript_revision and assistant.revision(path) != req.transcript_revision:
+            raise assistant.AssistantConflict("逐字稿已经变化，请刷新后重试")
+        turns = _read_json(path, [])
+        selected = [str(turns[i].get("text", ""))[:1000]
+                    for i in req.turn_indexes[:30]
+                    if isinstance(turns, list) and 0 <= i < len(turns)
+                    and isinstance(turns[i], dict)]
+        return assistant.plan_request(_assistant_message(req.message), req.history,
+                                      selection=selected, dry_run=DRY_RUN)
+    except assistant.AssistantError as exc:
+        _assistant_http_error(exc)
 
 
 @router.post("/api/meetings/{slug}/assistant/chat")
@@ -160,7 +179,8 @@ def assistant_edit_preview(slug: str, req: AssistantEditReq):
     try:
         proposal = assistant.preview_minutes_edit(
             minutes, transcript, _assistant_message(req.message), req.turn_indexes,
-            req.transcript_revision, req.minutes_revision, req.target_heading, DRY_RUN)
+            req.transcript_revision, req.minutes_revision, req.target_heading, DRY_RUN,
+            replacement=req.replacement)
         return _reading_proposal(mdir, proposal)
     except assistant.AssistantError as exc:
         _assistant_http_error(exc)

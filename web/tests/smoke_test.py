@@ -402,9 +402,9 @@ check("整篇重组保存为可切换 AI 视图，不覆盖标准纪要或会议
       and b'startMinutesRestructure' in app_js
       and "时间线性的会议脉络保持不变".encode() in app_js
       and b'proposalReadingHtml' in app_js
-      and b'proposal_id: j.proposal_id' in app_js
+      and b'proposal_id: proposalId' in app_js
       and b'message.proposal.status = "expired"' in app_js
-      and "标准纪要保持不变".encode() in app_js
+      and b'const isView = msg?.proposal?.scope === "document"' in app_js
       and b'minutesViews' in app_js)
 check("语音草稿失败按返回码区分空正文、模型请求与内部异常",
       b'function voiceDraftFailureCopy' in app_js

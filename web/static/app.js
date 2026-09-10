@@ -4977,28 +4977,16 @@ function renderAssistantMessages() {
   persistAssistant();
 }
 
-function inferAssistantIntent(message) {
-  if (state.assistantNextIntent) return state.assistantNextIntent;
-  const restructurePatterns = [
-    /(重组|重新组织|重新编排|调整结构|自定义结构).{0,12}(纪要|总结)/,
-    /(纪要|总结).{0,12}(重组|重新组织|重新编排|调整结构|栏目|版式)/,
-    /按.{1,30}(结构|栏目|顺序|项目|人员|分享人).{0,12}(整理|生成|重写|组织)/,
-    /按(?:照)?.{0,40}(顺序|人员|分享人|项目|栏目|结构).{0,30}(给出|总结|整理|组织|生成|重写|列出)/,
-    /(个人|每个人|分享人).{0,16}(发言|分享).{0,12}(总结|要点).{0,50}(总体结构|待办|关键结论)/,
-    /(总体结构|待办事项|关键结论).{0,60}(个人|每个人|分享人).{0,20}(总结|顺序)/,
-  ];
-  if (restructurePatterns.some(pattern => pattern.test(message))) return "restructure";
-  const editPatterns = [
-    /(?:全部|全篇|全文|统一).{0,6}(?:改为|改成|替换为|替换成)/,
-    /(?:修改|修订|编辑).{0,6}(?:纪要|总结)/,
-    /(?:关键词|关键字|术语).{0,6}替换/,
-    /(写入|加入|添加|补充|更新|同步).{0,10}(纪要|总结|行动项|决定|结论)/,
-    /(纪要|总结|行动项|决定|结论).{0,10}(改成|改为|修改|改写|润色|精简|删除|移除|补充|更新)/,
-    /^(请)?(帮我|把|将)?\s*(修改|改写|润色|精简|删除|移除|补充|更新)/,
-    /(请|帮我).{0,8}(修改|改写|补充|更新|写入|加入|删除|润色)/,
-    /(把|将).{0,30}(改成|改为|修改|改写|润色|精简|删除|移除|写入|加入|补充到|更新)/,
-  ];
-  return editPatterns.some(pattern => pattern.test(message)) ? "edit" : "ask";
+async function inferAssistantIntent(message) {
+  if (state.assistantNextIntent) return { intent: state.assistantNextIntent, instruction: message };
+  const response = await api(`/api/meetings/${encodeURIComponent(state.slug)}/assistant/intent`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message, history: state.assistantHistory.slice(-8),
+      turn_indexes: state.assistantRefs, transcript_revision: state.bundle.transcript_revision }),
+  });
+  const plan = await response.json();
+  if (!response.ok) throw new Error(assistantError(plan.detail));
+  return plan;
 }
 
 function assistantError(detail) {
@@ -5012,7 +5000,29 @@ async function sendAssistant() {
   const input = $("#assistant-input");
   const message = input.value.trim();
   if (!message) return;
-  const intent = inferAssistantIntent(message);
+  const requestSlug = state.slug;
+  state.assistantBusy = true;
+  $("#assistant-send").disabled = true;
+  $("#assistant-state").textContent = isEnglishUi() ? "Understanding your request…" : "正在理解你的要求…";
+  let plan;
+  try { plan = await inferAssistantIntent(message); }
+  catch (error) {
+    addAssistantMessage({ role: "assistant", content: error.message, sources: [] });
+    return;
+  } finally {
+    state.assistantBusy = false;
+    $("#assistant-send").disabled = false;
+    $("#assistant-state").textContent = "";
+  }
+  if (state.slug !== requestSlug) return;
+  const intent = plan.intent;
+  if (intent === "clarify") {
+    addAssistantMessage({ role: "user", content: message, sources: [] });
+    addAssistantMessage({ role: "assistant", content: plan.clarification, sources: [] });
+    state.assistantHistory.push({ role: "user", content: message }, { role: "assistant", content: plan.clarification });
+    input.value = "";
+    return;
+  }
   if (["edit", "restructure"].includes(intent) && state.bundle?.document_state === "draft") {
     state.assistantNextIntent = null;
     addAssistantMessage({ role: "user", content: message, sources: [] });
@@ -5023,7 +5033,7 @@ async function sendAssistant() {
   }
   state.assistantNextIntent = null;
   const common = {
-    message,
+    message: plan.instruction || message,
     turn_indexes: state.assistantRefs,
     transcript_revision: state.bundle.transcript_revision,
   };
@@ -5033,10 +5043,10 @@ async function sendAssistant() {
       ? `/api/meetings/${encodeURIComponent(state.slug)}/assistant/edit/preview`
       : `/api/meetings/${encodeURIComponent(state.slug)}/assistant/chat/stream`;
   const body = intent === "restructure"
-    ? { message, transcript_revision: state.bundle.transcript_revision,
+    ? { message: plan.instruction || message, transcript_revision: state.bundle.transcript_revision,
         minutes_revision: state.bundle.minutes_revision }
     : intent === "edit"
-      ? { ...common, minutes_revision: state.bundle.minutes_revision }
+      ? { ...common, replacement: plan.replacement || null, minutes_revision: state.bundle.minutes_revision }
       : { ...common, history: state.assistantHistory.slice(-8) };
   addAssistantMessage({ role: "user", content: message, sources: [] });
   setAssistantThread(true);
@@ -5057,42 +5067,13 @@ async function sendAssistant() {
     if (["edit", "restructure"].includes(intent)) {
       const j = await r.json();
       if (!r.ok) throw new Error(assistantError(j.detail));
-      // 局部修改写入标准纪要并可撤销；整篇重组只保存为可切换 AI 视图。
-      const applyPath = intent === "restructure" ? "assistant/restructure/apply" : "assistant/edit/apply";
-      const applyResponse = await api(`/api/meetings/${encodeURIComponent(state.slug)}/${applyPath}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ proposal_id: j.proposal_id }),
-      });
-      const applied = await applyResponse.json();
-      if (!applyResponse.ok) {
-        addAssistantMessage({
-          role: "assistant",
-          content: isEnglishUi() ? "The change is ready but was not saved automatically. Review and save it below."
-            : "修改已经生成，但自动写入没有完成；请在下方检查后保存。",
-          sources: j.sources || [], proposal: j,
-        });
-        throw new Error(assistantError(applied.detail));
-      }
-      state.bundle = await jget(`/api/meetings/${encodeURIComponent(state.slug)}/bundle`);
-      if (intent === "restructure" && applied.view_id) {
-        state.workspace.minutesViews[state.slug] = applied.view_id;
-        saveWorkspaceState();
-      }
-      setReviewMode("minutes");
-      addAssistantMessage({
-        role: "assistant",
-        content: intent === "restructure"
-          ? (isEnglishUi() ? "I saved this as an AI minutes view. The standard minutes remain unchanged." : "已保存为 AI 纪要视图，标准纪要保持不变。")
-          : (isEnglishUi() ? "I updated the minutes. You can undo it below." : "我已更新会议纪要，可在下方一步撤销。"),
-        sources: j.sources || [],
-        // 已写入卡只保留阅读与撤销所需字段，避免把 before/diff/raw marker 塞满 localStorage。
-        proposal: {
-          proposal_id: j.proposal_id, target_heading: j.target_heading, scope: j.scope,
-          summary: j.summary, sources: j.sources || [], after_html: j.after_html,
-          status: "applied", view_id: applied.view_id || null,
-        },
-      });
+      addAssistantMessage({ role: "assistant",
+        content: isEnglishUi() ? "Review the changes, then confirm to save." : "请核对修改预览，确认后再保存。",
+        sources: j.sources || [], proposal: j });
+      state.assistantHistory.push({ role: "user", content: message },
+        { role: "assistant", content: `待确认修改：${j.summary || plan.instruction}` });
+      state.assistantHistory = state.assistantHistory.slice(-8);
+      persistAssistant();
     } else {
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));

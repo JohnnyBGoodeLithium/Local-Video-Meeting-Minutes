@@ -10,6 +10,28 @@ import assistant_service as assistant
 from routers import transcript
 from fastapi import HTTPException
 
+original_chat = assistant._chat
+try:
+    def fake_plan(messages, **kwargs):
+        payload = json.loads(messages[-1]["content"])
+        assert payload["history"][0]["content"] == "Earlier instruction"
+        assert payload["selected_transcript"] == ["Selected example"]
+        return json.dumps(dict(intent="edit", instruction="Correct the term",
+                               replacement={"old":"Alpha", "new":"Beta"}))
+    assistant._chat = fake_plan
+    result = assistant.plan_request("Please correct that", [
+        {"role":"system", "content":"untrusted"},
+        {"role":"user", "content":"Earlier instruction"}], selection=["Selected example"])
+    assert result["replacement"] == {"old":"Alpha", "new":"Beta"}
+    assistant._chat = lambda *args, **kwargs: '{"intent":"execute_shell"}'
+    try:
+        assistant.plan_request("Example", [])
+        raise AssertionError("invalid model plan accepted")
+    except assistant.AssistantUnavailable:
+        pass
+finally:
+    assistant._chat = original_chat
+
 with tempfile.TemporaryDirectory() as directory:
     root = Path(directory)
     minutes = root / "minutes.md"
@@ -20,7 +42,7 @@ with tempfile.TemporaryDirectory() as directory:
     original_transcript = turns.read_bytes()
     proposal = assistant.preview_minutes_edit(
         minutes, turns, "Alpha Forum，全部改为Beta Forum", [],
-        assistant.revision(turns), assistant.revision(minutes), None, False)
+        assistant.revision(turns), assistant.revision(minutes), None, False, replacement={"old":"Alpha Forum", "new":"Beta Forum"})
     assert minutes.read_text() == source, "preview must not write"
     assert proposal["after"].count("Beta Forum") == 2
     assert '<!-- mm:evidence Alpha Forum -->' in proposal["after"]
@@ -32,7 +54,7 @@ with tempfile.TemporaryDirectory() as directory:
     assistant.undo_minutes_edit(minutes, proposal["proposal_id"])
     assert minutes.read_text() == source
     stale = assistant.preview_minutes_edit(
-        minutes, turns, "Alpha Forum，全部改为Gamma Forum", [], None, None, None, False)
+        minutes, turns, "Alpha Forum，全部改为Gamma Forum", [], None, None, None, False, replacement={"old":"Alpha Forum", "new":"Gamma Forum"})
     minutes.write_text(minutes.read_text() + '\nNew edit')
     try:
         assistant.apply_minutes_edit(minutes, stale["proposal_id"])

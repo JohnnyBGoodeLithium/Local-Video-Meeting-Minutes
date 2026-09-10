@@ -1,22 +1,18 @@
-#!/usr/bin/env node
-// AI 输入框不依赖专用按钮：真实反馈中的自然语言必须识别为整篇重组。
-
 import assert from "node:assert/strict";
 import fs from "node:fs";
-
 const source = fs.readFileSync(new URL("../static/app.js", import.meta.url), "utf8");
-const block = source.match(/function inferAssistantIntent\(message\) \{[\s\S]*?\n\}\n\nfunction assistantError/);
-assert.ok(block, "inferAssistantIntent block not found");
-const state = { assistantNextIntent: null };
-eval(`${block[0].replace(/\n\nfunction assistantError$/, "")}\n` +
-     "globalThis.__inferAssistantIntent = inferAssistantIntent;");
-
-assert.equal(globalThis.__inferAssistantIntent(
-  "总结有哪些重复，耗时间的工作，AI能帮助替代的。按照依次分享的顺序给出个人的发言总结，以及总体的结构、待办事项和关键结论。"
-), "restructure");
-assert.equal(globalThis.__inferAssistantIntent("这次确认了什么？"), "ask");
-assert.equal(globalThis.__inferAssistantIntent("把总体摘要精简一些"), "edit");
-assert.equal(globalThis.__inferAssistantIntent("Alpha Forum，全部改为Beta Forum"), "edit");
-assert.equal(globalThis.__inferAssistantIntent("我要的是修改纪要，关键词替换"), "edit");
-
-console.log("Assistant intent: free-form ask/edit/restructure routing passed");
+const block = source.match(/async function inferAssistantIntent\(message\) \{[\s\S]*?\n\}\n/)[0];
+const state = {assistantNextIntent:null, slug:"example",assistantHistory:[{role:"user",content:"Earlier correction"}],assistantRefs:[],bundle:{transcript_revision:"v1"}};
+let seen;
+const api = async (path, options) => {seen={path,body:JSON.parse(options.body)}; return {ok:true,json:async()=>({intent:"edit",replacement:{old:"Alpha",new:"Beta"}})};};
+const fn = new Function("state","api","assistantError", `${block}; return inferAssistantIntent;`)(state,api,String);
+const plan = await fn("Alpha，改成 Beta");
+assert.equal(plan.intent,"edit");
+assert.match(seen.path,/assistant\/intent$/);
+assert.equal(seen.body.history[0].content,"Earlier correction");
+state.assistantNextIntent="restructure";
+assert.equal((await fn("按人物整理")).intent,"restructure");
+assert.ok(!source.includes("restructurePatterns"));
+const send = source.slice(source.indexOf("async function sendAssistant()"), source.indexOf("async function applyAssistantEdit("));
+assert.ok(!send.includes("/apply"), "Sending a request must only preview, never apply");
+console.log("Assistant intent: model routing, history and explicit controls passed");
