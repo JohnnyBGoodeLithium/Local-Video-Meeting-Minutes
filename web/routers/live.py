@@ -5,10 +5,13 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import os
 import secrets
+import json
+from pathlib import Path
 
 from fastapi import APIRouter, Body, HTTPException
+from fastapi.responses import FileResponse
 
-from deps import DRY_RUN, MEETINGS
+from deps import DRY_RUN, MEETINGS, _mdir
 from meeting_core.live.audio_capture import probe_host_audio
 from meeting_core.live.capabilities import build_capture_plan
 from meeting_core.live.captions import TesseractCaptionOCR
@@ -125,3 +128,46 @@ def stop_live_session(session_id: str):
         return MANAGER.stop(session_id)
     except LiveRuntimeError as exc:
         raise HTTPException(404, str(exc)) from exc
+
+
+@router.post("/api/live/sessions/{session_id}/bookmark")
+def bookmark_live(session_id: str):
+    _enabled()
+    worker = MANAGER.get(session_id)
+    if worker is None or worker.recording_done.is_set():
+        raise HTTPException(409, "No active recording")
+    worker.bookmark_requested.set()
+    return {"queued": True}
+
+
+@router.get("/api/live/sessions/{session_id}/assets/{kind}/{asset_id}")
+def live_asset(session_id: str, kind: str, asset_id: str):
+    """Only serve manifest-listed local media, never remote playlist addresses."""
+    _enabled()
+    meeting = _mdir(session_id)
+    try:
+        if kind == "frame":
+            from meeting_core.live.store import LiveSessionStore
+            store = LiveSessionStore(meeting)
+            entry = next(f for f in store.read_jsonl("frame-events.jsonl") if f["id"] == asset_id)
+            root, relative = store.root, entry["file"]
+        else:
+            root = meeting / "live-recording"
+            manifest = json.loads((root / "manifest.json").read_text())
+            if kind == "segment":
+                index = int(asset_id)
+                if index < 0:
+                    raise ValueError("negative index")
+                relative = manifest["segments"][index]["file"]
+            elif kind == "replay" and asset_id == "full":
+                root, relative = meeting, manifest["replay"]
+            else:
+                raise ValueError("unsupported asset")
+        path = (root / relative).resolve()
+        if not path.is_relative_to(root.resolve()) or not path.is_file():
+            raise ValueError("invalid media path")
+    except (OSError, ValueError, KeyError, IndexError, StopIteration):
+        raise HTTPException(404, "Live media is not available")
+    media_type = "video/mp4" if kind == "replay" else "video/mp2t" if kind == "segment" else "image/jpeg"
+    return FileResponse(path, media_type=media_type,
+                        filename=path.name if kind == "segment" else None)

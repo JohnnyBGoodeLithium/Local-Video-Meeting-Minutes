@@ -329,6 +329,14 @@
         <p id="live-takeaways-boundary">这里只显示有当前文字依据的临时判断；停止后才生成完整整理。</p>
       </header>
       <div id="live-takeaways-list"></div>
+      <section id="live-evidence" aria-label="Live visual evidence and replay">
+        <button type="button" id="live-bookmark">标记此刻 / Bookmark</button>
+        <p id="live-recording-status" role="status"></p>
+        <video id="live-replay" controls preload="none" class="hidden" style="width:100%"></video>
+        <a id="live-replay-download" class="hidden" download>下载回放 / Download replay</a>
+        <div id="live-frames" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px"></div>
+        <details><summary>录制片段 / Recorded segments</summary><div id="live-segments"></div></details>
+      </section>
       <div id="live-takeaways-empty" class="live-empty-state">
         <strong>先积累一些上下文</strong>
         <span>为避免与实时语音识别争抢本机资源，本版在停止后统一提炼要点。</span>

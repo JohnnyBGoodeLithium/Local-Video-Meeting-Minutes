@@ -63,12 +63,19 @@ export function normalizeLiveWorkspace(value) {
     ? value.takeaways.items.map(item => ({
       text: String(item?.text || item || "").trim(),
       start: Math.max(0, Number(item?.start) || 0),
+      end: Math.max(0, Number(item?.end) || 0),
+      frames: Array.isArray(item?.frames) ? item.frames.map(String) : [],
+      basis: String(item?.basis || "transcript"),
     })).filter(item => item.text)
     : [];
   return {
     schema: value?.schema === "meeting-live-workspace/v1"
       ? value.schema : "meeting-live-workspace/v1",
     session,
+    frames: (Array.isArray(value?.frames) ? value.frames : []).map(f => ({
+      id: String(f.id || ""), at: Math.max(0, Number(f.at) || 0),
+    })),
+    recording: value?.recording || { state: "recording", segments: [], gaps: [] },
     source: {
       displayUrl: String(value?.source?.display_url || ""),
       kind: String(value?.source?.source_kind || ""),

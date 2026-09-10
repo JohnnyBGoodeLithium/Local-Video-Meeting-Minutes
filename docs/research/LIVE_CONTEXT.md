@@ -12,7 +12,7 @@
 - Replay-as-Live 可以 1×/10×/100× 速率重放本地媒体与时间文本，media timestamp 不随墙钟倍速改变。
 - Generic HLS 支持 master/media playlist、`EXT-X-MEDIA` 字幕、media sequence checkpoint、新分片去重、暂时网络失败恢复、target-duration 轮询和 `ENDLIST` 结束。URL 日志不保留 query。
 - 已授权的公开直播页面先由现有 `yt-dlp` 能力进行无下载探测；只有 `is_live` 且选中格式为原生 HLS 时才接入 Generic HLS worker。下载器配置与日志被禁用，解析后的 CDN 再做公网校验；原页面只保存在私有 `.live/` 恢复状态，临时 HLS 签名不进入用户投影，服务恢复时重新解析以避免继续使用过期地址。
-- Native HLS worker 通过 `ffmpeg` 直接解调音频，有原生字幕时不运行主 ASR；无字幕时可使用 rolling chunk ASR。不创建可听播放元素。
+- Native HLS worker 使用独立 ffmpeg 按约 10 秒/关键帧分段录制音视频；ASR 从已关闭片段读取，不通过 PCM 管道阻塞录制。有原生字幕时不运行主 ASR。回放播放器只由用户操作，不自动出声。
 - 启动对话只承担来源与模式选择；会话开始后进入独立 Live 工作区。`meeting-live-workspace/v1` 只在单场会话端点投影经过融合的最近文字、脱敏来源和状态，列表 API 继续保持无正文，临时 HLS 签名不返回前端。
 - Visual Caption Capture 支持手工区域，也支持全帧低频检测、区域跟踪和局部 1–5 fps（默认 2）识别；前缀扩展、后缀重叠、重复和闪烁经时序合并。没有 cloud OCR fallback。
 - 近实时 ASR 是明确的 rolling chunk + overlap，不声称 native streaming。人物使用 stable anonymous ID，display label 可在会后 reconcile；platform/human identity 不会被本地 cluster 降级。
@@ -32,7 +32,11 @@ Browser adapter 定义 foreground、background-headful 和 headless-verified，�
 
 `.live/` 不进入 Git、MeetingPack、AI Context、KB 或 Application Release Bundle。只有 finalizer 校验后才写 `transcript.spk.json`、视觉页和现有正式结果。关闭 UI 不停 worker；用户显式 Stop 会 finalize 已捕获内容，不丢弃。
 
-当前 Live 工作区预留“实时要点（暂定）”投影，但运行时尚未调用文本模型生成在线总结。界面明确说明停止后统一提炼，不用最近逐字稿、关键词或规则句冒充结论；后续若接入，必须独立限频、缓存、附时间依据，并服从 ASR 优先的资源策略。
+当前 Live 工作区默认约每 30 秒从已落盘片段提取截图，约每 60 秒使用最近 120 秒转写和可用 OCR 更新暂定话题；由 MEETING_LIVE_FRAME_SECONDS、MEETING_LIVE_TOPIC_SECONDS 调整。截图频率受分段/关键帧边界影响；手动标记请求下一份可读取片段。ASR 落后超过 20 秒时暂停新话题请求，模型失败保留旧话题并标记不可用。当前使用本地文本模型与可选 Tesseract OCR，不将其宣称为完整视觉模型理解；自动转场补帧仍未接入本次 worker。
+
+录制以 live-recording/manifest.json 保存片段、SHA-256、媒体时间和缺口；每次重连使用新 epoch。回放合并前验证片段完整性，合并后验证时长。异常停止尽可能恢复未写入索引的尾片段并标记连续性不确定。重新连接最多重试 3 次；来源消失、签名无法更新或录制失败时保留已有片段。完整回放的范围是开始监听后接收到的内容，不保证补齐此前内容或网络缺口。
+
+结束后首先生成 source_video.mp4，再等待转写和话题收尾并调用原有 finalizer。分析失败仍提供录像；回放合并失败提供逐片下载，不能标成整场完成。服务正常退出停止录制并留下可恢复状态；恢复后的历史失败/完成会话仍可访问回放。强制断电和长时录制的目标机验收仍需补充。
 
 ## 测量与当前结果
 
