@@ -12,7 +12,7 @@
       return `<fieldset data-role="${role}" style="max-width:760px;margin:16px 0;padding:20px"><legend>${title}</legend>
       <label>来源 <select name="source"><option value="local" ${c.source === 'local' ? 'selected' : ''}>本地服务</option><option value="cloud" ${c.source === 'cloud' ? 'selected' : ''}>云端服务</option></select></label>
       <label>API Base URL <input name="api" type="url" required value="${escape(c.api)}" placeholder="http://127.0.0.1:11435/v1"></label>
-      <label>模型 ID <input name="model" required value="${escape(c.model)}"></label>
+      <label>模型 ID <input name="model" ${role === 'text' ? 'required' : 'placeholder="留空保留部署中的视觉设置"'} value="${escape(c.model)}"></label>
       ${role === 'text' ? `<label>正式纪要模型 ID <input name="minutes_model" required value="${escape(c.minutes_model)}"></label>` : ''}
       <label>API Key <input name="api_key" type="password" autocomplete="new-password" placeholder="${c.key_configured ? '已保存；留空保留' : '本地无认证服务可留空'}"></label>
       <label><input name="clear_key" type="checkbox">清除已保存密钥</label>

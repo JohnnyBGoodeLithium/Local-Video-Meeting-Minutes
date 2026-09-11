@@ -107,7 +107,7 @@ with tempfile.TemporaryDirectory() as tmp:
     calls.clear()
     with patch.object(mb.urllib.request, 'urlopen', return_value=Response()), patch.object(
             mb, 'chat_with_image', side_effect=chat), patch.object(mb, 'progress_event'):
-        complete = mb.describe_pages(mdir, complete_pages, 'http://synthetic/v1')
+        complete = mb.describe_pages(mdir, complete_pages, 'http://127.0.0.1:1/v1')
     assert len(complete) == 176 and len(calls) == 96
     assert '156.jpg' in {name for name, _ in calls}
     completed_cache = vw.load(mdir / 'page_desc.json')

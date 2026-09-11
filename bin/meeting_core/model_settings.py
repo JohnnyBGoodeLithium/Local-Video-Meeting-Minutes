@@ -60,6 +60,8 @@ def normalize(value: dict, previous: dict) -> dict:
         item = value.get(role)
         if not isinstance(item, dict):
             raise ValueError('缺少模型配置')
+        if role == 'vision' and not str(item.get('model', '')).strip():
+            continue  # Optional vision override; preserve the deployment's environment.
         source = item.get('source', 'local')
         api = validate_endpoint(item.get('api', ''), source)
         if source == 'cloud' and item.get('allow_cloud') is not True:
@@ -103,6 +105,9 @@ def public_config(value: dict) -> dict:
         if not item:
             item = {field: os.environ.get(env, '') for field, env in mapping.items()}
             item['api'] = item['api'] or ('http://127.0.0.1:11435/v1' if role == 'text' else 'http://127.0.0.1:11436/v1')
+            if role == 'text':
+                item['model'] = item['model'] or 'qwen3.6-35b-a3b-operator'
+                item['minutes_model'] = item['minutes_model'] or 'qwen3.8-27b-minutes'
             item['source'] = 'local' if urlsplit(item['api']).hostname in LOOPBACK else 'cloud'
             item['allow_cloud'] = item['source'] == 'cloud'
         item['key_configured'] = bool(item.pop('api_key', ''))
