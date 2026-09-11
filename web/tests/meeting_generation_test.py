@@ -65,7 +65,7 @@ with tempfile.TemporaryDirectory(prefix="meeting-generation-test-") as temp:
     final = meeting_generation.finalize(mdir, pages=12, vl_pages=10)
     assert final["phase"] == "ready"
     assert final["enrichment"] == {
-        "pages": 12, "vl_pages": 10, "visual_mode": "complete",
+        "pages": 12, "vl_pages": 10, "visual_mode": "partial",
         "draft_claims": 2, "final_claims": 2,
         "added_claims": 1, "reframed_or_removed_claims": 1,
         "quality_state": "review_needed", "material_draft_claims": 2,

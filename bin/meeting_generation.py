@@ -214,6 +214,8 @@ def finalize(mdir: Path, *, pages: int, vl_pages: int,
     draft_text = {" ".join(str(item.get("text") or "").split()) for item in draft_claims}
     final_text = {" ".join(str(item.get("text") or "").split()) for item in final_claims}
     resolved_visual_mode = visual_mode or ("complete" if vl_pages else "not_available")
+    if resolved_visual_mode == 'complete' and vl_pages < pages:
+        resolved_visual_mode = 'partial' if vl_pages else 'not_available'
     enrichment = {
         "pages": int(pages), "vl_pages": int(vl_pages),
         "visual_mode": resolved_visual_mode,

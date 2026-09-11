@@ -38,6 +38,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from slide_pages import page_at
+from meeting_core.visual_budget import select_pages as select_visual_pages
 from vl_page_test import (DETAIL_PROMPT, PROMPT as COMPACT_PAGE_PROMPT,
                           MEDIA_DETAIL_PROMPT,
                           MEDIA_PROMPT as MEDIA_COMPACT_PAGE_PROMPT,
@@ -78,6 +79,8 @@ VL_MMPROJ = configured_path(
     Path.home() / "视频/joyai-test/models/mmproj-MiMo-VL-Miloco-7B_BF16.gguf")
 VL_GPU_LAYERS = os.environ.get("MEETING_VL_GPU_LAYERS", "999")
 VL_MAXTOK = 2048
+VL_MEDIA_MAX_NEW_PAGES = max(0, int(os.environ.get("MEETING_VL_MEDIA_MAX_NEW_PAGES", "80")))
+VL_MEDIA_MAXTOK = max(128, int(os.environ.get("MEETING_VL_MEDIA_MAX_TOKENS", "640")))
 VL_REVIEW_MODEL = (configured_path("MEETING_VL_REVIEW_MODEL", "")
                    if os.environ.get("MEETING_VL_REVIEW_MODEL", "").strip() else None)
 VL_REVIEW_MMPROJ = (configured_path("MEETING_VL_REVIEW_MMPROJ", "")
@@ -356,6 +359,7 @@ _MEDIA_COMPLEX_RE = re.compile(
     r"spec(?:ification)?|score|latency|throughput|power)", re.I)
 _MEDIA_UNCERTAIN_RE = re.compile(
     r"(?:看不清|无法辨认|无法确认|文字模糊|数字模糊|分辨率不足|遮挡|"
+    r"需要复核|待复核|uncertain|needs? review|"
     r"unreadable|illegible|cannot (?:read|confirm)|too (?:small|blurred))", re.I)
 
 
@@ -366,17 +370,18 @@ def media_review_candidates(pages: list[dict], descs: dict[int, str],
     for page in pages:
         number = int(page.get("page") or 0)
         text = clean_model_text(descs.get(number, ""))
-        if not page.get("shot") or page.get("talking_head") or not text:
+        explicit = bool(page.get("review_requested"))
+        if page.get("talking_head") and not explicit:
             continue
         role_match = re.search(
             r"(?:论证角色|argument role)\s*[:：]?\s*`?"
             r"(evidence|demo|context|transition|blank)", text, re.I)
         role = role_match.group(1).lower() if role_match else ""
-        uncertain = bool(_MEDIA_UNCERTAIN_RE.search(text))
+        uncertain = not text or bool(_MEDIA_UNCERTAIN_RE.search(text))
         complex_frame = bool(_MEDIA_COMPLEX_RE.search(text))
-        if not uncertain and not (role == "evidence" and complex_frame):
+        if not explicit and not uncertain and not complex_frame:
             continue
-        score = (6 if uncertain else 0) + (3 if role == "evidence" else 0) \
+        score = (10 if explicit else 0) + (6 if uncertain else 0) + (3 if role == "evidence" else 0) \
             + (2 if complex_frame else 0)
         ranked.append((score, number, page))
     ranked.sort(key=lambda item: (-item[0], item[1]))
@@ -390,8 +395,8 @@ def review_media_pages(mdir: Path, pages: list[dict], descs: dict[int, str],
     cache = json.loads(cache_p.read_text(encoding="utf-8")) if cache_p.is_file() else {}
     reviewed = {int(value) for value in cache.get("reviewed_pages", [])
                 if str(value).isdigit()}
-    candidates = [page for page in media_review_candidates(pages, descs)
-                  if int(page["page"]) not in reviewed]
+    candidates = media_review_candidates(
+        [p for p in pages if int(p['page']) not in reviewed], descs)
     if not candidates:
         return descs, {"candidates": 0, "reviewed": len(reviewed), "failed": 0,
                        "model": cache.get("models", {}).get("review")}
@@ -414,7 +419,10 @@ def review_media_pages(mdir: Path, pages: list[dict], descs: dict[int, str],
                 print(f"[meta] 第{number}页原生帧重抓失败: {type(exc).__name__}，"
                       "改用已导出的分析截图", flush=True)
         try:
-            raw, _usage = chat_with_image(api, mid, image, 3072, MEDIA_REVIEW_PROMPT)
+            prompt = MEDIA_REVIEW_PROMPT if page.get("shot") else DETAIL_PROMPT + (
+                "\n这是会议疑难图表的复核：核对坐标轴、图例、单位、表头与关键数字。"
+                "逐项区分明确可见与无法确认，不能把展示内容当作会议决定。")
+            raw, _usage = chat_with_image(api, mid, image, 3072, prompt)
             cleaned = clean_model_text(raw)
             if not cleaned:
                 raise ValueError("empty_vl_review")
@@ -427,7 +435,7 @@ def review_media_pages(mdir: Path, pages: list[dict], descs: dict[int, str],
                   flush=True)
         current = json.loads(cache_p.read_text(encoding="utf-8")) if cache_p.is_file() else {}
         primary = current.get("models", {}).get("primary") or current.get("model")
-        payload = {"model": primary or mid,
+        payload = {**current, "model": primary or mid,
                    "models": {"primary": primary or mid, "review": mid},
                    "reviewed_pages": sorted(reviewed), "desc": descs}
         temp = cache_p.with_suffix(".tmp")
@@ -457,7 +465,13 @@ def describe_pages(mdir: Path, pages, api: str, video: Path = None):
         if cleaned:
             descs[int(key)] = cleaned
     # 清洗后为空不是成功缓存：旧的 reasoning-only/空正文页面必须自动补算。
-    todo = [p for p in pages if not descs.get(p["page"], "").strip()]
+    media_pages = [p for p in pages if p.get("shot")]
+    todo = select_visual_pages(media_pages, descs, VL_MEDIA_MAX_NEW_PAGES)
+    todo += [p for p in pages if not p.get("shot") and not descs.get(p["page"], "").strip()]
+    deferred = [p['page'] for p in pages if not descs.get(p['page'], '').strip()
+                and p not in todo]
+    if deferred:
+        print(f"[meta] 本轮 VL 初读 {len(todo)} 页，另 {len(deferred)} 页待补读；截图全部保留", flush=True)
     if not todo:
         print(f"[meta] VL 页面解读全部命中缓存({len(descs)} 页)", flush=True)
         return descs
@@ -467,18 +481,27 @@ def describe_pages(mdir: Path, pages, api: str, video: Path = None):
     lock = threading.Lock()
 
     def persist():
+        current = json.loads(cache_p.read_text(encoding="utf-8")) if cache_p.is_file() else cache
         temp = cache_p.with_suffix(".tmp")
-        temp.write_text(json.dumps({"model": mid, "desc": descs},
+        temp.write_text(json.dumps({**current, "model": mid, "desc": descs,
+                                   "deferred_pages": deferred},
                                    ensure_ascii=False, indent=1), encoding="utf-8")
         temp.replace(cache_p)
 
     def work(p):
         detail_prompt, compact_prompt, type_label = vl_prompts(p)
+        detail_prompt += ("\n最后加‘## 复核建议’：判断本图是否有密集表格、多坐标轴、"
+                          "复杂图例、难以辨认的小字或数字；有则写‘需要复核’并说明原因，"
+                          "没有则只写‘无需复核’。这是视觉读取建议，不是会议结论。")
         img = mdir / "slides" / p["image"]
-        if video:
+        if video and not p.get("shot"):
             img = mdir / "slides" / f"full_{p['page']:02d}.jpg"
             grab_fullres(video, p.get("captured", p["first"]), img)
-        raw, usage = chat_with_image(api, mid, img, VL_MAXTOK, detail_prompt)
+        max_tokens = VL_MEDIA_MAXTOK if p.get("shot") else VL_MAXTOK
+        if p.get("shot"):
+            detail_prompt += ("\n本轮为快速初读：简短填写各栏目，优先保留关键数字、单位和新信息。"
+                              "密集图表只列可辨认内容并明确注明需要复核，口播/空镜一句话即可。")
+        raw, usage = chat_with_image(api, mid, img, max_tokens, detail_prompt)
         cleaned = clean_model_text(raw)
         if not cleaned:
             print(f"[meta] VL 第{p['page']}页详细正文为空，降级为紧凑读取", flush=True)
@@ -817,6 +840,9 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
                           if str(value).isdigit()]
         vl_review = {"candidates": 0, "reviewed": len(reviewed_pages), "failed": 0,
                      "model": cache.get("models", {}).get("review")}
+        review_state = mdir / 'visual_review.json'
+        if review_state.is_file():
+            vl_review['pending_pages'] = json.loads(review_state.read_text(encoding='utf-8')).get('pending_pages', [])
         missing = sorted(int(page["page"]) for page in pages
                          if not descs.get(int(page["page"]), "").strip())
         if missing:
@@ -826,28 +852,43 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
         api, _proc = ensure_vl_server()
         if api:
             descs = describe_pages(mdir, pages, api, video)
-            if profile.kind == "media" and VL_REVIEW_MODEL and VL_REVIEW_MMPROJ:
+            if pages:
                 review_cache = json.loads((mdir / "page_desc.json").read_text(encoding="utf-8")) \
                     if (mdir / "page_desc.json").is_file() else {}
                 reviewed = {int(value) for value in review_cache.get("reviewed_pages", [])
                             if str(value).isdigit()}
-                pending_review = [page for page in media_review_candidates(pages, descs)
-                                  if int(page["page"]) not in reviewed]
+                deferred = set(review_cache.get("deferred_pages", []))
+                eligible = [page for page in pages if int(page['page']) not in reviewed
+                            and int(page['page']) not in deferred]
+                pending_review = media_review_candidates(eligible, descs, limit=len(eligible))
+                vl_review = {"candidates": len(pending_review), "reviewed": len(reviewed),
+                             "failed": 0, "model": review_cache.get("models", {}).get("review"),
+                             "pending_pages": [p['page'] for p in pending_review]}
                 if not pending_review:
                     vl_review = {"candidates": 0, "reviewed": len(reviewed), "failed": 0,
                                  "model": review_cache.get("models", {}).get("review")}
                     print(f"[meta] 疑难页视觉复核全部命中缓存({len(reviewed)} 页)", flush=True)
-                else:
+                elif VL_REVIEW_MODEL and VL_REVIEW_MMPROJ and VL_REVIEW_MAX_PAGES:
                     # 视觉复核模型与主力模型顺序驻留；先释放本函数拉起的 MiMo，给
                     # dense 27B 留出统一内存。外部常驻 VL 服务不由本进程停止。
                     stop_local_model(_proc)
                     review_api, review_proc = ensure_vl_review_server()
                     if review_api:
-                        descs, vl_review = review_media_pages(
-                            mdir, pages, descs, review_api, video)
+                        descs, result = review_media_pages(
+                            mdir, eligible, descs, review_api, video)
+                        vl_review.update(result)
+                        updated_cache = json.loads((mdir / "page_desc.json").read_text(encoding="utf-8"))
+                        complete = {int(p) for p in updated_cache.get('reviewed_pages', [])}
+                        vl_review['pending_pages'] = [p['page'] for p in pending_review if p['page'] not in complete]
                         stop_local_model(review_proc)
                         print(f"[meta] 疑难页视觉复核完成 {vl_review['reviewed']} 页"
                               f" | 本轮失败 {vl_review['failed']}", flush=True)
+                if vl_review.get('pending_pages'):
+                    print(f"[meta] {len(vl_review['pending_pages'])} 页待本地高阶视觉复核；未使用云端", flush=True)
+                review_state = mdir / 'visual_review.json'
+                temp_review = review_state.with_suffix('.tmp')
+                temp_review.write_text(json.dumps(vl_review, ensure_ascii=False, indent=1), encoding='utf-8')
+                temp_review.replace(review_state)
     if vl and not reuse_vl_cache_only:
         phase_done("visual_understanding", done=len(descs), total=len(pages), unit="pages")
         if descs:
@@ -864,6 +905,10 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
     transcript_revision = file_revision(mdir / "transcript.spk.json")
     opening, per_page = slice_turns(turns, pages)
     content_pages = [p for p in pages if per_page.get(p["page"])]
+    if profile.kind == 'media':
+        content_pages = select_visual_pages(content_pages, {}, max(0, int(os.environ.get(
+            'MEETING_MEDIA_DETAIL_MAX_PAGES', '80'))))
+    detail_selected = {p['page'] for p in content_pages}
     final_batches = 1 + (len(content_pages) + 7) // 8
     progress_event("final_minutes", done=0, total=final_batches, unit="batches")
     bank_dir = Path(os.environ.get("MEETING_WEB_BANK", mdir.parent.parent / "speaker_bank"))
@@ -930,7 +975,7 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
                        total=final_batches, unit="batches")
 
     by_page = {p["page"]: p for p in pages}
-    missing = [n for n in by_page if n not in blocks and per_page.get(n)]
+    missing = [n for n in by_page if n in detail_selected and n not in blocks and per_page.get(n)]
     if missing:  # 分组仍漏的页 → 只带缺页切片补问一次
         r_out, u3 = chat(profile.retry_prompt.format(
             evidence_rules=profile.evidence_rules,
@@ -944,7 +989,9 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
 
     n_model = len(blocks)
     part2 = "\n\n".join(
-        blocks.get(p["page"]) or f"### 第{p['page']}页 [{mmss(p['first'])}] （快速带过）"
+        blocks.get(p["page"]) or f"### 第{p['page']}页 [{mmss(p['first'])}] " + (
+            "（本轮未展开详情；截图及对应转写已保留）" if profile.kind == 'media'
+            and p['page'] not in detail_selected and per_page.get(p['page']) else "（快速带过）")
         for p in pages)
     print(f"[meta] 分页详情: 模型出 {n_model} 页 + 占位 {len(pages) - n_model} 页"
           f" | {time.time()-t0:.0f}s", flush=True)
@@ -973,6 +1020,13 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
             print(f"[meta] 精修稿{reason}, 保留原稿", flush=True)
     md = normalize_minutes_markdown(normalize_action_marker_scope(
         insert_images(body, pages, descs)))
+    unread = [p['page'] for p in pages if not descs.get(p['page'], '').strip()]
+    if vl and unread:
+        md += (f"\n> 视觉覆盖：已读取 {len(pages) - len(unread)}/{len(pages)} 页。"
+               "其余画面已保留但尚未完成视觉读取，不能据此认为没有其他视觉信息。\n")
+    if vl_review.get('pending_pages'):
+        md += (f"\n> 视觉复核：{len(vl_review['pending_pages'])} 页疑难画面待本地高阶模型复核；"
+               "相关图表读数仍需核对。\n")
     md += appendix_md(pages, descs, per_page, kind=profile.kind)
     md = append_materials_section(md, materials)
     current_transcript_revision = file_revision(mdir / "transcript.spk.json")
@@ -982,7 +1036,7 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
             _wait_transcript_stable(mdir / "transcript.spk.json")
             return generate(
                 mdir, out, vl=vl, video=video, refine_model=refine_model,
-                reuse_vl_cache_only=bool(vl), _identity_retry=_identity_retry - 1)
+                reuse_vl_cache_only=bool(vl) and not unread, _identity_retry=_identity_retry - 1)
         raise RuntimeError("transcript_changed_during_minutes_generation")
     out = Path(out) if out else mdir / "minutes.md"
     if out.exists():
@@ -1001,6 +1055,9 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
             "vl_review_model": vl_review.get("model"),
             "vl_reviewed_pages": int(vl_review.get("reviewed") or 0),
             "vl_review_failures": int(vl_review.get("failed") or 0),
+            "vl_unread_pages": unread if vl else [],
+            "vl_review_pending_pages": vl_review.get('pending_pages', []),
+            "detail_selected_pages": sorted(detail_selected),
             "generation_stage": "final",
             "overview_mode": overview_mode,
             "overview_chunks": overview_chunks,

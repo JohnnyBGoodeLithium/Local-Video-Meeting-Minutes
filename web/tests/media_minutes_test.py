@@ -60,7 +60,7 @@ review_descs = {
     5: "## 论证角色\nevidence\n## 页面内容\n复杂图表",
 }
 assert [page["page"] for page in mb.media_review_candidates(
-    review_pages, review_descs)] == [3, 1]
+    review_pages, review_descs)] == [3, 1, 5]
 assert [page["page"] for page in mb.media_review_candidates(
     review_pages, review_descs, limit=1)] == [3]
 assert mb.endpoint_has_model("Qwen3.8-27B-Q6_K.gguf", Path("/models/Qwen3.8-27B-Q6_K.gguf"))
