@@ -34,3 +34,10 @@ with tempfile.TemporaryDirectory() as tmp:
     assert result['1']['verdict']=='pending'
     assert json.loads((mdir/'visual_crosschecks.json').read_text())['pending_pages']==[1]
 print('visual crosscheck: scope/evidence validation, cache fencing and failed output stays pending')
+try:
+    vc.Check.model_validate({'page':1,'verdict':'supported','explanation':'冗长推理'*50,
+        'turn_ids':['T000001'],'importance':'normal'})
+except ValueError:
+    pass
+else:
+    raise AssertionError('unbounded explanations must not enter the evidence projection')

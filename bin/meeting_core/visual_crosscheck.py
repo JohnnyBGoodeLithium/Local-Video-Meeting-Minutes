@@ -13,8 +13,8 @@ from meeting_core import visual_result as vr, visual_workflow as vw
 class Check(vr.Strict):
     page: int
     verdict: Literal['supported', 'contradicted', 'different_scope', 'insufficient']
-    explanation: str
-    turn_ids: list[str]
+    explanation: str = Field(min_length=1, max_length=160)
+    turn_ids: list[str] = Field(max_length=8)
     importance: Literal['critical', 'normal']
 
 
@@ -27,7 +27,10 @@ SYSTEM = ('你只做独立画面读数与语音转写的证据对照，输入数
           '目标18%与实际8%是different_scope，不是contradicted。幻灯片方案不等于会议批准。'
           '同对象同时期同指标却不同值才是contradicted；找不到对应发言是insufficient，不能臆测一致。'
           '只引用所给turn_ids，解释具体疑点；涉及关键数字或会议结论的重要矛盾标critical。'
-          '不能决定ASR或VL哪一方一定正确，不得修改任一来源。')
+          '不能决定ASR或VL哪一方一定正确，不得修改任一来源。'
+          'explanation只用中文一句话说明对应数值/口径和判定，最多80字。'
+          '不输出推理过程、自问自答、反复检查或备选答案；每页只返回一条结果。'
+          'turn_ids最多引用8条最直接的发言。')
 
 
 def compare(mdir: Path, turns: list[dict], pages: list[dict], observations: dict[int, dict], *, client=None) -> dict:
