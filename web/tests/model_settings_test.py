@@ -14,6 +14,8 @@ from routers.model_settings import router
 config = {'text': {'source':'local', 'api':'http://127.0.0.1:9999/v1', 'model':'synthetic', 'minutes_model':'synthetic-final'},
           'vision': {'source':'local', 'api':'http://127.0.0.1:9998/v1', 'model':'synthetic-vision'}}
 with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {'MEETING_DATA_ROOT':tmp}):
+    with patch.dict(os.environ, {'MEETING_LLM_API':'https://example.test/v1', 'MEETING_ALLOW_REMOTE_LLM':'0'}):
+        assert not m.public_config({})['text']['allow_cloud'], 'remote address alone is not consent'
     clean = m.normalize(config, {})
     m.save_config(clean)
     assert m.config_path().stat().st_mode & 0o777 == 0o600

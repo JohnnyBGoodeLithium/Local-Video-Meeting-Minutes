@@ -25,6 +25,8 @@
 
 ## 已实现，仍在验证（Implemented, under validation）
 
+- 后台模型来源设置支持本地与显式启用的云端兼容接口、私有密钥和合成连接测试；保存后重启生效。云端调用链使用模拟接口验证，真实供应商账户和长上下文能力需按部署实测。见[模型设置](runbooks/MODEL_SETTINGS.md)。
+
 - 结构化视觉观察、独立复核、ASR 对照和固定表格渲染；共享本地文本/视觉实例与 Live 短时限工作线程。合成表格实机验证通过，复杂图表与持续 Live 仍待代表性评测。配置及迁移见[视觉处理](runbooks/VISUAL_PROCESSING.md)。
 
 - Companion 已扩展为 Phone／Tablet／Laptop 自适应 review：Home 固定 5 条最近内容，任务轮询不再夺取导航；详情提供概览、章节、人物、逐字稿四个 Tab，并共享音频／视频播放器与原文、翻译、双语字幕。Hosted Chromium 已通过；真实 iPhone／Tablet 仍待验证。

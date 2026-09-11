@@ -109,7 +109,7 @@ def public_config(value: dict) -> dict:
                 item['model'] = item['model'] or 'qwen3.6-35b-a3b-operator'
                 item['minutes_model'] = item['minutes_model'] or 'qwen3.8-27b-minutes'
             item['source'] = 'local' if urlsplit(item['api']).hostname in LOOPBACK else 'cloud'
-            item['allow_cloud'] = item['source'] == 'cloud'
+            item['allow_cloud'] = os.environ.get('MEETING_ALLOW_REMOTE_LLM' if role == 'text' else 'MEETING_ALLOW_REMOTE_VL') == '1'
         item['key_configured'] = bool(item.pop('api_key', ''))
         result[role] = item
     return result
@@ -132,7 +132,7 @@ def apply_saved_config() -> None:
         os.environ['MEETING_ALLOW_REMOTE_LLM' if role == 'text' else 'MEETING_ALLOW_REMOTE_VL'] = '1' if item['source'] == 'cloud' else '0'
     if 'vision' in value:
         import hashlib
-        identity = value['vision']['api'] + '/' + value['vision']['model']
+        identity = os.environ.get('MEETING_VL_REVISION', '') + '/' + value['vision']['api'] + '/' + value['vision']['model']
         os.environ['MEETING_VL_REVISION'] = 'settings-' + hashlib.sha256(identity.encode()).hexdigest()[:16]
     os.environ['MEETING_MODEL_SETTINGS_LOADED'] = '1'
 
