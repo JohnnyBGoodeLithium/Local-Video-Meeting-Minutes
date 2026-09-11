@@ -6,7 +6,7 @@
 
 - One appearance system across the workspace, settings, Companion, product introduction, and offline Viewer: follow system, light or dark, with four highlight colors.
 - Fixed light-theme surfaces and narrow-screen controls. Restrained motion respects reduced-motion preferences; changing appearance keeps the player in place.
-- Video images use content titles or time-based key-frame labels, including older default slide titles and translations. Source IDs remain unchanged.
+- Video images use content titles or time-based key-frame labels, including older default slide titles and translations. Reading coverage and frame classification are separate; deferred frames are not labeled as still processing. Source IDs remain unchanged.
 - Device pairing has bilingual approve/decline controls, explicit revoke confirmation, and recoverable error feedback.
 - Live is explained through user tasks, with compatibility details separated. New first-use and UX review guides cover setup through export.
 
@@ -26,7 +26,7 @@ Release gates require repository checks, isolated smoke, clean-bundle verificati
 
 - 工作台、人员设置、Companion、产品介绍和离线 Viewer 共用外观：跟随系统、浅色、深色和四种高亮色。
 - 修正浅色背景与小屏按钮；动效遵循系统减少动态效果设置，切主题保留播放器。
-- 视频图片显示内容标题或带时间的关键画面名称，兼容旧默认页标题及译文；证据编号不变。
+- 视频图片显示内容标题或带时间的关键画面名称，兼容旧默认页标题及译文；读取覆盖与画面分类分别展示，延后画面不再称仍在分析；证据编号不变。
 - 配对页提供中英批准/拒绝操作、明确的撤销确认和可恢复错误反馈。
 - Live 以用户任务说明，兼容性按需展开；补齐从部署到导出的首次使用指南与走查记录。
 

@@ -12,6 +12,7 @@ import html
 import io
 import json
 import mimetypes
+import os
 import re
 import shutil
 import subprocess
@@ -23,6 +24,8 @@ from pathlib import Path
 
 from markdown_it import MarkdownIt
 from PIL import Image
+
+from meeting_core import visual_workflow as vw
 
 from meeting_artifact import (
     build_fact_document,
@@ -604,8 +607,17 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
     duration = max((float(turn.get("end", 0)) for turn in turns), default=0)
     structure = build_structure(minutes, turns, timeline, descs, evidence, duration=duration)
     visual_by_id = {visual.get("id"): visual for visual in structure.get("visuals", [])}
+    visual_cache = vw.load(mdir / 'page_desc.json')
+    observations = vw.effective_records(mdir, pages,
+        os.environ.get('MEETING_VL_MODEL_ID') or visual_cache.get('model', ''), visual_cache)
+
     for page in evidence.get("sources", {}).get("pages", []):
         visual = visual_by_id.get(page.get("id"), {})
+        observation = observations.get(int(page.get('number') or 0))
+        page['read_status'] = vw.reading_state(int(page.get('number') or 0), observation,
+            visual_cache, legacy=bool(visual.get('display_description')))
+        if observation:
+            page['visual_kind'] = observation['kind']
         for key in ("shot", "talking_head", "content_role", "information_value",
                     "value_reason", "analysis_state", "needs_reprocess"):
             if key in visual:

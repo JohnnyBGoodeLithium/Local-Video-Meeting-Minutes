@@ -95,3 +95,5 @@ body > .topbar .brand { min-width: 0; }
 .topic-map-root { box-shadow: var(--shadow2); }
 
 .media-stage .stage-caption span, .content-stage-caption span { color: #cbd5e1; }
+
+.visual-coverage { padding: 12px 16px; margin: 0 0 12px; border-left: 3px solid var(--colorBrandForeground1); background: var(--panel2); color: var(--text); line-height: 1.7; }
