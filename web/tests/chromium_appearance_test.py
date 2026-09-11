@@ -72,6 +72,46 @@ def main():
                     cdp.evaluate("const modelFetch=window.fetch;window.__modelTest=null;window.fetch=async(url,options)=>{if(String(url).endsWith('/api/settings/models/test')){window.__modelTest=JSON.parse(options.body);return new Response(JSON.stringify({ok:true,message:'Synthetic connection passed'}));}return modelFetch(url,options);};document.querySelector('[data-test=text]').click()")
                     wait_for_page(cdp, "document.querySelector('#model-settings-status').textContent==='Synthetic connection passed'", 'synthetic model test')
                     assert cdp.evaluate('window.__modelTest.role') == 'text'
+                if name == 'server':
+                    # Exercise long synthetic data through the real bundle-loading path.
+                    fixture = json.load(urllib.request.urlopen(base + '/api/meetings/_smoke/bundle'))
+                    fixture['content_type'] = 'media'
+                    fixture['document_state'] = 'ready'
+                    fixture['topic_map'] = {'state': 'ready', 'topics': [
+                        {'id': f'topic-{i}', 'title': f'Example topic {i}', 'summary': 'Synthetic discussion',
+                         'ranges': [[i, i + 1]], 'children': [], 'claim_ids': [], 'page_ids': [], 'turn_ids': []}
+                        for i in range(60)]}
+                    original = (fixture.get('structure', {}).get('visuals') or [{}])[0]
+                    fixture.setdefault('structure', {})['visuals'] = [
+                        {**original, 'id': f'P{i:04}', 'page': i, 'kind': 'slide', 'shot': True,
+                         'title': f'Example frame {i}', 'first': i, 'last': i + 1, 'ranges': [[i, i + 1]],
+                         'content_role': 'content', 'talking_head': False}
+                        for i in range(1, 301)]
+                    for visual in fixture['structure']['visuals']:
+                        visual.pop('observation', None)
+                    fixture['structure']['visuals'][0].update(title='无', observation={'kind':'table','tables':[], 'summary':'合成设备场景，没有数据表格。','status':'partial'})
+                    fixture['structure']['visuals'][1]['observation'] = {'kind':'table','tables':[{'columns':['A'],'rows':[['1']]}], 'status':'complete'}
+                    hook = 'const fixture=' + json.dumps(fixture) + ";const realFetch=window.fetch;window.fetch=async(...args)=>{const url=String(args[0]);if(url.includes('/translations/'))return new Response(JSON.stringify({state:'ready',target_language:'zh-CN',topic_map:fixture.topic_map,pages:[]}));return url.endsWith('/bundle')?new Response(JSON.stringify(fixture),{headers:{'Content-Type':'application/json'}}):realFetch(...args);};"
+                    injection = cdp.call('Page.addScriptToEvaluateOnNewDocument', {'source': hook})
+                    cdp.call('Page.reload')
+                    wait_for_page(cdp, "!!document.querySelector('#chapters-tab:not([disabled])')", 'long fixture')
+                    cdp.evaluate("document.querySelector('#chapters-tab').click()")
+                    wait_for_page(cdp, "document.querySelectorAll('[data-topic-select]').length===60", 'many topics')
+                    cdp.evaluate("document.querySelector('[data-topic-select=topic-45]').scrollIntoView({block:'center'});window.__topicTop=document.querySelector('.topic-map-view').scrollTop")
+                    assert cdp.evaluate('window.__topicTop > 500')
+                    cdp.evaluate("document.querySelector('[data-topic-select=topic-45]').click()")
+                    time.sleep(.3)
+                    assert cdp.evaluate('Math.abs(document.querySelector(".topic-map-view").scrollTop-window.__topicTop)<5'), 'Topic expansion lost scroll position'
+                    cdp.evaluate("document.querySelector('#visuals-tab').click()")
+                    wait_for_page(cdp, "!!document.querySelector('.visual-list')", 'visual panel')
+                    assert cdp.evaluate("document.querySelector('[data-visual-filter=table]').textContent.trim().endsWith('1')"), 'Empty table candidate entered table filter'
+                    assert cdp.evaluate("document.querySelector('.visual-detail h2').textContent !== '无'"), 'Missing title not normalized'
+                    assert cdp.evaluate("document.querySelector('.visual-list').scrollHeight > document.querySelector('.visual-list').clientHeight")
+                    assert cdp.evaluate("document.querySelector('.visual-list').getBoundingClientRect().bottom <= document.querySelector('#visuals').getBoundingClientRect().bottom+1"), 'Visual list escaped panel'
+                    cdp.evaluate("document.querySelector('.visual-list').scrollTop=2000;window.__visualTop=document.querySelector('.visual-list').scrollTop")
+                    cdp.evaluate("document.querySelectorAll('[data-visual-select]')[30]?.click()")
+                    assert cdp.evaluate('Math.abs(document.querySelector(".visual-list").scrollTop-window.__visualTop)<5'), 'Frame selection lost scroll position'
+                    cdp.call('Page.removeScriptToEvaluateOnNewDocument', {'identifier': injection['identifier']})
                 if name == 'setup':
                     cdp.evaluate('''(() => {
                       const original = window.fetch.bind(window); window.__setupWrites=[];

@@ -189,7 +189,8 @@ def _visual_value(description: str, title: str, kind: str = "slide") -> dict:
         elif role in {"agenda", "cover"} or SUPPORTING_RE.search(plain):
             level = "medium"
         elif HIGH_VALUE_RE.search(plain) or len(plain) >= 260:
-            level = "high"
+            # Keywords may be negated or refer to furniture; length is not evidence.
+            level = "medium"
         elif len(plain) < 70:
             # 简短说明不等于页面没有价值。只有明确的空白/过渡/会议 UI 信号
             # 才能降为 low；旧缓存信息不足时保守保留为参考。
