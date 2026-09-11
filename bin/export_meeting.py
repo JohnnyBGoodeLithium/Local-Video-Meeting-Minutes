@@ -609,7 +609,7 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
     visual_by_id = {visual.get("id"): visual for visual in structure.get("visuals", [])}
     visual_cache = vw.load(mdir / 'page_desc.json')
     observations = vw.effective_records(mdir, pages,
-        os.environ.get('MEETING_VL_MODEL_ID') or visual_cache.get('model', ''), visual_cache)
+        os.environ.get('MEETING_VL_MODEL_ID') or visual_cache.get('model', ''), visual_cache, display=True)
 
     for page in evidence.get("sources", {}).get("pages", []):
         visual = visual_by_id.get(page.get("id"), {})
@@ -618,6 +618,10 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
             visual_cache, legacy=bool(visual.get('display_description')))
         if observation:
             page['visual_kind'] = observation['kind']
+            if observation['kind'] == 'table' and not observation['tables']:
+                page['visual_kind'] = 'unknown'
+            if observation['kind'] == 'chart' and not observation['charts']:
+                page['visual_kind'] = 'unknown'
         for key in ("shot", "talking_head", "content_role", "information_value",
                     "value_reason", "analysis_state", "needs_reprocess"):
             if key in visual:

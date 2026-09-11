@@ -2167,3 +2167,10 @@ body.page-admin { overflow: hidden; }
 .visual-observation p, .visual-observation li { overflow-wrap: anywhere; }
 .visual-read-status, .visual-unknown { color: var(--muted, #9da8ba); }
 .visual-observation details { margin: 8px 0; }
+
+/* Long visual evidence stays inside its two independently scrolling panels. */
+#visuals { display: flex; flex-direction: column; min-height: 0; }
+#visuals > .structure-layout { flex: 1; height: auto; min-height: 0; grid-template-rows: minmax(0, 1fr); overflow: hidden; }
+#visuals .structure-list, #visuals .structure-detail { min-height: 0; max-width: 100%; overflow-x: hidden; overscroll-behavior: contain; scrollbar-gutter: stable; }
+#visuals img { max-width: 100%; }
+.topic-map-view { overscroll-behavior: contain; scrollbar-gutter: stable; }

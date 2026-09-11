@@ -216,7 +216,7 @@ def get_bundle(slug: str):
     # 让屏幕内容页保持可读层级，而不是把标题/列表作为原始文本展示。
     visual_cache = vw.load(mdir / 'page_desc.json')
     visual_model = os.environ.get('MEETING_VL_MODEL_ID') or visual_cache.get('model', '')
-    observations = vw.effective_records(mdir, slides, visual_model, visual_cache)
+    observations = vw.effective_records(mdir, slides, visual_model, visual_cache, display=True)
     crosschecks = vw.load(mdir / 'visual_crosschecks.json')
     if crosschecks.get('transcript_key') != hashlib.sha256(json.dumps(transcript, ensure_ascii=False, sort_keys=True).encode()).hexdigest():
         crosschecks = {}
@@ -230,6 +230,11 @@ def get_bundle(slug: str):
             visual['observation'] = observation
             visual['title'] = observation['title'] or visual.get('title')
             visual['read_status'] = observation['status']
+            # Structural completion and text keywords are not semantic value judgments.
+            if visual.get('value_source') == 'heuristic':
+                visual.update(information_value='unknown', value_label='未评估',
+                              value_source='unavailable',
+                              value_reason='已提供画面解读；信息价值尚未独立评估。')
             visual['description_html'] = vr.render_html(observation)
             check = crosschecks.get('checks', {}).get(str(visual.get('page')), {})
             if check.get('observation_hash') == hashlib.sha256(json.dumps(observation, sort_keys=True).encode()).hexdigest():

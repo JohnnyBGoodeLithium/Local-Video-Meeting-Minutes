@@ -14,7 +14,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 SCHEMA = 'visual-result/v1'
-PROMPT_VERSION = '2026-09-11.2'
+PROMPT_VERSION = '2026-09-11.3'
 
 
 class Strict(BaseModel):
@@ -162,6 +162,8 @@ def prompt(mode: str, *, compact: bool = False, question: str = '') -> str:
     return (f'独立读取这张{scene}，不要参考或推测语音内容。输出符合给定schema的JSON，不要思考过程。'
             '所有字符串保留图中文字原文语言；summary和解释使用中文。空集合写[]，未知数值写null。'
             'facts保留对象、时期、单位与目标/预测/实际限定；14%记录value=14,unit="%"，不能写0.14。'
+            'kind=table仅指按行列组织的数据表格，不指家具桌子、桌面、工作台。机械臂、设备或实物展示通常为scene。'
+            '分类必须与summary和可见结构一致；画面无数据表格时，不填写表格未读取。没有可见标题时title写空字符串，不写无或None。'
             '表格保留行列和脚注，缺单元格用null；图表保留轴、单位、图例、系列及脚注。'
             '明确印出的读数basis=printed，由坐标估读用estimated；看不清用unreadable，不可补造。'
             'region为原图归一化边界left/top/right/bottom，不确定位置用null。'
@@ -186,9 +188,9 @@ def file_stamp(path: str | Path | None) -> dict:
         return {'name': p.name, 'missing': True}
 
 
-def cache_key(image: Path, producer: dict, mode: str) -> str:
+def cache_key(image: Path, producer: dict, mode: str, *, prompt_version: str | None = None) -> str:
     body = {'image': hashlib.sha256(image.read_bytes()).hexdigest(), 'producer': producer,
-            'mode': mode, 'schema': SCHEMA, 'prompt': PROMPT_VERSION}
+            'mode': mode, 'schema': SCHEMA, 'prompt': prompt_version or PROMPT_VERSION}
     return hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()
 
 

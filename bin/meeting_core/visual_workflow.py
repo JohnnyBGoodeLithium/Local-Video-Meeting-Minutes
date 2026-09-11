@@ -63,7 +63,7 @@ def mode(page: dict) -> str:
     return 'media' if page.get('shot') else 'meeting'
 
 
-def valid_records(mdir: Path, pages: list[dict], model: str, cache: dict) -> dict[int, dict]:
+def valid_records(mdir: Path, pages: list[dict], model: str, cache: dict, *, display: bool = False) -> dict[int, dict]:
     result = {}
     for page in pages:
         if not str(page.get('page', '')).isdigit() or not page.get('image'):
@@ -71,7 +71,14 @@ def valid_records(mdir: Path, pages: list[dict], model: str, cache: dict) -> dic
         key = str(page['page']); record = cache.get('records', {}).get(key, {})
         image = mdir / 'slides' / page['image']
         try:
-            expected = vr.cache_key(image, producer(model), mode(page))
+            current = producer(model)
+            stored = record.get('producer', {})
+            version = None
+            if display and isinstance(stored, dict) and stored.get('prompt'):
+                if {k: v for k, v in stored.items() if k != 'prompt'} == {k: v for k, v in current.items() if k != 'prompt'}:
+                    current = stored
+                    version = stored['prompt']
+            expected = vr.cache_key(image, current, mode(page), prompt_version=version)
             if record.get('key') == expected:
                 result[int(key)] = vr.validate(record['observation'])
         except (OSError, ValueError, KeyError, TypeError):
@@ -147,13 +154,18 @@ def reconcile(primary: dict, review: dict, *, crop=False) -> tuple[dict, str]:
     return review, 'resolved'
 
 
-def effective_records(mdir: Path, pages: list[dict], model: str, cache: dict) -> dict[int, dict]:
-    records = valid_records(mdir, pages, model, cache)
+def effective_records(mdir: Path, pages: list[dict], model: str, cache: dict, *, display: bool = False) -> dict[int, dict]:
+    records = valid_records(mdir, pages, model, cache, display=display)
     for n in list(records):
         entry = cache.get('reviews', {}).get(str(n), {})
         base = cache.get('records', {}).get(str(n), {})
         review_id = os.environ.get('MEETING_VL_REVIEW_MODEL_ID') or entry.get('producer', {}).get('model', '')
-        if entry and entry.get('producer') != producer(review_id, review=True):
+        expected_review = producer(review_id, review=True)
+        stored_review = entry.get('producer', {})
+        if display and isinstance(stored_review, dict):
+            expected_review = {k: v for k, v in expected_review.items() if k != 'prompt'}
+            stored_review = {k: v for k, v in stored_review.items() if k != 'prompt'}
+        if entry and stored_review != expected_review:
             continue
         if entry.get('primary_key') == base.get('key') and entry.get('state') in {'resolved', 'partial'}:
             try:
