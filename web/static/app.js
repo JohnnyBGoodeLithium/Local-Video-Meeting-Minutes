@@ -1,46 +1,46 @@
 import { contentTypeOf, safeSourceUrl }
-  from "./modules/media-source.js?v=20260911p123";
+  from "./modules/media-source.js?v=20260911p124";
 import { buildUploadFormData, enqueueMediaUrl, isSingleLocalVideo }
-  from "./modules/imports.js?v=20260911p123";
+  from "./modules/imports.js?v=20260911p124";
 import { jobDisplayName, jobTaskLabel, selectJobPanel }
-  from "./modules/jobs.js?v=20260911p123";
+  from "./modules/jobs.js?v=20260911p124";
 import { jobPresentation }
-  from "./modules/job-progress.js?v=20260911p123";
+  from "./modules/job-progress.js?v=20260911p124";
 import { closeJobSheet, renderCompactJob, renderJobSheet, renderProcessingBanner }
-  from "./modules/job-progress-view.js?v=20260911p123";
+  from "./modules/job-progress-view.js?v=20260911p124";
 import { chooseInitialItem, deepLinkSeconds, filterLibrary, sortLibrary }
-  from "./modules/library.js?v=20260911p123";
+  from "./modules/library.js?v=20260911p124";
 import { adjacentReviewUnit, defaultReviewUnits, nearestReviewUnit,
   reviewIndexesFor, reviewUnitForTurn as findReviewUnitForTurn, turnEnd }
-  from "./modules/player-navigation.js?v=20260911p123";
+  from "./modules/player-navigation.js?v=20260911p124";
 import { nextSearchCursor, pendingReviewByTurn, transcriptSearchHits }
-  from "./modules/transcript.js?v=20260911p123";
+  from "./modules/transcript.js?v=20260911p124";
 import { renderTranscriptView }
-  from "./modules/transcript-view.js?v=20260911p123";
+  from "./modules/transcript-view.js?v=20260911p124";
 import { availableViewerMedia, exportSizeState, formatBytes, meetingExportHref, normalizeExportProfile,
   packExportHref }
-  from "./modules/export.js?v=20260911p123";
+  from "./modules/export.js?v=20260911p124";
 import { claimAction, claimIdsForTurn, evidenceSources, minutesState, normalizeReviewMode,
   resolveMinutesView, turnIndexAtTime, turnIndexesForSourceIds }
-  from "./modules/minutes.js?v=20260911p123";
+  from "./modules/minutes.js?v=20260911p124";
 import { renderMinutesView }
-  from "./modules/minutes-view.js?v=20260911p123";
+  from "./modules/minutes-view.js?v=20260911p124";
 import { beginExampleSelection, beginIdentity, buildCorrectionApplyPayload,
   correctionSummary, createSpeakerCorrectionState, representativeTurns,
   resetSpeakerCorrection, setGroupAssignment, setIncludeSuggested, setPreview,
   toggleExample, withCorrectionError }
-  from "./modules/speaker-correction.js?v=20260911p123";
+  from "./modules/speaker-correction.js?v=20260911p124";
 import { renderCorrectionSheet, renderIdentityPopover }
-  from "./modules/speaker-correction-view.js?v=20260911p123";
+  from "./modules/speaker-correction-view.js?v=20260911p124";
 import { beginPhotoImport, createPhotoImportState, hydratePhotoCaptureTimes,
   markPhotoImportResult, photoUploadSpec, releasePhotoImport, removePhotoImportItem,
   setPhotoMeetingStart, setPhotoPositionMode, togglePhotoTimeSettings,
   withPhotoImportBusy, withPhotoImportError, formatPhotoBytes }
-  from "./modules/photo-import.js?v=20260911p123";
+  from "./modules/photo-import.js?v=20260911p124";
 import { renderPhotoImport }
-  from "./modules/photo-import-view.js?v=20260911p123";
+  from "./modules/photo-import-view.js?v=20260911p124";
 import { mountLiveContext }
-  from "./modules/live-context-view.js?v=20260911p123";
+  from "./modules/live-context-view.js?v=20260911p124";
 
 /* 会议列表 + 回顾工作台（装配入口；领域规则逐步迁往 modules/） */
 "use strict";
@@ -1347,7 +1347,7 @@ function topicColor(index) {
 }
 const VISUAL_VALUE_LABELS = {
   "zh-CN": { high: "核心", medium: "参考", low: "低信息", unknown: "待解析" },
-  en: { high: "Key", medium: "Reference", low: "Low information", content: "Content", cover: "Title", agenda: "Agenda", chart: "Chart", table: "Table", unknown: "Unclassified" },
+  en: { high: "Key", medium: "Reference", low: "Low information", content: "Content", cover: "Title", agenda: "Agenda", chart: "Chart", table: "Table", unknown: "Not assessed" },
 };
 
 function visualValueLabel(visual) {
@@ -3131,10 +3131,11 @@ function visualReadingCopy(visual) {
     || visualTitleCandidate(visual?.description)
     || (isEnglishUi() ? "Screen content" : "屏幕内容");
   if ((isMediaContent() || visual?.shot) && /^(?:第\s*\d+\s*页(?:屏幕内容)?|Screen(?: content)?(?:\s+\d+)?|Page\s+\d+|屏幕内容|关键画面\s*·.*)$/i.test(title)) title = visualLocationLabel(visual);
-  const rawSummary = normalizeVisualText(translated?.summary);
+  if (/^(无|暂无|none|null|n\/a)$/i.test(title)) title = visualLocationLabel(visual);
+  const rawSummary = normalizeVisualText(visual?.observation?.summary || translated?.summary);
   return {
     title,
-    summary: new RegExp(`#{1,5}\\s*${VISUAL_PROTOCOL_HEADING}\\b`, "i").test(rawSummary)
+    summary: new RegExp(`#{1,5}\\s*${VISUAL_PROTOCOL_HEADING}(?=\\s|$)`, "i").test(rawSummary)
       ? "" : rawSummary,
   };
 }
@@ -3345,7 +3346,7 @@ function topicNodeLabel(type, fallback = null) {
 function revealTopic(topicId, behavior = "smooth") {
   requestAnimationFrame(() => {
     const branch = $(`.topic-map-branch[data-topic-branch="${topicId}"]`);
-    scrollInside($("#chapters"), branch, "center", behavior === "smooth");
+    scrollInside($("#chapters .topic-map-view"), branch, "center", behavior === "smooth");
   });
 }
 
@@ -3446,6 +3447,8 @@ async function startTopicMapGeneration(button) {
 
 function renderChapters() {
   const box = $("#chapters");
+  const previousScroll = box.dataset.meeting === state.slug ? (box.querySelector(".topic-map-view")?.scrollTop || 0) : 0;
+  box.dataset.meeting = state.slug || "";
   const topicMap = readingTopicMap();
   const topics = topicMap.topics || [];
   if (state.bundle?.document_state === "draft") {
@@ -3516,14 +3519,12 @@ function renderChapters() {
     const topic = topics.find(item => item.id === button.dataset.topicSelect);
     setTopicFocus(topic, topic);
     renderChapters();
-    revealTopic(state.selectedTopicId);
   });
   $$('[data-topic-child]', box).forEach(button => button.onclick = () => {
     const topic = topics.find(item => item.id === button.dataset.topicParent);
     const child = (topic?.children || []).find(item => item.id === button.dataset.topicChild);
     setTopicFocus(topic, child);
     renderChapters();
-    revealTopic(state.selectedTopicId);
   });
   $("#topic-map-overview", box).onclick = () => { setOverviewFocus(); renderChapters(); };
   $$('[data-overview-target="minutes"]', box).forEach(button => button.onclick = () => setReviewMode("minutes"));
@@ -3533,6 +3534,8 @@ function renderChapters() {
     openVisual(button.dataset.visualId));
   $("#topic-map-refresh", box).onclick = event => startTopicMapGeneration(event.currentTarget);
   wireStructureClaims(box);
+  const scrollView = box.querySelector(".topic-map-view");
+  if (scrollView) scrollView.scrollTop = previousScroll;
   $$(".tl-chapter.selected").forEach(item => item.classList.remove("selected"));
   $$(`.tl-chapter[data-topic-id="${state.selectedTopicId}"]`).forEach(item => item.classList.add("selected"));
   updateActiveChapter(player()?.currentTime || 0);
@@ -3556,7 +3559,10 @@ const MEDIA_VISUAL_ROLE_LABELS = {
 
 function mediaVisualRole(visual) {
   if (visual?.talking_head) return "context";
-  if (["chart", "table"].includes(visual?.observation?.kind)) return visual.observation.kind;
+  const observation = visual?.observation;
+  if (observation?.kind === "table" && observation.tables?.some(table => table.columns?.length && table.rows?.length)) return "table";
+  if (observation?.kind === "chart" && observation.charts?.length) return "chart";
+  if (["table", "chart"].includes(observation?.kind)) return "unknown";
   const role = String(visual?.content_role || "unknown");
   return ["evidence", "demo", "context", "transition", "blank", "content", "cover", "agenda"].includes(role)
     ? role : "unknown";
@@ -3675,7 +3681,7 @@ function mediaVisualList(visuals, selected) {
   }).join("");
 }
 
-function renderVisuals(preserveListScroll = false) {
+function renderVisuals(preserveListScroll = true) {
   const box = $("#visuals");
   if (!state.bundle) {
     box.innerHTML = `<p class="placeholder">${isEnglishUi()
@@ -3684,7 +3690,12 @@ function renderVisuals(preserveListScroll = false) {
   }
   // 点选卡片会整棵重建 DOM，先记住左侧列表滚动位置，渲染后恢复，
   // 否则点第 N 页时列表会跳回顶部。
-  const prevListScroll = preserveListScroll
+  const sameMeeting = box.dataset.meeting === state.slug;
+  box.dataset.meeting = state.slug || "";
+  const previousDetail = box.querySelector(".visual-detail")?.scrollTop || 0;
+  const previousSelection = box.dataset.selection;
+  const collapsedGroups = [...box.querySelectorAll(".media-visual-section")].map(group => group.open);
+  const prevListScroll = preserveListScroll && sameMeeting
     ? (box.querySelector(".visual-list")?.scrollTop || 0) : 0;
   const allVisuals = state.bundle?.structure?.visuals || [];
   const media = contentTypeOf(state.bundle) === "media";
@@ -3845,6 +3856,14 @@ function renderVisuals(preserveListScroll = false) {
   $$('[data-preview-visual]', box).forEach(image =>
     image.onclick = () => openScreenPreview(image.dataset.previewVisual));
   wireStructureClaims(box);
+  if (sameMeeting && previousSelection === state.selectedVisualId) {
+    const detail = box.querySelector(".visual-detail");
+    if (detail) detail.scrollTop = previousDetail;
+  }
+  box.dataset.selection = state.selectedVisualId || "";
+  if (sameMeeting && preserveListScroll) box.querySelectorAll(".media-visual-section").forEach((group, index) => {
+    if (index < collapsedGroups.length) group.open = collapsedGroups[index];
+  });
   if (prevListScroll) {
     const list = box.querySelector(".visual-list");
     if (list) list.scrollTop = prevListScroll;

@@ -86,3 +86,23 @@ with tempfile.TemporaryDirectory() as tmp:
     assert cached['reviews']['1']['state']=='partial'
     assert 1 not in cached['reviewed_pages'] and stats['pending_pages']==[1]
 print('visual contract: schema, cache invalidation, independent review and escaped rendering passed')
+
+# Data tables and furniture must be distinguished in the model instruction.
+for mode in ("meeting", "media"):
+    assert "家具桌子" in vr.prompt(mode)
+
+# A prompt refinement does not hide previous source-bound observations from readers,
+# but a new inference run cannot pretend that old observations used the new prompt.
+with tempfile.TemporaryDirectory() as tmp:
+    d = Path(tmp); (d / 'slides').mkdir(); (d / 'slides/one.jpg').write_bytes(b'synthetic')
+    old = {**vw.producer('example'), 'prompt': 'older-prompt'}
+    cache = {'records': {'1': {'producer': old, 'key': vr.cache_key(d/'slides/one.jpg', old, 'media', prompt_version='older-prompt'), 'observation': observation()}}}
+    assert not vw.valid_records(d, pages, 'example', cache)
+    assert vw.valid_records(d, pages, 'example', cache, display=True)
+    cache['reviews'] = {'1': {'producer': {**vw.producer('review', review=True), 'prompt': 'older-prompt'}, 'primary_key': cache['records']['1']['key'], 'state': 'resolved', 'effective': observation(summary='Historical independent review')}}
+    assert vw.effective_records(d, pages, 'example', cache, display=True)[1]['summary'] == 'Historical independent review'
+    (d / 'slides/one.jpg').write_bytes(b'changed-image')
+    assert not vw.valid_records(d, pages, 'example', cache, display=True)
+
+from meeting_structure import _visual_value
+assert _visual_value("场景中没有数据、图表或表格，不能读取行列。", "设备展示")["information_value"] != "high"
