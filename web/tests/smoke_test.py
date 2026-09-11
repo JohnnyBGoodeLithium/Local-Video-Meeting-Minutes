@@ -1535,7 +1535,7 @@ check("已经使用本地 ASR 的纯音频旧会议也允许重新转写",
 # 12. regen（dry-run）
 # Legacy descriptions remain readable but do not qualify for strict cache reuse.
 s, _, legacy_sync = req("POST", "/api/meetings/_smoke/sync_minutes")
-check("旧视觉描述不能冒充当前结构化缓存", s == 400)
+check("旧视觉描述不能冒充当前结构化缓存", s == 409 and '画面资料不完整' in legacy_sync.get('detail', ''))
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'bin'))
 from meeting_core import visual_workflow as vw, visual_result as vr
