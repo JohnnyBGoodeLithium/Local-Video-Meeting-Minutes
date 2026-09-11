@@ -35,6 +35,10 @@ assert.deepEqual(availableOutputLabels(progress, "en"), [
 const zh = jobPresentation(job, "Synthetic Review", "zh-CN", "处理虚构会议 · 完整分析");
 assert.match(zh.headline, /语音草稿已就绪/);
 assert.match(zh.detail, /完整结果 预计还需 18–26 分钟/);
+const phaseEstimate = structuredClone(job);
+phaseEstimate.progress.estimated_remaining.scope = "current_phase";
+assert.match(jobPresentation(phaseEstimate, "Synthetic", "zh-CN").detail, /当前阶段 预计还需/);
+assert.doesNotMatch(jobPresentation(phaseEstimate, "Synthetic", "zh-CN").detail, /完整结果/);
 assert.equal(zh.taskLabel, "处理虚构会议 · 完整分析");
 assert.equal(zh.ratio, 1 / 3);
 const en = jobPresentation(job, "Synthetic Review", "en");

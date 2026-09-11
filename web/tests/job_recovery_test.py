@@ -19,7 +19,7 @@ with tempfile.TemporaryDirectory(prefix="meeting-recovery-") as tmp:
 
     from job_recovery import (build_fast_sync_command, build_visual_upgrade_command,
                               meeting_dir_for_job, preemption_resume_spec, recovery_plan,
-                              visual_cache_coverage)  # noqa: E402
+                              visual_cache_coverage, build_minutes_command)  # noqa: E402
     from teams_minutes import slugify  # noqa: E402
 
     meeting = root / "meetings" / "synthetic"
@@ -96,12 +96,27 @@ with tempfile.TemporaryDirectory(prefix="meeting-recovery-") as tmp:
     vw.save(meeting / 'page_desc.json', {'model': 'test', 'records': {'1': {
         'key': vr.cache_key(image, vw.producer('test'), 'meeting'), 'observation': observation()}}})
     coverage = visual_cache_coverage(meeting)
-    assert coverage == {"required": 1, "available": 1, "missing": [], "complete": True}
+    assert coverage == {"required": 1, "available": 1, "missing": [], "complete": True,
+                        "budget_complete": False}
     fast = build_fast_sync_command(meeting)
     assert "--reuse-vl-cache-only" in fast and "--skip-topic-map" in fast
     assert "--video" not in fast
     cached_upgrade = build_visual_upgrade_command(meeting)
     assert "--reuse-vl-cache-only" in cached_upgrade and "--video" not in cached_upgrade
+
+    vw.save(meeting / 'slides.json', [
+        {'page': 1, 'first': 0, 'image': 'page_001.jpg', 'shot': True},
+        {'page': 2, 'first': 10, 'image': 'page_002.jpg', 'shot': True}])
+    (meeting / 'slides/page_002.jpg').write_bytes(b'deferred synthetic image')
+    vw.save(meeting / 'page_desc.json', {'model': 'test', 'deferred_pages': [2], 'records': {'1': {
+        'key': vr.cache_key(image, vw.producer('test'), 'media'), 'observation': observation()}}})
+    assert visual_cache_coverage(meeting)['budget_complete']
+    assert not visual_cache_coverage(meeting)['complete']
+    assert '--reuse-vl-budget-only' in build_minutes_command(meeting, resume_visual_pass=True)
+    assert '--reuse-vl-budget-only' not in build_minutes_command(meeting)
+    image.write_bytes(b'changed source image')
+    assert not visual_cache_coverage(meeting)['budget_complete']
+    assert '--reuse-vl-budget-only' not in build_minutes_command(meeting, resume_visual_pass=True)
 
     audio_meeting = root / "meetings" / "synthetic-audio"
     audio_meeting.mkdir()

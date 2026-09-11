@@ -1,4 +1,4 @@
-import { DEMO_STATES } from "./product-copy.js?v=20260911p121";
+import { DEMO_STATES } from "./product-copy.js?v=20260911p122";
 
 const DEFAULT_SELECTION = Object.freeze({meeting: "maya", video: "thermal"});
 const SUPPORTED_LANGUAGES = new Set(["zh-CN", "en"]);

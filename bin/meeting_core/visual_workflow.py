@@ -85,6 +85,20 @@ def summaries(mdir: Path, pages: list[dict]) -> dict[int, dict]:
     return {n: vr.summary_context(v) for n, v in effective_records(mdir, pages, model, cache).items()}
 
 
+def completed_budget_pass(pages: list[dict], available: dict, cache: dict) -> bool:
+    """A completed bounded media pass may resume synthesis without extending it."""
+    deferred = cache.get('deferred_pages')
+    if not isinstance(deferred, list) or any(type(n) is not int for n in deferred):
+        return False
+    if any(not isinstance(p, dict) or type(p.get('page')) is not int for p in pages):
+        return False
+    required = {p['page'] for p in pages}
+    deferred = set(deferred)
+    media = {int(p['page']) for p in pages if p.get('shot')}
+    selected = required - deferred
+    return bool(selected) and deferred <= media and selected <= set(available)
+
+
 def _facts(value):
     return value.get('facts', []) + [p for c in value.get('charts', []) for s in c['series'] for p in s['points']]
 

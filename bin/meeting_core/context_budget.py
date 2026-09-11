@@ -40,6 +40,19 @@ class ContextBudget:
     output_tokens: int = 8192
     safety_tokens: int = 4096
 
+    @classmethod
+    def for_model(cls, model: str | None, *, output_tokens: int = 8192,
+                  safety_tokens: int = 4096) -> 'ContextBudget':
+        """Configured per-request capacity, not the server's total across slots."""
+        overrides = json.loads(os.environ.get('MEETING_LLM_CONTEXT_BY_MODEL', '{}'))
+        if not isinstance(overrides, dict):
+            raise ValueError('MEETING_LLM_CONTEXT_BY_MODEL must be a JSON object')
+        window = overrides.get(model, DEFAULT_CONTEXT_WINDOW)
+        if type(window) is not int or window < 1024:
+            raise ValueError('model context capacity must be an integer >= 1024')
+        return cls(context_window=window, output_tokens=output_tokens,
+                   safety_tokens=safety_tokens)
+
     @property
     def input_tokens(self) -> int:
         return max(1024, self.context_window - self.output_tokens - self.safety_tokens)

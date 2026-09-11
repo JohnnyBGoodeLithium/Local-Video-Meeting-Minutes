@@ -84,3 +84,66 @@ assert all(call[1]["max_tokens"] == 1400 for call in client.calls[:-1])
 assert result.content.startswith("## 总体摘要")
 
 print(f"Minutes overview: long multimodal context split into {result.chunks} chunks")
+
+# A bounded retry uses original evidence, never the truncated candidate.
+from meeting_core.llm import LLMTruncatedError, LLMResponseError
+from meeting_core.minutes_overview import _complete_with_guard
+
+class TruncatingClient:
+    def __init__(self, failures=1):
+        self.calls = []
+        self.failures = failures
+
+    def complete(self, prompt, **kwargs):
+        self.calls.append((prompt, kwargs))
+        if len(self.calls) <= self.failures:
+            raise LLMTruncatedError('synthetic truncation')
+        return Completion('完整合成笔记 T000001', {}, 0.1)
+
+retry_client = TruncatingClient()
+assert _complete_with_guard(retry_client, '原始合成证据 T000001', max_tokens=1400).content
+assert [c[1]['max_tokens'] for c in retry_client.calls] == [1400, 2800]
+assert retry_client.calls[0][0] == retry_client.calls[1][0]
+failing = TruncatingClient(10)
+try:
+    _complete_with_guard(failing, '合成证据', max_tokens=1400)
+    raise AssertionError('truncated output accepted')
+except LLMResponseError:
+    assert len(failing.calls) == 2
+
+from copy import deepcopy
+from meeting_core.minutes_overview import synthesis_context
+
+raw = {'pages': [{'id': 'P0001', 'number': 1, 'first': 3.0,
+    'ranges': [[3.0, 8.0]], 'visual_summary': '虚构预测', 'visual_observation': {
+        'summary': '虚构预测', 'facts': [{'raw_value': '12%', 'unit': '%',
+            'qualifier': '预测，非实际', 'region': {'left': 0.1}}],
+        'tables': [{'rows': [['甲', None]], 'notes': ['缺失单元格待核']}],
+        'table_notes': ['缺失单元格待核'], 'chart_notes': ['独立补充，必须保留'],
+        'unresolved': [{'question': '两处单位矛盾', 'region': None}],
+    }}]}
+before = deepcopy(raw)
+compact = synthesis_context(raw)
+assert raw == before and synthesis_context(compact) == compact
+page = compact['pages'][0]
+assert page['id'] == 'P0001' and page['first'] == 3.0
+assert 'ranges' not in page and 'visual_summary' not in page
+obs = page['visual_observation']
+assert obs['facts'] == [{'raw_value': '12%', 'unit': '%', 'qualifier': '预测，非实际'}]
+assert obs['tables'] == raw['pages'][0]['visual_observation']['tables']
+assert obs['unresolved'] == [{'question': '两处单位矛盾'}]
+assert 'table_notes' not in obs and obs['chart_notes'] == ['独立补充，必须保留']
+
+from unittest.mock import patch
+from meeting_core.context_budget import ContextBudget, DEFAULT_CONTEXT_WINDOW
+with patch.dict('os.environ', {'MEETING_LLM_CONTEXT_BY_MODEL': '{"synthetic-final":131072}'}):
+    final_budget = ContextBudget.for_model('synthetic-final')
+    assert final_budget.context_window == 131072
+    assert final_budget.input_tokens == 131072 - 8192 - 4096
+    assert ContextBudget.for_model('synthetic-fast').context_window == DEFAULT_CONTEXT_WINDOW
+with patch.dict('os.environ', {'MEETING_LLM_CONTEXT_BY_MODEL': '{"synthetic-final":true}'}):
+    try:
+        ContextBudget.for_model('synthetic-final')
+        raise AssertionError('invalid capacity accepted')
+    except ValueError:
+        pass
