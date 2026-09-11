@@ -393,7 +393,8 @@ def _complete_with_guard(client: LocalLLMClient, prompt: str, *,
     except LLMTruncatedError:
         # Retry from original evidence, never from the truncated candidate.
         expanded = min(max_tokens * 2, 12288)
-        if expanded <= max_tokens or not ContextBudget(output_tokens=expanded).fits(prompt + system):
+        if expanded <= max_tokens or not ContextBudget.for_model(
+                getattr(client, 'model', None), output_tokens=expanded).fits(prompt + system):
             raise
         print('[minutes] 输出预算不足，基于原始输入重试一次', file=sys.stderr)
         max_tokens = expanded
@@ -534,7 +535,7 @@ def generate(context: dict, policy: dict, evidence_rules: str, *,
         "draft_checklist": _compact(draft_checklist),
     }
     reduce_prompt = reduce_prompt_t.format(**common, notes="\n".join(notes))
-    budget = ContextBudget(output_tokens=max_tokens)
+    budget = ContextBudget.for_model(getattr(client, 'model', None), output_tokens=max_tokens)
     if not budget.fits(reduce_prompt):
         empty = reduce_prompt_t.format(**common, notes="")
         available = max(1024, budget.input_tokens - estimate_text_tokens(empty) - 512)

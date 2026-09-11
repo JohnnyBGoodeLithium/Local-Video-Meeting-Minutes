@@ -909,7 +909,7 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
         policy=json.dumps(CONCLUSION_POLICY, ensure_ascii=False, indent=2),
         context=context_json,
     )
-    if ContextBudget(output_tokens=8192).fits(summary_prompt):
+    if ContextBudget.for_model(MODEL, output_tokens=8192).fits(summary_prompt):
         # 直出与 map/reduce 共用同一套退化/章节/待办合规护栏（notes 传完整上下文供修复轮引用）。
         completion = overview_direct(summary_prompt, context_json, profile)
         part1 = clean_model_text(completion.content)

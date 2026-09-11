@@ -133,3 +133,17 @@ assert obs['facts'] == [{'raw_value': '12%', 'unit': '%', 'qualifier': '预测�
 assert obs['tables'] == raw['pages'][0]['visual_observation']['tables']
 assert obs['unresolved'] == [{'question': '两处单位矛盾'}]
 assert 'table_notes' not in obs and obs['chart_notes'] == ['独立补充，必须保留']
+
+from unittest.mock import patch
+from meeting_core.context_budget import ContextBudget, DEFAULT_CONTEXT_WINDOW
+with patch.dict('os.environ', {'MEETING_LLM_CONTEXT_BY_MODEL': '{"synthetic-final":131072}'}):
+    final_budget = ContextBudget.for_model('synthetic-final')
+    assert final_budget.context_window == 131072
+    assert final_budget.input_tokens == 131072 - 8192 - 4096
+    assert ContextBudget.for_model('synthetic-fast').context_window == DEFAULT_CONTEXT_WINDOW
+with patch.dict('os.environ', {'MEETING_LLM_CONTEXT_BY_MODEL': '{"synthetic-final":true}'}):
+    try:
+        ContextBudget.for_model('synthetic-final')
+        raise AssertionError('invalid capacity accepted')
+    except ValueError:
+        pass

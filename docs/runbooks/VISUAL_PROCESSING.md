@@ -24,6 +24,8 @@ MEETING_VL_PAGE_TIMEOUT=120
 
 推理服务的同一模型配置必须包含 model 和 mmproj；应用不会给外部服务热加投影器。文本与视觉都调用同一实例才节约第二份权重；权重驻留、KV 前缀缓存与已读取的证据结果缓存是不同层。独立图片请求不把上一张模型答案作为事实输入。
 
+上下文预算必须按每个请求槽位配置。llama-server 的总 `ctx-size` 可能被 `parallel` 平分，应核对模型 `/props` 的实际 `n_ctx`。`MEETING_LLM_CONTEXT_SIZE` 是默认单请求容量；不同模型可用 `MEETING_LLM_CONTEXT_BY_MODEL='{"your-final-model-alias":131072}'` 覆盖纪要预算。提高窗口后仍预留输出和安全空间，并验证内存、健康端点及真实请求；不要把服务总容量当成每槽容量。
+
 按需复核使用 `MEETING_VL_REVIEW_MODEL`、`MEETING_VL_REVIEW_MMPROJ`；仅未读项、关键来源分歧或明确请求触发，优先裁剪疑难区域。默认每轮最多 12 页/120 秒，耗尽后保留待核。模型参数更多不自动意味着更准确，启用前用代表性困难图表比较。
 
 ## 预算与场景
