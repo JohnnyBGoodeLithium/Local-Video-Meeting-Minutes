@@ -2,7 +2,7 @@
 # 当前状态
 
 - 更新时间：2026-09-11
-- 产品版本：v0.16.3
+- 产品版本：v0.16.4
 - 正式分发：发布记录、可下载制品与校验和以 [GitHub Releases](https://github.com/JohnnyBGoodeLithium/Local-Video-Meeting-Minutes/releases) 为准
 - 发布验证：正式发布按不可移动 tag 校验版本元数据、完整 CI 与全新目录 bundle smoke
 - Web 构建号：20260911p123
