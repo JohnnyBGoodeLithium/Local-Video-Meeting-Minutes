@@ -74,6 +74,9 @@ export function normalizeLiveWorkspace(value) {
     session,
     frames: (Array.isArray(value?.frames) ? value.frames : []).map(f => ({
       id: String(f.id || ""), at: Math.max(0, Number(f.at) || 0),
+      visualState: String(f.visual_state || 'pending'),
+      visualSummary: String(f.visual_summary || ''),
+      unresolved: Array.isArray(f.unresolved) ? f.unresolved.map(String) : [],
     })),
     recording: value?.recording || { state: "recording", segments: [], gaps: [] },
     source: {

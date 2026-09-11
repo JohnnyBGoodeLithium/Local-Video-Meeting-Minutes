@@ -27,7 +27,9 @@ markdown-it-py==4.2.0
 mdurl==0.1.2
     # via markdown-it-py
 pydantic==2.13.5
-    # via fastapi
+    # via
+    #   fastapi
+    #   local-meeting-minutes (pyproject.toml)
 pydantic-core==2.46.5
     # via pydantic
 python-multipart==0.0.32

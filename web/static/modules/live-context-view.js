@@ -247,7 +247,11 @@ export function mountLiveContext(root = document, { request = fetch, pollEvery =
     root.querySelector("#live-frames").innerHTML = (projected?.frames || []).map(f =>
       `<button type="button" data-live-at="${f.at}" title="${escapeHtml(formatDuration(f.at))}">`
       + `<img loading="lazy" style="width:100%" src="${assets}/frame/${encodeURIComponent(f.id)}" alt="${escapeHtml(formatDuration(f.at))}">`
-      + `<span>${escapeHtml(formatDuration(f.at))}</span></button>`).join("");
+      + `<span>${escapeHtml(formatDuration(f.at))} · ${escapeHtml(({read: zh ? '初读完成' : 'Read',
+        pending_review: zh ? '待复核' : 'Review needed', failed: zh ? '待读取' : 'Pending',
+        deferred_after_live: zh ? '结束后补读' : 'Read after live'})[f.visualState] || (zh ? '待读取' : 'Pending'))}</span>`
+      + `<span>${escapeHtml(f.visualSummary || '')}</span>`
+      + (f.unresolved.length ? `<span>${escapeHtml(f.unresolved.join('；'))}</span>` : '') + '</button>').join("");
     root.querySelectorAll("[data-live-at]").forEach(button => {
       button.onclick = () => {
         if (ready) { replay.currentTime = Number(button.dataset.liveAt); replay.focus(); }

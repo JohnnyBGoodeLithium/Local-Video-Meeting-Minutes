@@ -226,7 +226,8 @@ def speaker_navigation(turns: list[dict], profiles: list[dict],
 def build_prompt_context(turns: list[dict], pages: list[dict], descs: dict[int, str],
                          profiles: list[dict], *, detail: bool = False,
                          page_numbers: set[int] | None = None,
-                         materials: list[dict] | None = None) -> dict:
+                         materials: list[dict] | None = None,
+                         visual_observations: dict[int, dict] | None = None) -> dict:
     selected_pages = [p for p in pages if page_numbers is None or int(p["page"]) in page_numbers]
     selected_numbers = {int(p["page"]) for p in selected_pages}
     page_rows = []
@@ -238,8 +239,13 @@ def build_prompt_context(turns: list[dict], pages: list[dict], descs: dict[int, 
             "number": number,
             "first": round(float(page.get("first", 0)), 3),
             "ranges": page.get("ranges", []),
-            "visual_summary": " ".join(description.split())[:500],
+            # Legacy descriptions retain their qualifiers too. The context budget
+            # splits whole evidence units instead of clipping a fact mid-sentence.
+            "visual_summary": " ".join(description.split()),
         }
+        if visual_observations and number in visual_observations:
+            row['visual_observation'] = visual_observations[number]
+            row['visual_summary'] = visual_observations[number]['summary']
         if detail:
             row["visual_detail"] = description
         page_rows.append(row)

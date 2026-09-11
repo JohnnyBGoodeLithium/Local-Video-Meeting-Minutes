@@ -191,7 +191,7 @@ app_js = b"\n".join([app_js, *module_sources])
 check("前端装配入口使用可独立加载的原生 ES modules",
       all(status == 200 for status in module_statuses)
       and b'type="module"' in page
-      and b'./modules/media-source.js?v=20260904p117' in app_js
+      and b'./modules/media-source.js?v=20260911p121' in app_js
       and b'export function selectJobPanel' in app_js
       and b'export function sortLibrary' in app_js
       and b'export function nearestReviewUnit' in app_js
@@ -225,7 +225,7 @@ if chrome:
         chrome, "--headless=new", "--disable-gpu", "--no-sandbox",
         "--window-size=1600,900", "--virtual-time-budget=8000", "--dump-dom", BASE,
     ], capture_output=True, text=True, timeout=90)
-    browser_build_present = "20260904p117" in browser.stdout
+    browser_build_present = "20260911p121" in browser.stdout
     browser_active_present = 'class="meeting-item active"' in browser.stdout
     browser_transcript_present = 'id="turn-0"' in browser.stdout
     browser_minutes_present = 'id="minutes-heading-0"' in browser.stdout
@@ -359,7 +359,7 @@ check("时间码跳转只滚动内容面板，不带动整页丢失播放器",
 check("在线屏幕舞台支持放大、缩放和相邻屏幕键盘导航",
       b'id="screen-preview-mask"' in page and b'openScreenPreview' in app_js
       and b'navigateScreenPreview' in app_js and b'SCREEN_PREVIEW_ZOOMS' in app_js
-      and b'20260904p117' in page)
+      and b'20260911p121' in page)
 check("会议深链 ?meeting=<slug>&t=<秒> 定位播放且忽略非法/超界 t",
       b'params.get("t")' in app_js and b'deepLinkSeek' in app_js
       and b'deepLinkSeconds' in app_js
@@ -444,7 +444,7 @@ check("产品介绍页使用九段双语用户旅程与虚构演示",
       and b'Northstar Product Launch' in product_page
       and b'data-product-content-version="0.16"' in product_page
       and b'data-ui-language="en"' in product_page
-      and b'/static/fluent-foundation.css?v=20260904p120' in product_page
+      and b'/static/fluent-foundation.css?v=20260911p121' in product_page
       and b'data-demo-mode="meeting"' in product_page
       and b'data-demo-mode="video"' in product_page
       and b'data-demo-evidence' in product_page
@@ -1533,6 +1533,26 @@ check("已经使用本地 ASR 的纯音频旧会议也允许重新转写",
       and audio_retranscribe_done.get("kind") == "retranscribe")
 
 # 12. regen（dry-run）
+# Legacy descriptions remain readable but do not qualify for strict cache reuse.
+s, _, legacy_sync = req("POST", "/api/meetings/_smoke/sync_minutes")
+check("旧视觉描述不能冒充当前结构化缓存", s == 409 and '画面资料不完整' in legacy_sync.get('detail', ''))
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'bin'))
+from meeting_core import visual_workflow as vw, visual_result as vr
+from visual_fixture import observation
+structured_cache = vw.load(SMOKE / 'page_desc.json')
+structured_model = os.environ.get('MEETING_VL_MODEL_ID') or 'synthetic-vision'
+structured_cache.update(model=structured_model, records={})
+for page in json.loads((SMOKE / 'slides.json').read_text()):
+    data = observation(title='虚构图表', tables=[{'title': '虚构表', 'columns': ['项目', '数值'],
+        'rows': [['A', '14%']], 'notes': ['预测值'], 'region': None}])
+    structured_cache['records'][str(page['page'])] = {'observation': data,
+        'key': vr.cache_key(SMOKE / 'slides' / page['image'], vw.producer(structured_model), vw.mode(page))}
+vw.save(SMOKE / 'page_desc.json', structured_cache)
+s, _, structured_bundle = req('GET', '/api/meetings/_smoke/bundle')
+check('结构化图表通过真实 bundle 路由固定渲染', s == 200 and any(
+    v.get('observation', {}).get('schema_version') == vr.SCHEMA and '<table>' in v.get('description_html', '')
+    for v in structured_bundle.get('structure', {}).get('visuals', [])))
 s, _, fast_job = req("POST", "/api/meetings/_smoke/sync_minutes")
 fast_done = poll_job(fast_job.get("id")) if fast_job.get("id") else fast_job
 check("POST sync_minutes 严格复用画面缓存且跳过同步 Topic Map",

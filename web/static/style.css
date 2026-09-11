@@ -2159,3 +2159,11 @@ body.page-admin { overflow: hidden; }
   .org-workspace { grid-template-columns: minmax(0, 1fr) 280px; }
   .voice-inline-audio { width: 140px; }
 }
+/* Validated visual observations: fixed layout, including wide source tables. */
+.visual-table-scroll { overflow-x: auto; max-width: 100%; margin: 12px 0; }
+.visual-observation table { border-collapse: collapse; width: max-content; min-width: 100%; }
+.visual-observation th, .visual-observation td { border: 1px solid var(--border, #414650); padding: 6px 10px; white-space: pre-wrap; min-width: 72px; }
+.visual-observation th { text-align: left; }
+.visual-observation p, .visual-observation li { overflow-wrap: anywhere; }
+.visual-read-status, .visual-unknown { color: var(--muted, #9da8ba); }
+.visual-observation details { margin: 8px 0; }

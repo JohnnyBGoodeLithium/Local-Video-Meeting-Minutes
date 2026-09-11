@@ -1,12 +1,12 @@
 <!-- current-status-source -->
 # 当前状态
 
-- 更新时间：2026-09-04
-- 产品版本：v0.16.0
+- 更新时间：2026-09-11
+- 产品版本：v0.16.1
 - 正式分发：发布记录、可下载制品与校验和以 [GitHub Releases](https://github.com/JohnnyBGoodeLithium/Local-Video-Meeting-Minutes/releases) 为准
 - 发布验证：正式发布按不可移动 tag 校验版本元数据、完整 CI 与全新目录 bundle smoke
-- Web 构建号：20260904p120
-- Workbench asset baseline：20260904p117
+- Web 构建号：20260911p121
+- Workbench asset baseline：20260911p121
 - 源代码基线：当前 `main`；准确实现与历史以代码、测试和 Git 为准
 - Owner：Local AI PoC maintainer
 - 当前阶段：受控 PoC 验证（Controlled PoC validation）
@@ -25,6 +25,8 @@
 
 ## 已实现，仍在验证（Implemented, under validation）
 
+- 结构化视觉观察、独立复核、ASR 对照和固定表格渲染；共享本地文本/视觉实例与 Live 短时限工作线程。合成表格实机验证通过，复杂图表与持续 Live 仍待代表性评测。配置及迁移见[视觉处理](runbooks/VISUAL_PROCESSING.md)。
+
 - Companion 已扩展为 Phone／Tablet／Laptop 自适应 review：Home 固定 5 条最近内容，任务轮询不再夺取导航；详情提供概览、章节、人物、逐字稿四个 Tab，并共享音频／视频播放器与原文、翻译、双语字幕。Hosted Chromium 已通过；真实 iPhone／Tablet 仍待验证。
 - 匿名人物可确认已有人员或新建并绑定；已确认人物可单独预览并修改 canonical 显示名，跨会议修改有 revision guard 与撤销，简单绑定和显示改名均为 0 model calls。
 - MeetingPack Viewer 的匿名人物改名仍是按包隔离的本地 alias，不会变成 canonical 身份；新包可携带确定性 caption cue，旧包继续启动。
@@ -37,7 +39,7 @@
 
 ## 实验中（Experimental）
 
-- Live Context 可在开启 `MEETING_LIVE_CONTEXT=1` 后直接接收能安全解析为公开、无 DRM 原生 HLS 的直播页面或 HLS 地址，执行无浏览器后台分析；启动后进入可随时退出的 Live 工作区，读取真实滚动文字与采集状态，结束后再交给现有 canonical pipeline 收尾。实时要点模型尚未接入运行时，为避免与 ASR 抢占资源，当前明确在停止后统一提炼。
+- Live Context 可在开启 `MEETING_LIVE_CONTEXT=1` 后直接接收能安全解析为公开、无 DRM 原生 HLS 的直播页面或 HLS 地址，执行无浏览器后台分析；启动后进入可随时退出的 Live 工作区，读取真实滚动文字与采集状态，结束后再交给现有 canonical pipeline 收尾。实时暂定话题与可选视觉短读已接入，语音积压时让路，完整整理在停止后执行。
 - Browser-assisted 音频尚未在当前 AMD/PipeWire 主机上证明可靠静音捕获；能力不足时必须请用户保持来源窗口，不会自动播放、抓取全系统音频或切换捕获方式。
 - Companion 私有 tailnet 原型已实现应用内配对、URL/小文件发送、进度、安全轻量 review、evidence 回听和人物确认；真实 iPhone 15 Pro 与 X Ultra 的 Tailscale Serve transport 仍为 **NOT TESTED**，默认关闭且不使用 Funnel。传输原型存在不代表已经获得企业部署批准。
 - 跨会议序列比较、主题演进和部门知识交付。

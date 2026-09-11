@@ -134,8 +134,12 @@ class HLSBackgroundWorker:
             },
             "takeaways": self.evidence.topics if self.evidence else {
                 "state": "collecting", "items": [], "provisional": True},
-            "frames": [{"id": f["id"], "at": f["at"], "reason": f["reason"]}
-                       for f in self.store.read_jsonl("frame-events.jsonl")[-120:]],
+            "frames": [{"id": f["id"], "at": f["at"], "reason": f["reason"],
+                        'visual_state': f.get('visual_state', 'pending'),
+                        'visual_summary': f.get('observation', {}).get('summary', ''),
+                        'unresolved': [i['question'] for i in f.get('observation', {}).get('unresolved', [])]}
+                       for f in (self.evidence.frames() if self.evidence else
+                                 self.store.read_jsonl("frame-events.jsonl"))[-120:]],
             "recording": {**self.recording.data,
                           "segments": [{"index": i, "start": s["start"], "end": s["end"]}
                                        for i, s in enumerate(self.recording.data["segments"])]},
@@ -218,6 +222,20 @@ class HLSBackgroundWorker:
             time.sleep(.2)
         self.frames_done.set()
 
+    def _read_frames(self):
+        while not self.suspend_event.is_set():
+            if not self.recording_done.is_set():
+                turns, _ = fuse_text_signals(self.store.signals())
+                until = max((t['end'] for t in turns), default=0)
+                if self.recording.data['duration'] - until > 20:
+                    self.suspend_event.wait(.5)
+                    continue
+            worked = self.evidence.analyze_next_frame()
+            if self.frames_done.is_set() and not worked:
+                break
+            if not worked:
+                self.suspend_event.wait(.5)
+
     def _topics(self):
         while not self.suspend_event.is_set():
             complete = (self.recording_done.is_set() and self.analysis_done.is_set()
@@ -241,7 +259,7 @@ class HLSBackgroundWorker:
                 self.recording.gap("service_restart")
             self._checkpoint(state="LIVE", media_time=self.recording.data["duration"])
             if not self.dry_run:
-                for target in (self._analyze_segments, self._capture_frames, self._topics):
+                for target in (self._analyze_segments, self._capture_frames, self._read_frames, self._topics):
                     thread = threading.Thread(target=target, daemon=True)
                     thread.start()
                     threads.append(thread)

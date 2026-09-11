@@ -28,8 +28,9 @@ media 模式（--media / --mode media，面向动态上手/评测视频）：
     均差会超阈值，dHash 对构图近重复稳健；口播合并页标 talking_head=true
     且 ranges 累记每次出现区间。内容帧（图表/规格表）维持严格全帧差分不
     走 dHash 通道，不同数据的同版式图表绝不误并。合并不设数量配额，唯一
-    判据是信息冗余。去重后超过 80 页按时长择优截断并在 pages.json 标注
-    truncated。输出结构与 slides 模式完全兼容（kind 沿用 "slide"，附加
+    判据是信息冗余。默认完整保留去重后的截图及区间，VL 每轮分析预算独立配置。
+    仅显式传入正数 --max-pages 时按时长截断并标注 truncated。
+    输出结构与 slides 模式完全兼容（kind 沿用 "slide"，附加
     shot 标记）。
 
 用法：
@@ -41,10 +42,13 @@ media 模式（--media / --mode media，面向动态上手/评测视频）：
 """
 
 import argparse
+import hashlib
 import json
 import re
+import shutil
 import subprocess
 import sys
+import uuid
 from pathlib import Path
 
 import numpy as np
@@ -56,6 +60,27 @@ def _probe_size(video: Path):
                           str(video)], capture_output=True, text=True, check=True).stdout
     w, h = out.strip().split(",")[:2]
     return int(w), int(h)
+
+
+def _write_timeline(path: Path, timeline: list[dict], images: Path):
+    """New numbering/content must not inherit cached descriptions of old frames."""
+    for entry in timeline:
+        if entry.get('image'):
+            entry['image_sha256'] = hashlib.sha256((images / entry['image']).read_bytes()).hexdigest()
+    if path.is_file():
+        previous = path.read_text(encoding='utf-8')
+        if json.loads(previous) != timeline:
+            cached = [p for p in (path.parent / 'page_desc.json', path.parent / 'visual_review.json') if p.is_file()]
+            cached += list(images.glob('full_*.jpg'))
+            if cached:
+                archive = path.parent / '.visual-cache-history' / uuid.uuid4().hex
+                archive.mkdir(parents=True)
+                (archive / 'slides.json').write_text(previous, encoding='utf-8')
+                for source in cached:
+                    shutil.move(str(source), str(archive / source.name))
+    temp = path.with_suffix('.tmp')
+    temp.write_text(json.dumps(timeline, ensure_ascii=False, indent=1), encoding='utf-8')
+    temp.replace(path)
 
 
 def _suppress_sparse_annotations(rgb: np.ndarray, max_fraction: float = 0.04) -> np.ndarray:
@@ -306,7 +331,7 @@ def _shot_cuts(dist: np.ndarray, threshold: float) -> list[int]:
 
 def _extract_shots(video, out_dir, pages_json=None, *, fps=1.0, width=1280,
                    threshold=None, same_threshold=None, min_shot_sec=1.5,
-                   max_pages=80, talk_ham=_TALK_DHASH_HAM, verbose=True):
+                   max_pages=0, talk_ham=_TALK_DHASH_HAM, verbose=True):
     """动态视频 → 镜头(shot)抽取：全帧差分局部峰切点 + 中位数签名去重。
 
     合并双通道：内容帧维持严格全帧差分（阈值 th_same，防误并同版式不同
@@ -377,7 +402,7 @@ def _extract_shots(video, out_dir, pages_json=None, *, fps=1.0, width=1280,
             hit["ranges"].append([round(t0, 1), round(t1, 1)])
 
     # 上限保护：去重后仍超 max_pages 时，保留总时长最长、覆盖最广的镜头
-    truncated = len(shots) > max_pages
+    truncated = max_pages > 0 and len(shots) > max_pages
     if truncated:
         shots.sort(key=lambda p: -sum(re - rs for rs, re in p["ranges"]))
         for p in shots[max_pages:]:                 # 被截镜头的截图一并清除
@@ -412,7 +437,7 @@ def _extract_shots(video, out_dir, pages_json=None, *, fps=1.0, width=1280,
         for entry in timeline:
             entry["truncated"] = True
     timeline.sort(key=lambda x: x["first"])
-    pj.write_text(json.dumps(timeline, ensure_ascii=False, indent=1), encoding="utf-8")
+    _write_timeline(pj, timeline, out_dir)
     return out_pages
 
 
@@ -420,7 +445,7 @@ def extract_pages(video, out_dir, pages_json=None, fps=1.0, width=1280,
                   min_seg_sec=2.0, threshold=None, same_threshold=None,
                   keep_pct=80.0, video_motion=0.5, verbose=True,
                   ignore_right_pct=15.0, mode="slides", min_shot_sec=1.5,
-                  max_pages=80, talk_ham=_TALK_DHASH_HAM):
+                  max_pages=0, talk_ham=_TALK_DHASH_HAM):
     """返回 [{page, first, image(Path), ranges:[[s,e],...]}]，按首次出现排序。
 
     mode="slides"（默认，会议录屏）：段内帧间差中位数 > video_motion 的段判为
@@ -503,7 +528,7 @@ def extract_pages(video, out_dir, pages_json=None, fps=1.0, width=1280,
                  "ranges": p["ranges"]} for p in out_pages]
     timeline += cams
     timeline.sort(key=lambda x: x["first"])
-    pj.write_text(json.dumps(timeline, ensure_ascii=False, indent=1), encoding="utf-8")
+    _write_timeline(pj, timeline, out_dir)
     return out_pages
 
 
@@ -577,7 +602,7 @@ def main() -> int:
     ap.add_argument("--width", type=int, default=1280)
     ap.add_argument("--min-seg", type=float, default=2.0)
     ap.add_argument("--min-shot", type=float, default=1.5, help="media 最短镜头秒数, 过短并回邻居")
-    ap.add_argument("--max-pages", type=int, default=80, help="media 去重后页数上限, 超出按时长截断")
+    ap.add_argument("--max-pages", type=int, default=0, help="显式限制 media 截图数；默认 0 全部保留，VL 分析预算独立配置")
     ap.add_argument("--talk-ham", type=int, default=_TALK_DHASH_HAM,
                     help="media 口播候选 dHash 合并的汉明距上限(16×16=256bit)")
     ap.add_argument("--threshold", type=float, default=None,

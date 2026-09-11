@@ -5,7 +5,7 @@
 [产品介绍站](https://johnnybgoodelithium.github.io/Local-Video-Meeting-Minutes/)
 
 <!-- maturity: controlled-single-machine-poc -->
-<!-- product-version: v0.16.0 -->
+<!-- product-version: v0.16.1 -->
 
 找到重点。
 回到原始依据核对。
@@ -42,7 +42,13 @@ Local Video Meeting Minutes 是一个本地优先的会议与视频上下文编�
 4. 在正确的数据层修正名称、人物归属或逐字稿事实。
 5. 将可信结果继续用作 MeetingPack、AI Context、KB 投影或带依据的 RAG 输入。
 
-## v0.16.0 重点
+## v0.16.1 重点
+
+- 图像结构化输出并固定渲染表格、图表与未读项；语音和画面独立对照，分歧保留待核。
+- 截图保留与每轮分析预算分开；可复用同一本地文本/视觉实例。
+- Live 使用短时限独立视觉线程，结束后执行完整整理。
+
+### 既有核对工作流
 
 - Companion 在 Phone、Tablet、Laptop 上提供自适应回顾布局。
 - 音频与视频使用统一播放模型，字幕支持关闭、原文、翻译和双语。
@@ -60,7 +66,7 @@ Local Video Meeting Minutes 是一个本地优先的会议与视频上下文编�
 | Live Context 与 Companion 私有传输 | Experimental | 仅有合成/重放和 Hosted Browser 证据；未做真实直播或 iPhone + Tailscale 验证 |
 | SSO、ACL、租户隔离、多人生产服务 | Planned / out of scope | 本机端口或 tailnet 原型不等于生产审批 |
 
-当前是受控单机 PoC。逐能力证据见 [v0.16.0 reality matrix](docs/releases/v0.16.0-reality-matrix.md)。
+当前是受控单机 PoC。逐能力证据见 [validation boundaries](docs/STATUS.md)。
 
 ## 本地优先边界
 
@@ -96,7 +102,7 @@ make run
 |---|---|
 | 全部文档 | [文档导航](docs/INDEX.md) |
 | 产品叙事 | [产品介绍站](https://johnnybgoodelithium.github.io/Local-Video-Meeting-Minutes/) |
-| 最新发布候选 | [v0.16.0 发布说明](docs/releases/v0.16.0.md) |
+| 最新发布候选 | [v0.16.1 发布说明](docs/releases/v0.16.1.md) |
 | 能力清单 | [产品功能表](docs/PRODUCT_FUNCTIONS.md) |
 | 当前验证状态 | [状态](docs/STATUS.md) |
 | Canonical 数据与投影 | [架构](docs/ARCHITECTURE.md) |

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from datetime import datetime
@@ -16,6 +17,7 @@ from pathlib import Path
 from urllib.request import urlopen
 
 from meeting_core import photos
+from meeting_core import visual_result as vr, visual_workflow as vw
 from meeting_core.progress_events import failure, output_ready, phase_done
 from meeting_core.progress_events import progress as progress_event
 from meeting_core.resource_policy import prepare_stage
@@ -46,7 +48,10 @@ def _model_id(api: str) -> str:
         models = json.loads(response.read()).get("data") or []
     if not models:
         raise RuntimeError("visual_model_missing")
-    return str(models[0].get("id") or "local-vision")
+    wanted = os.environ.get('MEETING_VL_MODEL_ID')
+    if wanted and wanted not in {m.get('id') for m in models}:
+        raise RuntimeError('visual_model_missing')
+    return wanted or str(models[0].get("id") or "local-vision")
 
 
 def analyze(mdir: Path, photo_ids: list[str], api: str) -> tuple[int, int]:
@@ -57,7 +62,7 @@ def analyze(mdir: Path, photo_ids: list[str], api: str) -> tuple[int, int]:
         raise photos.PhotoError("现场资料不存在")
     model = _model_id(api)
     photos.set_analysis_state(mdir, photo_ids, "analyzing")
-    completed = failed = 0
+    completed = failed = partial = 0
     progress_event("visual_understanding", done=0, total=len(targets), unit="items")
     for item in targets:
         photo_id = str(item["id"])
@@ -66,16 +71,16 @@ def analyze(mdir: Path, photo_ids: list[str], api: str) -> tuple[int, int]:
         try:
             if not image.is_file() or not image.is_relative_to(review_root):
                 raise photos.PhotoError("现场资料文件路径不安全")
-            raw, _usage = chat_with_image(api, model, image, VL_MAXTOK, PHOTO_PROMPT)
-            description = clean_model_text(raw)
-            if not description:
-                raise ValueError("empty_visual_content")
+            observation, _usage = vw.request(chat_with_image, api, model, image, 'meeting', max_tokens=VL_MAXTOK)
+            description = vr.markdown(observation)
             photos.set_analysis_state(mdir, [photo_id], "ready", results={photo_id: {
                 "description": description,
+                'observation': observation,
                 "model": model,
                 "analyzed_at": datetime.now().astimezone().isoformat(timespec="seconds"),
             }})
             completed += 1
+            partial += int(vw.pending(observation))
         except Exception as exc:
             photos.set_analysis_state(mdir, [photo_id], "failed", results={photo_id: {
                 "error_code": type(exc).__name__,
@@ -84,7 +89,7 @@ def analyze(mdir: Path, photo_ids: list[str], api: str) -> tuple[int, int]:
         progress_event("visual_understanding", done=completed + failed,
                        total=len(targets), unit="items")
     if completed:
-        output_ready("visuals", state="ready" if not failed else "partial")
+        output_ready("visuals", state="ready" if not (failed or partial) else "partial")
     phase_done("visual_understanding", done=completed + failed,
                total=len(targets), unit="items")
     print(f"[meta] 现场资料视觉分析完成 {completed}/{len(targets)} 项 | 失败 {failed}",
@@ -100,8 +105,8 @@ def _visual_cache_complete(mdir: Path) -> bool:
         return False
     required = {int(item["page"]) for item in timeline
                 if item.get("kind", "slide") == "slide" and item.get("page") is not None}
-    available = {int(key) for key, value in (cache.get("desc") or {}).items()
-                 if str(key).isdigit() and str(value or "").strip()}
+    model = os.environ.get('MEETING_VL_MODEL_ID') or cache.get('model', '')
+    available = set(vw.effective_records(mdir, timeline, model, cache))
     return bool(required) and required <= available
 
 

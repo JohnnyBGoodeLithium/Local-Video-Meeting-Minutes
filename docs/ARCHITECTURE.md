@@ -91,6 +91,17 @@ LLM 可以生成包含 evidence marker 的候选，但解析器必须容忍 Mark
 
 ## 派生资产与 revision
 
+媒体镜头抽取默认完整保留截图与时间区间；`--max-pages` 只作为显式的兼容限制。
+截图含内容哈希，重新抽取改变索引时归档旧页面描述、复核状态及原生帧缓存，避免旧页号读数错配新图。
+分析预算独立于证据留存：媒体每轮默认补读 80 个未读页面，半数名额优先覆盖时间轴，
+其余优先非口播候选；初读用 1280px 导出帧、640 token 上限。总体摘要使用完整逐字稿，
+逐页展开默认最多 80 页；未展开页保留截图、区间和明确占位。配置见部署环境变量示例。
+重生成会补读缺失页，已有可读缓存不重算；未读列表写入 `page_desc.json` / evidence，
+纪要显示覆盖说明，生成状态使用 `partial`，不能将预算跳过的画面解释为没有新信息。
+会议及媒体的复杂图表、初读失败和不确定页可进入本地高阶复核，每轮默认最多 12 页。
+高阶模型必须显式配置本地权重与 mmproj；未安装、失败或超过预算均保留待复核状态，
+写入 `visual_review.json` 及纪要说明，不自动访问云端。该路由仍是候选启发式，不能保证检出所有复杂图表。
+
 下列内容都是 revision-bound derivative：
 
 - `meeting.topic-map.json` 与媒体 narrative navigation；
@@ -220,3 +231,7 @@ Experimental Companion 的 transport 固定为 `Phone → tailnet HTTPS → Tail
 ### 人物显示与语义身份
 
 简单 bind 改变 voice→person attribution；display rename 只改变已确认 person 的首选显示名。二者都只重建逐字稿显示、people/evidence/caption 等确定性投影，不触发 ASR、diarization、VL、纪要、Topic Map 或翻译模型。跨会议 display rename 在私有 bank history 中保存 bank 与相关逐字稿 revision 快照，撤销前拒绝覆盖更新的数据。旧纪要自然语言正文不做全局字符串替换。
+
+## 结构化视觉观察
+
+`visual-result/v1` 是独立观察层，保存文字区域、带单位/时期/限定词的读数、表格、图表与未读区域；不能反写逐字稿或人工身份。初读与复核分别保存，图片与 producer 指纹改变使缓存失效。`visual-crosschecks/v1` 对照语音与视觉并绑定当前来源，分歧不由任一模型自动裁决。固定渲染与会议/视频/Live 预算、迁移见[视觉处理 runbook](runbooks/VISUAL_PROCESSING.md)。

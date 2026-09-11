@@ -15,11 +15,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "bin"))
 os.environ["MEETING_VL_WORKERS"] = "2"
 
 import minutes_by_page  # noqa: E402
+from visual_fixture import observation
 
 DELAY = 0.35
 EMPTY_MARKER = base64.b64encode(b"empty-page").decode()
 
-STUB_OK = {"choices": [{"message": {"content": "## 标题\n测试页\n## 页面内容\n- 要点"}}],
+STUB_OK = {"choices": [{"message": {"content": json.dumps(observation())}}],
            "usage": {"completion_tokens": 10}}
 STUB_EMPTY = {"choices": [{"message": {"content": ""}}], "usage": {"completion_tokens": 0}}
 

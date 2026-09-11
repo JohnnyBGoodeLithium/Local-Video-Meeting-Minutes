@@ -83,8 +83,9 @@ def visual_cache_coverage(mdir: Path) -> dict:
             continue
         if number > 0:
             required.add(number)
-    available = {int(key) for key, value in (cache.get("desc") or {}).items()
-                 if str(key).isdigit() and str(value or "").strip()}
+    from meeting_core import visual_workflow as vw
+    model = os.environ.get('MEETING_VL_MODEL_ID') or cache.get('model', '')
+    available = set(vw.effective_records(mdir, pages if isinstance(pages, list) else [], model, cache))
     missing = sorted(required - available)
     return {"required": len(required), "available": len(required & available),
             "missing": missing, "complete": bool(required) and not missing}
