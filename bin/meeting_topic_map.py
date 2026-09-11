@@ -47,7 +47,6 @@ MEDIA_CHILD_TYPES = ALLOWED_CHILD_TYPES | {"demo", "conclusion"}
 # 才允许扩展到 12；正常模型结果不做静默切片，避免第 9 个议题及其证据直接丢失。
 PREFERRED_TOPIC_MIN = 3
 PREFERRED_TOPIC_MAX = 8
-FALLBACK_TOPIC_LIMIT = 12
 
 CHUNK_PROMPT = """你负责整理一段会议的局部语义，不要按截图或页面变化分章。
 输入是 meeting-topic-chunk-input/v1 JSON。请识别这一时间窗真正讨论的 1–5 个候选论点，
@@ -207,8 +206,8 @@ def _fallback_reduce(summaries: list[dict]) -> dict:
     """最终归并连续输出坏 JSON 时，直接投影局部候选，避免整场脉络消失。
 
     这条路径不重新解释逐字稿：标题、摘要和 T/P/C 引用只取已经通过局部归纳的
-    candidate_topics。完全相同的标题跨窗口合并；超过安全展示数量时把余项聚到最后一组，
-    保证引用不丢。局部归纳本身不足三个主题时，结果仍交给既有质量门槛处理，
+    candidate_topics。完全相同的标题跨窗口合并；不同主题保持独立，不能为限制展示数量
+    把后续主题和证据塞进前一个标题。局部归纳本身不足三个主题时，结果仍交给既有质量门槛处理，
     不为了凑数伪造主题。
     """
     groups: list[dict] = []
@@ -248,15 +247,6 @@ def _fallback_reduce(summaries: list[dict]) -> dict:
                 "claim_ids": list(candidate.get("claim_ids") or []),
                 "page_ids": list(candidate.get("page_ids") or []),
             })
-
-    if len(groups) > FALLBACK_TOPIC_LIMIT:
-        overflow = groups[FALLBACK_TOPIC_LIMIT:]
-        groups = groups[:FALLBACK_TOPIC_LIMIT]
-        target = groups[-1]
-        for group in overflow:
-            extend_unique(target["summary_parts"], group["summary_parts"])
-            for field in ("turn_ids", "claim_ids", "page_ids", "candidate_ids", "children"):
-                extend_unique(target[field], group[field])
 
     topics = []
     for group in groups:

@@ -1,46 +1,46 @@
 import { contentTypeOf, safeSourceUrl }
-  from "./modules/media-source.js?v=20260911p124";
+  from "./modules/media-source.js?v=20260911p125";
 import { buildUploadFormData, enqueueMediaUrl, isSingleLocalVideo }
-  from "./modules/imports.js?v=20260911p124";
-import { jobDisplayName, jobTaskLabel, selectJobPanel }
-  from "./modules/jobs.js?v=20260911p124";
+  from "./modules/imports.js?v=20260911p125";
+import { jobDisplayName, jobTaskLabel, selectJobPanel, compactJobPanel }
+  from "./modules/jobs.js?v=20260911p125";
 import { jobPresentation }
-  from "./modules/job-progress.js?v=20260911p124";
+  from "./modules/job-progress.js?v=20260911p125";
 import { closeJobSheet, renderCompactJob, renderJobSheet, renderProcessingBanner }
-  from "./modules/job-progress-view.js?v=20260911p124";
+  from "./modules/job-progress-view.js?v=20260911p125";
 import { chooseInitialItem, deepLinkSeconds, filterLibrary, sortLibrary }
-  from "./modules/library.js?v=20260911p124";
+  from "./modules/library.js?v=20260911p125";
 import { adjacentReviewUnit, defaultReviewUnits, nearestReviewUnit,
   reviewIndexesFor, reviewUnitForTurn as findReviewUnitForTurn, turnEnd }
-  from "./modules/player-navigation.js?v=20260911p124";
+  from "./modules/player-navigation.js?v=20260911p125";
 import { nextSearchCursor, pendingReviewByTurn, transcriptSearchHits }
-  from "./modules/transcript.js?v=20260911p124";
+  from "./modules/transcript.js?v=20260911p125";
 import { renderTranscriptView }
-  from "./modules/transcript-view.js?v=20260911p124";
+  from "./modules/transcript-view.js?v=20260911p125";
 import { availableViewerMedia, exportSizeState, formatBytes, meetingExportHref, normalizeExportProfile,
   packExportHref }
-  from "./modules/export.js?v=20260911p124";
+  from "./modules/export.js?v=20260911p125";
 import { claimAction, claimIdsForTurn, evidenceSources, minutesState, normalizeReviewMode,
   resolveMinutesView, turnIndexAtTime, turnIndexesForSourceIds }
-  from "./modules/minutes.js?v=20260911p124";
+  from "./modules/minutes.js?v=20260911p125";
 import { renderMinutesView }
-  from "./modules/minutes-view.js?v=20260911p124";
+  from "./modules/minutes-view.js?v=20260911p125";
 import { beginExampleSelection, beginIdentity, buildCorrectionApplyPayload,
   correctionSummary, createSpeakerCorrectionState, representativeTurns,
   resetSpeakerCorrection, setGroupAssignment, setIncludeSuggested, setPreview,
   toggleExample, withCorrectionError }
-  from "./modules/speaker-correction.js?v=20260911p124";
+  from "./modules/speaker-correction.js?v=20260911p125";
 import { renderCorrectionSheet, renderIdentityPopover }
-  from "./modules/speaker-correction-view.js?v=20260911p124";
+  from "./modules/speaker-correction-view.js?v=20260911p125";
 import { beginPhotoImport, createPhotoImportState, hydratePhotoCaptureTimes,
   markPhotoImportResult, photoUploadSpec, releasePhotoImport, removePhotoImportItem,
   setPhotoMeetingStart, setPhotoPositionMode, togglePhotoTimeSettings,
   withPhotoImportBusy, withPhotoImportError, formatPhotoBytes }
-  from "./modules/photo-import.js?v=20260911p124";
+  from "./modules/photo-import.js?v=20260911p125";
 import { renderPhotoImport }
-  from "./modules/photo-import-view.js?v=20260911p124";
+  from "./modules/photo-import-view.js?v=20260911p125";
 import { mountLiveContext }
-  from "./modules/live-context-view.js?v=20260911p124";
+  from "./modules/live-context-view.js?v=20260911p125";
 
 /* 会议列表 + 回顾工作台（装配入口；领域规则逐步迁往 modules/） */
 "use strict";
@@ -3645,22 +3645,35 @@ function visualRangeDuration(visual) {
 
 function mediaVisualGroups(visuals) {
   const topics = topicMapReady() ? (readingTopicMap().topics || []) : [];
-  const pageToTopic = new Map();
-  topics.forEach(topic => (topic.page_ids || []).forEach(id => {
-    if (!pageToTopic.has(id)) pageToTopic.set(id, topic.id);
-  }));
+  // Evidence references are selective and may cite other moments. Navigation
+  // follows the frame's actual intervals, never the first topic citing its ID.
   const groups = topics.map((topic, index) => ({
-    id: topic.id, title: topic.title, index,
-    visuals: visuals.filter(visual => pageToTopic.get(visual.id) === topic.id),
-  })).filter(group => group.visuals.length);
-  const unmatched = visuals.filter(visual => !pageToTopic.has(visual.id));
-  if (unmatched.length) groups.push({
-    id: "unmapped", index: groups.length,
-    title: isEnglishUi() ? "Other visual material" : "其他画面资料", visuals: unmatched,
+    id: topic.id, title: topic.title, index, visuals: [],
+  }));
+  const unmatched = new Map();
+  visuals.forEach(visual => {
+    const ranges = visual.ranges?.length ? visual.ranges : [[visual.first, visual.last ?? visual.first]];
+    const scores = topics.map(topic => (topic.ranges || []).reduce((sum, [a, b]) =>
+      sum + ranges.reduce((total, [start, end]) => total + Math.max(0,
+        Math.min(Number(b), Number(end)) - Math.max(Number(a), Number(start))), 0), 0));
+    const best = Math.max(0, ...scores);
+    if (best > 0) groups[scores.indexOf(best)].visuals.push(visual);
+    else {
+      const first = Number(visual.first ?? ranges[0]?.[0]);
+      const bucket = Number.isFinite(first) ? Math.floor(first / 300) * 300 : -1;
+      if (!unmatched.has(bucket)) unmatched.set(bucket, []);
+      unmatched.get(bucket).push(visual);
+    }
   });
-  return groups.length ? groups : [{
-    id: "all", index: 0, title: isEnglishUi() ? "Whole content" : "整条内容", visuals,
-  }];
+  const result = groups.filter(group => group.visuals.length);
+  [...unmatched].sort(([a], [b]) => a - b).forEach(([start, frames]) => result.push({
+    id: `time-${start}`, index: result.length,
+    title: start < 0 ? (isEnglishUi() ? "Untimed material" : "无时间信息的资料")
+      : `${fmt(start)}–${fmt(start + 300)} · ${isEnglishUi() ? "Outside topic intervals" : "未关联议题的时段"}`,
+    visuals: frames,
+  }));
+  return result;
+
 }
 
 function mediaVisualList(visuals, selected) {
@@ -6003,7 +6016,8 @@ function renderJobsStructured(jobs) {
   $(".jobs-head").textContent = activeJobs.length
     ? (isEnglishUi() ? "Processing" : "正在处理") : (isEnglishUi() ? "Needs attention" : "需要处理");
   ul.replaceChildren();
-  visibleJobs.slice(0, 8).forEach(job => {
+  const { shown: panelJobs, hiddenCount } = compactJobPanel(visibleJobs, state.jobsExpanded);
+  panelJobs.forEach(job => {
     const model = jobPresentation(job, jobDisplayName(
       job, state.meetings, contentTypeOf, state.uiLanguage), state.uiLanguage,
       jobTaskLabel(job, state.uiLanguage));
@@ -6036,6 +6050,20 @@ function renderJobsStructured(jobs) {
     });
     ul.appendChild(node);
   });
+  $("#jobs-expand-toggle")?.remove();
+  if (hiddenCount > 0) {
+    const toggle = document.createElement("button");
+    toggle.id = "jobs-expand-toggle";
+    toggle.className = "btn subtle jobs-expand-toggle";
+    toggle.type = "button";
+    toggle.setAttribute("aria-expanded", String(!!state.jobsExpanded));
+    toggle.setAttribute("aria-controls", "jobs-list");
+    toggle.textContent = state.jobsExpanded
+      ? (isEnglishUi() ? "Collapse queue" : "收起队列")
+      : (isEnglishUi() ? `Show ${hiddenCount} more tasks` : `展开剩余 ${hiddenCount} 项`);
+    toggle.onclick = () => { state.jobsExpanded = !state.jobsExpanded; renderJobsStructured(jobs); $("#jobs-expand-toggle")?.focus(); };
+    ul.after(toggle);
+  }
   const current = currentJobForMeeting();
   renderProcessingBanner($("#processing-banner"), current
     ? jobPresentation(current, jobDisplayName(
