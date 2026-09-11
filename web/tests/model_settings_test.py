@@ -7,9 +7,10 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock
 sys.path[:0] = [str(Path(__file__).resolve().parents[2] / 'bin'), str(Path(__file__).resolve().parents[1])]
 from meeting_core import model_settings as m
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
-from routers.model_settings import router
+import asyncio
+from fastapi import HTTPException
+from starlette.requests import Request
+from routers import model_settings as routes
 
 config = {'text': {'source':'local', 'api':'http://127.0.0.1:9999/v1', 'model':'synthetic', 'minutes_model':'synthetic-final'},
           'vision': {'source':'local', 'api':'http://127.0.0.1:9998/v1', 'model':'synthetic-vision'}}
@@ -52,14 +53,22 @@ with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {'MEETING_DATA
         try:m.open_request('https://other.test/v1/models')
         except ValueError:pass
         else:raise AssertionError('unconfigured remote must fail')
-    app = FastAPI();app.include_router(router)
-    client = TestClient(app)
-    assert client.get('/api/settings/models').status_code == 200
-    assert client.put('/api/settings/models', json=config).status_code == 403
-    assert client.put('/api/settings/models', json=config, headers={'Origin':'https://evil.test'}).status_code == 403
-    result = client.put('/api/settings/models', json=config, headers={'Origin':'http://testserver'})
-    assert result.status_code == 200 and result.json()['restart_required']
-    assert client.get('/api/settings/models', headers={'Host':'external.test'}).status_code == 403
-    assert 'api_key' not in result.text
+    def request(body=None, *, origin='', host='testserver'):
+        headers = [(b'host', host.encode())]
+        if origin: headers.append((b'origin', origin.encode()))
+        async def receive():
+            return {'type':'http.request','body':json.dumps(body).encode(),'more_body':False}
+        return Request({'type':'http','method':'PUT','path':'/api/settings/models',
+                        'headers':headers,'client':('127.0.0.1',12345)}, receive)
+    assert routes.get_settings(request())['settings']
+    for origin in ('', 'https://evil.test'):
+        try: asyncio.run(routes.put_settings(request(config, origin=origin)))
+        except HTTPException as e: assert e.status_code == 403
+        else: raise AssertionError('cross-origin write accepted')
+    result = asyncio.run(routes.put_settings(request(config, origin='http://testserver')))
+    assert result['restart_required'] and 'api_key' not in json.dumps(result)
+    try: routes.get_settings(request(host='external.test'))
+    except HTTPException as e: assert e.status_code == 403
+    else: raise AssertionError('remote administration accepted')
     assert m.NoRedirect().redirect_request(None,None,302,'',{},'https://other.test') is None
 print('model settings: private secrets, cloud opt-in, stable snapshot, endpoint-bound auth and local administration passed')
