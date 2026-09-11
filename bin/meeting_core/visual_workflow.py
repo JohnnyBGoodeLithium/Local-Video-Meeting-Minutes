@@ -228,3 +228,15 @@ def merge_region(primary: dict, candidate: dict, selected: list[dict]) -> tuple[
     merged['status'] = 'partial' if merged['unresolved'] else 'complete'
     merged = vr.validate(merged)
     return merged, 'partial' if pending(merged) else 'resolved'
+
+
+def reading_state(page: int, observation: dict | None, cache: dict, *, legacy: bool = False) -> str:
+    """Read-only UI projection; classification and reading coverage are distinct."""
+    if observation:
+        return observation['status']
+    if legacy:
+        return 'legacy'
+    deferred = cache.get('deferred_pages', [])
+    if isinstance(deferred, list) and page in deferred:
+        return 'deferred'
+    return 'pending'

@@ -110,3 +110,9 @@ candidates = mb.media_review_candidates(
     {1: '复杂表格，坐标轴和图例', 3: '普通口播', 4: '请复核'}, limit=10)
 assert {p['page'] for p in candidates} == {2, 4}
 print('Visual budget: full evidence, bounded resumable passes, partial status and meeting review passed')
+
+from meeting_core.visual_workflow import reading_state
+assert reading_state(7, None, {'deferred_pages': [7]}) == 'deferred'
+assert reading_state(7, {'status':'partial'}, {'deferred_pages': [7]}) == 'partial'
+assert reading_state(7, None, {}, legacy=True) == 'legacy'
+assert reading_state(7, None, {}) == 'pending'

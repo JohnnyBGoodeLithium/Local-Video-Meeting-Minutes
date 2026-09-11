@@ -1,6 +1,6 @@
 /* Minutes reading projection. State selection and all write side effects stay in app.js. */
 
-import { resolveMinutesClaim } from "./minutes.js?v=20260911p122";
+import { resolveMinutesClaim } from "./minutes.js?v=20260911p123";
 
 export function renderMinutesView(options) {
   const {

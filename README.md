@@ -5,7 +5,7 @@ English | [简体中文](README.zh-CN.md)
 [Product site](https://johnnybgoodelithium.github.io/Local-Video-Meeting-Minutes/)
 
 <!-- maturity: controlled-single-machine-poc -->
-<!-- product-version: v0.16.2 -->
+<!-- product-version: v0.16.3 -->
 
 Find what matters.
 Verify it against the source.
@@ -47,12 +47,11 @@ source of meeting truth.
 4. Correct names, identity attribution, or transcript facts at the appropriate data layer.
 5. Reuse the trusted result as MeetingPack, AI Context, KB projection, or evidence-linked RAG input.
 
-## v0.16.2 highlights
+## v0.16.3 highlights
 
-- Correct visual-pass estimates, bounded failure recovery, leaner synthesis input and per-model context budgets.
-- Structured local visual observations with stable tables, chart data, explicit unread regions, and independent review.
-- Revision-aware image caching and budgeted audio/visual evidence comparison.
-- Live visual reads run separately from audio with short deadlines; unfinished screenshots remain available.
+- Shared light/dark/system appearance and four highlight colors across the workspace, Companion, product site and offline Viewer.
+- Time-based key-frame labels for videos, with compatibility for older default slide titles.
+- Clearer bilingual Live introduction, safer device connection controls and a [first-use guide](docs/runbooks/FIRST_USE.md).
 
 ### Existing review workflows
 
@@ -115,7 +114,7 @@ must not read real meetings.
 |---|---|
 | All documentation | [Documentation index](docs/INDEX.md) |
 | Product story | [Product site](https://johnnybgoodelithium.github.io/Local-Video-Meeting-Minutes/) |
-| Release notes | [v0.16.2 release notes](docs/releases/v0.16.2.md) |
+| Release notes | [v0.16.3 release notes](docs/releases/v0.16.3.md) |
 | Capability inventory | [Product functions](docs/PRODUCT_FUNCTIONS.md) |
 | Current validation state | [Status](docs/STATUS.md) |
 | Canonical data and projections | [Architecture](docs/ARCHITECTURE.md) |

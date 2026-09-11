@@ -32,6 +32,8 @@ with tempfile.TemporaryDirectory(prefix="product-pages-test-") as tmp:
         "static/product-copy.js",
         "static/product-demo.js",
         "static/product.css",
+        "static/theme.css",
+        "static/appearance.js",
         "static/product.js",
     }, files
     html = (output / "index.html").read_text(encoding="utf-8")

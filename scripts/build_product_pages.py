@@ -13,6 +13,8 @@ ROOT = Path(__file__).resolve().parents[1]
 STATIC = ROOT / "web" / "static"
 REPOSITORY_URL = "https://github.com/JohnnyBGoodeLithium/Local-Video-Meeting-Minutes"
 ASSETS = (
+    "theme.css",
+    "appearance.js",
     "fluent-foundation.css",
     "product.css",
     "product.js",

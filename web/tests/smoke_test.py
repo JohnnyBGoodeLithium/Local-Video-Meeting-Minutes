@@ -191,7 +191,7 @@ app_js = b"\n".join([app_js, *module_sources])
 check("前端装配入口使用可独立加载的原生 ES modules",
       all(status == 200 for status in module_statuses)
       and b'type="module"' in page
-      and b'./modules/media-source.js?v=20260911p122' in app_js
+      and b'./modules/media-source.js?v=20260911p123' in app_js
       and b'export function selectJobPanel' in app_js
       and b'export function sortLibrary' in app_js
       and b'export function nearestReviewUnit' in app_js
@@ -225,7 +225,7 @@ if chrome:
         chrome, "--headless=new", "--disable-gpu", "--no-sandbox",
         "--window-size=1600,900", "--virtual-time-budget=8000", "--dump-dom", BASE,
     ], capture_output=True, text=True, timeout=90)
-    browser_build_present = "20260911p122" in browser.stdout
+    browser_build_present = "20260911p123" in browser.stdout
     browser_active_present = 'class="meeting-item active"' in browser.stdout
     browser_transcript_present = 'id="turn-0"' in browser.stdout
     browser_minutes_present = 'id="minutes-heading-0"' in browser.stdout
@@ -266,6 +266,13 @@ if chrome:
           in product_journey.stdout,
           f"rc={product_journey.returncode}, out={product_journey.stdout[-500:]!r}, "
           f"err={product_journey.stderr[-500:]!r}")
+    appearance_journey = subprocess.run([
+        str(Path(__file__).resolve().parent.parent.parent / ".venv/bin/python"),
+        str(Path(__file__).resolve().parent / "chromium_appearance_test.py"),
+    ], capture_output=True, text=True, timeout=120, env=os.environ)
+    check("统一外观跨端、主题、键盘与离线 Viewer 旅程",
+          appearance_journey.returncode == 0,
+          f"out={appearance_journey.stdout[-500:]!r}, err={appearance_journey.stderr[-1000:]!r}")
     correction_browser = subprocess.run([
         str(Path(__file__).resolve().parent.parent.parent / ".venv/bin/python"),
         str(Path(__file__).resolve().parent / "chromium_speaker_correction_test.py"),
@@ -359,7 +366,7 @@ check("时间码跳转只滚动内容面板，不带动整页丢失播放器",
 check("在线屏幕舞台支持放大、缩放和相邻屏幕键盘导航",
       b'id="screen-preview-mask"' in page and b'openScreenPreview' in app_js
       and b'navigateScreenPreview' in app_js and b'SCREEN_PREVIEW_ZOOMS' in app_js
-      and b'20260911p122' in page)
+      and b'20260911p123' in page)
 check("会议深链 ?meeting=<slug>&t=<秒> 定位播放且忽略非法/超界 t",
       b'params.get("t")' in app_js and b'deepLinkSeek' in app_js
       and b'deepLinkSeconds' in app_js
@@ -444,7 +451,7 @@ check("产品介绍页使用九段双语用户旅程与虚构演示",
       and b'Northstar Product Launch' in product_page
       and b'data-product-content-version="0.16"' in product_page
       and b'data-ui-language="en"' in product_page
-      and b'/static/fluent-foundation.css?v=20260911p122' in product_page
+      and b'/static/fluent-foundation.css?v=20260911p123' in product_page
       and b'data-demo-mode="meeting"' in product_page
       and b'data-demo-mode="video"' in product_page
       and b'data-demo-evidence' in product_page

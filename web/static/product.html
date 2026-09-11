@@ -14,8 +14,10 @@
 <meta name="twitter:description" content="按人物或议题回顾会议与产品视频，从重要结论返回原声和画面，再将核对后的上下文交给同事、AI 或知识库。">
 <meta name="theme-color" content="#f4f7fb">
 <title>Local Video Meeting Minutes｜从重点回到会议与视频的原始证据</title>
-<link rel="stylesheet" href="/static/fluent-foundation.css?v=20260911p122">
-<link rel="stylesheet" href="/static/product.css?v=20260911p122">
+<link rel="stylesheet" href="/static/fluent-foundation.css?v=20260911p123">
+<link rel="stylesheet" href="/static/product.css?v=20260911p123">
+<link rel="stylesheet" href="/static/theme.css?v=20260911p123">
+<script src="/static/appearance.js?v=20260911p123"></script>
 </head>
 <body>
 <header class="product-header">
@@ -189,12 +191,14 @@
   </section>
 
   <section id="live" class="content-section section-shell" data-product-section>
-    <div class="section-heading"><span class="section-index" data-i18n="liveIndex">Live Context · Experimental</span><h2 data-i18n="liveTitle">活动进行时先积累可回顾上下文，结束后再统一整理。</h2><p data-i18n="liveBody">当前只对经授权的公开、无 DRM 原生 HLS 来源提供实验性后台采集与 Live 工作区。合成与重放测试通过；真实直播、目标主机延迟和 browser audio capture 尚未验证。</p></div>
-    <div class="maturity-grid"><article><span class="maturity-state early" data-maturity="experimental" data-i18n="liveState">Experimental</span><h3 data-i18n="liveWorkspaceTitle">可退出的 Live 工作区</h3><p data-i18n="liveWorkspaceBody">展示真实滚动文字、采集状态和时长；离开页面不停止后台任务。</p></article><article><span class="maturity-state working" data-maturity="implemented" data-i18n="liveReplayState">Replay tested</span><h3 data-i18n="liveFinishTitle">停止后复用现有流程</h3><p data-i18n="liveFinishBody">结束后再形成正式纪要和完整上下文，不把暂定内容冒充终稿。</p></article></div>
+    <div class="section-heading"><span class="section-index" data-i18n="liveIndex">Live Context · Experimental</span><h2 data-i18n="liveTitle">直播进行时抓住重点，结束后回看原声与画面。</h2><p data-i18n="liveBody">粘贴支持的公开直播链接，在后台保留录制内容，并查看滚动文字、阶段截图和暂定话题。离开工作区也能继续采集；遇到中断会提示缺口。功能仍在试用阶段，支持范围和连续录制稳定性仍需验证。</p></div>
+    <div class="maturity-grid"><article><span class="maturity-state early" data-maturity="experimental" data-i18n="liveState">Experimental</span><h3 data-i18n="liveWorkspaceTitle">随时回来看看讲到哪里</h3><p data-i18n="liveWorkspaceBody">查看当前进度，标记值得回顾的时刻，结合截图确认正在讨论的话题；点击时间定位已采集的回放。</p></article><article><span class="maturity-state working" data-maturity="implemented" data-i18n="liveReplayState">停止后整理</span><h3 data-i18n="liveFinishTitle">先回放，再阅读完整整理</h3><p data-i18n="liveFinishBody">选择“停止并整理”后保留已录制内容，继续生成正式纪要。录制状态与分析状态分别展示；暂定话题不当作最终结论。</p></article></div>
+    <details class="live-compatibility"><summary data-i18n="liveCompatibility">支持哪些直播？</summary><p data-i18n="liveCompatibilityBody">目前支持部分可直接读取的公开直播；需要登录或受保护的来源可能无法使用。只能保留开始采集后实际收到的内容，断线和开始前的片段不会凭空补齐。由部署者启用此实验功能。</p></details>
   </section>
 
   <section id="reuse" class="content-section reuse-section" data-product-section>
     <div class="final-cta"><div class="section-shell final-cta-content"><span data-i18n="closingEyebrow"></span><h2 data-i18n="closingTitle"></h2><p data-i18n="closingBody"></p><div class="final-actions"><a class="final-primary" href="/" data-i18n="closingPrimary"></a><a href="#find" data-i18n="closingSecondary"></a></div></div></div>
+    <p class="getting-started"><a href="https://github.com/JohnnyBGoodeLithium/Local-Video-Meeting-Minutes/blob/main/docs/runbooks/FIRST_USE.md" data-i18n="firstUseGuide">第一次使用？从部署、导入到导出，按步骤完成一份结果 →</a></p>
   </section>
 </main>
 
@@ -202,6 +206,6 @@
   <div><b>Local Video Meeting Minutes</b><span>Meeting &amp; Video Review</span></div>
   <nav><a href="https://github.com/JohnnyBGoodeLithium/Local-Video-Meeting-Minutes/blob/main/docs/reporting/TECHNICAL_BRIEF.md" data-i18n="technicalBrief">技术实现与数据边界</a><a href="#overview" data-i18n="backToTop">返回顶部</a></nav>
 </footer>
-<script type="module" src="/static/product.js?v=20260911p122"></script>
+<script type="module" src="/static/product.js?v=20260911p123"></script>
 </body>
 </html>

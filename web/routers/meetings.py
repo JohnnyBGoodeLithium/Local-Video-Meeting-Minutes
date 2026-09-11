@@ -251,9 +251,12 @@ def get_bundle(slug: str):
                 visual['description_html'] += ('<details><summary>独立复核结果（仍待核对）</summary>'
                     + reviewed_html + '</details>')
         else:
-            visual['read_status'] = 'legacy' if visual.get('display_description') else 'pending'
+            visual['read_status'] = vw.reading_state(visual.get('page'), None, visual_cache,
+                legacy=bool(visual.get('display_description')))
+            if visual['read_status'] == 'deferred':
+                visual['analysis_state'] = 'deferred'
             visual["description_html"] = MD.render(
-                visual.get("display_description") or "当前画面没有可用的 VL 详细解读。")
+                visual.get("display_description") or "当前画面尚未完成解读。")
     topic_state, topic_map = meeting_topic_map.load_current_topic_map(mdir)
     topic_payload = ({**topic_map, "state": "ready"} if topic_state == "ready" else
                      {"schema": meeting_topic_map.SCHEMA, "state": topic_state, "topics": []})

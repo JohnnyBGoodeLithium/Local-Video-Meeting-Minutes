@@ -117,3 +117,8 @@ escaped_value = meeting_structure._visual_value(escaped_cleaned, "Synthetic Stra
 assert escaped_value["information_value"] == "high"
 
 print("Meeting structure: segments, chapters, and repeated pages passed")
+
+from meeting_structure import visual_title
+assert visual_title("", 7, shot=True, first=3723) == "关键画面 · 1:02:03"
+assert visual_title("", 7) == "第7页屏幕内容"
+assert visual_title("## 标题\n示例规格对比", 7, shot=True, first=12) == "示例规格对比"

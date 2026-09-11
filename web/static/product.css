@@ -461,3 +461,6 @@ button { color: inherit; }
   .person-chip, .topic-chip, .timeline > i, .evidence-source,
   .demo-mode button, .evidence-button { transition: none; }
 }
+
+.live-compatibility { margin-top: 24px; padding: 16px 0; border-top: 1px solid var(--productStroke); color: var(--productInkMuted); }
+.live-compatibility summary { cursor: pointer; color: var(--productInk); }

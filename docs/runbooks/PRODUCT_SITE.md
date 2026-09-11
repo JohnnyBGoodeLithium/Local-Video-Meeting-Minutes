@@ -1,6 +1,6 @@
 # 产品介绍站部署
 
-公开产品站只发布 `web/static/product.html` 及其五个前端资源，不连接会议、作业、人物库或私有报告。
+公开产品站只发布 `web/static/product.html` 及其共享外观与演示资源，不连接会议、作业、人物库或私有报告。
 
 - 线上地址：<https://johnnybgoodelithium.github.io/Local-Video-Meeting-Minutes/>
 - 本地构建：`make product-site-build`
