@@ -13,10 +13,9 @@
 产品介绍页、MeetingPack Viewer、发布 manifest 和默认导出文件名从它读取或由测试约束投影；
 `pyproject.toml`、README、`docs/STATUS.md` 与 CHANGELOG 不得形成独立版本事实。
 
-当前已发布基线为 `v0.15.3`（2026-09-01）。`release/v0.16.0` 是冻结功能后的发布候选：
-整合自适应 Companion、来源回放与字幕、身份显示更新、快速纪要与视觉补完，以及 Experimental
-Live Context。准确成熟度和真机缺口见 [v0.16.0 Reality Matrix](../releases/v0.16.0-reality-matrix.md)；
-正式 tag 创建前，`v0.15.3` 仍是最近发布版本。
+正式分发状态以 GitHub Releases 为准，分支、源码标签与可下载发布包应分别核实。
+版本说明记录该发布点的变化，`docs/STATUS.md` 记录实现成熟度与验证边界；本规范不维护
+容易过期的“当前最新已发布版本”。
 
 ## 版本节奏
 
