@@ -497,3 +497,12 @@ assert "T000002" not in {tid for topic in honest_gaps["topics"] for tid in topic
 
 print("Meeting Topic Map v3: evidence/navigation split, candidate mapping, chapter-scale "
       "coalescing, DOCX timestamp normalization, reduce fallback and v1 compat passed")
+
+# Long media fallback must not file later products under the twelfth title.
+long_fallback = topic_map._fallback_reduce([{"candidate_topics": [
+    {"title": f"Synthetic subject {i}", "summary": "Independent subject",
+     "turn_ids": [f"T{i:04}"], "page_ids": [f"P{i:04}"]}
+    for i in range(1, 21)]}])
+assert len(long_fallback["topics"]) == 20
+assert long_fallback["topics"][11]["page_ids"] == ["P0012"]
+assert long_fallback["topics"][-1]["page_ids"] == ["P0020"]

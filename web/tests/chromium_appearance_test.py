@@ -81,6 +81,7 @@ def main():
                         {'id': f'topic-{i}', 'title': f'Example topic {i}', 'summary': 'Synthetic discussion',
                          'ranges': [[i, i + 1]], 'children': [], 'claim_ids': [], 'page_ids': [], 'turn_ids': []}
                         for i in range(60)]}
+                    fixture['topic_map']['topics'][40]['page_ids'] = ['P0001']  # wrong cross-time citation
                     original = (fixture.get('structure', {}).get('visuals') or [{}])[0]
                     fixture.setdefault('structure', {})['visuals'] = [
                         {**original, 'id': f'P{i:04}', 'page': i, 'kind': 'slide', 'shot': True,
@@ -106,6 +107,8 @@ def main():
                     wait_for_page(cdp, "!!document.querySelector('.visual-list')", 'visual panel')
                     assert cdp.evaluate("document.querySelector('[data-visual-filter=table]').textContent.trim().endsWith('1')"), 'Empty table candidate entered table filter'
                     assert cdp.evaluate("document.querySelector('.visual-detail h2').textContent !== '无'"), 'Missing title not normalized'
+                    assert cdp.evaluate("document.querySelector('[data-visual-select]').closest('.media-visual-section').querySelector('summary b').textContent === 'Example topic 1'"), 'Frame followed a wrong citation instead of its time interval'
+                    assert cdp.evaluate("[...document.querySelectorAll('.media-visual-section summary b')].some(x => x.textContent.includes('未关联议题的时段'))"), 'Unmatched frames lack navigable time groups'
                     assert cdp.evaluate("document.querySelector('.visual-list').scrollHeight > document.querySelector('.visual-list').clientHeight")
                     assert cdp.evaluate("document.querySelector('.visual-list').getBoundingClientRect().bottom <= document.querySelector('#visuals').getBoundingClientRect().bottom+1"), 'Visual list escaped panel'
                     cdp.evaluate("document.querySelector('.visual-list').scrollTop=2000;window.__visualTop=document.querySelector('.visual-list').scrollTop")

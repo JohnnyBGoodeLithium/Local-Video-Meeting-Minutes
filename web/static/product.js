@@ -1,5 +1,5 @@
-import { EN_COPY, EN_META, ZH_COPY } from "./product-copy.js?v=20260911p124";
-import { enhanceProductDemo } from "./product-demo.js?v=20260911p124";
+import { EN_COPY, EN_META, ZH_COPY } from "./product-copy.js?v=20260911p125";
+import { enhanceProductDemo } from "./product-demo.js?v=20260911p125";
 
 "use strict";
 

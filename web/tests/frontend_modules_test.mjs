@@ -3,7 +3,7 @@ import { contentTypeOf, safeSourceUrl, sourcePublishedDate, sourceSearchText }
   from "../static/modules/media-source.js";
 import { buildUploadFormData, enqueueMediaUrl, isSingleLocalVideo }
   from "../static/modules/imports.js";
-import { jobDisplayName, jobTaskLabel, selectJobPanel } from "../static/modules/jobs.js";
+import { jobDisplayName, jobTaskLabel, selectJobPanel, compactJobPanel } from "../static/modules/jobs.js";
 import { chooseInitialItem, deepLinkSeconds, filterLibrary, sortLibrary }
   from "../static/modules/library.js";
 import { adjacentReviewUnit, defaultReviewUnits, nearestReviewUnit,
@@ -222,3 +222,9 @@ await context.pollJobs();
 assert.equal(libraryRefreshes, 2);
 assert.equal(stateForPoll.slug, "already-reading");
 console.log("Job polling refreshes new output and completion without navigation");
+
+const longQueue = [{id:"running",status:"running"}, ...Array.from({length:12},(_,i)=>({id:`q${i}`,status:"queued"})), {id:"failed",status:"failed"}];
+assert.deepEqual(compactJobPanel(longQueue).shown.map(x=>x.id), ["running","q0","q1","failed"]);
+assert.equal(compactJobPanel(longQueue).hiddenCount,10);
+assert.equal(compactJobPanel(longQueue,true).shown.length,14);
+assert.equal(compactJobPanel(longQueue).hiddenCount,10);

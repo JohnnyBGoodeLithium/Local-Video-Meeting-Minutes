@@ -75,3 +75,10 @@ export function jobTaskLabel(job = {}, language = "zh-CN") {
   }
   return english ? "Process meeting content" : "处理会议资料";
 }
+
+// Collapse only waiting work; active and attention cards stay visible.
+export function compactJobPanel(jobs, expanded = false) {
+  const waiting = jobs.filter(job => job.status === "queued");
+  const shown = expanded ? jobs : jobs.filter(job => job.status !== "queued" || waiting.indexOf(job) < 2);
+  return { shown, hiddenCount: Math.max(0, waiting.length - 2) };
+}

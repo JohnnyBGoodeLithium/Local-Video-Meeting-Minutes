@@ -2174,3 +2174,5 @@ body.page-admin { overflow: hidden; }
 #visuals .structure-list, #visuals .structure-detail { min-height: 0; max-width: 100%; overflow-x: hidden; overscroll-behavior: contain; scrollbar-gutter: stable; }
 #visuals img { max-width: 100%; }
 .topic-map-view { overscroll-behavior: contain; scrollbar-gutter: stable; }
+
+.jobs-expand-toggle { width: 100%; margin-top: var(--sp-8); white-space: nowrap; }
