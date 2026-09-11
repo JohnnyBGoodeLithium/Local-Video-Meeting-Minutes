@@ -531,7 +531,9 @@ def _viewer_html(title: str, date: str, minutes_html: str, evidence: dict, integ
         "__TITLE__", html.escape(title)).replace(
         "__DATA__", _safe_json_script(payload)).replace(
         "__FLUENT_FOUNDATION__", FLUENT_FOUNDATION_PATH.read_text(encoding="utf-8")).replace(
-        "__FLUENT_ICONS__", FLUENT_ICONS_PATH.read_text(encoding="utf-8"))
+        "__FLUENT_ICONS__", FLUENT_ICONS_PATH.read_text(encoding="utf-8")).replace(
+        "__APPEARANCE_CSS__", (STATIC_PATH / "theme.css").read_text(encoding="utf-8")).replace(
+        "__APPEARANCE_JS__", (STATIC_PATH / "appearance.js").read_text(encoding="utf-8"))
     return page.encode("utf-8")
 
 

@@ -6,10 +6,11 @@
 
 | 使用场景 | 默认读取 |
 |---|---|
+| 第一次安装与使用 | [从部署到导出](runbooks/FIRST_USE.md) |
 | 管理层或跨职能汇报 | [管理层摘要](reporting/EXECUTIVE_BRIEF.md) + [当前状态](STATUS.md) |
 | 技术评审 | [技术摘要](reporting/TECHNICAL_BRIEF.md) + [架构](ARCHITECTURE.md) |
 | 产品范围和用户旅程 | [当前状态](STATUS.md) + [产品说明](PRODUCT.md) |
-| UX 修改 | [当前状态](STATUS.md) + [UX 合同](UX.md) |
+| UX 修改 | [当前状态](STATUS.md) + [UX 合同](UX.md)；全旅程验收见[走查记录](runbooks/UX_REVIEW.md) |
 | 处理、失败和恢复 | [当前状态](STATUS.md) + [处理与恢复 runbook](runbooks/PROCESSING_AND_RECOVERY.md) |
 | 部署、模型和本机维护 | [运维入口](OPERATIONS.md) + 对应 [runbook](runbooks/DEPLOYMENT.md) / [模型参考](reference/MODELS.md) |
 | 视觉结构化、模型共享与重跑 | [视觉处理 runbook](runbooks/VISUAL_PROCESSING.md) |

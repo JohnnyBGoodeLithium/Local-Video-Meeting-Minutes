@@ -1,21 +1,97 @@
-/* 主题插槽：在 style.css 之后加载，只覆盖 :root 变量即可整体换肤。
-   所有组件只引用变量、不持有字面值，因此覆盖任意一项都不会破坏布局。
-   三层可覆盖：
-   1. 语义色：--bg / --panel / --panel2 / --border / --text / --dim / --accent / --success / --danger
-   2. 设计 token：--font-sans / --font-mono、--fs-8…--fs-22、--fw-400…--fw-600、
-      --sp-4…--sp-24、--r-2…--r-18、--topic-1…--topic-8、--speaker-1…--speaker-8
-      （议题与说话人配色同时被 JS 用 getComputedStyle 读取，改这里时间轴/逐字稿同步生效）
-   3. 组件级变量（各组件自有的设计出口，示例）：
-      --btn-bg --btn-color --btn-border --btn-radius --btn-pad --btn-fs --btn-hover-border
-      --btn-primary-bg --btn-primary-color --btn-danger-color --btn-danger-border
-      --input-bg --input-border --input-color --input-radius --input-pad
-      --chip-bg --chip-border --chip-radius --chip-pad --chip-fs
-      --dialog-bg --dialog-border --dialog-radius --dialog-pad --mask-bg
-      --tab-color --tab-active-color --tab-active-bg --tab-active-border
+/* Shared appearance contract: loaded last, embedded unchanged in offline Viewer. */
+:root[data-fluent-theme] {
+  --bg: var(--colorNeutralBackgroundCanvas); --paper: var(--bg);
+  --panel: var(--colorNeutralBackground1); --panel2: var(--colorNeutralBackground2);
+  --text: var(--colorNeutralForeground1); --ink: var(--text);
+  --dim: var(--colorNeutralForeground3); --muted: var(--dim);
+  --border: var(--colorNeutralStroke2); --line: var(--border);
+  --accent: var(--colorBrandBackground); --accent-ink: #fff;
+  --blue: var(--colorBrandForeground1); --blue-deep: var(--colorBrandForeground1);
+  --blue-soft: color-mix(in srgb, var(--accent) 12%, var(--panel));
+  --brand-soft: var(--blue-soft); --on-brand: #fff;
+  --success: var(--colorStatusSuccessForeground1); --good: var(--success);
+  --danger: var(--colorStatusDangerForeground1); --warn: var(--colorStatusWarningForeground1);
+  --warn-bg: color-mix(in srgb, var(--warn) 12%, var(--panel));
+  --good-bg: color-mix(in srgb, var(--success) 12%, var(--panel));
+  --font-sans: var(--fontFamilyBase); --fontDisplay: var(--fontFamilyBase);
+  --productInk: var(--text); --productInkMuted: var(--dim);
+  --productCanvas: var(--bg); --productCanvasSubtle: var(--panel2);
+  --productSurface: var(--panel); --productStroke: var(--border);
+  --productBrand: var(--colorBrandForeground1); --productBrandHover: var(--colorBrandForeground1);
+  --productEvidence: var(--colorBrandForeground1); --productIdentity: var(--success);
+  --productKnowledge: var(--dim); --productSuccess: var(--success);
+  --productDemo: #1c1f26; --productDemoSurface: var(--panel); --productOnDemo: var(--text);
+  --colorBrandBackground: #315fd2; --colorBrandForeground1: #9ebaff;
+  --colorBrandBackgroundHover: color-mix(in srgb, var(--colorBrandBackground) 86%, #000);
+  --colorBrandBackgroundPressed: color-mix(in srgb, var(--colorBrandBackground) 75%, #000);
+  --colorBrandStroke1: var(--colorBrandForeground1);
+  --colorFocusStrokeInner: var(--colorBrandForeground1);
+}
+:root[data-fluent-theme="light"] { --colorBrandForeground1: #315fd2; }
+:root[data-accent="teal"] { --colorBrandBackground: #08766c; --colorBrandForeground1: #74d6c6; }
+:root[data-accent="violet"] { --colorBrandBackground: #7952c7; --colorBrandForeground1: #c5afff; }
+:root[data-accent="amber"] { --colorBrandBackground: #985c12; --colorBrandForeground1: #f2c078; }
+:root[data-fluent-theme="light"][data-accent="teal"] { --colorBrandForeground1: #08766c; }
+:root[data-fluent-theme="light"][data-accent="violet"] { --colorBrandForeground1: #7043bb; }
+:root[data-fluent-theme="light"][data-accent="amber"] { --colorBrandForeground1: #985c12; }
+body { background-color: var(--bg); color: var(--text); }
+a, .toplink { color: var(--colorBrandForeground1); }
+button, input, select, textarea { font-family: var(--fontFamilyBase); }
+button, [role="button"], select { touch-action: manipulation; }
+button:focus-visible, a:focus-visible, summary:focus-visible, input:focus-visible, select:focus-visible {
+  outline: 2px solid var(--colorBrandForeground1); outline-offset: 3px;
+}
+.appearance-control { display: inline-block; flex: 0 0 auto; font: .875rem/1.5 var(--fontFamilyBase); color: var(--text); }
+.appearance-control > summary { display: flex; align-items: center; justify-content: center; gap: 6px;
+  cursor: pointer; min-width: 38px; min-height: 36px; padding: 6px 10px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--panel); list-style: none; }
+.appearance-control > summary::-webkit-details-marker { display: none; }
+.appearance-panel { position: fixed; top: 66px; right: 16px; z-index: 10000;
+  width: min(300px, calc(100vw - 32px)); padding: 18px;
+  background: var(--panel); color: var(--text); border: 1px solid var(--border);
+  border-radius: 12px; box-shadow: var(--shadow16); text-align: left; }
+.appearance-panel label { display: grid; gap: 8px; margin: 0 0 14px; color: var(--text); font-size: .875rem; }
+.appearance-panel select { width: 100%; min-height: 40px; padding: 8px; border: 1px solid var(--border);
+  border-radius: 6px; background: var(--panel2); color: var(--text); }
+.appearance-panel p { margin: 0; color: var(--dim); font-size: .75rem; line-height: 1.6; }
+.appearance-control[open] > summary { border-color: var(--colorBrandForeground1); }
+.page-index .topbar, .page-admin .topbar { flex-wrap: wrap; height: auto; min-height: 44px; }
+.page-admin .topbar { gap: 10px; }
+.product-header .header-actions { gap: 10px; }
+body > .topbar .brand { min-width: 0; }
+@media (max-width: 600px) {
+  .appearance-label { display: none; }
+  .appearance-control > summary { min-height: 44px; }
+  .appearance-panel { top: 74px; }
+  .page-index .topbar .brand { font-size: 1rem; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  button, a, summary { transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease; }
+  .appearance-control[open] .appearance-panel, dialog[open], .workspace-sheet.open { animation: surface-enter 160ms ease-out; }
+  @keyframes surface-enter { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important; scroll-behavior: auto !important; }
+}
+@media print { .appearance-control { display: none !important; } }
 
-   示例：换成浅色主题只需：
-   :root {
-     --bg: #f5f6f8; --panel: #ffffff; --panel2: #eef0f4;
-     --border: #d4d9e0; --text: #1d2129; --dim: #6b7280;
-   }
-*/
+/* Actions use a contrast-safe filled brand; links use the foreground brand. */
+.header-cta, .primary-link.fluent-button, .final-actions .final-primary,
+.evidence-button[aria-expanded="true"] { background: var(--accent); color: var(--on-brand); }
+.companion-card { background: var(--panel); }
+.top .language-switch { flex: 0 0 auto; }
+.top .badge { white-space: nowrap; }
+@media(max-width: 760px) {
+  .top { gap: 8px; }
+  .top #title { flex: 1; min-width: 0; }
+  .top .pack-version, .top #integrity { display: none; }
+  .top .language-switch button { white-space: nowrap; min-width: 36px; }
+  .page-admin .tbl button { white-space: nowrap; }
+  .page-admin .tbl { min-width: 420px; }
+  .page-admin .admin-col { overflow: auto; }
+}
+
+.topic-map-root { box-shadow: var(--shadow2); }
+
+.media-stage .stage-caption span, .content-stage-caption span { color: #cbd5e1; }

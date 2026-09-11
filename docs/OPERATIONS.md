@@ -2,6 +2,8 @@
 
 本文回答非开发维护者和技术人员如何安装、启动、检查、升级与恢复，以及哪些数据可以清理。它是入口，不复制所有命令。完整安装看 [部署 runbook](runbooks/DEPLOYMENT.md)，处理恢复看 [处理与恢复 runbook](runbooks/PROCESSING_AND_RECOVERY.md)，开发测试看 [开发 runbook](runbooks/DEVELOPMENT.md)。
 
+首次使用者先看[从部署到导出](runbooks/FIRST_USE.md)，再按目标平台进入部署步骤。
+
 ## 已配置机器的运行路径
 
 新机器从[首次部署步骤](runbooks/DEPLOYMENT.md)开始。下列命令假定依赖、模型服务已经就绪；

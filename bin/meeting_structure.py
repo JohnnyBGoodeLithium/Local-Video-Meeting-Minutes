@@ -93,7 +93,7 @@ def _plain(value: str) -> str:
     return " ".join(value.split()).strip()
 
 
-def visual_title(description: str, page: int) -> str:
+def visual_title(description: str, page: int, *, shot: bool = False, first: float = 0) -> str:
     lines = [line.strip() for line in clean_model_text(description).splitlines() if line.strip()]
     # VL 偶发把标题答成 JSON 片段："标题": "…",（boxed 包装被清洗后尤其常见）。
     for line in lines:
@@ -117,6 +117,11 @@ def visual_title(description: str, page: int) -> str:
                                  cleaned, re.I)
                 and not re.match(r"^(?:high|medium|low|高|中|低)\s*[：:]", cleaned, re.I)):
             return cleaned[:100]
+    if shot:
+        seconds = max(0, int(first or 0))
+        stamp = (f"{seconds // 3600}:{seconds % 3600 // 60:02d}:{seconds % 60:02d}"
+                 if seconds >= 3600 else f"{seconds // 60:02d}:{seconds % 60:02d}")
+        return f"关键画面 · {stamp}"
     return f"第{page}页屏幕内容"
 
 
@@ -320,7 +325,8 @@ def _segments(turns: list[dict], timeline: list[dict], descriptions: dict[int, s
             start, end = float(bounds[0]), float(bounds[1])
             if end <= start:
                 continue
-            title = (_visual_title(descriptions.get(page, ""), page)
+            title = (_visual_title(descriptions.get(page, ""), page,
+                                   shot=bool(item.get("shot")), first=start)
                      if page is not None else "摄像头画面")
             rows.append({
                 "kind": kind,
@@ -440,7 +446,8 @@ def build_structure(minutes: str, turns: list[dict], timeline: list[dict],
                                      for index in segment["turn_indexes"]))
         source = page_sources.get(pid, {})
         groups = _claim_groups(claims, indexes, [pid])
-        title = _visual_title(descriptions.get(page, ""), page)
+        title = _visual_title(descriptions.get(page, ""), page,
+                              shot=bool(item.get("shot")), first=item.get("first", 0))
         description = clean_model_text(descriptions.get(page, ""))
         has_cached_description = page in descriptions
         visuals.append({

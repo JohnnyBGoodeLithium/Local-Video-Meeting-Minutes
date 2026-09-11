@@ -1,46 +1,46 @@
 import { contentTypeOf, safeSourceUrl }
-  from "./modules/media-source.js?v=20260911p122";
+  from "./modules/media-source.js?v=20260911p123";
 import { buildUploadFormData, enqueueMediaUrl, isSingleLocalVideo }
-  from "./modules/imports.js?v=20260911p122";
+  from "./modules/imports.js?v=20260911p123";
 import { jobDisplayName, jobTaskLabel, selectJobPanel }
-  from "./modules/jobs.js?v=20260911p122";
+  from "./modules/jobs.js?v=20260911p123";
 import { jobPresentation }
-  from "./modules/job-progress.js?v=20260911p122";
+  from "./modules/job-progress.js?v=20260911p123";
 import { closeJobSheet, renderCompactJob, renderJobSheet, renderProcessingBanner }
-  from "./modules/job-progress-view.js?v=20260911p122";
+  from "./modules/job-progress-view.js?v=20260911p123";
 import { chooseInitialItem, deepLinkSeconds, filterLibrary, sortLibrary }
-  from "./modules/library.js?v=20260911p122";
+  from "./modules/library.js?v=20260911p123";
 import { adjacentReviewUnit, defaultReviewUnits, nearestReviewUnit,
   reviewIndexesFor, reviewUnitForTurn as findReviewUnitForTurn, turnEnd }
-  from "./modules/player-navigation.js?v=20260911p122";
+  from "./modules/player-navigation.js?v=20260911p123";
 import { nextSearchCursor, pendingReviewByTurn, transcriptSearchHits }
-  from "./modules/transcript.js?v=20260911p122";
+  from "./modules/transcript.js?v=20260911p123";
 import { renderTranscriptView }
-  from "./modules/transcript-view.js?v=20260911p122";
+  from "./modules/transcript-view.js?v=20260911p123";
 import { availableViewerMedia, exportSizeState, formatBytes, meetingExportHref, normalizeExportProfile,
   packExportHref }
-  from "./modules/export.js?v=20260911p122";
+  from "./modules/export.js?v=20260911p123";
 import { claimAction, claimIdsForTurn, evidenceSources, minutesState, normalizeReviewMode,
   resolveMinutesView, turnIndexAtTime, turnIndexesForSourceIds }
-  from "./modules/minutes.js?v=20260911p122";
+  from "./modules/minutes.js?v=20260911p123";
 import { renderMinutesView }
-  from "./modules/minutes-view.js?v=20260911p122";
+  from "./modules/minutes-view.js?v=20260911p123";
 import { beginExampleSelection, beginIdentity, buildCorrectionApplyPayload,
   correctionSummary, createSpeakerCorrectionState, representativeTurns,
   resetSpeakerCorrection, setGroupAssignment, setIncludeSuggested, setPreview,
   toggleExample, withCorrectionError }
-  from "./modules/speaker-correction.js?v=20260911p122";
+  from "./modules/speaker-correction.js?v=20260911p123";
 import { renderCorrectionSheet, renderIdentityPopover }
-  from "./modules/speaker-correction-view.js?v=20260911p122";
+  from "./modules/speaker-correction-view.js?v=20260911p123";
 import { beginPhotoImport, createPhotoImportState, hydratePhotoCaptureTimes,
   markPhotoImportResult, photoUploadSpec, releasePhotoImport, removePhotoImportItem,
   setPhotoMeetingStart, setPhotoPositionMode, togglePhotoTimeSettings,
   withPhotoImportBusy, withPhotoImportError, formatPhotoBytes }
-  from "./modules/photo-import.js?v=20260911p122";
+  from "./modules/photo-import.js?v=20260911p123";
 import { renderPhotoImport }
-  from "./modules/photo-import-view.js?v=20260911p122";
+  from "./modules/photo-import-view.js?v=20260911p123";
 import { mountLiveContext }
-  from "./modules/live-context-view.js?v=20260911p122";
+  from "./modules/live-context-view.js?v=20260911p123";
 
 /* 会议列表 + 回顾工作台（装配入口；领域规则逐步迁往 modules/） */
 "use strict";
@@ -1416,9 +1416,7 @@ function updateScreenPreview(visual = null) {
   state.screenPreview.visualId = source.id;
   $("#screen-preview-image").src = visualImageUrl(source);
   $("#screen-preview-title").textContent = visualReadingCopy(source).title;
-  $("#screen-preview-kicker").textContent = source.kind === "slide"
-    ? (isEnglishUi() ? `Page ${source.page}` : `第 ${source.page} 页`) : source.kind === "photo"
-      ? (isEnglishUi() ? "Meeting material" : "现场资料") : (isEnglishUi() ? "Dynamic screen" : "动态画面");
+  $("#screen-preview-kicker").textContent = visualLocationLabel(source);
   const rawAt = source.ranges?.[0]?.[0] ?? source.first;
   const at = rawAt == null ? Number.NaN : Number(rawAt);
   $("#screen-preview-meta").textContent = source.kind === "photo"
@@ -1553,8 +1551,8 @@ function updateContentStage(visual = null, semantic = false) {
   if (title) title.textContent = source ? visualReadingCopy(source).title : (isEnglishUi()
     ? "No static screen content at this position" : "这一位置没有静态屏幕资料");
   if (kicker) kicker.textContent = semantic ? (isEnglishUi() ? "Topic screen" : "议题代表画面") : source
-    ? `${fmt(state.focus.time ?? source.first)} · ${source.kind === "slide"
-      ? (isEnglishUi() ? `Page ${source.page}` : `第${source.page}页`)
+    ? `${isMediaContent() || source.shot ? "" : fmt(state.focus.time ?? source.first) + " · "}${source.kind === "slide"
+      ? visualLocationLabel(source)
       : (isEnglishUi() ? "Dynamic screen" : "动态画面")}`
     : (isEnglishUi() ? "Current screen" : "当前屏幕");
   if (!$("#screen-preview-mask")?.classList.contains("hidden") && source)
@@ -3114,18 +3112,25 @@ function visualDescriptionHtml(visual) {
   if (html.trim()) return html;
   const text = normalizeVisualText(visual?.description);
   const body = text.split(new RegExp(`#{1,5}\\s*(?:页面内容|page content)\\s*[:：]?`, "i"))[1];
-  return `<p>${esc((body || text || "当前画面没有可用的 VL 详细解读。").trim())}</p>`;
+  return `<p>${esc((body || text || (isEnglishUi() ? "No detailed interpretation is available yet." : "当前画面尚无详细解读。")).trim())}</p>`;
 }
 
+function visualLocationLabel(visual) {
+  if (visual?.kind === "photo") return isEnglishUi() ? "Meeting material" : "现场资料";
+  if (isMediaContent() || visual?.shot) return `${isEnglishUi() ? "Key frame" : "关键画面"} · ${fmt(visual?.first ?? visual?.ranges?.[0]?.[0] ?? 0)}`;
+  if (visual?.page == null && visual?.number == null) return isEnglishUi() ? "Dynamic view" : "动态画面";
+  return isEnglishUi() ? `Page ${visual?.page ?? visual?.number ?? ""}` : `第 ${visual?.page ?? visual?.number ?? ""} 页`;
+}
 function visualReadingCopy(visual) {
   const page = Number(visual?.page);
   const translated = state.visualsTranslation?.target_language === state.uiLanguage
     && state.visualsTranslation?.state === "ready"
     ? (state.visualsTranslation.pages || []).find(item => Number(item.number) === page) : null;
-  const title = visualTitleCandidate(translated?.title)
+  let title = visualTitleCandidate(translated?.title)
     || visualTitleCandidate(visual?.title)
     || visualTitleCandidate(visual?.description)
     || (isEnglishUi() ? "Screen content" : "屏幕内容");
+  if ((isMediaContent() || visual?.shot) && /^(?:第\s*\d+\s*页(?:屏幕内容)?|Screen(?: content)?(?:\s+\d+)?|Page\s+\d+|屏幕内容|关键画面\s*·.*)$/i.test(title)) title = visualLocationLabel(visual);
   const rawSummary = normalizeVisualText(translated?.summary);
   return {
     title,
@@ -3724,9 +3729,9 @@ function renderVisuals(preserveListScroll = false) {
     : (selected.analysis_state === "pending"
       ? `<div class="visual-reprocess pending">${isEnglishUi()
         ? "Visual analysis is still running. Its information value will be assessed after completion."
-        : "屏幕解析仍在进行，完成前不会判断这页的内容价值。"}</div>`
+        : "画面仍在分析，完成前暂不判断其信息价值。"}</div>`
       : (selected.needs_reprocess
-        ? `<div class="visual-reprocess">页面解析没有得到可读正文，已标记为需要重新解析；当前不会将它判为低信息。</div>`
+        ? `<div class="visual-reprocess">${isEnglishUi() ? "This image needs another analysis; its information value is still unknown." : "这张画面尚未得到可读解读，需要重新分析；信息价值暂未确定。"}</div>`
         : ""));
   box.innerHTML = `${upgradeNotice}${materialsHeader}<div class="structure-layout visual-layout"><nav class="structure-list visual-list" aria-label="${esc(contentLabel(contentTypeOf(state.bundle), "screens"))}">` +
     `<div class="structure-list-head visual-list-head"><div><b>${esc(contentLabel(contentTypeOf(state.bundle), "screens"))}</b>` +
@@ -3735,7 +3740,7 @@ function renderVisuals(preserveListScroll = false) {
     (media ? mediaVisualList(visibleVisuals, selected) : visibleVisuals.map(
       visual => visualNavCard(visual, selected)).join("")) +
     `</nav><article class="structure-detail visual-detail">` +
-    `<header class="structure-detail-head"><div><span>${selectedPhoto ? (isEnglishUi() ? "Meeting material" : "现场资料") : (isEnglishUi() ? "Screen" : "屏幕")} · ${esc(status)}`
+    `<header class="structure-detail-head"><div><span>${selectedPhoto ? (isEnglishUi() ? "Meeting material" : "现场资料") : (isEnglishUi() ? "Visual" : "画面")} · ${esc(status)}`
     + (selectedPhoto ? "" : ` · ${esc(visualValueLabel(selected))}`) + `</span>` +
     `<h2>${esc(selectedCopy.title)}</h2>` +
     (selectedCopy.summary ? `<p>${esc(selectedCopy.summary)}</p>` : "") + `</div></header>` +
@@ -3762,10 +3767,10 @@ function renderVisuals(preserveListScroll = false) {
     (selectedPhoto ? `<section class="visual-description photo-material-description"><h3>${isEnglishUi() ? "Material interpretation" : "现场资料解读"}</h3>`
       + (selected.description ? `<div>${visualDescriptionHtml(selected)}</div>`
         : `<p>${esc(photoAnalysisCopy(selected.analysis_state))}</p>`)
-      + `</section>` : `<section class="visual-description"><h3>${isEnglishUi() ? "Screen interpretation" : "屏幕内容解读"}</h3>`
+      + `</section>` : `<section class="visual-description"><h3>${isEnglishUi() ? "Visual interpretation" : "画面解读"}</h3>`
       + `<p class="visual-boundary">${isEnglishUi() ? "This describes what was shown; it does not prove a meeting decision." : "仅说明画面展示内容，不代表会议作出了决定。"}</p>`
       + `<div>${visualDescriptionHtml(selected)}</div></section>`) +
-    structureClaimGroup(isEnglishUi() ? "Related meeting content" : "相关会议内容", selected.claim_ids) +
+    structureClaimGroup(isEnglishUi() ? "Related content" : "相关内容", selected.claim_ids) +
     `</article></div>`;
   $$('[data-add-materials]', box).forEach(button => button.onclick = event =>
     choosePhotoFiles("materials", event.currentTarget));
@@ -3865,9 +3870,9 @@ function showMinutesEvidence(claimId, jumpToFirst = false) {
   for (const p of pages) {
     const image = p.image
       ? `/api/meetings/${encodeURIComponent(state.slug)}/file?path=${encodeURIComponent("slides/" + p.image)}` : "";
-    html += `<div class="evidence-source"><div><b>第${p.page}页</b>` +
+    html += `<div class="evidence-source"><div><b>${esc(visualLocationLabel(p))}</b>` +
       `<button type="button" class="evidence-page-seek" data-time="${p.first || 0}">${fmt(p.first)}</button></div>` +
-      (image ? `<img src="${image}" alt="第${p.page}页">` : "") + `</div>`;
+      (image ? `<img src="${image}" alt="${esc(visualLocationLabel(p))}">` : "") + `</div>`;
   }
   $("#evidence-body").innerHTML = html;
   openUtility("evidence");
