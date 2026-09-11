@@ -120,6 +120,8 @@ def apply_saved_config() -> None:
     if os.environ.get('MEETING_MODEL_SETTINGS_LOADED') == '1':
         return
     value = read_config()
+    prior_vision = (os.environ.get('MEETING_VL_API') or f"http://127.0.0.1:{os.environ.get('MEETING_VL_PORT', '11436')}/v1",
+                    os.environ.get('MEETING_VL_MODEL_ID', ''))
     for role, mapping in FIELDS.items():
         if role not in value:
             continue
@@ -130,7 +132,7 @@ def apply_saved_config() -> None:
         for field, env in mapping.items():
             os.environ[env] = str(item.get(field, ''))
         os.environ['MEETING_ALLOW_REMOTE_LLM' if role == 'text' else 'MEETING_ALLOW_REMOTE_VL'] = '1' if item['source'] == 'cloud' else '0'
-    if 'vision' in value:
+    if 'vision' in value and (value['vision']['api'], value['vision']['model']) != prior_vision:
         import hashlib
         identity = os.environ.get('MEETING_VL_REVISION', '') + '/' + value['vision']['api'] + '/' + value['vision']['model']
         os.environ['MEETING_VL_REVISION'] = 'settings-' + hashlib.sha256(identity.encode()).hexdigest()[:16]

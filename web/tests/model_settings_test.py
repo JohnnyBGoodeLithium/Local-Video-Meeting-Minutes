@@ -20,6 +20,9 @@ with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {'MEETING_DATA
     m.save_config(clean)
     assert m.config_path().stat().st_mode & 0o777 == 0o600
     assert not m.public_config(clean)['text']['key_configured']
+    with patch.dict(os.environ, {'MEETING_MODEL_SETTINGS_LOADED':'0', 'MEETING_VL_API':clean['vision']['api'], 'MEETING_VL_MODEL_ID':clean['vision']['model'], 'MEETING_VL_REVISION':'existing-revision'}):
+        m.apply_saved_config()
+        assert os.environ['MEETING_VL_REVISION'] == 'existing-revision', 'saving unchanged settings must not invalidate observations'
     cloud = {**config, 'text': {**config['text'], 'source':'cloud', 'api':'https://example.test/v1', 'api_key':'synthetic-secret'}}
     try: m.normalize(cloud, {})
     except ValueError: pass
