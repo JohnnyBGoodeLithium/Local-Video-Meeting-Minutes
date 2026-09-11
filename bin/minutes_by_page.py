@@ -34,6 +34,8 @@ import sys
 import threading
 import time
 import urllib.request
+from meeting_core.model_settings import apply_saved_config, open_request
+apply_saved_config()
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -268,8 +270,10 @@ def ensure_vl_server(port: int = VL_PORT):
     """VL 服务可用则直接用，否则用本地 Miloco 模型拉起一个。返回 (api_base, proc|None)。"""
     configured_api = os.environ.get("MEETING_VL_API", "").strip()
     api = vw.local_api(configured_api) if configured_api else f"http://127.0.0.1:{port}/v1"
+    if configured_api and os.environ.get("MEETING_ALLOW_REMOTE_VL") == "1" and os.environ.get("MEETING_VL_MODEL_ID"):
+        return api, None
     try:
-        with urllib.request.urlopen(f"{api}/models", timeout=5) as resp:
+        with open_request(f"{api}/models", timeout=5) as resp:
             models = json.loads(resp.read())["data"]
             mid = models[0]["id"]
         wanted = os.environ.get('MEETING_VL_MODEL_ID')
@@ -301,7 +305,7 @@ def ensure_vl_server(port: int = VL_PORT):
     atexit.register(proc.terminate)
     for _ in range(90):
         try:
-            with urllib.request.urlopen(f"{api}/models", timeout=5) as resp:
+            with open_request(f"{api}/models", timeout=5) as resp:
                 mid = json.loads(resp.read())["data"][0]["id"]
             print(f"[meta] VL 服务就绪 ({mid})", flush=True)
             return api, proc
@@ -322,7 +326,7 @@ def ensure_vl_review_server(port: int = VL_REVIEW_PORT):
     requested_port = port
     api = f"http://127.0.0.1:{port}/v1"
     try:
-        with urllib.request.urlopen(f"{api}/models", timeout=5) as resp:
+        with open_request(f"{api}/models", timeout=5) as resp:
             mid = json.loads(resp.read())["data"][0]["id"]
         if endpoint_has_model(mid, VL_REVIEW_MODEL):
             print(f"[meta] 疑难页视觉复核服务已在 :{port} ({mid})", flush=True)
@@ -347,7 +351,7 @@ def ensure_vl_review_server(port: int = VL_REVIEW_PORT):
     atexit.register(proc.terminate)
     for _ in range(150):
         try:
-            with urllib.request.urlopen(f"{api}/models", timeout=5) as resp:
+            with open_request(f"{api}/models", timeout=5) as resp:
                 mid = json.loads(resp.read())["data"][0]["id"]
             print(f"[meta] 疑难页视觉复核服务就绪 ({mid})", flush=True)
             return api, proc
@@ -398,7 +402,7 @@ def review_media_pages(mdir: Path, pages: list[dict], descs: dict[int, str],
     cache_p = mdir / 'page_desc.json'; cache = vw.load(cache_p)
     primary_model = os.environ.get('MEETING_VL_MODEL_ID') or cache.get('model', '')
     primary = vw.valid_records(mdir, pages, primary_model, cache)
-    with urllib.request.urlopen(f'{api}/models', timeout=10) as resp:
+    with open_request(f'{api}/models', timeout=10) as resp:
         mid = os.environ.get('MEETING_VL_REVIEW_MODEL_ID') or json.loads(resp.read())['data'][0]['id']
     producer = vw.producer(mid, review=True)
     candidates = vw.choose_review(pages, primary, len(pages))
@@ -480,9 +484,11 @@ def describe_pages(mdir: Path, pages, api: str, video: Path = None, *, resume_pa
     """Structured initial observations; only matching image/model/schema caches count."""
     cache_p = mdir / 'page_desc.json'
     cache = vw.load(cache_p)
-    with urllib.request.urlopen(f'{api}/models', timeout=10) as resp:
-        models = json.loads(resp.read())['data']
-    mid = os.environ.get('MEETING_VL_MODEL_ID') or models[0]['id']
+    mid = os.environ.get('MEETING_VL_MODEL_ID')
+    if not mid:
+        with open_request(f'{api}/models', timeout=10, role='vision') as resp:
+            models = json.loads(resp.read())['data']
+        mid = models[0]['id']
     observations = vw.effective_records(mdir, pages, mid, cache)
     descs = {n: vr.markdown(value) for n, value in observations.items()}
     todo = select_visual_pages([p for p in pages if p.get('shot')], descs, VL_MEDIA_MAX_NEW_PAGES)
@@ -563,7 +569,7 @@ def chat(prompt: str, max_tokens: int = 8192, model: str = MODEL):
                        "chat_template_kwargs": {"enable_thinking": False},  # 思考模式会吃掉输出预算
                        "messages": [{"role": "user", "content": prompt}]}).encode()
     req = urllib.request.Request(ROUTER, data=body, headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=1800) as resp:
+    with open_request(req, timeout=1800) as resp:
         data = json.loads(resp.read())
     return clean_model_text(
         data["choices"][0]["message"].get("content", "")), data.get("usage", {})

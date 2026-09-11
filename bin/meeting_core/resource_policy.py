@@ -87,6 +87,8 @@ def _json_request(path: str, *, payload: dict | None = None,
 
 def router_models() -> list[str]:
     """列出当前已加载模型；路由不可用时返回空列表，不阻断非文本阶段。"""
+    if urllib.parse.urlparse(os.environ.get("MEETING_LLM_API", "http://127.0.0.1:11435/v1")).hostname not in LOOPBACK_HOSTS:
+        return []  # Cloud providers have no local residency/unload contract.
     try:
         result = _json_request("/models")
     except (OSError, ValueError, urllib.error.URLError, json.JSONDecodeError):

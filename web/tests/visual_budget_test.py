@@ -63,16 +63,16 @@ with tempfile.TemporaryDirectory() as tmp:
             mb.urllib.request, 'urlopen', return_value=Response()), patch.object(
             mb, 'chat_with_image', side_effect=chat), patch.object(mb, 'grab_fullres') as full, \
             patch.object(mb, 'progress_event') as progress:
-        first = mb.describe_pages(mdir, selected, 'http://synthetic/v1', video=Path('synthetic.mp4'))
+        first = mb.describe_pages(mdir, selected, 'http://127.0.0.1:1/v1', video=Path('synthetic.mp4'))
         assert len(first) == 3 and len(calls) == 2 and not full.called
         restored = vw.load(mdir / 'page_desc.json')
         restored['records'].pop('2')
         vw.save(mdir / 'page_desc.json', restored)
-        resumed = mb.describe_pages(mdir, selected, 'http://synthetic/v1', resume_pass=True)
+        resumed = mb.describe_pages(mdir, selected, 'http://127.0.0.1:1/v1', resume_pass=True)
         assert len(resumed) == 3 and len(calls) == 3
         assert progress.call_args_list[-1].kwargs == {'done': 1, 'total': 1, 'unit': 'pages'}
         progress.reset_mock()
-        second = mb.describe_pages(mdir, selected, 'http://synthetic/v1')
+        second = mb.describe_pages(mdir, selected, 'http://127.0.0.1:1/v1')
         assert len(second) == 5 and len(calls) == 5
         assert [c.kwargs['done'] for c in progress.call_args_list] == [0, 1, 2]
         assert all(c.kwargs['total'] == 2 for c in progress.call_args_list)

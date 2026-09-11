@@ -779,7 +779,7 @@ function init() {
   loadSpeakers();
   loadOrg();
   loadOrgFiles();
-  showAdminView(location.hash === "#org" ? "org" : "voices");
+  showAdminView(["#org", "#models"].includes(location.hash) ? location.hash.slice(1) : "voices");
 }
 
 document.addEventListener("DOMContentLoaded", init);

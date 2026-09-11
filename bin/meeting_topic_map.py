@@ -16,6 +16,8 @@ import re
 import sys
 import time
 import urllib.request
+from meeting_core.model_settings import apply_saved_config, open_request
+apply_saved_config()
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
@@ -157,7 +159,7 @@ def _default_llm(prompt: str, max_tokens: int) -> str:
     }, ensure_ascii=False).encode("utf-8")
     request = urllib.request.Request(
         ROUTER, data=body, headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(request, timeout=1800) as response:
+    with open_request(request, timeout=1800) as response:
         data = json.loads(response.read())
     return meeting_structure.clean_reasoning_text(
         data["choices"][0]["message"].get("content", ""))

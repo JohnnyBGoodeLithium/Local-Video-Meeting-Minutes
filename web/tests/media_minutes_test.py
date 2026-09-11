@@ -101,7 +101,7 @@ with tempfile.TemporaryDirectory(prefix="media-vl-prompt-") as temp:
     try:
         mb.urllib.request.urlopen = lambda *_args, **_kwargs: FakeModelsResponse()
         mb.chat_with_image = fake_vl_chat
-        mb.describe_pages(mdir, pages, "http://synthetic/v1")
+        mb.describe_pages(mdir, pages, "http://127.0.0.1:1/v1")
     finally:
         mb.urllib.request.urlopen = original_urlopen
         mb.chat_with_image = original_vl_chat

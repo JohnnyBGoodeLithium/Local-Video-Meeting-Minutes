@@ -26,7 +26,8 @@ def save(path: Path, data: dict):
 
 def local_api(value: str) -> str:
     parsed = urlparse(value)
-    if parsed.scheme not in {'http', 'https'} or parsed.hostname not in {'localhost', '127.0.0.1', '::1'}:
+    if parsed.scheme not in {'http', 'https'} or (parsed.hostname not in {'localhost', '127.0.0.1', '::1'}
+            and not (parsed.scheme == 'https' and os.environ.get('MEETING_ALLOW_REMOTE_VL') == '1')):
         raise ValueError('visual_endpoint_must_be_local')
     return value.rstrip('/')
 
