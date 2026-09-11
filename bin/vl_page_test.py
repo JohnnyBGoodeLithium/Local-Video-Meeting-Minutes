@@ -77,20 +77,27 @@ def grab_fullres(video: Path, t: float, out: Path):
                     "-frames:v", "1", "-q:v", "2", str(out)], check=True)
 
 
-def chat_with_image(api: str, model: str, img: Path, max_tokens: int, prompt: str = PROMPT):
+def chat_with_image(api: str, model: str, img: Path, max_tokens: int, prompt: str = PROMPT,
+                    *, response_schema: dict | None = None, timeout: float = 600):
     b64 = base64.b64encode(img.read_bytes()).decode()
-    body = json.dumps({
+    payload = {
         "model": model, "temperature": 0.1, "max_tokens": max_tokens,
         "chat_template_kwargs": {"enable_thinking": False},
         "messages": [{"role": "user", "content": [
             {"type": "text", "text": prompt},
             {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
         ]}],
-    }).encode()
+    }
+    if response_schema:
+        payload['response_format'] = {'type': 'json_schema', 'json_schema': {
+            'name': 'visual_observation', 'strict': True, 'schema': response_schema}}
+    body = json.dumps(payload).encode()
     req = urllib.request.Request(f"{api}/chat/completions", data=body,
                                  headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=600) as resp:
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
         data = json.loads(resp.read())
+    if data['choices'][0].get('finish_reason') == 'length':
+        raise ValueError('visual_output_truncated')
     msg = data["choices"][0]["message"].get("content", "").strip()
     return msg, data.get("usage", {})
 

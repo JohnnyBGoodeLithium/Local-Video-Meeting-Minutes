@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "local-meeting-minutes"
-version = "0.16.0"
+version = "0.16.1"
 description = "Local-first meeting and video context workflow with evidence-linked review and portable knowledge outputs."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -22,6 +22,7 @@ keywords = [
 dependencies = [
   "aiofiles>=23",
   "fastapi>=0.110",
+  "pydantic>=2.7",
   "linkify-it-py>=2.0",
   "markdown-it-py>=3",
   "python-multipart>=0.0.9",

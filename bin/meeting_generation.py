@@ -216,6 +216,9 @@ def finalize(mdir: Path, *, pages: int, vl_pages: int,
     resolved_visual_mode = visual_mode or ("complete" if vl_pages else "not_available")
     if resolved_visual_mode == 'complete' and vl_pages < pages:
         resolved_visual_mode = 'partial' if vl_pages else 'not_available'
+    review = _read_json(mdir / 'visual_review.json', {})
+    if resolved_visual_mode == 'complete' and review.get('pending_pages'):
+        resolved_visual_mode = 'partial'
     enrichment = {
         "pages": int(pages), "vl_pages": int(vl_pages),
         "visual_mode": resolved_visual_mode,

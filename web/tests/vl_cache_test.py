@@ -12,6 +12,7 @@ from pathlib import Path
 PROJECT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT / "bin"))
 import minutes_by_page as mb  # noqa: E402
+from visual_fixture import observation
 
 
 class FakeModelsResponse:
@@ -44,13 +45,11 @@ with tempfile.TemporaryDirectory(prefix="vl-cache-test-") as temp:
     ]
     calls = {1: 0, 2: 0, 3: 0}
 
-    def fake_chat(_api, _model, image, _max_tokens, _prompt):
+    def fake_chat(_api, _model, image, _max_tokens, _prompt, **kwargs):
         page = {"one.jpg": 1, "two.jpg": 2, "three.jpg": 3}[image.name]
         calls[page] += 1
         if page == 1 and calls[page] == 2:
-            return (json.dumps({"type": "表格页", "title": "补算成功",
-                                "summary": "合成表格包含关键指标。"}, ensure_ascii=False),
-                    {"completion_tokens": 40})
+            return json.dumps(observation(title='补算成功', summary='合成数据')), {'completion_tokens': 40}
         return "<think>只有推理，没有正文", {"completion_tokens": 20}
 
     original_urlopen = mb.urllib.request.urlopen
@@ -63,12 +62,11 @@ with tempfile.TemporaryDirectory(prefix="vl-cache-test-") as temp:
         mb.urllib.request.urlopen = original_urlopen
         mb.chat_with_image = original_chat
 
-    assert calls == {1: 2, 2: 0, 3: 2}
-    assert set(descriptions) == {1, 2}
+    assert calls == {1: 2, 2: 2, 3: 2}
+    assert set(descriptions) == {1}
     persisted = json.loads((mdir / "page_desc.json").read_text(encoding="utf-8"))["desc"]
-    assert set(persisted) == {"1", "2"}
+    assert set(persisted) == {"1"}
     assert persisted["1"].startswith("## 标题")
-    assert "页面类型：表格页" in persisted["1"]
-    assert persisted["2"].startswith("## 标题")
+    assert "补算成功" in persisted["1"]
 
 print("VL cache: empty output retried and never persisted as success")

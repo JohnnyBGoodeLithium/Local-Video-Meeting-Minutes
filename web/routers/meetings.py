@@ -3,6 +3,8 @@
 meeting-minutes-evidence/v1、meeting-storage/v1。"""
 
 import json
+import hashlib
+import html
 import os
 import shutil
 from pathlib import Path
@@ -17,6 +19,7 @@ import minutes_view_service
 import transcript_service
 import voice_bank as vb
 from meeting_core import photos as meeting_photos
+from meeting_core import visual_result as vr, visual_workflow as vw
 from deps import (BANK_DIR, BANK_LOCK, CONTENT_TYPES, DRY_RUN, EVALUATIONS_DIR, MEETINGS, MD,
                   MEETING_META_LOCK, STORAGE_LOCK, artifact, assistant, _audio_path,
                   _clean_meeting_cache, _current_evidence, _evidence_state,
@@ -211,9 +214,46 @@ def get_bundle(slug: str):
     )
     # VL 结果本身通常是 Markdown；沿用纪要的安全渲染配置（禁用原始 HTML），
     # 让屏幕内容页保持可读层级，而不是把标题/列表作为原始文本展示。
+    visual_cache = vw.load(mdir / 'page_desc.json')
+    visual_model = os.environ.get('MEETING_VL_MODEL_ID') or visual_cache.get('model', '')
+    observations = vw.effective_records(mdir, slides, visual_model, visual_cache)
+    crosschecks = vw.load(mdir / 'visual_crosschecks.json')
+    if crosschecks.get('transcript_key') != hashlib.sha256(json.dumps(transcript, ensure_ascii=False, sort_keys=True).encode()).hexdigest():
+        crosschecks = {}
     for visual in structure.get("visuals", []):
-        visual["description_html"] = MD.render(
-            visual.get("display_description") or "当前画面没有可用的 VL 详细解读。")
+        observation = observations.get(visual.get('page')) or visual.get('observation')
+        try:
+            observation = vr.validate(observation) if observation else None
+        except (ValueError, TypeError):
+            observation = None
+        if observation:
+            visual['observation'] = observation
+            visual['title'] = observation['title'] or visual.get('title')
+            visual['read_status'] = observation['status']
+            visual['description_html'] = vr.render_html(observation)
+            check = crosschecks.get('checks', {}).get(str(visual.get('page')), {})
+            if check.get('observation_hash') == hashlib.sha256(json.dumps(observation, sort_keys=True).encode()).hexdigest():
+                visual['crosscheck'] = check
+                labels = {'supported': '模型对照一致', 'contradicted': '语音与画面存在分歧，待核听',
+                          'different_scope': '语音与画面口径不同', 'insufficient': '语音依据不足'}
+                visual['description_html'] += ('<h4>语音对照</h4><p>' + labels.get(check['verdict'], '待核')
+                    + '</p><p>' + html.escape(check.get('explanation', '')) + '</p>')
+            review = visual_cache.get('reviews', {}).get(str(visual.get('page')), {})
+            base = visual_cache.get('records', {}).get(str(visual.get('page')), {})
+            review_id = os.environ.get('MEETING_VL_REVIEW_MODEL_ID') or review.get('producer', {}).get('model', '')
+            try:
+                reviewed_html = vr.render_html(review['observation']) if review.get('observation') else ''
+            except (ValueError, TypeError):
+                reviewed_html = ''
+            if (review.get('state') in {'conflict', 'partial'} and reviewed_html
+                    and review.get('primary_key') == base.get('key')
+                    and review.get('producer') == vw.producer(review_id, review=True)):
+                visual['description_html'] += ('<details><summary>独立复核结果（仍待核对）</summary>'
+                    + reviewed_html + '</details>')
+        else:
+            visual['read_status'] = 'legacy' if visual.get('display_description') else 'pending'
+            visual["description_html"] = MD.render(
+                visual.get("display_description") or "当前画面没有可用的 VL 详细解读。")
     topic_state, topic_map = meeting_topic_map.load_current_topic_map(mdir)
     topic_payload = ({**topic_map, "state": "ready"} if topic_state == "ready" else
                      {"schema": meeting_topic_map.SCHEMA, "state": topic_state, "topics": []})

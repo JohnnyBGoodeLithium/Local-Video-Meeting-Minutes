@@ -231,3 +231,7 @@ Experimental Companion 的 transport 固定为 `Phone → tailnet HTTPS → Tail
 ### 人物显示与语义身份
 
 简单 bind 改变 voice→person attribution；display rename 只改变已确认 person 的首选显示名。二者都只重建逐字稿显示、people/evidence/caption 等确定性投影，不触发 ASR、diarization、VL、纪要、Topic Map 或翻译模型。跨会议 display rename 在私有 bank history 中保存 bank 与相关逐字稿 revision 快照，撤销前拒绝覆盖更新的数据。旧纪要自然语言正文不做全局字符串替换。
+
+## 结构化视觉观察
+
+`visual-result/v1` 是独立观察层，保存文字区域、带单位/时期/限定词的读数、表格、图表与未读区域；不能反写逐字稿或人工身份。初读与复核分别保存，图片与 producer 指纹改变使缓存失效。`visual-crosschecks/v1` 对照语音与视觉并绑定当前来源，分歧不由任一模型自动裁决。固定渲染与会议/视频/Live 预算、迁移见[视觉处理 runbook](runbooks/VISUAL_PROCESSING.md)。

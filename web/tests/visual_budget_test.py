@@ -12,6 +12,8 @@ sys.path.insert(0, str(ROOT / 'bin'))
 import slide_pages as sp
 import minutes_by_page as mb
 import meeting_generation as mg
+from visual_fixture import observation
+from meeting_core import visual_result as vr, visual_workflow as vw
 from meeting_core.visual_budget import select_pages
 
 pages = [{'page': i + 1, 'first': i * 10, 'shot': True, 'talking_head': i % 2 == 0}
@@ -44,8 +46,9 @@ with tempfile.TemporaryDirectory() as tmp:
     selected = [{'page': i, 'first': i * 10, 'shot': True, 'image': f'{i}.jpg'} for i in range(1, 6)]
     for p in selected:
         (mdir / 'slides' / p['image']).write_bytes(b'fixture')
-    (mdir / 'page_desc.json').write_text(json.dumps({'model': 'synthetic', 'desc': {'1': 'reviewed'},
-        'models': {'primary': 'synthetic', 'review': 'synthetic-review'}, 'reviewed_pages': [1]}))
+    record = {'key': vr.cache_key(mdir / 'slides/1.jpg', vw.producer('synthetic'), 'media'),
+              'producer': vw.producer('synthetic'), 'observation': observation()}
+    vw.save(mdir / 'page_desc.json', {'model': 'synthetic', 'records': {'1': record}})
 
     class Response:
         def __enter__(self): return self
@@ -53,9 +56,9 @@ with tempfile.TemporaryDirectory() as tmp:
         def read(self): return b'{"data":[{"id":"synthetic"}]}'
 
     calls = []
-    def chat(_api, _model, image, tokens, prompt):
+    def chat(_api, _model, image, tokens, prompt, **kwargs):
         calls.append((image.name, tokens))
-        return '## 页面内容\n普通演示', {'completion_tokens': 8}
+        return json.dumps(observation()), {'completion_tokens': 8}
     with patch.object(mb, 'VL_MEDIA_MAX_NEW_PAGES', 2), patch.object(
             mb.urllib.request, 'urlopen', return_value=Response()), patch.object(
             mb, 'chat_with_image', side_effect=chat), patch.object(mb, 'grab_fullres') as full:
@@ -64,28 +67,11 @@ with tempfile.TemporaryDirectory() as tmp:
         second = mb.describe_pages(mdir, selected, 'http://synthetic/v1')
         assert len(second) == 5 and len(calls) == 4
     cache = json.loads((mdir / 'page_desc.json').read_text())
-    assert cache['reviewed_pages'] == [1] and cache['models']['review'] == 'synthetic-review'
+    assert cache['records']['1'] == record
     assert cache['deferred_pages'] == []
-    assert all(t <= 640 for _, t in calls)
+    assert all(t <= 2048 for _, t in calls)
     assert len(list((mdir / 'slides').glob('page_*.jpg'))) == 90
 
-    # Review must work for meeting slides, use the meeting protocol, and move
-    # past the previous batch rather than repeatedly selecting its cached pages.
-    review_pages = [{'page': 1, 'first': 0, 'image': '1.jpg'},
-                    {'page': 2, 'first': 10, 'image': '2.jpg'}]
-    review_descs = {1: '复杂表格', 2: '复杂图表'}
-    prompts = []
-    def review_chat(_api, _model, image, tokens, prompt):
-        prompts.append(prompt)
-        return '## 页面内容\n合成表格已复核', {'completion_tokens': 9}
-    with patch.object(mb.urllib.request, 'urlopen', return_value=Response()), patch.object(
-            mb, 'chat_with_image', side_effect=review_chat):
-        _, result = mb.review_media_pages(mdir, review_pages, review_descs, 'http://synthetic/v1')
-    assert result['candidates'] == 1 and result['reviewed'] == 2
-    assert len(prompts) == 1 and '会议疑难图表' in prompts[0]
-    assert '会议中共享屏幕' in prompts[0]
-
-    # A changed frame with the same page number must not reuse an old chart read.
     timeline_path = mdir / 'slides.json'
     timeline = json.loads(timeline_path.read_text())
     old_cache = (mdir / 'page_desc.json').read_text()
@@ -106,5 +92,5 @@ candidates = mb.media_review_candidates(
     [{'page': 1}, {'page': 2}, {'page': 3, 'talking_head': True},
      {'page': 4, 'talking_head': True, 'review_requested': True}],
     {1: '复杂表格，坐标轴和图例', 3: '普通口播', 4: '请复核'}, limit=10)
-assert {p['page'] for p in candidates} == {1, 2, 4}
+assert {p['page'] for p in candidates} == {2, 4}
 print('Visual budget: full evidence, bounded resumable passes, partial status and meeting review passed')

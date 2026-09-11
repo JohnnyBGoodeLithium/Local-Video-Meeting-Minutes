@@ -67,7 +67,8 @@ class LocalLLMClient:
 
     def complete(self, prompt: str, *, system: str | None = None,
                  max_tokens: int = 4096, temperature: float = 0.2,
-                 repeat_penalty: float | None = None) -> Completion:
+                 repeat_penalty: float | None = None,
+                 response_schema: dict | None = None) -> Completion:
         if (os.environ.get("MEETING_RESOURCE_GUARD", "1") != "0"
                 and urlparse(self.api).hostname in LOOPBACK_HOSTS):
             admit_text_model(self.model)
@@ -75,14 +76,18 @@ class LocalLLMClient:
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
-        body = json.dumps({
+        payload = {
             "model": self.model,
             "messages": messages,
             "max_tokens": int(max_tokens),
             "temperature": float(temperature),
             "repeat_penalty": float(repeat_penalty or 1.0),
             "chat_template_kwargs": {"enable_thinking": False},
-        }, ensure_ascii=False).encode("utf-8")
+        }
+        if response_schema:
+            payload['response_format'] = {'type': 'json_schema', 'json_schema': {
+                'name': 'structured_result', 'strict': True, 'schema': response_schema}}
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         request = urllib.request.Request(
             f"{self.api}/chat/completions", data=body,
             headers={"Content-Type": "application/json"})
@@ -97,6 +102,8 @@ class LocalLLMClient:
         except Exception as exc:
             raise LLMError(f"无法连接本地文本模型（{type(exc).__name__}）") from exc
         try:
+            if data['choices'][0].get('finish_reason') == 'length':
+                raise LLMResponseError('本地模型输出被截断')
             content = str(data["choices"][0]["message"].get("content") or "").strip()
         except (KeyError, IndexError, TypeError) as exc:
             raise LLMResponseError("本地文本模型返回格式不可读") from exc

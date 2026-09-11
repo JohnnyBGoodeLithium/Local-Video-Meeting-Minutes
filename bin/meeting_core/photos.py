@@ -343,6 +343,11 @@ def set_analysis_state(
                 if not description:
                     raise PhotoError("现场资料分析没有返回可读内容")
                 record["description"] = description
+                if payload.get('observation'):
+                    from meeting_core.visual_result import validate
+                    record['observation'] = validate(payload['observation'])
+                else:
+                    record.pop('observation', None)
                 record["analysis_model"] = str(payload.get("model") or "").strip() or None
                 record["analyzed_at"] = str(payload.get("analyzed_at") or _now_iso())
                 record.pop("analysis_error", None)
@@ -492,6 +497,7 @@ def project(mdir: Path) -> list[dict]:
             "page": None,
             "title": title,
             "description": str(item.get("description") or ""),
+            'observation': item.get('observation'),
             "display_description": str(item.get("description") or status_copy),
             "image": str(item.get("image_path") or ""),
             "asset_path": str(item.get("image_path") or ""),

@@ -75,6 +75,9 @@ package-check:
 	$(PY) web/tests/media_shots_test.py
 	$(PY) web/tests/media_minutes_test.py
 	$(PY) web/tests/visual_budget_test.py
+	$(PY) web/tests/visual_contract_test.py
+	$(PY) web/tests/visual_crosscheck_test.py
+	$(PY) web/tests/live_visual_contract_test.py
 	$(PY) web/tests/media_navigation_test.py
 	$(PY) web/tests/vl_cache_test.py
 	$(PY) web/tests/vl_describe_pages_test.py

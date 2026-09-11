@@ -88,6 +88,13 @@ with tempfile.TemporaryDirectory(prefix="meeting-recovery-") as tmp:
     assert not any("transcribe" in item or "diarize" in item for item in visual_upgrade)
     (meeting / "page_desc.json").write_text(
         '{"desc":{"1":"Synthetic visual description"}}', encoding="utf-8")
+    assert not visual_cache_coverage(meeting)['complete'], 'legacy cache must not enable strict reuse'
+    from meeting_core import visual_workflow as vw, visual_result as vr
+    from visual_fixture import observation
+    (meeting / 'slides').mkdir()
+    image = meeting / 'slides/page_001.jpg'; image.write_bytes(b'synthetic image')
+    vw.save(meeting / 'page_desc.json', {'model': 'test', 'records': {'1': {
+        'key': vr.cache_key(image, vw.producer('test'), 'meeting'), 'observation': observation()}}})
     coverage = visual_cache_coverage(meeting)
     assert coverage == {"required": 1, "available": 1, "missing": [], "complete": True}
     fast = build_fast_sync_command(meeting)

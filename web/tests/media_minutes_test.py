@@ -17,6 +17,7 @@ PROJECT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT / "bin"))
 
 import meeting_structure  # noqa: E402
+from visual_fixture import observation
 import minutes_by_page as mb  # noqa: E402
 import export_meeting  # noqa: E402
 from meeting_artifact import minutes_reading_markdown  # noqa: E402
@@ -60,7 +61,7 @@ review_descs = {
     5: "## 论证角色\nevidence\n## 页面内容\n复杂图表",
 }
 assert [page["page"] for page in mb.media_review_candidates(
-    review_pages, review_descs)] == [3, 1, 5]
+    review_pages, review_descs)] == [3]
 assert [page["page"] for page in mb.media_review_candidates(
     review_pages, review_descs, limit=1)] == [3]
 assert mb.endpoint_has_model("Qwen3.8-27B-Q6_K.gguf", Path("/models/Qwen3.8-27B-Q6_K.gguf"))
@@ -91,9 +92,9 @@ with tempfile.TemporaryDirectory(prefix="media-vl-prompt-") as temp:
     ]
     sent = {}
 
-    def fake_vl_chat(_api, _model, image, _max_tokens, prompt):
+    def fake_vl_chat(_api, _model, image, _max_tokens, prompt, **kwargs):
         sent[image.name] = prompt
-        return "## 标题\n合成画面", {"completion_tokens": 5}
+        return json.dumps(observation()), {"completion_tokens": 5}
 
     original_urlopen = mb.urllib.request.urlopen
     original_vl_chat = mb.chat_with_image
@@ -104,8 +105,8 @@ with tempfile.TemporaryDirectory(prefix="media-vl-prompt-") as temp:
     finally:
         mb.urllib.request.urlopen = original_urlopen
         mb.chat_with_image = original_vl_chat
-    assert "论证角色" in sent["shot.jpg"] and "镜头" in sent["shot.jpg"]
-    assert "会议中共享屏幕" in sent["page.jpg"] and "页面角色" in sent["page.jpg"]
+    assert "视频画面" in sent["shot.jpg"]
+    assert "会议共享画面" in sent["page.jpg"]
 
 
 # ---- 4. generate() 媒体口径端到端（mock 文本模型）---------------------------

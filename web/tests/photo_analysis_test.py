@@ -2,6 +2,8 @@
 """现场资料视觉分析作业：状态、结果和安全同步条件（全合成）。"""
 
 import tempfile
+import json
+from visual_fixture import observation
 from pathlib import Path
 import sys
 
@@ -28,7 +30,7 @@ with tempfile.TemporaryDirectory(prefix="photo-analysis-test-") as temp:
     original_chat = analyze_photos.chat_with_image
     analyze_photos._model_id = lambda _api: "synthetic-vl"
     analyze_photos.chat_with_image = lambda *_args, **_kwargs: (
-        "## 标题\n规划白板\n## 可见内容\n- 流程 A 指向流程 B", {})
+        json.dumps(observation(title="规划白板", summary="流程 A 指向流程 B")), {})
     try:
         completed, failed = analyze_photos.analyze(meeting, [photo_id], "synthetic://vl")
     finally:

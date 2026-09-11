@@ -12,6 +12,9 @@ from pathlib import Path
 PROJECT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT / "bin"))
 import minutes_by_page as mb  # noqa: E402
+from visual_fixture import observation
+from meeting_core import visual_result as vr, visual_workflow as vw
+mb._wait_transcript_stable = lambda *args, **kwargs: None
 
 
 with tempfile.TemporaryDirectory(prefix="minutes-policy-") as tmp:
@@ -104,7 +107,10 @@ with tempfile.TemporaryDirectory(prefix="minutes-policy-") as tmp:
             2: "## 标题\n预算参考页，没有对应讨论。",
         }
         (mdir / "page_desc.json").write_text(
-            json.dumps({"desc": descriptions}, ensure_ascii=False), encoding="utf-8")
+            json.dumps({'model': 'synthetic', 'desc': descriptions, 'records': {str(p['page']): {
+                'key': vr.cache_key(mdir / 'slides' / p['image'], vw.producer('synthetic'), 'meeting'),
+                'producer': vw.producer('synthetic'), 'observation': observation(summary=descriptions[p['page']])}
+                for p in pages}}, ensure_ascii=False), encoding="utf-8")
         return descriptions
 
     mb.describe_pages = fake_describe_pages

@@ -23,7 +23,7 @@ def _atomic_json(path: Path, value) -> None:
     os.replace(temp, path)
 
 
-def _materialize_frames(store: LiveSessionStore) -> int:
+def _materialize_frames(store: LiveSessionStore, content_type: str = 'meeting') -> int:
     events = store.read_jsonl("frame-events.jsonl")
     if not events:
         return 0
@@ -43,6 +43,7 @@ def _materialize_frames(store: LiveSessionStore) -> int:
         pages.append({
             "kind": "slide", "page": number, "first": at, "captured": at,
             "image": name, "ranges": [[at, at + 1.0]],
+            **({'shot': True} if content_type == 'media' else {}),
         })
     _atomic_json(store.meeting_dir / "slides.json", pages)
     return len(pages)
@@ -90,7 +91,7 @@ def prepare_finalization(meeting_dir: Path, *, content_type: str = "meeting",
     meta.update({"content_type": content_type, "live_context": "experimental"})
     _atomic_json(meta_path, meta)
 
-    frame_count = _materialize_frames(store)
+    frame_count = _materialize_frames(store, content_type)
     python = str(Path(os.environ.get("MEETING_PYTHON", sys.executable)))
     root = Path(__file__).resolve().parents[3]
     commands = []

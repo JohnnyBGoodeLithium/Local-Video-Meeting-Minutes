@@ -152,12 +152,12 @@ assert "[简体中文](README.zh-CN.md)" in readme
 assert "[English](README.md)" in readme_zh
 
 english_sections = [
-    "What it does", "Review anywhere", "Core journey", "v0.16.0 highlights",
+    "What it does", "Review anywhere", "Core journey", f"v{version} highlights",
     "Current maturity", "Local-first boundary", "Quick start", "Documentation",
     "License status",
 ]
 chinese_sections = [
-    "它能做什么", "随处回顾", "核心旅程", "v0.16.0 重点", "当前成熟度",
+    "它能做什么", "随处回顾", "核心旅程", f"v{version} 重点", "当前成熟度",
     "本地优先边界", "快速开始", "文档导航", "许可证状态",
 ]
 assert re.findall(r"^## (.+)$", readme, re.MULTILINE) == english_sections
