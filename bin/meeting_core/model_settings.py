@@ -167,4 +167,6 @@ def open_request(request, timeout=30, *, role=None):
             body.pop('repeat_penalty', None)
             req.data = json.dumps(body).encode()
         return urllib.request.build_opener(NoRedirect()).open(req, timeout=timeout)
+    if req.get_header('Authorization'):
+        return urllib.request.build_opener(NoRedirect()).open(req, timeout=timeout)
     return urllib.request.urlopen(req, timeout=timeout)

@@ -88,6 +88,32 @@ with tempfile.TemporaryDirectory() as tmp:
     assert all(t <= 3072 for _, t in calls)
     assert len(list((mdir / 'slides').glob('page_*.jpg'))) == 90
 
+    # Ordinary supplementation clears an old capped pass, reusing its valid records.
+    # More than 80 missing frames must be read, including a late isolated frame.
+    import os
+    with patch.dict(os.environ, {}, clear=True):
+        import importlib
+        importlib.reload(mb)
+    assert mb.VL_MEDIA_MAX_NEW_PAGES == 0
+    complete_pages = [{'page': i, 'first': i * 10, 'shot': True, 'image': f'{i}.jpg'}
+                      for i in range(1, 177)]
+    for p in complete_pages:
+        (mdir / 'slides' / p['image']).write_bytes(b'fixture')
+    saved = {str(i): {'key': vr.cache_key(mdir / 'slides' / f'{i}.jpg',
+                 vw.producer('synthetic'), 'media'), 'producer': vw.producer('synthetic'),
+                 'observation': observation()} for i in range(1, 81)}
+    vw.save(mdir / 'page_desc.json', {'model': 'synthetic', 'records': saved,
+                                    'deferred_pages': list(range(81, 177))})
+    calls.clear()
+    with patch.object(mb.urllib.request, 'urlopen', return_value=Response()), patch.object(
+            mb, 'chat_with_image', side_effect=chat), patch.object(mb, 'progress_event'):
+        complete = mb.describe_pages(mdir, complete_pages, 'http://synthetic/v1')
+    assert len(complete) == 176 and len(calls) == 96
+    assert '156.jpg' in {name for name, _ in calls}
+    completed_cache = vw.load(mdir / 'page_desc.json')
+    assert completed_cache['deferred_pages'] == []
+    assert all(completed_cache['records'][n] == value for n, value in saved.items())
+
     timeline_path = mdir / 'slides.json'
     timeline = json.loads(timeline_path.read_text())
     old_cache = (mdir / 'page_desc.json').read_text()

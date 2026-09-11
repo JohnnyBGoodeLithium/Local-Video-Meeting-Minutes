@@ -84,7 +84,7 @@ VL_MMPROJ = configured_path(
     Path.home() / "视频/joyai-test/models/mmproj-MiMo-VL-Miloco-7B_BF16.gguf")
 VL_GPU_LAYERS = os.environ.get("MEETING_VL_GPU_LAYERS", "999")
 VL_MAXTOK = 2048
-VL_MEDIA_MAX_NEW_PAGES = max(0, int(os.environ.get("MEETING_VL_MEDIA_MAX_NEW_PAGES", "80")))
+VL_MEDIA_MAX_NEW_PAGES = max(0, int(os.environ.get("MEETING_VL_MEDIA_MAX_NEW_PAGES", "0")))
 VL_MEDIA_MAXTOK = max(128, int(os.environ.get("MEETING_VL_MEDIA_MAX_TOKENS", "640")))
 VL_REVIEW_MODEL = (configured_path("MEETING_VL_REVIEW_MODEL", "")
                    if os.environ.get("MEETING_VL_REVIEW_MODEL", "").strip() else None)

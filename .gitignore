@@ -42,3 +42,7 @@ __pycache__/
 
 # Local test artifacts
 /artifacts/
+
+# Private administrator model endpoints and API credentials
+/config/model-providers.json
+/config/.model-providers-*
