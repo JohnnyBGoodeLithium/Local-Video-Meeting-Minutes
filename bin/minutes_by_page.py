@@ -513,7 +513,7 @@ def describe_pages(mdir: Path, pages, api: str, video: Path = None):
                 grab_fullres(video, page.get('captured', page['first']), image)
                 vw.save(stamp_path, stamp)
         value, usage = vw.request(chat_with_image, api, mid, image, vw.mode(page),
-            max_tokens=int(os.environ.get('MEETING_VL_STRUCTURED_MAX_TOKENS', '2048')),
+            max_tokens=int(os.environ.get('MEETING_VL_STRUCTURED_MAX_TOKENS', '3072')),
             timeout=float(os.environ.get('MEETING_VL_PAGE_TIMEOUT', '120')))
         return {'key': key, 'producer': vw.producer(mid), 'observation': value,
                 'input_image': vr.file_stamp(image), 'source': source}, usage

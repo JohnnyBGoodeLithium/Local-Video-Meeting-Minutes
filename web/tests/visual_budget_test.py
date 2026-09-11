@@ -69,7 +69,7 @@ with tempfile.TemporaryDirectory() as tmp:
     cache = json.loads((mdir / 'page_desc.json').read_text())
     assert cache['records']['1'] == record
     assert cache['deferred_pages'] == []
-    assert all(t <= 2048 for _, t in calls)
+    assert all(t <= 3072 for _, t in calls)
     assert len(list((mdir / 'slides').glob('page_*.jpg'))) == 90
 
     timeline_path = mdir / 'slides.json'

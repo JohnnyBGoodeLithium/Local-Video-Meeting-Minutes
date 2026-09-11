@@ -18,7 +18,7 @@ MEETING_VL_MODEL_ID=your-shared-vision-alias
 MEETING_VL_MODEL=/path/to/local/model.gguf
 MEETING_VL_MMPROJ=/path/to/matching/mmproj.gguf
 MEETING_VL_REVISION=your-model-and-projector-revision
-MEETING_VL_STRUCTURED_MAX_TOKENS=2048
+MEETING_VL_STRUCTURED_MAX_TOKENS=3072
 MEETING_VL_PAGE_TIMEOUT=120
 ```
 

@@ -14,7 +14,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 SCHEMA = 'visual-result/v1'
-PROMPT_VERSION = '2026-09-11.1'
+PROMPT_VERSION = '2026-09-11.2'
 
 
 class Strict(BaseModel):
@@ -146,8 +146,11 @@ def prompt(mode: str, *, compact: bool = False, question: str = '') -> str:
             'region为原图归一化边界left/top/right/bottom，不确定位置用null。'
             '没有完全读完的表格、图表或小字必须列入unresolved，并标partial；不要因格式完整就称读完。'
             '解释与原文事实分开，展示内容不能证明会议决定或作者已经口述。'
-            + ('本轮预算很短，只读标题、关键事实与脚注；未展开图表必须列为待核，数组保持简短。' if compact else
-               '避免重复抄写：表格/图表已包含的数据无需再复制到text_blocks；优先完整读取信息而非长篇解释。')
+            '每个数据只输出一次：已有tables/charts时，不在facts或text_blocks重复列出相同数据。'
+            'Fact的text只补充其余字段未表达的内容，否则写空字符串。清晰读数无需逐个框选region，可用图表整体region；只为疑难区域定位。'
+            + ('本轮预算很短：summary不超过60字，facts至多1条，text_blocks/tables/charts留空，interpretation为空。'
+               '未展开的表格/图表/小字用1条unresolved概括并标partial，优先在时限内完成JSON。' if compact else
+               'summary不超过100字，interpretation不超过100字。完整保留可读表格、图表数据及脚注，避免重复和长篇解释。')
             + (f'本轮只针对以下区域问题独立核对：{question}' if question else ''))
 
 
