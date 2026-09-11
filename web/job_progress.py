@@ -381,6 +381,9 @@ def _eta(progress: dict, job: dict, jobs: Iterable[dict], now: float,
                        if phase.get("id") == until_phase), None)
         if cutoff is not None:
             remaining_phases = remaining_phases[:cutoff + 1]
+    current_remaining = remaining
+    current_evidence = evidence
+    missing_future = False
     for phase in remaining_phases:
         if phase.get("state") not in {"pending", "recovering"}:
             continue
@@ -388,12 +391,17 @@ def _eta(progress: dict, job: dict, jobs: Iterable[dict], now: float,
         if samples:
             remaining += statistics.median(samples)
             evidence = True
+        else:
+            missing_future = True
+    if missing_future:
+        remaining, evidence = current_remaining, current_evidence
     if not evidence or remaining < 60:
         return None
     return {
         "low_seconds": int(max(60, remaining * 0.8) // 60 * 60),
         "high_seconds": int(max(120, remaining * 1.35) // 60 * 60),
         "confidence": "medium" if done and done >= 2 else "low",
+        "scope": "current_phase" if missing_future else "remaining_task",
     }
 
 

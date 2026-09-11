@@ -153,12 +153,14 @@ export function jobPresentation(job, displayName, language = "zh-CN", taskLabel 
   const phase = phaseLabel(progress.phase, language);
   const units = progressUnits(progress, language);
   const eta = formatEtaRange(progress.estimated_remaining, language);
+  const phaseOnly = progress.estimated_remaining?.scope === "current_phase";
   const outputs = availableOutputLabels(progress, language);
   const voiceDraft = progress.available_outputs?.voice_draft === "ready";
   const transcript = progress.available_outputs?.transcript === "ready";
   const failure = progress.failure || null;
   let headline = phase;
-  let detail = [units, eta].filter(Boolean).join(" · ");
+  let detail = [units, phaseOnly && eta
+    ? `${language === "en" ? "This stage" : "当前阶段"} ${eta}` : eta].filter(Boolean).join(" · ");
   let tone = "working";
   let primary = { id: "details", label: language === "en" ? "Details" : "查看详情" };
 
@@ -209,7 +211,7 @@ export function jobPresentation(job, displayName, language = "zh-CN", taskLabel 
     tone = "success";
   } else if (voiceDraft) {
     headline = language === "en" ? "Voice draft ready — you can start reviewing" : "语音草稿已就绪，可以先行回顾";
-    detail = [phase, units, eta ? `${language === "en" ? "full result" : "完整结果"} ${eta}` : ""]
+    detail = [phase, units, eta ? `${phaseOnly ? (language === "en" ? "This stage" : "当前阶段") : (language === "en" ? "full result" : "完整结果")} ${eta}` : ""]
       .filter(Boolean).join(" · ");
     primary = { id: "open_draft", label: language === "en" ? "Open voice draft" : "打开语音草稿" };
   } else if (transcript) {
@@ -217,7 +219,9 @@ export function jobPresentation(job, displayName, language = "zh-CN", taskLabel 
   } else {
     headline = language === "en" ? `In progress: ${phase}` : `正在${phase}`;
     const first = formatEtaRange(progress.estimated_first_usable, language);
-    detail = first ? `${language === "en" ? "First readable result" : "第一份可读结果"} ${first}`
+    detail = first ? `${progress.estimated_first_usable?.scope === "current_phase"
+      ? (language === "en" ? "This stage" : "当前阶段")
+      : (language === "en" ? "First readable result" : "第一份可读结果")} ${first}`
       : (language === "en" ? "Estimating time to the first readable result" : "正在估算第一份可读结果所需时间");
   }
 

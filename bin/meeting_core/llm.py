@@ -51,6 +51,10 @@ class LLMResponseError(LLMError):
     pass
 
 
+class LLMTruncatedError(LLMResponseError):
+    """Output budget exhausted; incomplete content must not be published."""
+
+
 @dataclass(frozen=True)
 class Completion:
     content: str
@@ -103,7 +107,7 @@ class LocalLLMClient:
             raise LLMError(f"无法连接本地文本模型（{type(exc).__name__}）") from exc
         try:
             if data['choices'][0].get('finish_reason') == 'length':
-                raise LLMResponseError('本地模型输出被截断')
+                raise LLMTruncatedError('本地模型输出被截断')
             content = str(data["choices"][0]["message"].get("content") or "").strip()
         except (KeyError, IndexError, TypeError) as exc:
             raise LLMResponseError("本地文本模型返回格式不可读") from exc

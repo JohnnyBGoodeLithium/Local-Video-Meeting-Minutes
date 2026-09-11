@@ -495,6 +495,7 @@ def describe_pages(mdir: Path, pages, api: str, video: Path = None):
         cache['desc'] = descs
         vw.save(cache_p, cache)
     persist()
+    progress_event('visual_understanding', done=0, total=len(todo), unit='pages')
     if not todo:
         print(f'[meta] VL 结构化缓存命中 {len(descs)} 页', flush=True)
         return descs
@@ -532,7 +533,7 @@ def describe_pages(mdir: Path, pages, api: str, video: Path = None):
                 cache['errors'][str(number)] = {'state': 'failed', 'error': type(exc).__name__}
                 print(f'[meta] VL第{number}页未完成: {type(exc).__name__}', flush=True)
             persist()
-            progress_event('visual_understanding', done=len(descs), total=len(pages), unit='pages')
+            progress_event('visual_understanding', done=done, total=len(todo), unit='pages')
     return descs
 
 
@@ -808,12 +809,14 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
     turns, pages = load_inputs(mdir)
     if not pages:
         raise RuntimeError("slides.json 里没有幻灯片页")
+    if turns:
+        output_ready('transcript')
 
     descs = {}
     checked_inputs = None
     vl_review = {"candidates": 0, "reviewed": 0, "failed": 0, "model": None}
     if vl and not reuse_vl_cache_only:
-        progress_event("visual_understanding", done=0, total=len(pages), unit="pages")
+        progress_event("visual_understanding")
     if vl and reuse_vl_cache_only:
         cache = vw.load(mdir / 'page_desc.json')
         mid = os.environ.get('MEETING_VL_MODEL_ID') or cache.get('model', '')
@@ -850,7 +853,7 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
         pending = [p['page'] for p in pages if p['page'] not in observations or vw.pending(observations[p['page']])]
         vl_review['pending_pages'] = pending
         vw.save(mdir / 'visual_review.json', vl_review)
-        phase_done('visual_understanding', done=len(descs), total=len(pages), unit='pages')
+        phase_done('visual_understanding')
         if descs:
             output_ready('visuals', state='partial' if pending else 'ready')
 

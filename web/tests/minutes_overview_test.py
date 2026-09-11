@@ -84,3 +84,29 @@ assert all(call[1]["max_tokens"] == 1400 for call in client.calls[:-1])
 assert result.content.startswith("## 总体摘要")
 
 print(f"Minutes overview: long multimodal context split into {result.chunks} chunks")
+
+# A bounded retry uses original evidence, never the truncated candidate.
+from meeting_core.llm import LLMTruncatedError, LLMResponseError
+from meeting_core.minutes_overview import _complete_with_guard
+
+class TruncatingClient:
+    def __init__(self, failures=1):
+        self.calls = []
+        self.failures = failures
+
+    def complete(self, prompt, **kwargs):
+        self.calls.append((prompt, kwargs))
+        if len(self.calls) <= self.failures:
+            raise LLMTruncatedError('synthetic truncation')
+        return Completion('完整合成笔记 T000001', {}, 0.1)
+
+retry_client = TruncatingClient()
+assert _complete_with_guard(retry_client, '原始合成证据 T000001', max_tokens=1400).content
+assert [c[1]['max_tokens'] for c in retry_client.calls] == [1400, 2800]
+assert retry_client.calls[0][0] == retry_client.calls[1][0]
+failing = TruncatingClient(10)
+try:
+    _complete_with_guard(failing, '合成证据', max_tokens=1400)
+    raise AssertionError('truncated output accepted')
+except LLMResponseError:
+    assert len(failing.calls) == 2

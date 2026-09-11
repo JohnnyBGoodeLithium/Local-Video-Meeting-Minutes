@@ -87,6 +87,7 @@ assert progress["phases"][4]["state"] == "running"
 eta_job = {**base_job, "progress": progress}
 projected = normalize_job_progress(eta_job, (), now=320.0)
 assert projected["estimated_remaining"]
+assert projected["estimated_remaining"]["scope"] == "current_phase"
 assert projected["estimated_remaining"]["low_seconds"] >= 60
 assert projected["estimated_remaining"]["high_seconds"] \
     > projected["estimated_remaining"]["low_seconds"]

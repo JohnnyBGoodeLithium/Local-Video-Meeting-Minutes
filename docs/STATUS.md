@@ -5,8 +5,8 @@
 - 产品版本：v0.16.1
 - 正式分发：发布记录、可下载制品与校验和以 [GitHub Releases](https://github.com/JohnnyBGoodeLithium/Local-Video-Meeting-Minutes/releases) 为准
 - 发布验证：正式发布按不可移动 tag 校验版本元数据、完整 CI 与全新目录 bundle smoke
-- Web 构建号：20260911p121
-- Workbench asset baseline：20260911p121
+- Web 构建号：20260911p122
+- Workbench asset baseline：20260911p122
 - 源代码基线：当前 `main`；准确实现与历史以代码、测试和 Git 为准
 - Owner：Local AI PoC maintainer
 - 当前阶段：受控 PoC 验证（Controlled PoC validation）

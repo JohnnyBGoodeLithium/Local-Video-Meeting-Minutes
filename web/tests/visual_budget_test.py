@@ -61,11 +61,14 @@ with tempfile.TemporaryDirectory() as tmp:
         return json.dumps(observation()), {'completion_tokens': 8}
     with patch.object(mb, 'VL_MEDIA_MAX_NEW_PAGES', 2), patch.object(
             mb.urllib.request, 'urlopen', return_value=Response()), patch.object(
-            mb, 'chat_with_image', side_effect=chat), patch.object(mb, 'grab_fullres') as full:
+            mb, 'chat_with_image', side_effect=chat), patch.object(mb, 'grab_fullres') as full, \
+            patch.object(mb, 'progress_event') as progress:
         first = mb.describe_pages(mdir, selected, 'http://synthetic/v1', video=Path('synthetic.mp4'))
         assert len(first) == 3 and len(calls) == 2 and not full.called
         second = mb.describe_pages(mdir, selected, 'http://synthetic/v1')
         assert len(second) == 5 and len(calls) == 4
+        assert [c.kwargs['done'] for c in progress.call_args_list] == [0, 1, 2, 0, 1, 2]
+        assert all(c.kwargs['total'] == 2 for c in progress.call_args_list)
     cache = json.loads((mdir / 'page_desc.json').read_text())
     assert cache['records']['1'] == record
     assert cache['deferred_pages'] == []
