@@ -59,6 +59,7 @@ from meeting_structure import clean_model_text
 from meeting_core.context_budget import ContextBudget
 from meeting_core.minutes_overview import MEDIA_REQUIRED as MEDIA_OVERVIEW_REQUIRED
 from meeting_core.minutes_overview import generate as generate_overview
+from meeting_core.minutes_overview import synthesis_context
 from meeting_core.minutes_overview import generate_direct as generate_direct_overview
 from meeting_core.minutes_overview import normalize_action_marker_scope
 import meeting_topic_map
@@ -475,7 +476,7 @@ def vl_prompts(page: dict):
     return DETAIL_PROMPT, COMPACT_PAGE_PROMPT, "页面类型"
 
 
-def describe_pages(mdir: Path, pages, api: str, video: Path = None):
+def describe_pages(mdir: Path, pages, api: str, video: Path = None, *, resume_pass: bool = False):
     """Structured initial observations; only matching image/model/schema caches count."""
     cache_p = mdir / 'page_desc.json'
     cache = vw.load(cache_p)
@@ -486,6 +487,11 @@ def describe_pages(mdir: Path, pages, api: str, video: Path = None):
     descs = {n: vr.markdown(value) for n, value in observations.items()}
     todo = select_visual_pages([p for p in pages if p.get('shot')], descs, VL_MEDIA_MAX_NEW_PAGES)
     todo += [p for p in pages if not p.get('shot') and p['page'] not in observations]
+    if resume_pass and isinstance(cache.get('deferred_pages'), list):
+        deferred_before = {n for n in cache['deferred_pages'] if type(n) is int}
+        # Finish the previous plan, not a fresh selection from the growing backlog.
+        todo = [p for p in pages if p['page'] not in observations
+                and (not p.get('shot') or p['page'] not in deferred_before)]
     deferred = [p['page'] for p in pages if p['page'] not in observations and p not in todo]
     cache.setdefault('legacy_desc', cache.get('desc', {}) if not cache.get('records') else {})
     cache.update(schema=vr.SCHEMA, model=mid, deferred_pages=deferred)
@@ -796,7 +802,9 @@ def _wait_transcript_stable(path: Path, quiet_seconds: int = 60,
 
 def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
              refine_model: str = None, reuse_vl_cache_only: bool = False,
-             _identity_retry: int = 2):
+             _identity_retry: int = 2, reuse_vl_budget_only: bool = False,
+             resume_vl_pass: bool = False):
+    reuse_vl_cache_only = reuse_vl_cache_only or reuse_vl_budget_only
     requested_model = refine_model or MODEL
     workload = "exclusive" if any(token in requested_model.lower()
                                       for token in ("120b", "122b")) \
@@ -821,13 +829,14 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
         cache = vw.load(mdir / 'page_desc.json')
         mid = os.environ.get('MEETING_VL_MODEL_ID') or cache.get('model', '')
         observations = vw.effective_records(mdir, pages, mid, cache)
-        if any(p['page'] not in observations for p in pages):
+        if any(p['page'] not in observations for p in pages) and not (
+                reuse_vl_budget_only and vw.completed_budget_pass(pages, observations, cache)):
             raise RuntimeError('incomplete_or_stale_visual_cache')
         descs = {n: vr.markdown(v) for n, v in observations.items()}
     elif vl:
         api, _proc = ensure_vl_server()
         if api:
-            descs = describe_pages(mdir, pages, api, video)
+            descs = describe_pages(mdir, pages, api, video, resume_pass=resume_vl_pass)
             cache = vw.load(mdir / 'page_desc.json')
             mid = os.environ.get('MEETING_VL_MODEL_ID') or cache.get('model', '')
             observations = vw.effective_records(mdir, pages, mid, cache)
@@ -889,6 +898,7 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
     draft_checklist = meeting_generation.voice_draft_checklist(mdir)
     if draft_checklist["items"]:
         summary_context["voice_draft_checklist"] = draft_checklist
+    summary_context = synthesis_context(summary_context)
     context_json = json.dumps(summary_context, ensure_ascii=False, separators=(",", ":"))
     print(f"[meta] 逐字稿 {len(turns)} 轮/{len(context_json)} 字结构化输入 | 页数 {len(pages)}"
           f" | 开场 {len(opening)} 轮 | VL解读 {len(descs)} 页", flush=True)
@@ -925,8 +935,8 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
     def pages_context(group):
         numbers = {int(p["page"]) for p in group}
         return json.dumps(
-            build_prompt_context(turns, pages, descs, profiles, detail=True,
-                                 page_numbers=numbers, visual_observations=vw.summaries(mdir, pages)),
+            synthesis_context(build_prompt_context(turns, pages, descs, profiles, detail=True,
+                                 page_numbers=numbers, visual_observations=vw.summaries(mdir, pages))),
             ensure_ascii=False, separators=(",", ":"))
 
     # 逐页详情：有讨论的页按 8 页一组分次调用(防单次输出截断); 空页走确定性占位
@@ -1006,7 +1016,8 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
             _wait_transcript_stable(mdir / "transcript.spk.json")
             return generate(
                 mdir, out, vl=vl, video=video, refine_model=refine_model,
-                reuse_vl_cache_only=bool(vl) and not unread, _identity_retry=_identity_retry - 1)
+                reuse_vl_cache_only=bool(vl) and not unread, _identity_retry=_identity_retry - 1,
+                reuse_vl_budget_only=reuse_vl_budget_only, resume_vl_pass=True)
         raise RuntimeError("transcript_changed_during_minutes_generation")
     out = Path(out) if out else mdir / "minutes.md"
     if out.exists():
@@ -1050,6 +1061,10 @@ def main() -> int:
                     help="原视频(给了则按 captured 时间戳重抓原生分辨率帧给 VL, 否则用 slides/ 图)")
     ap.add_argument("--reuse-vl-cache-only", action="store_true",
                     help="严格只读 page_desc.json，不启动或调用视觉模型；用于存量文本/脉络重建")
+    ap.add_argument("--reuse-vl-budget-only", action="store_true",
+                    help="恢复已完成的有界视觉轮次；指纹失效或计划页未完成时拒绝复用")
+    ap.add_argument("--resume-vl-pass", action="store_true",
+                    help="只补上轮计划内未完成的画面，不扩展延后页")
     ap.add_argument("--refine-model", default=None,
                     help="大模型精修重写(如 qwen3.5-122b-a10b-planner; 首次调用需加载, 分钟级)")
     ap.add_argument("--publish", action="store_true",
@@ -1062,7 +1077,9 @@ def main() -> int:
         return 1
     out, stats = generate(args.mdir, args.out, vl=not args.no_vl, video=args.video,
                           refine_model=args.refine_model,
-                          reuse_vl_cache_only=args.reuse_vl_cache_only)
+                          reuse_vl_cache_only=args.reuse_vl_cache_only,
+                          reuse_vl_budget_only=args.reuse_vl_budget_only,
+                          resume_vl_pass=args.resume_vl_pass)
     if args.publish:
         meeting_generation.finalize(
             args.mdir, pages=stats["pages"], vl_pages=stats["vl_pages"],

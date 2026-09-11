@@ -6,6 +6,7 @@ import json
 import re
 import sys
 import time
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Callable
 
@@ -165,6 +166,40 @@ class OverviewResult:
 
 def _compact(value) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+
+
+def synthesis_context(context: dict) -> dict:
+    """Remove display geometry and duplicate fields from a prompt-only copy.
+
+    Original visual records remain intact. Text, values, units, qualifiers,
+    table cells, chart axes and unresolved conflicts are never shortened.
+    """
+    def without_regions(value):
+        if isinstance(value, list):
+            return [without_regions(item) for item in value]
+        if isinstance(value, dict):
+            return {key: without_regions(item) for key, item in value.items()
+                    if key != 'region'}
+        return value
+
+    result = deepcopy(context)
+    for page in result.get('pages', []):
+        # IDs and first timestamps remain available for evidence links.
+        page.pop('ranges', None)
+        observation = page.get('visual_observation')
+        if not isinstance(observation, dict):
+            continue
+        observation = without_regions(observation)
+        for kind in ('table', 'chart'):
+            key = f'{kind}_notes'
+            nested = [note for item in observation.get(f'{kind}s', [])
+                      for note in item.get('notes', [])]
+            if observation.get(key) == nested:
+                observation.pop(key, None)
+        if page.get('visual_summary') == observation.get('summary'):
+            page.pop('visual_summary', None)
+        page['visual_observation'] = observation
+    return result
 
 
 def _usage_total(results, key: str) -> int:
@@ -442,6 +477,7 @@ def generate(context: dict, policy: dict, evidence_rules: str, *,
 
     kind="media" 时换用媒体向分片/合并 prompt 与媒体必需章节，不做待办合规校验。"""
     client = client or LocalLLMClient()
+    context = synthesis_context(context)
     chunk_prompt_t = CHUNK_PROMPT if kind == "meeting" else MEDIA_CHUNK_PROMPT
     reduce_prompt_t = REDUCE_PROMPT if kind == "meeting" else MEDIA_REDUCE_PROMPT
     required = ("## 总体摘要", "### 待办事项") if kind == "meeting" else MEDIA_REQUIRED

@@ -85,7 +85,7 @@ def phase_ids_for(job: dict) -> list[str]:
         return ["retranscribe_prepare", "speech_processing", "voice_draft",
                 "visual_understanding", "final_minutes", "topic_map"]
     if kind == "regen":
-        reuse_visuals = _has_arg(job, "--reuse-vl-cache-only")
+        reuse_visuals = _has_arg(job, "--reuse-vl-cache-only") or _has_arg(job, "--reuse-vl-budget-only")
         skip_topic_map = _has_arg(job, "--skip-topic-map")
         if route == "audio":
             return ["prepare", "final_minutes"]

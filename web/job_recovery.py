@@ -38,13 +38,16 @@ def meeting_dir_for_job(job: dict) -> Path | None:
     return None
 
 
-def build_minutes_command(mdir: Path, refine: str = "") -> list[str]:
+def build_minutes_command(mdir: Path, refine: str = "", *, resume_visual_pass: bool = False) -> list[str]:
     """复用现有逐字稿/VL 缓存生成纪要；不重跑 ASR 与说话人识别。"""
     if not (mdir / "transcript.spk.json").is_file():
         raise ValueError("missing_transcript")
     if (mdir / "slides.json").is_file():
         command = [str(PY), str(ROOT / "bin" / "minutes_by_page.py"),
                    str(mdir), "--publish"]
+        if resume_visual_pass:
+            command.append('--reuse-vl-budget-only' if visual_cache_coverage(mdir)['budget_complete']
+                           else '--resume-vl-pass')
         video = _video_path(mdir)
         if video is not None:
             command += ["--video", str(video)]
@@ -88,7 +91,9 @@ def visual_cache_coverage(mdir: Path) -> dict:
     available = set(vw.effective_records(mdir, pages if isinstance(pages, list) else [], model, cache))
     missing = sorted(required - available)
     return {"required": len(required), "available": len(required & available),
-            "missing": missing, "complete": bool(required) and not missing}
+            "missing": missing, "complete": bool(required) and not missing,
+            "budget_complete": vw.completed_budget_pass(
+                pages if isinstance(pages, list) else [], dict.fromkeys(available), cache)}
 
 
 def build_fast_sync_command(mdir: Path) -> list[str]:
@@ -178,7 +183,7 @@ def preemption_resume_spec(job: dict) -> dict:
     mdir = meeting_dir_for_job(job)
     if mdir is None:
         raise ValueError("missing_meeting")
-    command = build_minutes_command(mdir)
+    command = build_minutes_command(mdir, resume_visual_pass=True)
     return {"kind": "regen", "meeting": mdir.name, "cmd": command,
             "scope": "minutes", "retained": _retained_assets(mdir)}
 

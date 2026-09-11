@@ -314,7 +314,7 @@ def retry_job(jid: str, quality: str = Query("standard", pattern="^(standard|hig
             if mode == "minutes":
                 refine = (os.environ.get("MEETING_RECOVERY_REFINE_MODEL", "").strip()
                           if quality == "high" else "")
-                command = build_minutes_command(mdir, refine)
+                command = build_minutes_command(mdir, refine, resume_visual_pass=strategy != 'degraded')
                 if strategy == "degraded":
                     if not any(str(item).endswith("minutes_by_page.py") for item in command):
                         raise ValueError("degraded_not_applicable")

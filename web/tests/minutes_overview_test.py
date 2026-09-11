@@ -110,3 +110,26 @@ try:
     raise AssertionError('truncated output accepted')
 except LLMResponseError:
     assert len(failing.calls) == 2
+
+from copy import deepcopy
+from meeting_core.minutes_overview import synthesis_context
+
+raw = {'pages': [{'id': 'P0001', 'number': 1, 'first': 3.0,
+    'ranges': [[3.0, 8.0]], 'visual_summary': '虚构预测', 'visual_observation': {
+        'summary': '虚构预测', 'facts': [{'raw_value': '12%', 'unit': '%',
+            'qualifier': '预测，非实际', 'region': {'left': 0.1}}],
+        'tables': [{'rows': [['甲', None]], 'notes': ['缺失单元格待核']}],
+        'table_notes': ['缺失单元格待核'], 'chart_notes': ['独立补充，必须保留'],
+        'unresolved': [{'question': '两处单位矛盾', 'region': None}],
+    }}]}
+before = deepcopy(raw)
+compact = synthesis_context(raw)
+assert raw == before and synthesis_context(compact) == compact
+page = compact['pages'][0]
+assert page['id'] == 'P0001' and page['first'] == 3.0
+assert 'ranges' not in page and 'visual_summary' not in page
+obs = page['visual_observation']
+assert obs['facts'] == [{'raw_value': '12%', 'unit': '%', 'qualifier': '预测，非实际'}]
+assert obs['tables'] == raw['pages'][0]['visual_observation']['tables']
+assert obs['unresolved'] == [{'question': '两处单位矛盾'}]
+assert 'table_notes' not in obs and obs['chart_notes'] == ['独立补充，必须保留']
