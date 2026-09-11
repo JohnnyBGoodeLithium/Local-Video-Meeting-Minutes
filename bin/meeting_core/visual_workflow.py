@@ -50,9 +50,9 @@ def request(request_fn, api: str, model: str, image: Path, mode: str, *, max_tok
         try:
             raw, tokens = request_fn(api, model, image, max_tokens,
                 vr.prompt(mode, compact=attempt > 0 or mode == 'live', question=question),
-                response_schema=vr.Observation.model_json_schema(), timeout=remaining)
+                response_schema=(vr.LivePreview if mode == 'live' else vr.Observation).model_json_schema(), timeout=remaining)
             usage = {k: int(usage.get(k, 0)) + int(v) for k, v in tokens.items() if isinstance(v, int)}
-            return vr.validate(raw), usage
+            return (vr.live_observation(raw) if mode == 'live' else vr.validate(raw)), usage
         except Exception as exc:
             # One bounded compact retry. Never recover facts from malformed JSON.
             error = exc

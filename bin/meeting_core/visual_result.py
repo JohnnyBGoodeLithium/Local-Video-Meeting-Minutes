@@ -114,6 +114,23 @@ class Observation(Strict):
     unresolved: list[Issue] = Field(max_length=32)
 
 
+class LivePreview(Strict):
+    """Small wire contract; expanded to the same observation format before storage."""
+    kind: Literal['text', 'table', 'chart', 'mixed', 'scene', 'blank']
+    title: str = Field(max_length=100)
+    summary: str = Field(max_length=160)
+    unread_regions: list[str] = Field(max_length=3)
+
+
+def live_observation(raw: str) -> dict:
+    preview = LivePreview.model_validate_json(raw)
+    questions = preview.unread_regions or ['实时初读仅确认当前画面主题，完整内容待离线读取']
+    return validate({'schema_version': SCHEMA, 'kind': preview.kind, 'title': preview.title,
+        'summary': preview.summary, 'status': 'partial', 'text_blocks': [], 'facts': [],
+        'tables': [], 'charts': [], 'interpretation': '', 'unresolved': [
+            {'reason': 'other', 'question': q, 'importance': 'normal', 'region': None} for q in questions]})
+
+
 def validate(value: dict | str) -> dict:
     obj = Observation.model_validate_json(value) if isinstance(value, str) else Observation.model_validate(value)
     data = obj.model_dump()
@@ -137,6 +154,10 @@ def validate(value: dict | str) -> dict:
 
 
 def prompt(mode: str, *, compact: bool = False, question: str = '') -> str:
+    if mode == 'live':
+        return ('独立观察当前直播截图，只输出给定JSON。title用简短标题，summary用不超过60字说明当前画面主题。'
+                '不展开图表或逐项抄录数值；unread_regions至多3条简短描述尚未读取的区域。'
+                '看不清或有复杂图表就标明，不能猜填或把展示方案当作会议决定。')
     scene = {'meeting': '会议共享画面', 'media': '视频画面', 'live': '直播画面'}[mode]
     return (f'独立读取这张{scene}，不要参考或推测语音内容。输出符合给定schema的JSON，不要思考过程。'
             '所有字符串保留图中文字原文语言；summary和解释使用中文。空集合写[]，未知数值写null。'

@@ -11,6 +11,13 @@ from meeting_core.live.evidence import LiveEvidence
 from meeting_core.live.store import LiveSessionStore
 from meeting_core.live.finalizer import _materialize_frames
 from meeting_core import visual_workflow as vw
+def preview_request(*args, **kwargs):
+    assert set(kwargs['response_schema']['properties']) == {'kind', 'title', 'summary', 'unread_regions'}
+    return json.dumps({'kind': 'chart', 'title': '虚构双轴图', 'summary': '展示季度趋势',
+                       'unread_regions': ['详细数据与图例尚未读取']}), {}
+preview, _ = vw.request(preview_request, 'http://fake/v1', 'test', Path('fake.jpg'), 'live')
+assert preview['schema_version'] == 'visual-result/v1' and preview['status'] == 'partial'
+assert preview['unresolved'] and not preview['charts']
 with tempfile.TemporaryDirectory() as tmp:
     store=LiveSessionStore(Path(tmp));store.root.mkdir(parents=True,exist_ok=True)
     for i in range(12):store.write_frame(f'f{i}',b'synthetic',at=float(i*30),reason='periodic_safety')
