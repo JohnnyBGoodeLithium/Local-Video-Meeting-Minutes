@@ -3,18 +3,19 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>人员与组织设置</title>
-<link rel="stylesheet" href="/static/style.css?v=20260810i">
+<title>设置</title>
+<link rel="stylesheet" href="/static/style.css?v=20260911p124">
 <link rel="stylesheet" href="/static/fluent-foundation.css?v=20260911p124">
 <link rel="stylesheet" href="/static/theme.css?v=20260911p124">
 <script src="/static/appearance.js?v=20260911p124"></script>
 </head>
 <body class="page-admin">
 <header class="topbar">
-  <span class="brand">人员与组织设置</span>
+  <span class="brand">设置</span>
   <nav class="admin-tabs" aria-label="设置页面">
     <button type="button" class="active" data-admin-view="voices">人员与声音</button>
     <button type="button" data-admin-view="org">组织架构</button>
+    <button type="button" data-admin-view="models">模型</button>
   </nav>
   <span id="admin-status" class="job-status"></span>
   <a class="toplink" href="/static/product.html">产品介绍</a>
@@ -22,6 +23,15 @@
 </header>
 
 <main class="admin-shell">
+  <section id="view-models" class="admin-view hidden">
+    <h2>模型来源</h2>
+    <p>本地模型由本机推理服务提供；云端支持 OpenAI 兼容的 Chat Completions 接口。ASR 和说话人处理保持现有本地配置。</p>
+    <p>保存后重启服务生效；运行中的任务继续使用启动时配置。密钥仅保存在本机，不进入导出包。</p>
+    <form id="model-settings-form"><div id="model-settings-fields"></div><button class="primary" type="submit">保存模型配置</button></form>
+    <p id="model-settings-status" role="status"></p>
+    <h3>推荐本地模型</h3><p>模型 ID 填写推理服务实际提供的名称，不是文件下载地址。视觉服务还需加载对应的 mmproj。</p>
+    <ul id="model-recommendations"></ul>
+  </section>
   <section id="view-voices" class="admin-view">
     <div class="voice-layout">
       <section class="admin-col">
@@ -141,6 +151,7 @@
   </div>
 </div>
 
-<script src="/static/admin.js?v=20260810i"></script>
+<script src="/static/admin.js?v=20260911p124"></script>
+<script src="/static/model-settings.js?v=20260911p124"></script>
 </body>
 </html>

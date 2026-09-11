@@ -64,6 +64,14 @@ def main():
                               ('product', base + '/product'), ('viewer', viewer.as_uri())]:
                 cdp.call('Page.navigate', {'url': url})
                 wait_for_page(cdp, 'document.readyState === "complete" && !!document.querySelector(".appearance-control")', name)
+                if name == 'settings':
+                    cdp.evaluate("document.querySelector('[data-admin-view=models]').click()")
+                    wait_for_page(cdp, "document.querySelectorAll('#model-settings-fields fieldset').length===2", 'model settings')
+                    assert cdp.evaluate("document.querySelector('[name=api_key]').type==='password'")
+                    assert cdp.evaluate("document.querySelectorAll('#model-recommendations a[href^=\"https://huggingface.co/\"]').length>=2")
+                    cdp.evaluate("const modelFetch=window.fetch;window.__modelTest=null;window.fetch=async(url,options)=>{if(String(url).endsWith('/api/settings/models/test')){window.__modelTest=JSON.parse(options.body);return new Response(JSON.stringify({ok:true,message:'Synthetic connection passed'}));}return modelFetch(url,options);};document.querySelector('[data-test=text]').click()")
+                    wait_for_page(cdp, "document.querySelector('#model-settings-status').textContent==='Synthetic connection passed'", 'synthetic model test')
+                    assert cdp.evaluate('window.__modelTest.role') == 'text'
                 if name == 'server':
                     # Exercise long synthetic data through the real bundle-loading path.
                     fixture = json.load(urllib.request.urlopen(base + '/api/meetings/_smoke/bundle'))

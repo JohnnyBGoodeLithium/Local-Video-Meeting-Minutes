@@ -2,7 +2,7 @@
 # 当前状态
 
 - 更新时间：2026-09-11
-- 产品版本：v0.16.3
+- 产品版本：v0.16.4
 - 正式分发：发布记录、可下载制品与校验和以 [GitHub Releases](https://github.com/JohnnyBGoodeLithium/Local-Video-Meeting-Minutes/releases) 为准
 - 发布验证：正式发布按不可移动 tag 校验版本元数据、完整 CI 与全新目录 bundle smoke
 - Web 构建号：20260911p124
@@ -24,6 +24,8 @@
 - 人物核听、canonical 人物确认、撤销和来源回跳已经过真实受控工作流与合成回归共同验证。
 
 ## 已实现，仍在验证（Implemented, under validation）
+
+- 后台模型来源设置支持本地与显式启用的云端兼容接口、私有密钥和合成连接测试；保存后重启生效。云端调用链使用模拟接口验证，真实供应商账户和长上下文能力需按部署实测。见[模型设置](runbooks/MODEL_SETTINGS.md)。
 
 - 结构化视觉观察、独立复核、ASR 对照和固定表格渲染；共享本地文本/视觉实例与 Live 短时限工作线程。合成表格实机验证通过，复杂图表与持续 Live 仍待代表性评测。配置及迁移见[视觉处理](runbooks/VISUAL_PROCESSING.md)。
 

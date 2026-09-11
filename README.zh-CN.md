@@ -5,7 +5,7 @@
 [产品介绍站](https://johnnybgoodelithium.github.io/Local-Video-Meeting-Minutes/)
 
 <!-- maturity: controlled-single-machine-poc -->
-<!-- product-version: v0.16.3 -->
+<!-- product-version: v0.16.4 -->
 
 找到重点。
 回到原始依据核对。
@@ -42,11 +42,11 @@ Local Video Meeting Minutes 是一个本地优先的会议与视频上下文编�
 4. 在正确的数据层修正名称、人物归属或逐字稿事实。
 5. 将可信结果继续用作 MeetingPack、AI Context、KB 投影或带依据的 RAG 输入。
 
-## v0.16.3 重点
+## v0.16.4 重点
 
-- 工作台、Companion、产品介绍和离线 Viewer 共用明暗/跟随系统主题与四种高亮色。
-- 视频关键画面使用内容标题与时间码，兼容旧结果中的默认页码标题。
-- 更新中英 Live 介绍、设备连接操作与[首次使用路线](docs/runbooks/FIRST_USE.md)。
+- 离线视频默认补读全部未分析画面，复用有效观察。
+- 长脉络与画面列表保留阅读位置，表格/图表分类需要结构依据。
+- 后台[模型设置](docs/runbooks/MODEL_SETTINGS.md)支持本地或显式启用的云端兼容接口，私有密钥与合成连接测试。
 
 ### 既有核对工作流
 
@@ -102,7 +102,7 @@ make run
 |---|---|
 | 全部文档 | [文档导航](docs/INDEX.md) |
 | 产品叙事 | [产品介绍站](https://johnnybgoodelithium.github.io/Local-Video-Meeting-Minutes/) |
-| 版本说明 | [v0.16.3 发布说明](docs/releases/v0.16.3.md) |
+| 版本说明 | [v0.16.4 发布说明](docs/releases/v0.16.4.md) |
 | 能力清单 | [产品功能表](docs/PRODUCT_FUNCTIONS.md) |
 | 当前验证状态 | [状态](docs/STATUS.md) |
 | Canonical 数据与投影 | [架构](docs/ARCHITECTURE.md) |

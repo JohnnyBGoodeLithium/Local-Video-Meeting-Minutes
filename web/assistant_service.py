@@ -17,6 +17,8 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from meeting_core.model_settings import apply_saved_config, open_request
+apply_saved_config()
 import uuid
 from collections import Counter
 from pathlib import Path
@@ -76,7 +78,7 @@ def _chat(messages: list[dict], max_tokens: int = 1600, json_mode: bool = False)
         headers={"Content-Type": "application/json"},
     )
     try:
-        with urllib.request.urlopen(req, timeout=300) as resp:
+        with open_request(req, timeout=300) as resp:
             data = json.loads(resp.read())
     except (OSError, urllib.error.URLError, json.JSONDecodeError) as exc:
         raise AssistantUnavailable(f"本地 LLM 暂不可用：{type(exc).__name__}") from exc
@@ -107,7 +109,7 @@ def _chat_stream(messages: list[dict], max_tokens: int = 1600):
         headers={"Content-Type": "application/json"},
     )
     try:
-        resp = urllib.request.urlopen(req, timeout=300)
+        resp = open_request(req, timeout=300)
     except (OSError, urllib.error.URLError) as exc:
         raise AssistantUnavailable(f"本地 LLM 暂不可用：{type(exc).__name__}") from exc
     finish_reason = None

@@ -35,6 +35,9 @@ for _p in (str(WEB_DIR), str(ROOT / "bin")):
 from fastapi import FastAPI  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 
+from meeting_core.model_settings import apply_saved_config  # noqa: E402
+apply_saved_config()
+
 from deps import STATIC  # noqa: E402
 from job_store import load_jobs  # noqa: E402
 from routers import all_routers  # noqa: E402

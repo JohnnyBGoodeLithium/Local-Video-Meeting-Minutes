@@ -57,7 +57,7 @@ with tempfile.TemporaryDirectory(prefix="vl-cache-test-") as temp:
     try:
         mb.urllib.request.urlopen = lambda *_args, **_kwargs: FakeModelsResponse()
         mb.chat_with_image = fake_chat
-        descriptions = mb.describe_pages(mdir, pages, "http://synthetic/v1")
+        descriptions = mb.describe_pages(mdir, pages, "http://127.0.0.1:1/v1")
     finally:
         mb.urllib.request.urlopen = original_urlopen
         mb.chat_with_image = original_chat

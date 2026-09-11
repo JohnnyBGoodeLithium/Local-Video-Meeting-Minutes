@@ -65,7 +65,7 @@ with tempfile.TemporaryDirectory() as tmp:
     assert not vw.valid_records(mdir,pages,'new',cache)
     with patch.object(vp.urllib.request,'urlopen',return_value=Response({'choices':[{
             'finish_reason':'length','message':{'content':'{"title":"broken'}}]})):
-        try: vp.chat_with_image('http://fake/v1','fake',image,128)
+        try: vp.chat_with_image('http://127.0.0.1:1/v1','fake',image,128)
         except ValueError: pass
         else: raise AssertionError('truncated reply accepted')
     # Switching from legacy data must re-read, with the schema attached to the request.
@@ -75,12 +75,12 @@ with tempfile.TemporaryDirectory() as tmp:
         calls.append(kwargs);return json.dumps(original), {}
     with patch.object(mb.urllib.request,'urlopen',return_value=Response({'data':[{'id':'new'}]})), \
             patch.object(mb,'chat_with_image',side_effect=chat):
-        mb.describe_pages(mdir,pages,'http://fake/v1')
+        mb.describe_pages(mdir,pages,'http://127.0.0.1:1/v1')
     assert len(calls)==1 and calls[0]['response_schema']
     primary=vw.load(mdir/'page_desc.json')['records']['1']
     with patch.object(mb.urllib.request,'urlopen',return_value=Response({'data':[{'id':'review'}]})), \
             patch.object(mb,'chat_with_image',return_value=(json.dumps(original),{})):
-        _, stats=mb.review_media_pages(mdir,pages,{1:'old'},'http://fake/v1')
+        _, stats=mb.review_media_pages(mdir,pages,{1:'old'},'http://127.0.0.1:1/v1')
     cached=vw.load(mdir/'page_desc.json')
     assert cached['records']['1']==primary
     assert cached['reviews']['1']['state']=='partial'

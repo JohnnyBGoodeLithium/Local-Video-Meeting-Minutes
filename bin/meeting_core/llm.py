@@ -14,6 +14,8 @@ import urllib.request
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
+from meeting_core.model_settings import apply_saved_config, open_request
+apply_saved_config()
 from meeting_core.resource_policy import admit_text_model
 
 
@@ -97,7 +99,7 @@ class LocalLLMClient:
             headers={"Content-Type": "application/json"})
         started = time.time()
         try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+            with open_request(request, timeout=self.timeout) as response:
                 data = json.loads(response.read())
         except urllib.error.HTTPError as exc:
             if exc.code == 400:

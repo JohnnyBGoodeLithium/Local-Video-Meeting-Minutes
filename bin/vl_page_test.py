@@ -19,6 +19,8 @@ import subprocess
 import sys
 import time
 import urllib.request
+from meeting_core.model_settings import apply_saved_config, open_request
+apply_saved_config()
 from pathlib import Path
 
 PROMPT = (
@@ -94,7 +96,7 @@ def chat_with_image(api: str, model: str, img: Path, max_tokens: int, prompt: st
     body = json.dumps(payload).encode()
     req = urllib.request.Request(f"{api}/chat/completions", data=body,
                                  headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    with open_request(req, timeout=timeout, role='vision') as resp:
         data = json.loads(resp.read())
     if data['choices'][0].get('finish_reason') == 'length':
         raise ValueError('visual_output_truncated')
@@ -132,7 +134,7 @@ def main() -> int:
         return 1
     max_tokens = 1024 if args.detail and args.max_tokens == 256 else args.max_tokens
 
-    with urllib.request.urlopen(f"{api}/models", timeout=30) as resp:
+    with open_request(f"{api}/models", timeout=30) as resp:
         models = json.loads(resp.read())["data"]
     model = args.model or models[0]["id"]
 

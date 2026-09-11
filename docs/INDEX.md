@@ -13,6 +13,7 @@
 | UX 修改 | [当前状态](STATUS.md) + [UX 合同](UX.md)；全旅程验收见[走查记录](runbooks/UX_REVIEW.md) |
 | 处理、失败和恢复 | [当前状态](STATUS.md) + [处理与恢复 runbook](runbooks/PROCESSING_AND_RECOVERY.md) |
 | 部署、模型和本机维护 | [运维入口](OPERATIONS.md) + 对应 [runbook](runbooks/DEPLOYMENT.md) / [模型参考](reference/MODELS.md) |
+| 后台模型来源、本地或云端配置 | [模型设置](runbooks/MODEL_SETTINGS.md) |
 | 视觉结构化、模型共享与重跑 | [视觉处理 runbook](runbooks/VISUAL_PROCESSING.md) |
 | RAG / 知识库 | [当前状态](STATUS.md) + [知识与 RAG 合同](KNOWLEDGE_RAG.md) |
 | 功能盘点 | [产品功能表](PRODUCT_FUNCTIONS.md) |
