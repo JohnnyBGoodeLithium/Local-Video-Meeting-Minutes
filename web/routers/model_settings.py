@@ -70,6 +70,8 @@ async def test_settings(request: Request):
                        {'type': 'image_url', 'image_url': {'url': 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aG1kAAAAASUVORK5CYII='}}]
         body = {'model': item['model'], 'messages': [{'role': 'user', 'content': content}],
                 'max_tokens': 64}
+        if item['source'] == 'local':
+            body['chat_template_kwargs'] = {'enable_thinking': False}
         headers = {'Content-Type': 'application/json'}
         if item.get('api_key'):
             headers['Authorization'] = 'Bearer ' + item['api_key']

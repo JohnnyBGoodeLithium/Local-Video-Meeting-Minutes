@@ -70,5 +70,14 @@ with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {'MEETING_DATA
     try: routes.get_settings(request(host='external.test'))
     except HTTPException as e: assert e.status_code == 403
     else: raise AssertionError('remote administration accepted')
+    for candidate, is_local in ((config, True), (cloud, False)):
+        response = MagicMock()
+        response.__enter__.return_value.read.return_value = json.dumps({'choices':[{'message':{'content':'OK'}}]}).encode()
+        opener = MagicMock(); opener.open.return_value = response
+        with patch.object(m.urllib.request, 'build_opener', return_value=opener):
+            result = asyncio.run(routes.test_settings(request({'role':'text','settings':candidate}, origin='http://testserver')))
+        assert result['ok']
+        body = json.loads(opener.open.call_args.args[0].data)
+        assert ('chat_template_kwargs' in body) == is_local
     assert m.NoRedirect().redirect_request(None,None,302,'',{},'https://other.test') is None
 print('model settings: private secrets, cloud opt-in, stable snapshot, endpoint-bound auth and local administration passed')
