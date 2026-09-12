@@ -501,6 +501,8 @@ def describe_pages(mdir: Path, pages, api: str, video: Path = None, *, resume_pa
     deferred = [p['page'] for p in pages if p['page'] not in observations and p not in todo]
     cache.setdefault('legacy_desc', cache.get('desc', {}) if not cache.get('records') else {})
     cache.update(schema=vr.SCHEMA, model=mid, deferred_pages=deferred)
+    cache['last_pass_metrics'] = {'cache_hits': len(observations), 'requested_pages': len(todo),
+                                  'deferred_pages': len(deferred), 'completed_pages': 0, 'failed_pages': 0}
     cache.setdefault('records', {})
     cache.setdefault('errors', {})
     def persist():
@@ -511,7 +513,7 @@ def describe_pages(mdir: Path, pages, api: str, video: Path = None, *, resume_pa
     if not todo:
         print(f'[meta] VL 结构化缓存命中 {len(descs)} 页', flush=True)
         return descs
-    def work(page):
+    def work(page, diagnostics):
         base_image = mdir / 'slides' / page['image']
         image = base_image
         source = vr.file_stamp(video) if video else {}
@@ -527,22 +529,26 @@ def describe_pages(mdir: Path, pages, api: str, video: Path = None, *, resume_pa
                 vw.save(stamp_path, stamp)
         value, usage = vw.request(chat_with_image, api, mid, image, vw.mode(page),
             max_tokens=int(os.environ.get('MEETING_VL_STRUCTURED_MAX_TOKENS', '3072')),
-            timeout=float(os.environ.get('MEETING_VL_PAGE_TIMEOUT', '120')))
+            timeout=float(os.environ.get('MEETING_VL_PAGE_TIMEOUT', '120')), diagnostics=diagnostics)
         return {'key': key, 'producer': vw.producer(mid), 'observation': value,
-                'input_image': vr.file_stamp(image), 'source': source}, usage
+                'input_image': vr.file_stamp(image), 'source': source, 'metrics': dict(diagnostics)}, usage
     workers = max(1, int(os.environ.get('MEETING_VL_WORKERS', '2')))
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {pool.submit(work, p): p for p in todo}
+        diagnostics = {int(p['page']): {} for p in todo}
+        futures = {pool.submit(work, p, diagnostics[int(p['page'])]): p for p in todo}
         for done, future in enumerate(concurrent.futures.as_completed(futures), 1):
             page = futures[future]; number = int(page['page'])
             try:
                 record, usage = future.result()
                 cache['records'][str(number)] = record
                 cache['errors'].pop(str(number), None)
+                cache['last_pass_metrics']['completed_pages'] += 1
                 descs[number] = vr.markdown(record['observation'])
                 print(f"[meta] VL结构化 {done}/{len(todo)} | 第{number}页 | {record['observation']['status']}", flush=True)
             except Exception as exc:
-                cache['errors'][str(number)] = {'state': 'failed', 'error': type(exc).__name__}
+                cache['errors'][str(number)] = {'state': 'failed', 'error': type(exc).__name__,
+                                                'metrics': diagnostics[number]}
+                cache['last_pass_metrics']['failed_pages'] += 1
                 print(f'[meta] VL第{number}页未完成: {type(exc).__name__}', flush=True)
             persist()
             progress_event('visual_understanding', done=done, total=len(todo), unit='pages')

@@ -72,12 +72,24 @@ with tempfile.TemporaryDirectory() as td:
         assert elapsed < 1.9, f"疑似未并发: {elapsed:.2f}s"
         cache = json.loads((mdir / "page_desc.json").read_text(encoding="utf-8"))
         assert set(cache["desc"]) == {"1", "2", "4", "5"}, cache["desc"].keys()
+        assert cache['last_pass_metrics'] == {'cache_hits': 0, 'requested_pages': 5,
+            'deferred_pages': 0, 'completed_pages': 4, 'failed_pages': 1}
+        metric = cache['records']['1']['metrics']
+        assert metric['attempts'] == 1 and metric['retries'] == 0
+        assert metric['usage']['completion_tokens'] == 10 and metric['elapsed_seconds'] >= DELAY
+        failed = cache['errors']['3']['metrics']
+        assert failed['attempts'] == 2 and failed['retries'] == 1
+        assert failed['elapsed_seconds'] >= 2 * DELAY
         # 重跑只补第 3 页(2 次调用 ≈0.7s)，其余命中缓存
         t0 = time.time()
         descs2 = minutes_by_page.describe_pages(mdir, pages, api)
         elapsed2 = time.time() - t0
         assert set(descs2) == {1, 2, 4, 5}, descs2.keys()
         assert elapsed2 < 1.4, f"缓存未生效: {elapsed2:.2f}s"
+        second = json.loads((mdir / 'page_desc.json').read_text())
+        assert second['last_pass_metrics']['cache_hits'] == 4
+        assert second['last_pass_metrics']['requested_pages'] == 1
+        assert second['records']['1']['metrics'] == metric, 'cache hits must not rewrite inference metrics'
     finally:
         server.shutdown()
 

@@ -14,7 +14,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 SCHEMA = 'visual-result/v1'
-PROMPT_VERSION = '2026-09-11.3'
+PROMPT_VERSION = '2026-09-12.1'
 
 
 class Strict(BaseModel):
@@ -174,6 +174,11 @@ def prompt(mode: str, *, compact: bool = False, question: str = '') -> str:
             + ('本轮预算很短：summary不超过60字，facts至多1条，text_blocks/tables/charts留空，interpretation为空。'
                '未展开的表格/图表/小字用1条unresolved概括并标partial，优先在时限内完成JSON。' if compact else
                'summary不超过100字，interpretation不超过100字。完整保留可读表格、图表数据及脚注，避免重复和长篇解释。')
+            + ('视频分级阅读：只有确认是简单口播或空白背景、没有承载信息的文字、图表或操作演示时，'
+               '才用不超过60字的summary说明视觉内容，interpretation留空，不重复描述人物外观和布景。'
+               '画面中的字幕、标签、读数仍按原文保留；图表、代码、操作演示和不能确定的画面继续完整读取。'
+               '分级只缩短无信息增量的描述，不省略证据，不把未读完的内容标complete。'
+               if mode == 'media' and not compact else '')
             + (f'本轮只针对以下区域问题独立核对：{question}' if question else ''))
 
 
