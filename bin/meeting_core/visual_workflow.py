@@ -41,22 +41,29 @@ def producer(model: str, *, review: bool = False) -> dict:
 
 
 def request(request_fn, api: str, model: str, image: Path, mode: str, *, max_tokens=2048,
-            timeout=120, attempts=2, question='') -> tuple[dict, dict]:
+            timeout=120, attempts=2, question='', diagnostics: dict | None = None) -> tuple[dict, dict]:
     usage = {}; started = time.monotonic()
+    metrics = diagnostics if diagnostics is not None else {}
+    metrics.update(attempts=0, retries=0, elapsed_seconds=0.0, usage={})
     error = None
     for attempt in range(attempts):
         remaining = timeout - (time.monotonic() - started)
         if remaining <= 0:
             break
+        metrics.update(attempts=attempt + 1, retries=attempt)
         try:
             raw, tokens = request_fn(api, model, image, max_tokens,
                 vr.prompt(mode, compact=attempt > 0 or mode == 'live', question=question),
                 response_schema=(vr.LivePreview if mode == 'live' else vr.Observation).model_json_schema(), timeout=remaining)
-            usage = {k: int(usage.get(k, 0)) + int(v) for k, v in tokens.items() if isinstance(v, int)}
+            for k in ('prompt_tokens', 'completion_tokens', 'total_tokens'):
+                if type(tokens.get(k)) is int and tokens[k] >= 0:
+                    usage[k] = usage.get(k, 0) + tokens[k]
             return (vr.live_observation(raw) if mode == 'live' else vr.validate(raw)), usage
         except Exception as exc:
             # One bounded compact retry. Never recover facts from malformed JSON.
             error = exc
+        finally:
+            metrics.update(elapsed_seconds=round(time.monotonic() - started, 3), usage=dict(usage))
     raise ValueError('visual_read_failed:' + type(error).__name__) from error
 
 

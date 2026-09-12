@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 
@@ -16,6 +17,7 @@ PROJECT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT / "bin"))
 from slide_pages import (_TALK_DHASH_HAM, _dhash16, _edge_density, _hamming,  # noqa: E402
                          _shot_cuts, _shot_thresholds, _skin_fraction, extract_pages)
+import slide_pages
 
 assert shutil.which("ffmpeg"), "media 镜头测试需要 ffmpeg"
 
@@ -81,6 +83,51 @@ _gx, _gy = _gray_of(_chart_x), _gray_of(_chart_y)
 assert np.abs(_gx.astype(np.float32) - _gy.astype(np.float32)).mean() > 4.0
 # 关键：同版式图表的 dHash 也很近（版式同构）——防误并完全依赖候选闸门
 assert _hamming(_dhash16(_gx), _dhash16(_gy)) <= _TALK_DHASH_HAM
+
+
+# Low-feature images cannot establish similarity, even with zero differing hash bits.
+flat = np.full((180, 320), 100, dtype=np.uint8)
+gradient = np.tile(np.linspace(20, 220, 180, dtype=np.uint8)[:, None], (1, 320))
+assert _hamming(_dhash16(flat), _dhash16(gradient)) > _TALK_DHASH_HAM
+bits = np.zeros((16, 16), dtype=bool)
+sparse = bits.copy(); sparse.flat[:16] = True
+assert _hamming((bits, sparse), (bits, ~bits)) > _TALK_DHASH_HAM
+
+# Extraction regressions use synthetic sampled frames; no codec noise or model calls.
+with tempfile.TemporaryDirectory() as td:
+    tmp = Path(td)
+    def sampled_pages(frames):
+        frames = np.asarray(frames, dtype=np.uint8)
+        stats = {'skin': np.zeros(len(frames)), 'edge': np.zeros(len(frames))}
+        with patch.object(slide_pages, '_decode_small', return_value=(frames, stats)), \
+                patch.object(slide_pages, '_grab_frame', side_effect=lambda v, t, w, p: p.write_bytes(b'frame')):
+            return extract_pages(tmp/'synthetic.mp4', tmp/'pages', tmp/'pages.json', mode='media', verbose=False)
+
+    table = np.full((180, 320), 230, dtype=np.uint8)
+    table[35:145:15, 30:280:8] = 20
+    changed = table.copy(); changed[90:100, 140:160] = 20
+    middle = np.full_like(table, 30)
+    result = sampled_pages([table]*5 + [middle]*5 + [changed]*5 + [table]*5)
+    assert len(result) == 3, 'a local table change must survive deduplication'
+    assert result[0]['ranges'] == [[0.0, 5.0], [15.0, 20.0]], 'exact repeats still merge'
+
+    # Same shot, no full-frame cut: stable local changes must create evidence pages.
+    result = sampled_pages([table]*8 + [changed]*8)
+    assert len(result) == 2 and result[1]['first'] == 8.0
+    assert result[0]['ranges'] == [[0.0, 8.0]] and result[1]['ranges'] == [[8.0, 16.0]]
+
+    # Slow drift is below every adjacent cut threshold, but differs from the last state.
+    result = sampled_pages([np.full_like(table, 80+i) for i in range(30)])
+    assert 1 < len(result) <= 6, 'cumulative changes should trigger bounded-frequency samples'
+    ranges = sorted(r for p in result for r in p['ranges'])
+    assert ranges[0][0] == 0 and ranges[-1][1] == 30
+    assert all(a[1] == b[0] for a, b in zip(ranges, ranges[1:]))
+
+    assert len(sampled_pages([table]*60)) == 1, 'static long shots do not cost additional VL calls'
+    # A one-frame transition at the temporal midpoint is not the representative frame.
+    transition = table.copy(); transition[80:100, 140:160] = 20
+    result = sampled_pages([table]*4 + [transition] + [table]*5)
+    assert len(result) == 1 and result[0]['captured'] != 4.5
 
 
 # ---- 合成视频 --------------------------------------------------------------
