@@ -44,6 +44,8 @@ make install-ci
 
 `requirements/runtime.lock` 锁定基础依赖，`requirements/ci.lock` 锁定基础依赖与 CI extra。两者由 Python 3.11 和固定 pip-tools 版本生成。
 
+`make lock` 与 `make lock-check` 复用仍满足声明约束的锁定版本，不因上游刚发布新版本而自动升级。主动升级依赖时，在 Python 3.11 环境执行 `python scripts/compile_locks.py --upgrade`，审查 lock diff 后运行完整检查。
+
 完整 pipeline 不生成统一 lock。PyTorch、CUDA、ROCm、qwen-asr、pyannote 与模型服务依赖硬件 profile 和安装来源；它们继续由 `pyproject.toml` 的允许范围、[模型参考](../reference/MODELS.md)、[部署 runbook](DEPLOYMENT.md) 和已验证硬件 profile 共同管理。
 
 ## 构建发布候选

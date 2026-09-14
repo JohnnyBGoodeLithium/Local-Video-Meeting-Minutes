@@ -34,7 +34,12 @@ def header(name: str, extra: str | None) -> str:
     )
 
 
-def compile_one(name: str, extra: str | None, output: Path) -> str:
+def compile_one(name: str, extra: str | None, output: Path, *, upgrade: bool = False) -> str:
+    # pip-compile 复用 output 中仍符合依赖约束的 pins。每次在空临时文件中
+    # 求解会追逐最新版本，让毫无依赖改动的 PR 因上游发布而随机变红。
+    existing = ROOT / "requirements" / f"{name}.lock"
+    if existing.is_file():
+        output.write_text(existing.read_text(encoding="utf-8"), encoding="utf-8")
     command = [
         sys.executable, "-m", "piptools", "compile", "pyproject.toml",
         "--output-file", str(output), "--no-header", "--no-emit-index-url",
@@ -43,6 +48,8 @@ def compile_one(name: str, extra: str | None, output: Path) -> str:
     ]
     if extra:
         command.extend(["--extra", extra])
+    if upgrade:
+        command.append("--upgrade")
     subprocess.run(command, cwd=ROOT, check=True)
     return header(name, extra) + output.read_text(encoding="utf-8")
 
@@ -50,7 +57,10 @@ def compile_one(name: str, extra: str | None, output: Path) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--check", action="store_true", help="compare regenerated locks")
+    parser.add_argument("--upgrade", action="store_true", help="explicitly refresh dependency pins")
     args = parser.parse_args()
+    if args.check and args.upgrade:
+        parser.error("--check and --upgrade cannot be combined")
     if sys.version_info[:2] != (3, 11):
         raise SystemExit("dependency locks must be generated with Python 3.11")
 
@@ -58,7 +68,7 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="meeting-locks-") as temp:
         temp_root = Path(temp)
         for name, extra in LOCKS.items():
-            generated = compile_one(name, extra, temp_root / f"{name}.txt")
+            generated = compile_one(name, extra, temp_root / f"{name}.txt", upgrade=args.upgrade)
             destination = ROOT / "requirements" / f"{name}.lock"
             if args.check:
                 current = destination.read_text(encoding="utf-8")
