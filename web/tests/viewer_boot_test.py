@@ -122,6 +122,45 @@ document.body.dataset.tabContract=[tabsCenterRight,tabsNoJump,noHorizontalOverfl
 </script></body>"""
 page = page.replace(b"</body>", tab_probe.encode("utf-8"))
 
+# 离线包在真实 Chromium 中切换明暗与四种强调色，检查普通/核听/连续发言。
+theme_probe = """
+<script>
+renderTranscriptMode();
+const themeCanvas=document.createElement('canvas').getContext('2d');
+function luminance(color){
+  themeCanvas.clearRect(0,0,1,1);themeCanvas.fillStyle=color;themeCanvas.fillRect(0,0,1,1);
+  const rgb=[...themeCanvas.getImageData(0,0,1,1).data].slice(0,3).map(v=>{
+    v/=255;return v<=.04045?v/12.92:Math.pow((v+.055)/1.055,2.4)});
+  return .2126*rgb[0]+.7152*rgb[1]+.0722*rgb[2];
+}
+function contrast(a,b){const x=luminance(a),y=luminance(b);return (Math.max(x,y)+.05)/(Math.min(x,y)+.05)}
+const themeFailures=[];
+const rootTheme=document.documentElement;
+const themeTurn=document.querySelector('.turn');
+const turnClasses=themeTurn.className;
+for(const mode of ['light','dark'])for(const accent of ['blue','teal','violet','amber']){
+  rootTheme.dataset.fluentTheme=mode;rootTheme.dataset.accent=accent;
+  const panel=getComputedStyle(document.querySelector('.transcript-panel')).backgroundColor;
+  if((mode==='dark'&&luminance(panel)>.1)||(mode==='light'&&luminance(panel)<.7))themeFailures.push(mode+':panel');
+  const playbackMode=getComputedStyle(document.querySelector('.utterance-modes button.active'));
+  if(contrast(playbackMode.color,playbackMode.backgroundColor)<4.5)themeFailures.push(mode+':playback-mode');
+  for(const state of ['','active','focus-related','review-current','cont']){
+    themeTurn.className='turn '+state;
+    const bg=getComputedStyle(themeTurn).backgroundColor;
+    const backdrop=bg==='rgba(0, 0, 0, 0)'?panel:bg;
+    const text=getComputedStyle(themeTurn.querySelector('p')).color;
+    const badge=getComputedStyle(themeTurn.querySelector('b'));
+    if(contrast(text,backdrop)<4.5)themeFailures.push(mode+':'+state+':text');
+    if(contrast(badge.color,badge.backgroundColor)<4.5)themeFailures.push(mode+':'+state+':badge');
+  }
+}
+themeTurn.className=turnClasses;
+rootTheme.dataset.fluentTheme='light';rootTheme.dataset.accent='blue';
+renderTopicMap();
+document.body.dataset.themeContract=themeFailures.length?'failed:'+themeFailures.join(','):'passed';
+</script></body>"""
+page = page.replace(b"</body>", theme_probe.encode("utf-8"))
+
 with tempfile.TemporaryDirectory() as td:
     f = Path(td) / "viewer.html"
     f.write_bytes(page)
@@ -137,6 +176,8 @@ version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
 assert 'id="pack-version"' in proc.stdout and f"Meeting Minutes v{version}" in proc.stdout, \
     "viewer 未显示生成器产品版本"
 assert 'data-fluent-theme="light"' in proc.stdout, "viewer 未启用共享 Fluent 浅色 token"
+assert 'data-theme-contract="passed"' in proc.stdout, \
+    "Viewer 明暗主题的逐字稿/人物标签对比度回归: " + str(re.findall(r'data-theme-contract="([^"]*)"', proc.stdout))
 assert 'id="fluent-zoom-in"' in proc.stdout and "__FLUENT_" not in proc.stdout, \
     "viewer 未内联共享 Fluent 图标/基础样式"
 assert "prefers-reduced-motion" in proc.stdout and ":focus-visible" in proc.stdout, \

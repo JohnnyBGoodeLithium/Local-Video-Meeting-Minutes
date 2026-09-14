@@ -48,6 +48,7 @@ PHASE_LABELS = {
     "topic_map": "progress.topic_map",
     "retranscribe_prepare": "progress.retranscribe_prepare",
     "retrieval": "progress.retrieval",
+    "translation": "progress.translation",
 }
 
 
@@ -72,7 +73,7 @@ def phase_ids_for(job: dict) -> list[str]:
     route = str(job.get("route") or "")
     no_vl = _has_arg(job, "--no-vl")
     if kind == "translation":
-        return ["prepare"]
+        return ["translation"]
     if kind == "photo_analysis":
         return ["visual_understanding", *(["final_minutes"]
                 if job.get("sync_minutes") else [])]
@@ -124,7 +125,7 @@ def initial_progress(job: dict, now: float | None = None) -> dict:
         "available_outputs": {
             item: ("skipped" if item == "visuals" and _has_arg(job, "--no-vl")
                    else str((job.get("available_outputs") or {}).get(item) or "pending"))
-            for item in OUTPUTS
+            for item in (("translation",) if job.get("kind") == "translation" else OUTPUTS)
         },
         "estimated_first_usable": None,
         "estimated_remaining": None,
@@ -193,7 +194,7 @@ def apply_event(progress: dict, kind: str, payload: dict,
         return value
     if kind == "output_ready":
         output = str(payload.get("output") or "")
-        if output in OUTPUTS:
+        if output in (*OUTPUTS, "translation"):
             output_state = str(payload.get("state") or "ready")
             if output_state in VALID_OUTPUT_STATES:
                 value["available_outputs"][output] = output_state
@@ -426,7 +427,7 @@ def _apply_recovery_contract(failure: dict, recovery: dict | None, outputs: dict
         return
     ready = [key for key, state in outputs.items() if state in {"ready", "partial"}]
     failure["preserved_outputs"] = ready
-    failure["blocked_outputs"] = [key for key in OUTPUTS
+    failure["blocked_outputs"] = [key for key in outputs
                                    if outputs.get(key) == "pending"]
     if not recovery or recovery.get("state") != "available":
         failure["recommended_action"] = {
@@ -480,6 +481,20 @@ def normalize_job_progress(job: dict, jobs: Iterable[dict] = (), *,
     stored = job.get("progress")
     value = deepcopy(stored) if isinstance(stored, dict) and stored.get("schema") == SCHEMA \
         else _legacy_progress(job, now)
+    if job.get("kind") == "translation":
+        # 历史译文任务不等于重新生成整场会议；仅译文属于本任务的未完成产物。
+        if value.get("phase") == "prepare":
+            value["phase"] = "translation"
+            for phase in value.get("phases", []):
+                if phase.get("id") == "prepare":
+                    phase.update(id="translation", label_key="progress.translation")
+            if value.get("failure"):
+                value["failure"]["failed_phase"] = "translation"
+        value["available_outputs"] = {
+            key: state for key, state in (job.get("available_outputs") or {}).items()
+            if key in OUTPUTS and state in {"ready", "partial"}}
+        value["available_outputs"]["translation"] = (
+            "ready" if job.get("status") == "done" else "pending")
     status = str(job.get("status") or value.get("state") or "queued")
     if status == "done":
         degraded = bool(job.get("degraded_requested")) or any(

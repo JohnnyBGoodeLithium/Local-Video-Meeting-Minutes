@@ -44,20 +44,35 @@ def _job_content_type(job: dict) -> str:
     return "meeting"
 
 
-def _job_with_recovery(original: dict) -> dict:
+def _job_with_recovery(original: dict, snapshot: dict | None = None) -> dict:
     """给失败卡片附加有限恢复状态，不暴露判断所用日志正文或文件路径。"""
+    if snapshot is None:
+        with BANK_LOCK:
+            snapshot = {key: dict(value) for key, value in JOBS.items()}
     job = dict(original)
+    if job.get("kind") == "translation":
+        mdir = meeting_dir_for_job(job)
+        outputs = {}
+        if mdir is not None:
+            for filename, names in (
+                ("transcript.spk.json", ("transcript", "speaker_navigation")),
+                ("minutes.md", ("final_minutes",)),
+                ("meeting.topic-map.json", ("topic_map",)),
+            ):
+                if (mdir / filename).is_file():
+                    outputs.update({name: "ready" for name in names})
+        job["available_outputs"] = outputs
     job["content_type"] = _job_content_type(job)
     plan = None
     if job.get("status") in {"failed", "cancelled", "paused"}:
         plan = recovery_plan(job)
-        successor = JOBS.get(str(job.get("recovered_by") or ""))
+        successor = snapshot.get(str(job.get("recovered_by") or ""))
         if successor and successor.get("status") in {"queued", "running", "done"}:
             plan = {**plan, "state": "recovered", "action": "none",
                     "successor_status": successor.get("status")}
         job["recovery"] = plan
-    job["progress"] = normalize_job_progress(job, JOBS.values(), recovery=plan)
-    history = attempt_history(original, JOBS.values())
+    job["progress"] = normalize_job_progress(job, snapshot.values(), recovery=plan)
+    history = attempt_history(original, snapshot.values())
     if len(history) > 1:
         job["attempt_history"] = history
     return job
@@ -225,15 +240,17 @@ def import_media_url(payload: MediaURLImport):
 @router.get("/api/jobs")
 def list_jobs():
     queue = {item["id"]: item for item in EXEC.snapshot()}
+    with BANK_LOCK:
+        snapshot = {key: dict(value) for key, value in JOBS.items()}
     jobs = []
-    for original in JOBS.values():
+    for original in snapshot.values():
         if original.get("hidden"):
             continue
-        successor = JOBS.get(str(original.get("recovered_by") or ""))
+        successor = snapshot.get(str(original.get("recovered_by") or ""))
         if successor is not None:
             # 一条恢复链在列表中只显示最后一次尝试；历史仍附在当前卡片中。
             continue
-        job = _job_with_recovery(original)
+        job = _job_with_recovery(original, snapshot)
         if job.get("status") == "running":
             job["queue_position"] = 0
             try:

@@ -11,8 +11,37 @@ from deps import (BANK_LOCK, DRY_RUN, assistant, _current_evidence,
                   _meeting_identity, _minutes_file, _minutes_reading_source,
                   _mdir, _now, _read_json, _render_minutes_language)
 from job_store import EXEC, JOBS, _new_job, _save_job, _set_status
+from job_progress import apply_event, initial_progress, normalize_job_progress
 
 router = APIRouter()
+
+
+def _translation_progress(job: dict, done: int, total: int) -> dict:
+    stored = job.get("progress") or {}
+    progress = stored if stored.get("schema") == "job-progress/v2" else initial_progress(job)
+    return apply_event(progress, "progress", {
+        "phase": "translation", "state": "running", "done": done,
+        "total": total, "unit": "items"})
+
+
+def _translation_failed(job: dict, exc: Exception, *, source_missing: bool = False) -> None:
+    """保留可操作的失败类型；不记录模型输出、节点正文或供应商错误正文。"""
+    unavailable = isinstance(exc, assistant.AssistantUnavailable)
+    code = ("TRANSLATION_SOURCE_MISSING" if source_missing else
+            "TRANSLATION_SERVICE_UNAVAILABLE" if unavailable else
+            "TRANSLATION_INVALID_OUTPUT")
+    now = _now()
+    with BANK_LOCK:
+        progress = normalize_job_progress(job, now=now)
+        progress = apply_event(progress, "failure", {
+            "phase": "translation", "code": code,
+            "category": "input_invalid" if source_missing else
+                        "service_unavailable" if unavailable else "stage_processing_failed",
+            "recoverability": "retry_stage", "exception_type": type(exc).__name__,
+            "done": progress.get("done"), "total": progress.get("total"),
+        }, now)
+        job.setdefault("log", []).append(f"[error] 翻译失败 ({code})")
+    _set_status(job, "failed", finished=now, rc=None, progress=progress)
 
 
 def _translation_payload(slug: str, mdir, target: str) -> dict:
@@ -48,7 +77,7 @@ def _run_translation(job: dict, mdir, title: str, target: str) -> None:
         return
     target_label = translation.TARGETS[target]["label"]
     _set_status(job, "running", started=_now(), stage=f"生成{target_label}译文",
-                progress={"done": 0, "total": 0})
+                progress=_translation_progress(job, 0, 0))
 
     def cancelled() -> bool:
         return bool(job.get("cancel_requested"))
@@ -57,7 +86,7 @@ def _run_translation(job: dict, mdir, title: str, target: str) -> None:
         if cancelled():
             return
         with BANK_LOCK:
-            job["progress"] = {"done": done, "total": total}
+            job["progress"] = _translation_progress(job, done, total)
             job["log"] = [line for line in job.get("log", [])
                           if not line.startswith("[meta] 翻译进度")]
             job["log"].append(f"[meta] 翻译进度 {done}/{total}")
@@ -80,8 +109,7 @@ def _run_translation(job: dict, mdir, title: str, target: str) -> None:
             if job.get("status") != "cancelled":
                 _set_status(job, "cancelled", finished=_now(), rc=None)
         else:
-            job.setdefault("log", []).append(f"[error] 翻译失败 ({type(exc).__name__})")
-            _set_status(job, "failed", finished=_now(), rc=None)
+            _translation_failed(job, exc)
         return
     if cancelled():
         if job.get("status") != "cancelled":
@@ -103,7 +131,7 @@ def _run_minutes_translation(job: dict, mdir, title: str, target: str) -> None:
                    else f"生成{target_label}纪要")
     _set_status(job, "running", started=_now(), stage=stage_label,
                 translation_source_state=source_state,
-                progress={"done": 0, "total": 0})
+                progress=_translation_progress(job, 0, 0))
 
     def cancelled() -> bool:
         return bool(job.get("cancel_requested"))
@@ -112,7 +140,7 @@ def _run_minutes_translation(job: dict, mdir, title: str, target: str) -> None:
         if cancelled():
             return
         with BANK_LOCK:
-            job["progress"] = {"done": done, "total": total}
+            job["progress"] = _translation_progress(job, done, total)
             job["log"] = [line for line in job.get("log", [])
                           if not line.startswith("[meta] 纪要翻译进度")]
             job["log"].append(f"[meta] 纪要翻译进度 {done}/{total}")
@@ -126,9 +154,8 @@ def _run_minutes_translation(job: dict, mdir, title: str, target: str) -> None:
         if job.get("status") != "cancelled":
             _set_status(job, "cancelled", finished=_now(), rc=None)
         return
-    except (translation.TranslationError, assistant.AssistantError):
-        job.setdefault("log", []).append("[error] 纪要翻译失败")
-        _set_status(job, "failed", finished=_now(), rc=None)
+    except (translation.TranslationError, assistant.AssistantError) as exc:
+        _translation_failed(job, exc)
         return
     _set_status(job, "done", finished=_now(), rc=0,
                 result={"target_language": target, "artifact": "minutes",
@@ -142,33 +169,38 @@ def _run_topic_map_translation(job: dict, mdir, title: str, target: str) -> None
         return
     state, topic_map = meeting_topic_map.load_current_topic_map(mdir)
     if state != "ready" or not topic_map:
-        _set_status(job, "failed", finished=_now(), rc=None)
+        _translation_failed(job, translation.TranslationError("source missing"), source_missing=True)
         return
     target_label = translation.TARGETS[target]["label"]
     _set_status(job, "running", started=_now(), stage=f"生成{target_label}会议脉络",
-                progress={"done": 0, "total": 1})
+                progress=_translation_progress(job, 0, 1))
 
     def cancelled() -> bool:
         return bool(job.get("cancel_requested"))
 
+    def progress(done: int, total: int) -> None:
+        with BANK_LOCK:
+            if not cancelled():
+                job["progress"] = _translation_progress(job, done, total)
+                _save_job(job)
+
     try:
         translation.translate_topic_map(
             mdir, title, topic_map, dry_run=DRY_RUN,
-            should_cancel=cancelled, target=target)
+            should_cancel=cancelled, target=target, on_progress=progress)
     except translation.TranslationCancelled:
         if job.get("status") != "cancelled":
             _set_status(job, "cancelled", finished=_now(), rc=None)
         return
-    except (translation.TranslationError, assistant.AssistantError):
-        job.setdefault("log", []).append("[error] 会议脉络翻译失败")
-        _set_status(job, "failed", finished=_now(), rc=None)
+    except (translation.TranslationError, assistant.AssistantError) as exc:
+        _translation_failed(job, exc)
         return
     if cancelled():
         if job.get("status") != "cancelled":
             _set_status(job, "cancelled", finished=_now(), rc=None)
         return
     _set_status(job, "done", finished=_now(), rc=0,
-                progress={"done": 1, "total": 1},
+                progress=_translation_progress(job, job["progress"]["total"], job["progress"]["total"]),
                 result={"target_language": target, "artifact": "topic_map",
                         "dry_run": DRY_RUN})
 
@@ -179,7 +211,7 @@ def _run_visuals_translation(job: dict, mdir, target: str) -> None:
     target_label = translation.TARGETS[target]["label"]
     total = len(translation.visuals_source(mdir))
     _set_status(job, "running", started=_now(), stage=f"生成{target_label}屏幕标题",
-                progress={"done": 0, "total": total})
+                progress=_translation_progress(job, 0, total))
 
     def cancelled() -> bool:
         return bool(job.get("cancel_requested"))
@@ -188,7 +220,7 @@ def _run_visuals_translation(job: dict, mdir, target: str) -> None:
         if cancelled():
             return
         with BANK_LOCK:
-            job["progress"] = {"done": done, "total": count}
+            job["progress"] = _translation_progress(job, done, count)
             job["log"] = [line for line in job.get("log", [])
                           if not line.startswith("[meta] 屏幕翻译进度")]
             job["log"].append(f"[meta] 屏幕翻译进度 {done}/{count}")
@@ -202,12 +234,11 @@ def _run_visuals_translation(job: dict, mdir, target: str) -> None:
         if job.get("status") != "cancelled":
             _set_status(job, "cancelled", finished=_now(), rc=None)
         return
-    except (translation.TranslationError, assistant.AssistantError):
-        job.setdefault("log", []).append("[error] 屏幕标题翻译失败")
-        _set_status(job, "failed", finished=_now(), rc=None)
+    except (translation.TranslationError, assistant.AssistantError) as exc:
+        _translation_failed(job, exc)
         return
     _set_status(job, "done", finished=_now(), rc=0,
-                progress={"done": len(document.get("pages", [])), "total": total},
+                progress=_translation_progress(job, len(document.get("pages", [])), total),
                 result={"target_language": target, "artifact": "visuals",
                         "dry_run": DRY_RUN})
 
@@ -241,7 +272,7 @@ def create_transcript_translation(
         return {"id": None, "kind": "translation", "status": "done", "cached": True,
                 "meeting": slug, "target_language": target,
                 "result": {"translated": current["translated"], "total": current["total"]}}
-    existing = next((job for job in JOBS.values()
+    existing = next((job for job in _translation_jobs()
                      if job.get("kind") == "translation" and job.get("meeting") == slug
                      and job.get("target_language") == target
                      and job.get("translation_artifact", "transcript") == "transcript"
@@ -281,7 +312,7 @@ def create_minutes_translation(
     if current["state"] == "ready" and not force:
         return {"id": None, "kind": "translation", "status": "done", "cached": True,
                 "meeting": slug, "target_language": target, "translation_artifact": "minutes"}
-    existing = next((job for job in JOBS.values()
+    existing = next((job for job in _translation_jobs()
                      if job.get("kind") == "translation" and job.get("meeting") == slug
                      and job.get("target_language") == target
                      and job.get("translation_artifact") == "minutes"
@@ -313,7 +344,7 @@ def create_topic_map_translation(
         return {"id": None, "kind": "translation", "status": "done", "cached": True,
                 "meeting": slug, "target_language": target,
                 "translation_artifact": "topic_map"}
-    existing = next((job for job in JOBS.values()
+    existing = next((job for job in _translation_jobs()
                      if job.get("kind") == "translation" and job.get("meeting") == slug
                      and job.get("target_language") == target
                      and job.get("translation_artifact") == "topic_map"
@@ -356,8 +387,13 @@ def create_visuals_translation(
     return response
 
 
+def _translation_jobs() -> list[dict]:
+    with BANK_LOCK:
+        return list(JOBS.values())
+
+
 def _active_translation(slug: str, target: str, artifact: str) -> dict | None:
-    return next((job for job in JOBS.values()
+    return next((job for job in _translation_jobs()
                  if job.get("kind") == "translation" and job.get("meeting") == slug
                  and job.get("target_language") == target
                  and job.get("translation_artifact", "transcript") == artifact

@@ -101,6 +101,7 @@ package-check:
 	$(PY) web/tests/identity_no_rerun_test.py
 	$(PY) web/tests/person_rename_history_test.py
 	$(PY) web/tests/translation_service_test.py
+	$(PY) web/tests/translation_recovery_test.py
 	$(PY) web/tests/caption_projection_test.py
 	$(PY) web/tests/keyword_service_test.py
 	$(PY) web/tests/keyword_index_test.py

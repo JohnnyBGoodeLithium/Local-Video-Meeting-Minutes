@@ -26,6 +26,9 @@ const job = { id: "fixture", kind: "upload", route: "teams", status: "running", 
 
 assert.equal(phaseLabel("visual_understanding", "zh-CN"), "理解画面与现场资料");
 assert.equal(phaseLabel("visual_understanding", "en"), "Understanding visuals and meeting materials");
+assert.equal(phaseLabel("translation", "zh-CN"), "生成译文");
+assert.deepEqual(availableOutputLabels({available_outputs: {translation: "ready"}}, "en"), ["requested translation"]);
+assert.match(failureReason({code: "TRANSLATION_INVALID_OUTPUT"}, "zh-CN"), /原始资料未被修改/);
 assert.equal(formatEtaRange(progress.estimated_remaining, "zh-CN"), "预计还需 18–26 分钟");
 assert.equal(formatDuration(130, "en"), "2 min");
 assert.deepEqual(availableOutputLabels(progress, "en"), [

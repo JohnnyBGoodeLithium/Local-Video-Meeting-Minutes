@@ -156,6 +156,8 @@ ASR、说话人或覆盖当前可读结果。该模式不改变 canonical schema
 
 主路径通过受控 `[progress]`、`[phase_done]`、`[output_ready]`、`[failure]` 和 `[recovery]` JSON 事件更新 job store。事件不含正文、人名、绝对路径、原始 URL 或模型完整输出。旧作业可以通过明确标记的 legacy fallback 投影，但不能伪装为精确阶段。
 
+翻译使用独立 `translation` 阶段和产物，不把未参与本次任务的 canonical 产物列为待生成。失败详情只记录稳定错误码与异常类型，并按实际保留的文件展示原逐字稿、纪要和脉络。脉络翻译对文本分批校验并有限重试，业务节点 ID、层级与 evidence linkage 全部取自原文；完整校验通过后才写 revision-bound sidecar。
+
 ## 失败与恢复
 
 等待资源、暂停、取消、非关键增强降级、可恢复失败和阻断失败具有不同语义：
