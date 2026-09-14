@@ -207,10 +207,15 @@ def _dhash16(gray: np.ndarray, size: int = 16, eps: float = 3.0):
     return d > 0, np.abs(d) > eps
 
 
-def _hamming(a: tuple, b: tuple) -> int:
-    """掩码汉明距：只统计两帧都显著(非平局)且结论相反的位。"""
+def _hamming(a: tuple, b: tuple) -> float:
+    """掩码汉明距；共同特征不足不是相似，返回不可合并的距离。"""
     (bits_a, mask_a), (bits_b, mask_b) = a, b
-    return int(np.count_nonzero(mask_a & mask_b & (bits_a != bits_b)))
+    common = mask_a & mask_b
+    count = int(np.count_nonzero(common))
+    union = int(np.count_nonzero(mask_a | mask_b))
+    if count < 16 or count < union * 0.5:
+        return float('inf')
+    return int(np.count_nonzero(common & (bits_a != bits_b)))
 
 
 # 口播代理合并参数（media 模式）：候选闸门 + dHash 汉明距上限。
@@ -329,14 +334,47 @@ def _shot_cuts(dist: np.ndarray, threshold: float) -> list[int]:
     return cuts
 
 
+def _same_content(a: np.ndarray, b: np.ndarray, threshold: float) -> bool:
+    """全帧均差之外保护局部变化；8px 小块避免数字变化被大片背景稀释。"""
+    diff = np.abs(a.astype(np.float32) - b.astype(np.float32))
+    if float(diff.mean()) >= threshold:
+        return False
+    h, w = diff.shape
+    diff = np.pad(diff, ((0, (-h) % 8), (0, (-w) % 8)), mode='edge')
+    blocks = diff.reshape(diff.shape[0] // 8, 8, diff.shape[1] // 8, 8)
+    return float(blocks.mean(axis=(1, 3)).max()) < 12.0
+
+
+def _shot_states(frames: np.ndarray, segs: list, fps: float, threshold: float) -> list:
+    """镜头内累计变化后保留稳定状态；运动/过渡帧不逐帧变成 VL 请求。
+
+    至少间隔 5 秒，且连续两次采样稳定才补帧。对比上个保留状态，
+    不是仅对比相邻帧，因而缓慢演示也能累计触发。阈值不随全片运动放宽。
+    """
+    gap = max(2, int(np.ceil(5 * fps)))
+    threshold = min(threshold, 4.0)
+    result = []
+    for s, e in segs:
+        start, anchor = s, frames[s]
+        for t in range(s + gap, e - 1):
+            if t - start < gap:
+                continue
+            if (_same_content(frames[t], frames[t + 1], threshold)
+                    and not _same_content(anchor, frames[t], threshold)):
+                result.append((start, t))
+                start, anchor = t, frames[t]
+        result.append((start, e))
+    return result
+
+
 def _extract_shots(video, out_dir, pages_json=None, *, fps=1.0, width=1280,
                    threshold=None, same_threshold=None, min_shot_sec=1.5,
                    max_pages=0, talk_ham=_TALK_DHASH_HAM, verbose=True):
-    """动态视频 → 镜头(shot)抽取：全帧差分局部峰切点 + 中位数签名去重。
+    """动态视频 → 镜头切点 + 镜头内稳定状态 + 真实代表帧去重。
 
-    合并双通道：内容帧维持严格全帧差分（阈值 th_same，防误并同版式不同
-    数据的图表）；两帧都是口播候选（中心肤色占比 ≥_TALK_SKIN_MIN 且全帧
-    边缘密度 ≤_TALK_EDGE_MAX）时，再允许 16×16 dHash 汉明距 ≤talk_ham
+    合并双通道：内容帧使用全帧差分 + 局部小块变化保护；两帧都是口播候选
+    （中心肤色占比 ≥_TALK_SKIN_MIN 且全帧
+    边缘密度 ≤_TALK_EDGE_MAX）时，共同特征充分才允许 16×16 dHash 汉明距 ≤talk_ham
     合并——主讲人换姿势/手势的全帧均差会超 th_same，但构图仍近重复。
     口播合并页标 talking_head=true 供 UI 折叠展示，ranges 累记每次出现
     区间。合并只消信息冗余，不设数量配额。
@@ -353,8 +391,9 @@ def _extract_shots(video, out_dir, pages_json=None, *, fps=1.0, width=1280,
     n = len(frames)
     if n < 2:
         return []
-    f32 = frames.astype(np.float32)
-    dist = np.abs(f32[1:] - f32[:-1]).mean(axis=(1, 2))
+    # Only two float frames at a time; long videos need not retain a full float copy.
+    dist = np.array([np.abs(frames[i].astype(np.float32) - frames[i - 1]).mean()
+                     for i in range(1, n)])
     th, th_same = _shot_thresholds(dist)
     if threshold is not None:
         th = threshold
@@ -367,17 +406,22 @@ def _extract_shots(video, out_dir, pages_json=None, *, fps=1.0, width=1280,
         peaks[c - 1] = dist[c - 1]
     min_len = max(1, int(round(min_shot_sec * fps)))
     segs = _segments(peaks, th, min_len)
+    segs = _shot_states(frames, segs, fps, th_same)
 
     shots = []  # {page, first, image, sig, captured, ranges, talk, dhash}
     for s, e in segs:
         t0, t1 = s / fps, e / fps
-        sig = np.median(f32[s:e], axis=0)
+        sig = np.median(frames[s:e], axis=0).astype(np.float32)
+        # Choose a real frame nearest the signature; a temporal midpoint can be a transition.
+        distances = [float(np.abs(frame.astype(np.float32) - sig).mean()) for frame in frames[s:e]]
+        mid = s + min(range(e - s), key=lambda i: (distances[i], abs(i - (e - s - 1) / 2)))
+        sig = frames[mid].astype(np.float32)
         cand = (float(np.median(talk["skin"][s:e])) >= _TALK_SKIN_MIN
                 and float(np.median(talk["edge"][s:e])) <= _TALK_EDGE_MAX)
         dh = _dhash16(sig) if cand else None
         hit = None
         for p in shots:                                  # 通道一：严格全帧差分
-            if float(np.abs(sig - p["sig"]).mean()) < th_same:
+            if _same_content(sig, p["sig"], th_same):
                 hit = p
                 break
         if hit is None and cand:                         # 通道二：口播 dHash
@@ -388,7 +432,6 @@ def _extract_shots(video, out_dir, pages_json=None, *, fps=1.0, width=1280,
         if hit is None:
             num = len(shots) + 1
             img = out_dir / f"page_{num:02d}_t{int(round(t0)):04d}s.jpg"
-            mid = (s + e - 1) // 2                      # 镜头中点帧为代表帧
             t_cap = min((mid + 0.5) / fps, n / fps - 1.0)  # 不越出片尾
             try:
                 _grab_frame(video, t_cap, width, img)

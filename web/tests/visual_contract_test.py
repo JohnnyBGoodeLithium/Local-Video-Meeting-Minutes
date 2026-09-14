@@ -106,3 +106,20 @@ with tempfile.TemporaryDirectory() as tmp:
 
 from meeting_structure import _visual_value
 assert _visual_value("场景中没有数据、图表或表格，不能读取行列。", "设备展示")["information_value"] != "high"
+
+# Retry telemetry includes tokens from invalid JSON and accepts only known numeric counters.
+metrics = {}; calls = []
+def retry_chat(*args, **kwargs):
+    calls.append(kwargs)
+    return ('invalid' if len(calls) == 1 else json.dumps(observation())), {
+        'prompt_tokens': 20, 'completion_tokens': 5, 'private_field': 'never persist'}
+value, usage = vw.request(retry_chat, 'http://fake/v1', 'test', Path('synthetic.jpg'),
+                          'media', diagnostics=metrics)
+assert metrics['attempts'] == 2 and metrics['retries'] == 1
+assert usage == metrics['usage'] == {'prompt_tokens': 40, 'completion_tokens': 10}
+assert value['schema_version'] == vr.SCHEMA
+# Media brevity keeps the complete evidence contract; meetings/live retain their own prompts.
+assert '视频分级阅读' in vr.prompt('media')
+assert '不能确定的画面继续完整读取' in vr.prompt('media')
+assert '视频分级阅读' not in vr.prompt('meeting')
+assert '视频分级阅读' not in vr.prompt('media', compact=True)
