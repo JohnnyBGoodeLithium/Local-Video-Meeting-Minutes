@@ -2,6 +2,7 @@
 
 const PHASE_COPY = {
   prepare: ["准备资料", "Preparing materials"],
+  translation: ["生成译文", "Generating translation"],
   download: ["获取并保存媒体", "Saving media"],
   speech_processing: ["处理语音与发言人", "Processing speech and speakers"],
   teams_alignment: ["区分发言人并对齐 Teams 文稿", "Aligning speakers with the Teams transcript"],
@@ -15,6 +16,7 @@ const PHASE_COPY = {
 };
 
 const OUTPUT_COPY = {
+  translation: ["本次译文", "requested translation"],
   transcript: ["逐字稿", "transcript"],
   speaker_navigation: ["说话人导航", "speaker navigation"],
   voice_draft: ["语音草稿", "voice draft"],
@@ -37,6 +39,9 @@ const FAILURE_COPY = {
 };
 
 const FAILURE_CODE_COPY = {
+  TRANSLATION_INVALID_OUTPUT: ["译文格式或条目不完整，原始资料未被修改", "The translation was incomplete or invalid; source materials were not changed"],
+  TRANSLATION_SERVICE_UNAVAILABLE: ["翻译模型服务未能完成请求，原始资料未被修改", "The translation service could not complete the request; source materials were not changed"],
+  TRANSLATION_SOURCE_MISSING: ["待翻译的原文尚未就绪", "The source for this translation is not ready"],
   VISUAL_MODEL_START_FAILED: ["本地视觉服务未能启动", "The local visual service could not start"],
   ASR_SERVICE_UNAVAILABLE: ["本地语音识别服务暂时不可用", "The local speech recognition service is unavailable"],
   ASR_TIMESTAMPS_MISSING: ["语音识别结果没有提供可靠时间码", "Speech recognition did not return reliable timestamps"],
