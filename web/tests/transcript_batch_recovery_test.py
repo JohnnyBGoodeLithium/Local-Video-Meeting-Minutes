@@ -111,6 +111,9 @@ with tempfile.TemporaryDirectory(prefix="transcript-batch-recovery-") as temp:
                 raise AssertionError("invalid ID/text contract accepted")
             except t.TranslationError:
                 pass
+    with patch.object(t.assistant, "_chat", return_value=reply(["T000001", "T000002", "T000003"])):
+        selected = t._translate_batch([0], turns, "Synthetic", {}, False, target="en")
+        assert set(selected) == {0}, "context translations must never be persisted"
     long_turns = [{"text": "虚构讲解内容。" * 300}]
     with patch.object(t.assistant, "_chat", side_effect=lambda messages, **kw: reply(ids(messages))) as model:
         t._translate_batch([0], long_turns, "Synthetic", {}, False, target="en")

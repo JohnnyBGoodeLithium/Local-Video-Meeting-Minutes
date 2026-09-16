@@ -398,9 +398,10 @@ def _translate_batch(indexes: list[int], turns: list[dict], title: str,
         "中英文混合轮次也要整体整理成目标语言，不要漏译其中一段。"
         "返回 JSON：{\"translations\":[{\"id\":\"T000001\","
         "\"source_language\":\"zh|en|mixed|unknown\",\"translated_text\":\"...\"}]}。"
-        "每个目标 ID 必须且只能出现一次，不要返回额外文字。"
+        "每个目标 ID 必须且只能出现一次；仅上下文的轮次禁止输出。不要返回额外文字。"
     )
-    user = (f"会议：{title}\n已确认人员名称：{', '.join(dict.fromkeys(names)) or '无'}\n"
+    user = (f"本次只输出这些 ID：{', '.join(f'T{i + 1:06d}' for i in targets)}\n"
+            f"会议：{title}\n已确认人员名称：{', '.join(dict.fromkeys(names)) or '无'}\n"
             f"{_relevant_context(indexes, turns, evidence)}\n\n连续逐字稿：\n"
             + "\n".join(context_lines))
     raw = assistant._chat(
@@ -414,7 +415,11 @@ def _translate_batch(indexes: list[int], turns: list[dict], title: str,
         raise TranslationError("翻译结果缺少轮次列表")
     by_id = {}
     expected = {f"T{i + 1:06d}" for i in targets}
+    context_ids = {f"T{i + 1:06d}" for i in range(lo, hi)} - expected
     for item in items:
+        # Context is supplied for disambiguation, never written as a translation.
+        if isinstance(item, dict) and isinstance(item.get("id"), str) and item["id"] in context_ids:
+            continue
         if (not isinstance(item, dict) or not isinstance(item.get("id"), str)
                 or item["id"] not in expected):
             raise TranslationError("翻译结果包含无效目标 ID")
