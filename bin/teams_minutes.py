@@ -322,7 +322,7 @@ def main() -> int:
     speakers = sorted({t["name"] for t in turns})
     print(f"[meta] 总耗时 {time.time()-t_all:.1f}s | 说话人标签 {len(speakers)} 个"
           f"(含房间拆分 {stats['room_clusters']} 个声音) | 轮次 {len(turns)}"
-          f" | 纪要 {mstats['chars']} 字 | 页块 {mstats['page_blocks']}/{mstats['pages']}", flush=True)
+          f" | 纪要 {mstats['chars']} 字 | 画面 {mstats['pages']}", flush=True)
     print(f"[meta] 纪要: {out_path}", flush=True)
     return 0
 

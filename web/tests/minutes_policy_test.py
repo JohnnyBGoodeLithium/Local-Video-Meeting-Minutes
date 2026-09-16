@@ -118,12 +118,15 @@ with tempfile.TemporaryDirectory(prefix="minutes-policy-") as tmp:
     evidence = json.loads((mdir / "minutes.evidence.json").read_text(encoding="utf-8"))
     minutes = out.read_text(encoding="utf-8")
 
-    assert stats["claims"] == 4
+    assert stats["claims"] == 2
     assert evidence["policy"]["seniority_rule"].startswith("职级最多影响")
     assert evidence["sources"]["transcript"][0]["speaker"] == "Final Synthetic Owner"
     assert evidence["claims"][1]["status"] == "proposal"
     assert evidence["sources"]["pages"][1]["display_status"] == "display_only"
-    assert "页面 P0002 · 第2页 · 仅展示" in minutes
+    assert "附录:" not in minutes and "## 分页详情" not in minutes
+    assert "预算参考页" in evidence["sources"]["pages"][1]["visual_description"]
+    assert len(seen_prompts) == overview_calls  # No page expansion or repair requests.
+    assert all("visual_asr_checks" in p and "试点方案页" in p for p in seen_prompts)
     assert all("meeting-minutes-prompt/v1" in p for p in seen_prompts)
     assert all("speaker_profiles" in p and "T000001" in p for p in seen_prompts)
     assert any("P0001" in p and "org_depth" in p for p in seen_prompts)
