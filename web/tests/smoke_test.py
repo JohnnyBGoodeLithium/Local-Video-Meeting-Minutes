@@ -1493,6 +1493,18 @@ check("media 视频上传作业调用 video_minutes.py 并带 --media",
       and media_video_cmd[1].endswith("bin/video_minutes.py")
       and "--media" in media_video_cmd)
 
+s, _, screen_media_job = multipart_files("/api/upload", [
+    ("files", "fictional-screen-training.mp4", b"fictional screen video", "video/mp4"),
+], fields=[("content_type", "media"), ("visual_mode", "slides")])
+screen_media_done = poll_job(screen_media_job.get("id"))
+screen_media_cmd = screen_media_done.get("cmd", [])
+check("媒体分享录屏独立选用共享屏幕抽帧，保留媒体语义",
+      s == 200 and screen_media_done.get("status") == "done"
+      and screen_media_done.get("content_type") == "media"
+      and screen_media_done.get("visual_mode") == "slides"
+      and "--media" in screen_media_cmd
+      and screen_media_cmd[-2:] == ["--visual-mode", "slides"])
+
 # 11a3. 媒体版纪要 prompt：content_type=media 分流、论证结构章节、不生成待办（静态）
 # TEST_ROOT 在隔离冒烟中是数据根；仓库文件按本测试文件位置定位。
 minutes_by_page_py = (Path(__file__).resolve().parents[2]

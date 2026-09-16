@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """合成导入生命周期：重复拖拽、删除、分类及取消/启动竞争；不调用模型。"""
+import asyncio
+import io
 import json
 import os
 import sys
@@ -9,8 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import patch
 
-from fastapi import FastAPI, HTTPException
-from fastapi.testclient import TestClient
+from fastapi import HTTPException, UploadFile
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / "web"), str(ROOT / "bin")]
@@ -27,6 +28,22 @@ class Queue:
         self.items = [job for job in self.items if job["id"] != jid]
 
 
+class Response:
+    def __init__(self, status, body):
+        self.status_code, self.body = status, body
+
+    def json(self):
+        return self.body
+
+
+def reply(function, *args, **kwargs):
+    """直接覆盖路由/队列竞争；真实 HTTP multipart 另由完整 smoke 验证。"""
+    try:
+        return Response(200, function(*args, **kwargs))
+    except HTTPException as exc:
+        return Response(exc.status_code, {"detail": exc.detail})
+
+
 with tempfile.TemporaryDirectory(prefix="intake-lifecycle-") as tmp:
     root = Path(tmp)
     os.environ.update(MEETING_DATA_ROOT=tmp, MEETING_WEB_JOBS=str(root / "jobs"))
@@ -37,14 +54,10 @@ with tempfile.TemporaryDirectory(prefix="intake-lifecycle-") as tmp:
 
     store.EXEC.shutdown()
     jobs.EXEC = Queue()
-    app = FastAPI()
-    app.include_router(jobs.router)
-    app.include_router(meetings.router)
-    client = TestClient(app)
-
     def upload(mode="meeting", name="20260102_Fictional_Training.mp4", visual_mode=""):
-        return client.post("/api/upload", files={"files": (name, b"synthetic video", "video/mp4")},
-                           data={"content_type": mode, "visual_mode": visual_mode})
+        file = UploadFile(filename=name, file=io.BytesIO(b"synthetic video"))
+        return reply(asyncio.run, jobs.upload_with_limit(
+            [file], content_type=mode, visual_mode=visual_mode))
 
     old = upload("media").json()
     assert old["status"] == "queued" and "--media" in old["cmd"]
@@ -70,11 +83,10 @@ with tempfile.TemporaryDirectory(prefix="intake-lifecycle-") as tmp:
     for state in ("queued", "running"):
         store.JOBS[old["id"]]["status"] = state
         with patch.object(meetings.vb, "load_bank") as bank:
-            blocked = client.post(f"/api/meetings/{slug}/delete")
+            blocked = reply(meetings.delete_meeting, slug)
             assert blocked.status_code == 409 and "取消" in blocked.json()["detail"]
             bank.assert_not_called()
-        assert client.post(f"/api/meetings/{slug}/content-type",
-                           json={"content_type": "meeting"}).status_code == 409
+        assert reply(meetings.set_content_type, slug, content_type="meeting").status_code == 409
         assert evaluation.is_file()
         assert all((mdir / name).read_bytes() == value for name, value in before.items())
 
@@ -84,12 +96,11 @@ with tempfile.TemporaryDirectory(prefix="intake-lifecycle-") as tmp:
         def poll(self):
             return None
     store.PROCS[old["id"]] = Alive()
-    assert client.post(f"/api/meetings/{slug}/delete").status_code == 409
+    assert reply(meetings.delete_meeting, slug).status_code == 409
     store.PROCS.clear()
 
     # 已停止记录通过“重新分类”保留原结果，重复上传仍不覆盖。
-    classified = client.post(f"/api/meetings/{slug}/content-type",
-                             json={"content_type": "meeting"})
+    classified = reply(meetings.set_content_type, slug, content_type="meeting")
     assert classified.status_code == 200 and classified.json()["content_type"] == "meeting"
     assert upload().status_code == 409
     assert (mdir / "transcript.spk.json").read_bytes() == before["transcript.spk.json"]
@@ -97,7 +108,7 @@ with tempfile.TemporaryDirectory(prefix="intake-lifecycle-") as tmp:
     assert list(deps.INBOX.iterdir()) == [inbox]
 
     # 用户明确删除后才可导入；迟到的派生任务不能重新创建已删除资料。
-    assert client.post(f"/api/meetings/{slug}/delete").status_code == 200
+    assert reply(meetings.delete_meeting, slug).status_code == 200
     assert not mdir.exists() and not evaluation.exists() and inbox.exists()
     try:
         store._new_job("translation", meeting=slug)
@@ -127,8 +138,8 @@ with tempfile.TemporaryDirectory(prefix="intake-lifecycle-") as tmp:
     assert "--media" in screen["cmd"]
     assert screen["cmd"][-2:] == ["--visual-mode", "slides"]
     assert upload("media", "invalid.mp4", "unknown").status_code == 400
-    url_job = client.post("/api/import-url", json={"url": "https://example.invalid/video",
-                                                  "visual_mode": "slides"}).json()
+    url_job = reply(jobs.import_media_url, jobs.MediaURLImport(
+        url="https://example.invalid/video", visual_mode="slides")).json()
     assert url_job["content_type"] == "media" and url_job["cmd"][-2:] == ["--visual-mode", "slides"]
 
     # 启动尚未返回 Popen 时发生取消：登记与取消使用同一把锁，进程必被停止。
