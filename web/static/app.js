@@ -1,48 +1,48 @@
 import { contentTypeOf, safeSourceUrl }
-  from "./modules/media-source.js?v=20260916p129";
+  from "./modules/media-source.js?v=20260916p130";
 import { buildUploadFormData, enqueueMediaUrl, isSingleLocalVideo }
-  from "./modules/imports.js?v=20260916p129";
+  from "./modules/imports.js?v=20260916p130";
 import { jobDisplayName, jobTaskLabel, selectJobPanel, compactJobPanel }
-  from "./modules/jobs.js?v=20260916p129";
+  from "./modules/jobs.js?v=20260916p130";
 import { jobPresentation }
-  from "./modules/job-progress.js?v=20260916p129";
+  from "./modules/job-progress.js?v=20260916p130";
 import { closeJobSheet, renderCompactJob, renderJobSheet, renderProcessingBanner }
-  from "./modules/job-progress-view.js?v=20260916p129";
+  from "./modules/job-progress-view.js?v=20260916p130";
 import { chooseInitialItem, deepLinkSeconds, filterLibrary, sortLibrary }
-  from "./modules/library.js?v=20260916p129";
+  from "./modules/library.js?v=20260916p130";
 import { adjacentReviewUnit, defaultReviewUnits, nearestReviewUnit,
   reviewIndexesFor, reviewUnitForTurn as findReviewUnitForTurn, turnEnd }
-  from "./modules/player-navigation.js?v=20260916p129";
+  from "./modules/player-navigation.js?v=20260916p130";
 import { nextSearchCursor, pendingReviewByTurn, transcriptSearchHits }
-  from "./modules/transcript.js?v=20260916p129";
+  from "./modules/transcript.js?v=20260916p130";
 import { renderTranscriptView }
-  from "./modules/transcript-view.js?v=20260916p129";
+  from "./modules/transcript-view.js?v=20260916p130";
 import { availableViewerMedia, exportSizeState, formatBytes, meetingExportHref, normalizeExportProfile,
   packExportHref }
-  from "./modules/export.js?v=20260916p129";
+  from "./modules/export.js?v=20260916p130";
 import { claimAction, claimIdsForTurn, evidenceSources, minutesState, normalizeReviewMode,
   resolveMinutesView, turnIndexAtTime, turnIndexesForSourceIds }
-  from "./modules/minutes.js?v=20260916p129";
+  from "./modules/minutes.js?v=20260916p130";
 import { renderMinutesView }
-  from "./modules/minutes-view.js?v=20260916p129";
+  from "./modules/minutes-view.js?v=20260916p130";
 import { createMinutesTemplateDialog }
-  from "./modules/minutes-templates.js?v=20260916p129";
+  from "./modules/minutes-templates.js?v=20260916p130";
 import { beginExampleSelection, beginIdentity, buildCorrectionApplyPayload,
   correctionSummary, createSpeakerCorrectionState, representativeTurns,
   resetSpeakerCorrection, setGroupAssignment, setIncludeSuggested, setPreview,
   toggleExample, withCorrectionError }
-  from "./modules/speaker-correction.js?v=20260916p129";
+  from "./modules/speaker-correction.js?v=20260916p130";
 import { renderCorrectionSheet, renderIdentityPopover }
-  from "./modules/speaker-correction-view.js?v=20260916p129";
+  from "./modules/speaker-correction-view.js?v=20260916p130";
 import { beginPhotoImport, createPhotoImportState, hydratePhotoCaptureTimes,
   markPhotoImportResult, photoUploadSpec, releasePhotoImport, removePhotoImportItem,
   setPhotoMeetingStart, setPhotoPositionMode, togglePhotoTimeSettings,
   withPhotoImportBusy, withPhotoImportError, formatPhotoBytes }
-  from "./modules/photo-import.js?v=20260916p129";
+  from "./modules/photo-import.js?v=20260916p130";
 import { renderPhotoImport }
-  from "./modules/photo-import-view.js?v=20260916p129";
+  from "./modules/photo-import-view.js?v=20260916p130";
 import { mountLiveContext }
-  from "./modules/live-context-view.js?v=20260916p129";
+  from "./modules/live-context-view.js?v=20260916p130";
 
 /* 会议列表 + 回顾工作台（装配入口；领域规则逐步迁往 modules/） */
 "use strict";
@@ -1300,7 +1300,7 @@ function renderPlayer() {
       track.label = label;
       track.dataset.captionMode = mode;
       track.srclang = mode === "source" ? "und" : state.translationTarget;
-      track.src = `/api/meetings/${encodeURIComponent(state.slug)}/captions/${mode}.vtt?target=${encodeURIComponent(state.translationTarget)}`;
+      track.src = `/api/meetings/${encodeURIComponent(state.slug)}/captions/${mode}.vtt?layout=2&target=${encodeURIComponent(state.translationTarget)}`;
       if (mode === "source") track.default = true;
       el.append(track);
     }
@@ -2848,7 +2848,7 @@ function refreshVideoCaptions() {
   if (!track || !state.slug) return;
   const target = state.translationTarget;
   const revision = state.translation?.updated_at || state.translation?.state || "pending";
-  const src = `/api/meetings/${encodeURIComponent(state.slug)}/captions/translation.vtt?target=${encodeURIComponent(target)}&revision=${encodeURIComponent(revision)}`;
+  const src = `/api/meetings/${encodeURIComponent(state.slug)}/captions/translation.vtt?layout=2&target=${encodeURIComponent(target)}&revision=${encodeURIComponent(revision)}`;
   if (track.getAttribute("src") !== src) {
     track.srclang = target;
     track.label = `${translationTargetLabel(target)} / Translation`;

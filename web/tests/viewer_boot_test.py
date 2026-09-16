@@ -457,19 +457,21 @@ translated_page = export_meeting._viewer_html(
     {'schema': 'test'}, TOPIC_MAP, 'media/video.mp4', 'video',
     minutes_languages={'zh-CN': '<p>Source</p>', 'en': '<p>English minutes</p>'},
     transcript_languages={'en': [{'index': 0, 'translated_text': 'Synthetic English transcript.'}]},
+    evidence_languages={'en': {EVIDENCE['claims'][0]['text']: 'Synthetic English conclusion.'}},
     caption_languages={'en': [{'start': 0, 'end': 4, 'original_text': 'Source',
                                'translated_text': 'Synthetic English caption.'}]})
 probe = '''<script>
 document.querySelector('[data-language="en"]').click();
 const translated=document.querySelector('#transcript').textContent.includes('Synthetic English transcript.');
+showClaim('C0001');const evidenceTranslated=document.querySelector('#evidence').textContent.includes('Synthetic English conclusion.')&&document.querySelector('#evidence').textContent.includes('Synthetic English transcript.')&&!!document.querySelector('#evidence details');
 const captions=viewerCaptionRows()[0].translated_text==='Synthetic English caption.';
 const select=document.querySelector('#viewer-transcript-mode');select.value='source';select.onchange();
 const original=!document.querySelector('#transcript').textContent.includes('Synthetic English transcript.');
 select.value='bilingual';select.onchange();
 const bilingual=document.querySelector('#transcript').textContent.includes('Synthetic English transcript.');
-document.body.dataset.translationContract=[translated,captions,original,bilingual].join(',');
+document.body.dataset.translationContract=[translated,captions,original,bilingual,evidenceTranslated].join(',');
 </script></body>'''
 with tempfile.TemporaryDirectory() as td:
     result=chromium_dom(translated_page.replace(b'</body>',probe.encode()),Path(td)/'translation.html')
-    assert 'data-translation-contract="true,true,true,true"' in result.stdout
+    assert 'data-translation-contract="true,true,true,true,true"' in result.stdout
 print('viewer translation: language, original, bilingual and captions passed')

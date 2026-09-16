@@ -723,6 +723,47 @@ def translate_minutes(mdir: Path, title: str, source_markdown: str, evidence: di
         raise
 
 
+def translate_evidence(mdir: Path, title: str, evidence: dict, *, target=TARGET,
+                       dry_run=False, should_cancel=None) -> dict:
+    """Translate display text only; IDs, status and evidence links stay canonical."""
+    if target not in TARGETS:
+        raise TranslationError("不支持的目标语言")
+    texts = []
+    for row in evidence.get("claims", []) + evidence.get("action_candidates", []):
+        for obj in (row, row.get("action") or {}):
+            for key in ("text", "section", "owner", "deadline", "original_status"):
+                value = obj.get(key)
+                if isinstance(value, str) and value.strip() and value not in texts:
+                    texts.append(value)
+    revision = assistant.revision(mdir / "minutes.evidence.json")
+    path = mdir / f"evidence.translation.{target}.json"
+    old = _read(path)
+    cached = old.get("texts", {}) if old.get("source_revision") == revision else {}
+    translated = {text: cached[text] for text in texts if isinstance(cached.get(text), str)}
+    turns = [{"text": text} for text in texts]
+    document = {"schema": "meeting-evidence-translation/v1", "source_revision": revision,
+                "target_language": target, "status": "partial", "texts": translated}
+    for start in range(0, len(turns), BATCH_SIZE):
+        if should_cancel and should_cancel():
+            raise TranslationCancelled("翻译已取消")
+        missing = []
+        for i in range(start, min(start + BATCH_SIZE, len(turns))):
+            if texts[i] in translated:
+                continue
+            if needs_translation(detect_language(texts[i]), target):
+                missing.append(i)
+            else:
+                translated[texts[i]] = texts[i]
+        if missing:
+            for fragment in _translate_resilient(missing, turns, title, {}, dry_run,
+                                                  target, should_cancel):
+                translated.update({texts[i]: row["translated_text"] for i, row in fragment.items()})
+                _write(path, document)
+    document["status"] = "complete"
+    _write(path, document)
+    return document
+
+
 def _topic_translation_shape(source: dict, translated: dict) -> dict:
     """只接受同构文本字段；ID、类型、时间范围与 linkage 永远取 canonical。"""
     source_topics = source.get("topics", [])

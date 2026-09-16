@@ -507,7 +507,8 @@ def _viewer_html(title: str, date: str, minutes_html: str, evidence: dict, integ
                  caption_cues: list[dict] | None = None,
                  caption_target: str | None = None,
                  transcript_languages: dict | None = None,
-                 caption_languages: dict | None = None) -> bytes:
+                 caption_languages: dict | None = None,
+                 evidence_languages: dict | None = None) -> bytes:
     duration = max((float(t.get("end", 0)) for t in evidence["sources"]["transcript"]), default=0)
     payload = {
         "title": title,
@@ -533,6 +534,11 @@ def _viewer_html(title: str, date: str, minutes_html: str, evidence: dict, integ
         "caption_target": caption_target,
         "transcript_languages": transcript_languages or {},
         "caption_languages": caption_languages or {},
+        "caption_reading_languages": {
+            target: caption_projection.readable_translation_cues(rows)
+            for target, rows in (caption_languages or {caption_target or "en": caption_cues or []}).items()
+        },
+        "evidence_languages": evidence_languages or {},
         "product": {"name": "Meeting Minutes", "version": PRODUCT_VERSION},
     }
     page = VIEWER_TEMPLATE_PATH.read_text(encoding="utf-8").replace(
@@ -612,6 +618,15 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
     speaker_navigation_rows = speaker_navigation(turns, profiles, transcript_format)
     evidence = build_evidence_document(mdir, minutes, turns, pages, descs, profiles,
                                        generation={"export_rebuilt": True})
+    evidence_languages = {}
+    evidence_file = mdir / "minutes.evidence.json"
+    evidence_revision = hashlib.sha256(evidence_file.read_bytes()).hexdigest()[:16] if evidence_file.exists() else None
+    for target in ("en", "zh-CN"):
+        translated = _read_json(mdir / f"evidence.translation.{target}.json", {})
+        if (evidence_revision and translated.get("schema") == "meeting-evidence-translation/v1"
+                and translated.get("source_revision") == evidence_revision
+                and translated.get("status") == "complete"):
+            evidence_languages[target] = translated.get("texts", {})
     # Viewer 与在线工作台共用同一份画面语义。媒体导出需要 shot/talking_head
     # 和论证角色，才能按议题折叠口播、筛选证据帧，而不是重新猜测截图类型。
     duration = max((float(turn.get("end", 0)) for turn in turns), default=0)
@@ -707,7 +722,8 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
                                         content_type, source_info, photos=photo_visuals,
                                         caption_cues=caption_cues, caption_target=caption_target,
                                         transcript_languages=transcript_languages,
-                                        caption_languages=caption_languages),
+                                        caption_languages=caption_languages,
+                                        evidence_languages=evidence_languages),
             "README.txt": _readme(media_mode, document_state).encode("utf-8"),
             "AGENTS.md": _AGENTS_MD.encode("utf-8"),
             "assets/minutes.md": reading_minutes.encode("utf-8"),

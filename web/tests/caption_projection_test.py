@@ -49,3 +49,18 @@ stale = captions.build_cues(turns, profiles=profiles,
                             translation={"state": "stale", "turns": translation["turns"]})
 assert all(cue["translated_text"] is None for cue in stale)
 print("caption projection: Chinese/English/mixed segmentation, speaker and stale translation passed")
+
+long_text = ' '.join(['This synthetic statement explains a process clearly.'] * 8)
+source_cues = [dict(cue_id=f'C{i}', turn_id='T1', start=i*3, end=(i+1)*3,
+                   original_text='source', translated_text=long_text if i == 0 else None)
+               for i in range(10)]
+reading = captions.readable_translation_cues(source_cues)
+assert reading[0]['start'] == 0 and reading[-1]['end'] == 30
+assert ' '.join(' '.join(c['translated_text'].split()) for c in reading) == long_text
+assert all(len(c['translated_text'].splitlines()) <= 2 for c in reading)
+assert all(len(line) <= 40 for c in reading for line in c['translated_text'].splitlines())
+assert all(c['end']-c['start'] >= 1.999 for c in reading)
+assert all(a['end'] == b['start'] for a,b in zip(reading, reading[1:]))
+parts = captions._split_translation(long_text, 10)
+assert all(parts) and ' '.join(parts) == long_text
+print('Long translated captions: all text retained, two lines, full-turn timing, no blank tail passed')

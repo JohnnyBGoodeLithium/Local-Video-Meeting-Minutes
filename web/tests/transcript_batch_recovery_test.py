@@ -120,3 +120,23 @@ with tempfile.TemporaryDirectory(prefix="transcript-batch-recovery-") as temp:
     assert 4000 < model.call_args.kwargs["max_tokens"] <= 8192
 
 print("Transcript batches: bounded retry/split, durable fragments, transport and cancellation passed")
+
+with tempfile.TemporaryDirectory(prefix='evidence-translation-') as temp:
+    root = Path(temp)
+    evidence = {'claims': [{'id': 'C001', 'text': '这是一条虚构结论。',
+                           'status': 'proposal', 'turn_ids': ['T001'], 'section': '示例章节'}]}
+    source = root / 'minutes.evidence.json'
+    source.write_text(json.dumps(evidence))
+    before = source.read_bytes()
+    with patch.object(t.assistant, '_chat', side_effect=lambda messages, **kw: reply(ids(messages))):
+        result = t.translate_evidence(root, 'Synthetic', evidence, target='en')
+    assert result['status'] == 'complete' and len(result['texts']) == 2
+    assert source.read_bytes() == before
+    assert 'C001' not in result['texts'] and 'proposal' not in result['texts']
+    with patch.object(t.assistant, '_chat', side_effect=AssertionError('cached evidence called model')):
+        assert t.translate_evidence(root, 'Synthetic', evidence, target='en')['status'] == 'complete'
+    source.write_text(json.dumps({**evidence, 'revision': 2}))
+    with patch.object(t.assistant, '_chat', side_effect=lambda messages, **kw: reply(ids(messages))) as model:
+        t.translate_evidence(root, 'Synthetic', evidence, target='en')
+        assert model.call_count == 1
+print('Evidence translation: display-only, revision-bound cache, canonical unchanged passed')

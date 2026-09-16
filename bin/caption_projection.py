@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import re
+import textwrap
 from typing import Any
 
 from person_display import display_revision, display_turn_speaker
@@ -72,8 +73,48 @@ def _split_translation(text: str, count: int) -> list[str]:
         return [text] if text else [""]
     if len(chunks) == count:
         return chunks
-    # Keep translation meaning intact when alignment is uncertain; render it on the first cue.
-    return [text] + [""] * (count - 1)
+    # Translation has no word timestamps. Distribute it over the whole source turn,
+    # never dump a long turn into its first short cue and leave the rest blank.
+    tokens = text.split() if " " in text else list(text)
+    separator = " " if " " in text else ""
+    return [separator.join(tokens[len(tokens) * i // count:len(tokens) * (i + 1) // count])
+            for i in range(count)]
+
+
+def readable_translation_cues(cues: list[dict]) -> list[dict]:
+    """Two-line translation cards timed across the complete original utterance.
+
+    These are reading timings, not forced word alignment. Never extend past the
+    source utterance or drop text to achieve an impossible reading speed.
+    """
+    groups = []
+    for cue in cues:
+        key = cue.get("turn_id") or cue.get("cue_id")
+        if not groups or groups[-1][0] != key:
+            groups.append((key, []))
+        groups[-1][1].append(cue)
+    result = []
+    for key, group in groups:
+        parts = [str(c.get("translated_text") or "").strip() for c in group]
+        text = " ".join(part for part in parts if part)
+        if not text:
+            continue
+        width = 24 if language_of(text) in {"zh", "mixed"} else 40
+        lines = textwrap.wrap(text, width=width, break_long_words=False, break_on_hyphens=False)
+        blocks = ["\n".join(lines[i:i + 2]) for i in range(0, len(lines), 2)]
+        start, end = float(group[0]["start"]), float(group[-1]["end"])
+        duration = max(.1, end - start)
+        floor = min(2.0, duration / len(blocks))
+        remaining = max(0, duration - floor * len(blocks))
+        weight = sum(len(block) for block in blocks)
+        cursor = start
+        for index, block in enumerate(blocks):
+            stop = end if index == len(blocks) - 1 else cursor + floor + remaining * len(block) / weight
+            result.append({**group[0], "cue_id": f"{key}-EN{index + 1}",
+                           "start": round(cursor, 3), "end": round(stop, 3),
+                           "translated_text": block})
+            cursor = stop
+    return result
 
 
 def build_cues(turns: list[dict[str, Any]], *, profiles: list[dict] | None = None,
@@ -132,6 +173,8 @@ def render_vtt(cues: list[dict], *, mode: str = "source", speaker: str = "auto",
     show_names = speaker == "show" or (speaker == "auto" and content_type == "meeting")
     rows = ["WEBVTT", ""]
     previous, previous_end = None, -99.0
+    if mode == "translation":
+        cues = readable_translation_cues(cues)
     for cue in cues:
         original, translated = str(cue.get("original_text") or ""), str(cue.get("translated_text") or "")
         if mode == "translation" and not translated:

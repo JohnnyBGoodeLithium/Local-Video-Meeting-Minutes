@@ -151,6 +151,8 @@ def _run_minutes_translation(job: dict, mdir, title: str, target: str) -> None:
         document = translation.translate_minutes(
             mdir, title, source, evidence, dry_run=DRY_RUN, on_progress=progress,
             should_cancel=cancelled, target=target)
+        translation.translate_evidence(mdir, title, evidence, dry_run=DRY_RUN,
+                                       should_cancel=cancelled, target=target)
     except translation.TranslationCancelled:
         if job.get("status") != "cancelled":
             _set_status(job, "cancelled", finished=_now(), rc=None)
