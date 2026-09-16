@@ -47,6 +47,12 @@ Viewer 的 local alias 只属于单个 MeetingPack 的展示层；Companion 的 
 | visual upgrade | 已有语音版结果 | 复用媒体、逐字稿、人物和逻辑页，只补画面理解、正式纪要与脉络 |
 | live | 公开 HLS 或明确授权的会议/browser 来源 | 先写 `.live/` 暂定 signal 和 checkpoint；结束后 reconcile，复用 visual upgrade 补完画面，最后才写 canonical |
 
+`content_type` 决定内容归属与总结语义，画面抽取可另行覆盖：`POST /api/upload` 表单及
+`POST /api/import-url` JSON 接受 `visual_mode`（空值默认、`slides` 共享屏幕、`media` 视频镜头）。
+视频管线保存 `meta.json.visual_extraction_mode`，恢复时沿用；纯音频忽略画面设置。
+本地导入按目标目录原子检查：已有活动作业或资料目录返回 409，不覆盖 canonical；
+删除/重新分类与作业登记共用锁，排队、运行或取消中未退出的进程阻止删除/重新分类。
+
 现场资料采用独立的补充路径：图片先原子固化为受保护原图和阅读 JPEG，再由批量
 `photo_analysis` 作业调用本地 VL。视觉模型只读取图片，不读取逐字稿；分析完成后，
 已确认定位仅把前后两分钟的 T ID 作为文本纪要的邻近上下文。已有终稿在缓存完整时

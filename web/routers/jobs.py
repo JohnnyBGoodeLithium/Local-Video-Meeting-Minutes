@@ -32,6 +32,7 @@ router = APIRouter()
 class MediaURLImport(BaseModel):
     url: str
     no_vl: bool = False
+    visual_mode: str = ""
 
 
 def _job_content_type(job: dict) -> str:
@@ -112,13 +113,15 @@ def _predict_meeting(route: str, primary: Path, transcript: Path | None,
 
 @router.post("/api/upload")
 async def upload(files: list[UploadFile] = File(...), no_vl: str = Form(""),
-                 ignore_transcript: str = Form(""), content_type: str = Form("")):
-    return await upload_with_limit(files, no_vl, ignore_transcript, content_type)
+                 ignore_transcript: str = Form(""), content_type: str = Form(""),
+                 visual_mode: str = Form("")):
+    return await upload_with_limit(files, no_vl, ignore_transcript, content_type,
+                                   visual_mode=visual_mode)
 
 
 async def upload_with_limit(files: list[UploadFile], no_vl: str = "",
                             ignore_transcript: str = "", content_type: str = "",
-                            *, max_bytes: int | None = None):
+                            *, max_bytes: int | None = None, visual_mode: str = ""):
     """Shared streaming intake; Companion supplies a conservative request limit."""
     if not files:
         raise HTTPException(400, "没有文件")
@@ -127,6 +130,8 @@ async def upload_with_limit(files: list[UploadFile], no_vl: str = "",
     content_type = content_type.strip() or "meeting"
     if content_type not in CONTENT_TYPES:
         raise HTTPException(400, "content_type 只支持 meeting 或 media")
+    if visual_mode not in {"", "slides", "media"}:
+        raise HTTPException(400, "画面类型只支持共享屏幕或视频镜头")
     jid = uuid.uuid4().hex[:12]
     dest_dir = INBOX / jid
     dest_dir.mkdir(parents=True, exist_ok=True)
@@ -184,18 +189,26 @@ async def upload_with_limit(files: list[UploadFile], no_vl: str = "",
     if route == "video" and content_type == "media":
         # 媒体视频走镜头检测抽帧；audio/teams 路由不受影响。
         args.append("--media")
+    if route in {"video", "teams"} and visual_mode:
+        args += ["--visual-mode", visual_mode]
 
     cmd = [str(PY), str(ROOT / "bin" / script), *args]
-    job = _new_job("upload", route=route, cmd=cmd,
-                   files=[p.name for p in saved],
-                   inbox=str(dest_dir.relative_to(DATA_ROOT)),
-                   meeting=_predict_meeting(
-                       route, primary, transcript,
-                       prefer_transcript_title=ignore_external and transcript is not None),
-                   content_type=content_type,
-                   processing_mode="fast" if skip_vl else "complete",
-                   transcript_policy=("ignored" if transcript is not None and ignore_external
-                                      else "external" if transcript is not None else "local_asr"))
+    try:
+        job = _new_job("upload", fresh_import=True, route=route, cmd=cmd,
+                       files=[p.name for p in saved],
+                       inbox=str(dest_dir.relative_to(DATA_ROOT)),
+                       meeting=_predict_meeting(
+                           route, primary, transcript,
+                           prefer_transcript_title=ignore_external and transcript is not None),
+                       content_type=content_type,
+                       visual_mode=visual_mode or ("media" if content_type == "media" else "slides"),
+                       processing_mode="fast" if skip_vl else "complete",
+                       transcript_policy=("ignored" if transcript is not None and ignore_external
+                                          else "external" if transcript is not None else "local_asr"))
+    except Exception:
+        # 只回收本次上传；原记录、已排队任务和它们的 inbox 不受影响。
+        shutil.rmtree(dest_dir, ignore_errors=True)
+        raise
     resp = dict(job)  # 快照：避免 worker 线程抢在响应序列化前改状态
     EXEC.submit(_run_pipeline, job)
     return resp
@@ -204,6 +217,8 @@ async def upload_with_limit(files: list[UploadFile], no_vl: str = "",
 @router.post("/api/import-url")
 def import_media_url(payload: MediaURLImport):
     """把公开视频链接排入 media 管线；原始 URL 不进入可读取的作业 JSON。"""
+    if payload.visual_mode not in {"", "slides", "media"}:
+        raise HTTPException(400, "画面类型只支持共享屏幕或视频镜头")
     try:
         url = normalize_url_shape(payload.url)
     except MediaURLRejected as exc:
@@ -224,12 +239,15 @@ def import_media_url(payload: MediaURLImport):
                "--result", str(result_path)]
     if payload.no_vl:
         command.append("--no-vl")
+    if payload.visual_mode:
+        command += ["--visual-mode", payload.visual_mode]
     host = (urlsplit(url).hostname or "公开视频").removeprefix("www.")
     job = _new_job(
         "upload", route="media_url", cmd=command, files=[],
         inbox=str(dest_dir.relative_to(DATA_ROOT)),
         result_file=str(result_path.relative_to(DATA_ROOT)),
         content_type="media", source_kind="url", display_name=f"链接媒体 · {host}",
+        visual_mode=payload.visual_mode or "media",
         transcript_policy="local_asr",
         processing_mode="fast" if payload.no_vl else "complete")
     response = dict(job)
@@ -479,8 +497,10 @@ def cancel_job(jid: str):
         raise HTTPException(404, "没有这条作业")
     if job["status"] not in ("queued", "running"):
         raise HTTPException(400, f"作业已结束({job['status']})")
-    was_queued = job["status"] == "queued"
-    job["cancel_requested"] = True
+    with BANK_LOCK:
+        was_queued = job["status"] == "queued"
+        # 与 runner 创建/登记子进程使用同一把锁，防止取消后再启动漏网进程。
+        job["cancel_requested"] = True
     if was_queued:
         EXEC.discard(jid)
     _terminate_process_group(jid)

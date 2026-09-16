@@ -1,46 +1,46 @@
 import { contentTypeOf, safeSourceUrl }
-  from "./modules/media-source.js?v=20260914p126";
+  from "./modules/media-source.js?v=20260916p127";
 import { buildUploadFormData, enqueueMediaUrl, isSingleLocalVideo }
-  from "./modules/imports.js?v=20260914p126";
+  from "./modules/imports.js?v=20260916p127";
 import { jobDisplayName, jobTaskLabel, selectJobPanel, compactJobPanel }
-  from "./modules/jobs.js?v=20260914p126";
+  from "./modules/jobs.js?v=20260916p127";
 import { jobPresentation }
-  from "./modules/job-progress.js?v=20260914p126";
+  from "./modules/job-progress.js?v=20260916p127";
 import { closeJobSheet, renderCompactJob, renderJobSheet, renderProcessingBanner }
-  from "./modules/job-progress-view.js?v=20260914p126";
+  from "./modules/job-progress-view.js?v=20260916p127";
 import { chooseInitialItem, deepLinkSeconds, filterLibrary, sortLibrary }
-  from "./modules/library.js?v=20260914p126";
+  from "./modules/library.js?v=20260916p127";
 import { adjacentReviewUnit, defaultReviewUnits, nearestReviewUnit,
   reviewIndexesFor, reviewUnitForTurn as findReviewUnitForTurn, turnEnd }
-  from "./modules/player-navigation.js?v=20260914p126";
+  from "./modules/player-navigation.js?v=20260916p127";
 import { nextSearchCursor, pendingReviewByTurn, transcriptSearchHits }
-  from "./modules/transcript.js?v=20260914p126";
+  from "./modules/transcript.js?v=20260916p127";
 import { renderTranscriptView }
-  from "./modules/transcript-view.js?v=20260914p126";
+  from "./modules/transcript-view.js?v=20260916p127";
 import { availableViewerMedia, exportSizeState, formatBytes, meetingExportHref, normalizeExportProfile,
   packExportHref }
-  from "./modules/export.js?v=20260914p126";
+  from "./modules/export.js?v=20260916p127";
 import { claimAction, claimIdsForTurn, evidenceSources, minutesState, normalizeReviewMode,
   resolveMinutesView, turnIndexAtTime, turnIndexesForSourceIds }
-  from "./modules/minutes.js?v=20260914p126";
+  from "./modules/minutes.js?v=20260916p127";
 import { renderMinutesView }
-  from "./modules/minutes-view.js?v=20260914p126";
+  from "./modules/minutes-view.js?v=20260916p127";
 import { beginExampleSelection, beginIdentity, buildCorrectionApplyPayload,
   correctionSummary, createSpeakerCorrectionState, representativeTurns,
   resetSpeakerCorrection, setGroupAssignment, setIncludeSuggested, setPreview,
   toggleExample, withCorrectionError }
-  from "./modules/speaker-correction.js?v=20260914p126";
+  from "./modules/speaker-correction.js?v=20260916p127";
 import { renderCorrectionSheet, renderIdentityPopover }
-  from "./modules/speaker-correction-view.js?v=20260914p126";
+  from "./modules/speaker-correction-view.js?v=20260916p127";
 import { beginPhotoImport, createPhotoImportState, hydratePhotoCaptureTimes,
   markPhotoImportResult, photoUploadSpec, releasePhotoImport, removePhotoImportItem,
   setPhotoMeetingStart, setPhotoPositionMode, togglePhotoTimeSettings,
   withPhotoImportBusy, withPhotoImportError, formatPhotoBytes }
-  from "./modules/photo-import.js?v=20260914p126";
+  from "./modules/photo-import.js?v=20260916p127";
 import { renderPhotoImport }
-  from "./modules/photo-import-view.js?v=20260914p126";
+  from "./modules/photo-import-view.js?v=20260916p127";
 import { mountLiveContext }
-  from "./modules/live-context-view.js?v=20260914p126";
+  from "./modules/live-context-view.js?v=20260916p127";
 
 /* 会议列表 + 回顾工作台（装配入口；领域规则逐步迁往 modules/） */
 "use strict";
@@ -438,6 +438,13 @@ function applyUiLanguage() {
   text("#skip-vl-label", ui("skipVl"));
   text("#processing-mode-help", ui("fastAnalysisDetail"));
   text("#ignore-transcript-label", ui("ignoreTranscript"));
+  text("#visual-mode-label", english ? "Visual content" : "画面类型");
+  text("#visual-mode-default", english ? "Default: meeting screens / media shots" : "默认：会议看共享屏幕，媒体看视频镜头");
+  text("#visual-mode-slides", english ? "Shared screen / slides (talks, training)" : "共享屏幕／课件（分享、培训、录屏）");
+  text("#visual-mode-media", english ? "Video shots (footage, launches, demos)" : "视频镜头（实拍、发布会、演示）");
+  text("#visual-mode-help", english
+    ? "Shared screen filters participant panels, camera and pointer changes to reduce duplicates. Your content category and summary style stay the same."
+    : "共享屏幕会过滤右侧参与者栏、摄像头和鼠标变化，减少重复截图；不改变内容分类或总结方式。");
   text(".import-divider span", ui("mediaUrlDivider"));
   text("#media-url-submit", ui("mediaUrlSubmit"));
   text("#media-url-hint", ui("mediaUrlHint"));
@@ -797,7 +804,11 @@ async function deleteMeeting(ev, slug) {
   const meeting = state.meetings.find(m => m.slug === slug);
   if (!confirm(`删除会议「${meeting?.title || slug}」？\n逐字稿、纪要、截图和音视频都会删除，且无法恢复。`)) return;
   const r = await api(`/api/meetings/${encodeURIComponent(slug)}/delete`, { method: "POST" });
-  if (!r.ok) { toast(`删除失败: ${r.status}`); return; }
+  if (!r.ok) {
+    const err = await r.json().catch(() => null);
+    toast(`${isEnglishUi() ? "Deletion failed" : "删除失败"}: ${err?.detail || r.status}`);
+    return;
+  }
   toast(`已删除 ${slug}`);
   if (state.slug === slug) {
     state.slug = null;
@@ -5742,6 +5753,7 @@ async function uploadFiles(files) {
     contentType,
     noVl: !!$("#skip-vl")?.checked,
     ignoreTranscript: !!$("#ignore-transcript")?.checked,
+    visualMode: $("#visual-mode")?.value || "",
   });
   const r = await api("/api/upload", { method: "POST", body: fd });
   const j = await r.json();
@@ -5788,7 +5800,7 @@ async function importMediaUrl() {
   button.disabled = true;
   try {
     const { response, body: job } = await enqueueMediaUrl(
-      api, url, !!$("#skip-vl")?.checked);
+      api, url, !!$("#skip-vl")?.checked, $("#visual-mode")?.value || "");
     if (!response.ok) {
       toast(`${isEnglishUi() ? "URL import rejected" : "链接导入失败"}：${job.detail || response.status}`);
       return;

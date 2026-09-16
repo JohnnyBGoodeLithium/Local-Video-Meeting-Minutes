@@ -37,6 +37,7 @@ from meeting_core.progress_events import (output_ready, phase_done,
 import voice_bank as vb
 from teams_minutes import extract_audio, diarize, slugify, mmss
 from slide_pages import extract_pages
+from meeting_core.visual_mode import configure_extraction
 from minutes_by_page import generate as generate_minutes
 import meeting_topic_map
 import meeting_generation
@@ -90,7 +91,9 @@ def main() -> int:
     ap.add_argument("--reuse-asr", action="store_true",
                     help="故障恢复：复用完整 stamps.json，只重跑说话人及后续阶段")
     ap.add_argument("--media", action="store_true",
-                    help="媒体视频：画面抽取改用镜头检测(slide_pages --media)")
+                    help="使用媒体总结语义；未指定画面类型时按视频镜头抽取")
+    ap.add_argument("--visual-mode", choices=["slides", "media"], default=None,
+                    help="画面抽取独立于内容分类：slides=共享屏幕，media=视频镜头")
     args = ap.parse_args()
     if not args.mp4.is_file():
         print("输入文件不存在", file=sys.stderr)
@@ -115,19 +118,7 @@ def main() -> int:
         mdir = for_teams(data_root, args.slug or slugify(args.mp4.stem),
                          date_m.group(1) if date_m else "")
         mdir.mkdir(parents=True, exist_ok=True)
-    if args.media:
-        # 媒体版 prompt 在语音草稿阶段就需要 content_type；不能等整条管线完成后再分类。
-        meta_path = mdir / "meta.json"
-        try:
-            meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.is_file() else {}
-        except Exception:
-            meta = {}
-        if not isinstance(meta, dict):
-            meta = {}
-        meta["content_type"] = "media"
-        tmp_meta = meta_path.with_name(f".{meta_path.name}.tmp-{os.getpid()}")
-        tmp_meta.write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
-        os.replace(tmp_meta, meta_path)
+    visual_mode = configure_extraction(mdir, args.visual_mode, media=args.media)
     original_mp4 = args.mp4.resolve()
     source_mp4 = materialize_source(original_mp4, mdir / f"source_video{args.mp4.suffix.lower()}")
     slug = mdir.name
@@ -245,10 +236,11 @@ def main() -> int:
             pages = []
         print(f"[5/6] 复用已有屏幕逻辑页 {len(pages)} 页", flush=True)
     else:
-        print("[5/6] 抽媒体镜头页 ..." if args.media else "[5/6] 抽屏幕共享逻辑页 ...", flush=True)
+        print("[5/6] 抽媒体镜头页 ..." if visual_mode == "media"
+              else "[5/6] 抽屏幕共享逻辑页 ...", flush=True)
         t0 = time.time()
         pages = extract_pages(source_mp4, mdir / "slides", mdir / "slides.json",
-                              mode="media" if args.media else "slides")
+                              mode=visual_mode)
         print(f"[meta] 逻辑页 {len(pages)} 页 | 抽页耗时 {time.time()-t0:.1f}s", flush=True)
     phase_done("visual_extraction", done=len(pages), total=len(pages), unit="pages")
 

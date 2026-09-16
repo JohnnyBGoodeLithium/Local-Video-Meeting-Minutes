@@ -25,7 +25,7 @@ from deps import (BANK_DIR, BANK_LOCK, CONTENT_TYPES, DRY_RUN, EVALUATIONS_DIR, 
                   _clean_meeting_cache, _current_evidence, _evidence_state,
                   _meeting_identity, _meeting_storage, _mdir, _minutes_file, _now,
                   _minutes_html, _read_json, _source, _video_path)
-from job_store import EXEC, JOBS, _new_job, _run_pipeline
+from job_store import EXEC, JOBS, _meeting_busy, _new_job, _run_pipeline
 from job_recovery import (build_fast_sync_command, build_minutes_command,
                           build_retranscribe_command, build_topic_map_command,
                           build_visual_upgrade_command, visual_cache_coverage)
@@ -135,7 +135,9 @@ def set_content_type(slug: str, content_type: str = Body(..., embed=True)):
     if content_type not in CONTENT_TYPES:
         raise HTTPException(400, "content_type 只支持 meeting 或 media")
     meta_path = mdir / "meta.json"
-    with MEETING_META_LOCK:
+    with BANK_LOCK, MEETING_META_LOCK:
+        if _meeting_busy(slug):
+            raise HTTPException(409, "资料仍有处理任务，请完成或取消任务后再重新分类")
         meta = _read_json(meta_path, {})
         if not isinstance(meta, dict):
             meta = {}
@@ -150,15 +152,18 @@ def set_content_type(slug: str, content_type: str = Body(..., embed=True)):
 @router.post("/api/meetings/{slug}/delete")
 def delete_meeting(slug: str):
     """删除整个会议目录, 并清掉声纹库 sources 里对它的引用。"""
-    mdir = _mdir(slug)
-    shutil.rmtree(mdir)
     evaluation_removed = False
     evaluation_path = EVALUATIONS_DIR / f"{slug}.json"
-    if evaluation_path.is_file():
-        evaluation_path.unlink()
-        evaluation_removed = True
     removed = 0
     with BANK_LOCK:
+        if _meeting_busy(slug):
+            raise HTTPException(409, "资料仍有处理任务，请先在任务队列中取消或等待完成后再删除；"
+                                "仅更换会议/媒体分类可使用“更多 → 标记为会议/媒体视频”")
+        mdir = _mdir(slug)
+        shutil.rmtree(mdir)
+        if evaluation_path.is_file():
+            evaluation_path.unlink()
+            evaluation_removed = True
         bank = vb.load_bank(BANK_DIR)
         for v in bank["voices"]:
             if vb.forget_source(v, slug):

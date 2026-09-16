@@ -16,14 +16,16 @@ export function buildUploadFormData(files, options = {}) {
   body.append("content_type", options.contentType === "media" ? "media" : "meeting");
   if (options.noVl) body.append("no_vl", "1");
   if (options.ignoreTranscript) body.append("ignore_transcript", "1");
+  if (["slides", "media"].includes(options.visualMode)) body.append("visual_mode", options.visualMode);
   return body;
 }
 
-export async function enqueueMediaUrl(api, url, noVl = false) {
+export async function enqueueMediaUrl(api, url, noVl = false, visualMode = "") {
   const response = await api("/api/import-url", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url: String(url || "").trim(), no_vl: !!noVl }),
+    body: JSON.stringify({ url: String(url || "").trim(), no_vl: !!noVl,
+      visual_mode: ["slides", "media"].includes(visualMode) ? visualMode : "" }),
   });
   return { response, body: await response.json().catch(() => ({})) };
 }
