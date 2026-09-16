@@ -265,7 +265,7 @@ def main() -> int:
     print(f"[meta] 术语候选 {terminology['state']} | 新增 {terminology['added']}"
           f" | 更新 {terminology['updated']}", flush=True)
     print(f"[meta] 总耗时 {time.time()-t_all:.1f}s | 纪要 {mstats['chars']} 字"
-          f" | 页块 {mstats['page_blocks']}/{mstats['pages']} | VL页数 {mstats['vl_pages']}",
+          f" | 画面 {mstats['pages']} | VL页数 {mstats['vl_pages']}",
           flush=True)
     print(f"[meta] 纪要: {out_path}", flush=True)
     return 0

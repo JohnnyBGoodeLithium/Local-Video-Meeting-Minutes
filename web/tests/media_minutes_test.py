@@ -2,7 +2,7 @@
 """媒体版纪要 prompt：content_type=media 走论证结构、不生成待办（全虚构数据）。
 
 覆盖：profile 选择总开关、shot 页媒体 VL prompt 选择、媒体章节结构落盘、
-阅读投影/章节结构/画面价值分级的媒体口径，以及会议口径一字不变的回归。
+阅读投影/章节结构/画面价值分级的媒体口径，以及会议正式纪要与视觉证据保留的回归。
 """
 
 from __future__ import annotations
@@ -198,12 +198,12 @@ def make_fixture(root: Path, *, media: bool) -> Path:
     return mdir
 
 
-def run_generate(mdir: Path, *, media: bool):
+def run_generate(mdir: Path, *, media: bool, vl=True, refine_model=None, refined_text=None):
     seen = {}
 
     def fake_chat(prompt, max_tokens=8192, model=mb.MODEL):
         seen.setdefault("group", []).append(prompt)
-        return (MEDIA_BLOCK if media else MEETING_BLOCK), {"completion_tokens": 50}
+        return (refined_text if refined_text is not None else (MEDIA_BLOCK if media else MEETING_BLOCK)), {"completion_tokens": 50}
 
     def fake_overview_direct(prompt, notes, profile=None):
         seen["summary_prompt"] = prompt
@@ -217,7 +217,7 @@ def run_generate(mdir: Path, *, media: bool):
     mb.ensure_vl_server = lambda: ("synthetic://vl", None)
     mb.describe_pages = lambda *_args, **_kwargs: dict(MEDIA_DESCS)
     try:
-        out, stats = mb.generate(mdir, vl=True)
+        out, stats = mb.generate(mdir, vl=vl, refine_model=refine_model)
     finally:
         (mb.chat, mb.overview_direct, mb.ensure_vl_server, mb.describe_pages) = original
     return out, stats, seen
@@ -234,18 +234,24 @@ with tempfile.TemporaryDirectory(prefix="media-minutes-") as temp:
     assert "绝不生成待办事项" in summary_prompt              # 来自媒体证据规则
     assert "| 事项 | 负责人 |" not in summary_prompt          # 不带会议待办表结构
     assert "结论策略配置" not in summary_prompt               # 会议结论策略不进媒体 prompt
-    assert any("论证角色" in p for p in seen["group"])       # 逐镜头块 prompt
+    assert not seen.get("group")  # 不再扩写镜头或补问缺页
 
     assert md.startswith("# 视频分析纪要")
     for heading in ("## 总体摘要", "## 规格与参数", "## 论证脉络",
-                    "### 值得注意的质疑/保留意见", "## 分镜头详情", "## 附录: 镜头详解"):
+                    "### 值得注意的质疑/保留意见"):
         assert heading in md, heading
     assert "待办事项" not in md and "kind=action" not in md
-    assert "有讲解" in md                                     # 两个镜头页都有逐字稿
+    assert "分镜头详情" not in md and "附录:" not in md
 
     evidence = json.loads((mdir / "minutes.evidence.json").read_text(encoding="utf-8"))
     assert evidence["generation"]["content_type"] == "media"
-    assert len(evidence["claims"]) == 8                      # 全部 marker 成 claim
+    assert stats["page_blocks"] == 0
+    assert len(evidence["sources"]["pages"]) == 2
+    assert evidence["sources"]["pages"][0]["visual_description"] == MEDIA_DESCS[1]
+    assert "合成规格与观点" in summary_prompt and "合成参数 8GB" in summary_prompt
+    assert "visual_asr_checks" in summary_prompt
+    assert evidence["generation"]["detail_mode"] == "omitted"
+    assert len(evidence["claims"]) == 6                      # 全部 marker 成 claim
     assert all(claim["kind"] != "action" for claim in evidence["claims"])
 
     # 阅读投影：媒体纪要同样只保留逐镜头详情之前的常规部分
@@ -285,7 +291,7 @@ with tempfile.TemporaryDirectory(prefix="media-minutes-") as temp:
     assert "论证脉络" in viewer and "画面解析" in viewer
     assert "mediaScreenGroups" in viewer and "media-talking-group" in viewer
 
-    # ---- 回归：同一 fixtures 去掉 meta.json → 会议口径一字不变 ---------------
+    # ---- 回归：同一 fixtures 去掉 meta.json → 会议正式纪要口径保留 ---------------
 with tempfile.TemporaryDirectory(prefix="meeting-control-") as temp:
     mdir = make_fixture(Path(temp), media=False)
     out, stats, seen = run_generate(mdir, media=False)
@@ -293,11 +299,29 @@ with tempfile.TemporaryDirectory(prefix="meeting-control-") as temp:
     assert seen["profile_kind"] == "meeting"
     assert "| 事项 | 负责人 |" in seen["summary_prompt"]       # 会议待办表结构保留
     assert "结论策略配置" in seen["summary_prompt"]
-    assert any("本页结论" in p for p in seen["group"])
+    assert not seen.get("group")
     assert md.startswith("# 会议纪要")
-    assert "## 分页详情" in md and "### 待办事项" in md
+    assert "## 分页详情" not in md and "### 待办事项" in md
     evidence = json.loads((mdir / "minutes.evidence.json").read_text(encoding="utf-8"))
     assert evidence["generation"]["content_type"] == "meeting"
+
+
+# 精修不再要求页块，但仍拒绝丢失正式章节或证据标记；无 VL 不触发逐页调用。
+with tempfile.TemporaryDirectory(prefix="concise-refine-") as temp:
+    mdir = make_fixture(Path(temp), media=False)
+    out, stats, seen = run_generate(mdir, media=False, vl=False)
+    assert stats["vl_pages"] == 0 and not seen.get("group")
+    assert "附录:" not in out.read_text(encoding="utf-8")
+    for refined, accepted in (
+        (MEETING_OVERVIEW, True),
+        (MEETING_OVERVIEW.replace("### 待办事项", "### 无关标题"), False),
+        (MEETING_OVERVIEW.replace("turns=T000001", "turns=T000002"), False),
+    ):
+        out, stats, seen = run_generate(mdir, media=False, vl=False,
+            refine_model="synthetic-refiner", refined_text=refined)
+        assert stats["refined"] is accepted
+        assert len(seen["group"]) == 1  # 仅用户明确选择的精修请求。
+        assert "### 待办事项" in out.read_text(encoding="utf-8")
 
 
 # ---- 5. overview 直出护栏：媒体必需章节，不触发待办定点修复 ------------------

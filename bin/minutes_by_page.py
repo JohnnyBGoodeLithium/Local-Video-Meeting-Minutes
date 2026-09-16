@@ -1,25 +1,12 @@
 #!/usr/bin/env python3
-"""按"幻灯片页"为单元的会议纪要(全本地)。
+"""基于逐字稿与视觉证据生成正式纪要（全本地）。
 
-输入: 会议目录内的 transcript.spk.json + slides.json(bin/slide_pages.py 产出)。
-流程:
-    1. 逐字稿按"说话时正显示哪页"切片(开场未共享画面的部分单列一块)
-    2. VL 层(可 --no-vl 关): 本地 Miloco-7B 视觉模型逐页详细解读(原生分辨率帧,
-       缓存 page_desc.json), 既作为页面内容参考喂给文本模型锚定术语/板块,
-       也作为"画面内容"层插进最终纪要
-    3. 第一遍模型: 总体摘要(主旨/结论/待办/风险) + 议题板块(连续页归并,
-       deck 自带 agenda/章节结构优先)
-    4. 第二遍模型: 有讨论的页按 8 页一组分次出 讨论要点/结论
-       (分组防单次输出截断; 全程关思考模式, 否则隐藏推理会吃掉输出预算);
-       漏页补问一次, 仍缺及无讨论的页确定性补"快速带过"
-    5. 每个"第N页"标题下确定性插入该页截图+画面内容 → minutes.md(旧的备份为 minutes.prev.md)
+VL 观察、复杂画面复核和音画核对作为正式纪要输入；不再逐页扩写或追加
+视觉解读附录。截图、观察和时间范围保留在独立证据中，由 Meeting Map
+及画面资料提供回溯。长上下文仍使用既有分段归纳和证据护栏。
 
 用法: bin/minutes_by_page.py meetings/<会议目录> [--out PATH]
-stdout 只打印元数据(字数/页数/tokens/耗时)，不打印任何会议内容。
-
-content_type=media（meta.json）的内容走 MinutesProfile["media"]：公开视频论证结构
-(核心观点/规格与参数/论证脉络/质疑保留)，不生成待办；shot 镜头页用媒体向 VL prompt。
-会议行为不变，选择逻辑集中在 minutes_profile()。
+stdout 只打印元数据，不打印会议内容。会议/媒体沿用各自正式纪要口径。
 """
 import argparse
 import atexit
@@ -705,18 +692,18 @@ def minutes_profile(mdir: Path) -> MinutesProfile:
         kind = None
     return MINUTES_PROFILES.get(kind, MINUTES_PROFILES["meeting"])
 
-REFINE_PROMPT = """你是一名资深会议纪要编辑。下面是一份按页成稿的会议纪要（总体摘要 + 议题板块 + 逐页详情），
+REFINE_PROMPT = """你是一名资深会议纪要编辑。下面是一份基于逐字稿与视觉证据生成的正式会议纪要，
 由较小的模型生成，可能有重复、板块划分不当、措辞不统一的问题。请在不改变任何事实的前提下整体重写。
 
 信息分层纪律（必须遵守）：
 - 讨论要点/结论只来自发言内容；页面截图的视觉解读仅用于锚定议题结构和核对术语，
-  不要把画面描述写进正文（它们会单独进附录）
+  不要逐图复述画面描述；原始视觉观察由独立画面资料保留
 - 岗位/职级只能提供决策权限语境；不能把建议或单人观点自动升级为结论
 - **总体摘要**：主旨凝练；关键结论/待办/风险去重合并；待办保持独立标题与表格，
   列固定为事项/负责人/期限/状态，标题后留空行，表头和分隔行紧邻
 - **议题板块**：校准板块划分与命名（可合并或拆分；页码范围必须使用原文出现过的页码）
-- **逐页详情**：润色语句、统一术语、去掉跨页重复；"本页结论"与总体摘要的关键结论保持一致
-- **严禁**新增原文没有的事实、数字、人名；保留所有 [mm:ss] 时间戳 与 `### 第N页` 标题结构
+- 不新增分页详情、分镜头详情或视觉解读附录
+- **严禁**新增原文没有的事实、数字、人名；保留所有 [mm:ss] 时间戳与原有章节标题
 - 所有 `<!-- mm:evidence ... -->` 标记必须逐字保留，不能删除、改写、移动到其他事实后面或新增
 - 直接输出完整新版纪要（Markdown），不要解释、不要前后寒暄
 
@@ -892,13 +879,9 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
             checks = visual_crosscheck.compare(mdir, turns, pages, observations)
     else:
         checks = {}
-    opening, per_page = slice_turns(turns, pages)
-    content_pages = [p for p in pages if per_page.get(p["page"])]
-    if profile.kind == 'media':
-        content_pages = select_visual_pages(content_pages, {}, max(0, int(os.environ.get(
-            'MEETING_MEDIA_DETAIL_MAX_PAGES', '80'))))
-    detail_selected = {p['page'] for p in content_pages}
-    final_batches = 1 + (len(content_pages) + 7) // 8
+    # Only the formal synthesis is a text-generation stage. Visual observations
+    # remain in the prompt and evidence; no per-page expansion or repair calls.
+    final_batches = 1
     progress_event("final_minutes", done=0, total=final_batches, unit="batches")
     bank_dir = Path(os.environ.get("MEETING_WEB_BANK", mdir.parent.parent / "speaker_bank"))
     profiles = load_speaker_profiles(turns, bank_dir)
@@ -913,7 +896,7 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
     summary_context = synthesis_context(summary_context)
     context_json = json.dumps(summary_context, ensure_ascii=False, separators=(",", ":"))
     print(f"[meta] 逐字稿 {len(turns)} 轮/{len(context_json)} 字结构化输入 | 页数 {len(pages)}"
-          f" | 开场 {len(opening)} 轮 | VL解读 {len(descs)} 页", flush=True)
+          f" | VL解读 {len(descs)} 页", flush=True)
 
     t0 = time.time()
     summary_prompt = profile.summary_prompt.format(
@@ -944,53 +927,8 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
           f" | {time.time()-t0:.0f}s", flush=True)
     progress_event("final_minutes", done=1, total=final_batches, unit="batches")
 
-    def pages_context(group):
-        numbers = {int(p["page"]) for p in group}
-        return json.dumps(
-            synthesis_context(build_prompt_context(turns, pages, descs, profiles, detail=True,
-                                 page_numbers=numbers, visual_observations=vw.summaries(mdir, pages))),
-            ensure_ascii=False, separators=(",", ":"))
-
-    # 逐页详情：有讨论的页按 8 页一组分次调用(防单次输出截断); 空页走确定性占位
-    blocks = {}
-    t0 = time.time()
-    for gi in range(0, len(content_pages), 8):
-        grp = content_pages[gi:gi + 8]
-        g_out, u_g = chat(profile.group_prompt.format(
-            evidence_rules=profile.evidence_rules,
-            context=pages_context(grp)), max_tokens=4096)
-        got = _extract_blocks(g_out)
-        blocks.update(got)
-        print(f"[meta] 页块 第{grp[0]['page']}-{grp[-1]['page']}页: 得 {len(got)}/{len(grp)}"
-              f" | tokens {u_g.get('completion_tokens','?')}", flush=True)
-        progress_event("final_minutes", done=1 + gi // 8 + 1,
-                       total=final_batches, unit="batches")
-
-    by_page = {p["page"]: p for p in pages}
-    missing = [n for n in by_page if n in detail_selected and n not in blocks and per_page.get(n)]
-    if missing:  # 分组仍漏的页 → 只带缺页切片补问一次
-        r_out, u3 = chat(profile.retry_prompt.format(
-            evidence_rules=profile.evidence_rules,
-            context=pages_context([by_page[n] for n in missing])), max_tokens=4096)
-        got = _extract_blocks(r_out)
-        for n in missing:
-            if n in got:
-                blocks[n] = got[n]
-        print(f"[meta] 缺页补问: {len(missing)} → 得 {len(set(got) & set(missing))}"
-              f" | tokens {u3.get('completion_tokens','?')}", flush=True)
-
-    n_model = len(blocks)
-    part2 = "\n\n".join(
-        blocks.get(p["page"]) or f"### 第{p['page']}页 [{mmss(p['first'])}] " + (
-            "（本轮未展开详情；截图及对应转写已保留）" if profile.kind == 'media'
-            and p['page'] not in detail_selected and per_page.get(p['page']) else "（快速带过）")
-        for p in pages)
-    print(f"[meta] 分页详情: 模型出 {n_model} 页 + 占位 {len(pages) - n_model} 页"
-          f" | {time.time()-t0:.0f}s", flush=True)
-
     part1 = re.sub(r"^# (?:会议纪要|视频分析纪要)\s*", "", part1)
-    body = (f"{profile.doc_title}\n\n" + part1.strip()
-            + f"\n\n{profile.detail_heading}\n\n" + part2 + "\n")
+    body = f"{profile.doc_title}\n\n{part1.strip()}\n"
     refined = False
     if refine_model and profile.kind == "media":
         # 精修 prompt 是会议口径（待办表格纪律），媒体纪要暂不做精修重写。
@@ -1000,18 +938,18 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
         r_out, u4 = chat(REFINE_PROMPT.replace("{minutes}", body), model=refine_model)
         markers_before = [m.group(0) for m in MARKER_RE.finditer(body)]
         markers_after = [m.group(0) for m in MARKER_RE.finditer(r_out)]
-        # 结构与证据双校验：少页、删除/改写/移动证据标记都弃用精修稿。
-        structure_ok = len(re.findall(r"^#{3,4}\s*第\s*\d+\s*页", r_out, re.M)) >= len(pages)
+        # Keep the formal sections and evidence, without requiring page blocks.
+        headings = re.findall(r"^#{2,4}\s+.+$", body, re.M)
+        structure_ok = all(h in r_out.splitlines() for h in headings)
         if structure_ok and markers_before == markers_after:
             body = r_out if r_out.lstrip().startswith("#") else "# 会议纪要\n\n" + r_out
             refined = True
             print(f"[meta] 大模型精修({refine_model}) {len(r_out)} 字"
                   f" | tokens {u4.get('completion_tokens','?')} | {time.time()-t0:.0f}s", flush=True)
         else:
-            reason = "页块缺失" if not structure_ok else "证据标记变化"
+            reason = "章节缺失" if not structure_ok else "证据标记变化"
             print(f"[meta] 精修稿{reason}, 保留原稿", flush=True)
-    md = normalize_minutes_markdown(normalize_action_marker_scope(
-        insert_images(body, pages, descs)))
+    md = normalize_minutes_markdown(normalize_action_marker_scope(body))
     unread = [p['page'] for p in pages if not descs.get(p['page'], '').strip()]
     if vl and unread:
         md += (f"\n> 视觉覆盖：已读取 {len(pages) - len(unread)}/{len(pages)} 页。"
@@ -1019,7 +957,6 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
     if vl_review.get('pending_pages'):
         md += (f"\n> 视觉复核：{len(vl_review['pending_pages'])} 页疑难画面待本地高阶模型复核；"
                "相关图表读数仍需核对。\n")
-    md += appendix_md(pages, descs, per_page, kind=profile.kind)
     md = append_materials_section(md, materials)
     current_transcript_revision = file_revision(mdir / "transcript.spk.json")
     if current_transcript_revision != transcript_revision:
@@ -1050,7 +987,8 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
             "vl_review_failures": int(vl_review.get("failed") or 0),
             "vl_unread_pages": unread if vl else [],
             "vl_review_pending_pages": vl_review.get('pending_pages', []),
-            "detail_selected_pages": sorted(detail_selected),
+            "detail_selected_pages": [],
+            "detail_mode": "omitted",
             "generation_stage": "final",
             "overview_mode": overview_mode,
             "overview_chunks": overview_chunks,
@@ -1059,13 +997,13 @@ def generate(mdir: Path, out: Path = None, vl: bool = True, video: Path = None,
         })
     phase_done("final_minutes", done=final_batches, total=final_batches, unit="batches")
     output_ready("final_minutes")
-    return out, {"pages": len(pages), "page_blocks": len(pages), "chars": len(md),
+    return out, {"pages": len(pages), "page_blocks": 0, "chars": len(md),
                  "vl_pages": len(descs), "refined": refined,
                  "claims": len(evidence["claims"])}
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="按页为单元的会议纪要(总体摘要+议题板块+逐页详情+VL画面内容)")
+    ap = argparse.ArgumentParser(description="基于逐字稿与视觉证据生成正式纪要及会议脉络")
     ap.add_argument("mdir", type=Path, help="会议目录(含 transcript.spk.json 与 slides.json)")
     ap.add_argument("--out", type=Path, default=None)
     ap.add_argument("--no-vl", action="store_true", help="不做 VL 画面内容层")
