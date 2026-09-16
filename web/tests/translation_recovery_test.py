@@ -126,4 +126,11 @@ with tempfile.TemporaryDirectory(prefix="translation-recovery-test-") as tmp:
     assert [j["id"] for j in listed] == [job["id"]]
     assert "arrived" in job_store.JOBS
 
+    for error, code in (
+        (translation.assistant.AssistantInvalidOutput("truncated"), "TRANSLATION_INVALID_OUTPUT"),
+        (translation.assistant.AssistantUnavailable("offline"), "TRANSLATION_SERVICE_UNAVAILABLE"),
+    ):
+        translations._translation_failed(job, error)
+        assert job["progress"]["failure"]["code"] == code
+
 print("Translation recovery: stable nodes, bounded retries, cancellation, diagnostics and queue snapshots passed")

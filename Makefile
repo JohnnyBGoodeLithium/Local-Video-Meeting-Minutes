@@ -104,6 +104,8 @@ package-check:
 	$(PY) web/tests/person_rename_history_test.py
 	$(PY) web/tests/translation_service_test.py
 	$(PY) web/tests/translation_recovery_test.py
+	$(PY) web/tests/transcript_batch_recovery_test.py
+	$(PY) web/tests/evidence_reading_test.py
 	$(PY) web/tests/caption_projection_test.py
 	$(PY) web/tests/keyword_service_test.py
 	$(PY) web/tests/keyword_index_test.py

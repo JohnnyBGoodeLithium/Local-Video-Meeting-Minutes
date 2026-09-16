@@ -398,17 +398,37 @@ def _translate_batch(indexes: list[int], turns: list[dict], title: str,
         "中英文混合轮次也要整体整理成目标语言，不要漏译其中一段。"
         "返回 JSON：{\"translations\":[{\"id\":\"T000001\","
         "\"source_language\":\"zh|en|mixed|unknown\",\"translated_text\":\"...\"}]}。"
-        "每个目标 ID 必须且只能出现一次，不要返回额外文字。"
+        "每个目标 ID 必须且只能出现一次；仅上下文的轮次禁止输出。不要返回额外文字。"
     )
-    user = (f"会议：{title}\n已确认人员名称：{', '.join(dict.fromkeys(names)) or '无'}\n"
+    user = (f"本次只输出这些 ID：{', '.join(f'T{i + 1:06d}' for i in targets)}\n"
+            f"会议：{title}\n已确认人员名称：{', '.join(dict.fromkeys(names)) or '无'}\n"
             f"{_relevant_context(indexes, turns, evidence)}\n\n连续逐字稿：\n"
             + "\n".join(context_lines))
     raw = assistant._chat(
         [{"role": "system", "content": system}, {"role": "user", "content": user}],
-        max_tokens=max(1200, len(targets) * 220), json_mode=True)
+        max_tokens=min(8192, max(1200, len(targets) * 220,
+                                sum(len(str(turns[i].get("text", ""))) for i in targets) * 2
+                                + len(targets) * 64)), json_mode=True)
     obj = _parse_json(raw)
-    by_id = {str(item.get("id")): item for item in obj.get("translations", [])
-             if isinstance(item, dict)}
+    items = obj.get("translations")
+    if not isinstance(items, list):
+        raise TranslationError("翻译结果缺少轮次列表")
+    by_id = {}
+    expected = {f"T{i + 1:06d}" for i in targets}
+    context_ids = {f"T{i + 1:06d}" for i in range(lo, hi)} - expected
+    for item in items:
+        # Context is supplied for disambiguation, never written as a translation.
+        if isinstance(item, dict) and isinstance(item.get("id"), str) and item["id"] in context_ids:
+            continue
+        if (not isinstance(item, dict) or not isinstance(item.get("id"), str)
+                or item["id"] not in expected):
+            raise TranslationError("翻译结果包含无效目标 ID")
+        tid = item["id"]
+        if tid in by_id:
+            raise TranslationError(f"翻译结果重复目标 {tid}")
+        if not isinstance(item.get("translated_text"), str):
+            raise TranslationError(f"翻译结果目标 {tid} 不是文本")
+        by_id[tid] = item
     result = {}
     for i in targets:
         tid = f"T{i + 1:06d}"
@@ -428,6 +448,45 @@ def _translate_batch(indexes: list[int], turns: list[dict], title: str,
             "warnings": ["number_mismatch"] if missing_numbers else [],
         }
     return result
+
+
+def _translate_resilient(missing, turns, title, evidence, dry_run, target,
+                         should_cancel=None):
+    """At most two full attempts, then two attempts per <=3-turn fragment.
+
+    Yield each validated fragment immediately so later failure cannot discard it.
+    Transport failures are not retried or amplified into more provider requests.
+    """
+    def attempt(selected):
+        last = None
+        for _ in range(2):
+            if should_cancel and should_cancel():
+                raise TranslationCancelled("翻译已取消")
+            try:
+                result = _translate_batch(
+                    selected, turns, title, evidence, dry_run, target=target,
+                    target_indexes=selected)
+            except TranslationCancelled:
+                raise
+            except (TranslationError, assistant.AssistantInvalidOutput) as exc:
+                last = exc
+                continue
+            if should_cancel and should_cancel():
+                raise TranslationCancelled("翻译已取消")
+            return result, None
+        return None, last
+
+    result, error = attempt(missing)
+    if error is None:
+        yield result
+        return
+    if len(missing) <= 3:
+        raise error
+    for start in range(0, len(missing), 3):
+        result, error = attempt(missing[start:start + 3])
+        if error is not None:
+            raise error
+        yield result
 
 
 def translate_transcript(mdir: Path, title: str, evidence: dict, *, dry_run: bool = False,
@@ -484,12 +543,15 @@ def translate_transcript(mdir: Path, title: str, evidence: dict, *, dry_run: boo
                     }
             missing = [i for i in indexes if i not in entries]
             if missing:
-                translated = _translate_batch(
-                    indexes, turns, title, evidence, dry_run, target=target,
-                    target_indexes=missing)
-                if should_cancel and should_cancel():
-                    raise TranslationCancelled("翻译已取消")
-                entries.update(translated)
+                for translated in _translate_resilient(
+                        missing, turns, title, evidence, dry_run, target,
+                        should_cancel):
+                    entries.update(translated)
+                    document["turns"] = [entries[i] for i in sorted(entries)]
+                    document["updated_at"] = round(time.time(), 3)
+                    _write(path, document)
+                    if on_progress:
+                        on_progress(len(entries), len(turns))
             document["turns"] = [entries[i] for i in sorted(entries)]
             document["updated_at"] = round(time.time(), 3)
             _write(path, document)
@@ -659,6 +721,47 @@ def translate_minutes(mdir: Path, title: str, source_markdown: str, evidence: di
         document["updated_at"] = round(time.time(), 3)
         _write(path, document)
         raise
+
+
+def translate_evidence(mdir: Path, title: str, evidence: dict, *, target=TARGET,
+                       dry_run=False, should_cancel=None) -> dict:
+    """Translate display text only; IDs, status and evidence links stay canonical."""
+    if target not in TARGETS:
+        raise TranslationError("不支持的目标语言")
+    texts = []
+    for row in evidence.get("claims", []) + evidence.get("action_candidates", []):
+        for obj in (row, row.get("action") or {}):
+            for key in ("text", "section", "owner", "deadline", "original_status"):
+                value = obj.get(key)
+                if isinstance(value, str) and value.strip() and value not in texts:
+                    texts.append(value)
+    revision = assistant.revision(mdir / "minutes.evidence.json")
+    path = mdir / f"evidence.translation.{target}.json"
+    old = _read(path)
+    cached = old.get("texts", {}) if old.get("source_revision") == revision else {}
+    translated = {text: cached[text] for text in texts if isinstance(cached.get(text), str)}
+    turns = [{"text": text} for text in texts]
+    document = {"schema": "meeting-evidence-translation/v1", "source_revision": revision,
+                "target_language": target, "status": "partial", "texts": translated}
+    for start in range(0, len(turns), BATCH_SIZE):
+        if should_cancel and should_cancel():
+            raise TranslationCancelled("翻译已取消")
+        missing = []
+        for i in range(start, min(start + BATCH_SIZE, len(turns))):
+            if texts[i] in translated:
+                continue
+            if needs_translation(detect_language(texts[i]), target):
+                missing.append(i)
+            else:
+                translated[texts[i]] = texts[i]
+        if missing:
+            for fragment in _translate_resilient(missing, turns, title, {}, dry_run,
+                                                  target, should_cancel):
+                translated.update({texts[i]: row["translated_text"] for i, row in fragment.items()})
+                _write(path, document)
+    document["status"] = "complete"
+    _write(path, document)
+    return document
 
 
 def _topic_translation_shape(source: dict, translated: dict) -> dict:

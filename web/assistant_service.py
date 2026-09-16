@@ -48,6 +48,10 @@ class AssistantUnavailable(AssistantError):
     status = 503
 
 
+class AssistantInvalidOutput(AssistantUnavailable):
+    """The provider responded, but its output was incomplete or malformed."""
+
+
 def revision(path: Path) -> str | None:
     if not path.is_file():
         return None
@@ -80,15 +84,17 @@ def _chat(messages: list[dict], max_tokens: int = 1600, json_mode: bool = False)
     try:
         with open_request(req, timeout=300) as resp:
             data = json.loads(resp.read())
-    except (OSError, urllib.error.URLError, json.JSONDecodeError) as exc:
+    except json.JSONDecodeError as exc:
+        raise AssistantInvalidOutput("本地 LLM 返回的响应不是有效 JSON") from exc
+    except (OSError, urllib.error.URLError) as exc:
         raise AssistantUnavailable(f"本地 LLM 暂不可用：{type(exc).__name__}") from exc
     try:
         choice = data["choices"][0]
         if choice.get("finish_reason") == "length":
-            raise AssistantUnavailable("本地 LLM 输出达到长度上限，内容没有完整生成")
+            raise AssistantInvalidOutput("本地 LLM 输出达到长度上限，内容没有完整生成")
         return choice["message"]["content"].strip()
     except (KeyError, IndexError, TypeError, AttributeError) as exc:
-        raise AssistantUnavailable("本地 LLM 返回格式不完整") from exc
+        raise AssistantInvalidOutput("本地 LLM 返回格式不完整") from exc
 
 
 def _chat_stream(messages: list[dict], max_tokens: int = 1600):

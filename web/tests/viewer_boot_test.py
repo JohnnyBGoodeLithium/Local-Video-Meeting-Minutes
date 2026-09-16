@@ -450,3 +450,44 @@ with tempfile.TemporaryDirectory() as td:
                 if part.startswith('data-mobile-contract=')), "missing")))
 
 print("viewer boot: headless runtime passed")
+
+# Exported translations switch locally without network/model calls.
+translated_page = export_meeting._viewer_html(
+    'Synthetic bilingual review', '2026-01-01', '<p>Source</p>', EVIDENCE,
+    {'schema': 'test'}, TOPIC_MAP, 'media/video.mp4', 'video',
+    minutes_languages={'zh-CN': '<p>Source</p>', 'en': '<p>English minutes</p>'},
+    transcript_languages={'en': [{'index': 0, 'translated_text': 'Synthetic English transcript.'}]},
+    evidence_languages={'en': {EVIDENCE['claims'][0]['text']: 'Synthetic English conclusion.'}},
+    caption_languages={'en': [{'start': 0, 'end': 4, 'original_text': 'Source',
+                               'translated_text': 'Synthetic English caption.'}]})
+probe = '''<script>
+document.querySelector('[data-language="en"]').click();
+const translated=document.querySelector('#transcript').textContent.includes('Synthetic English transcript.');
+showClaim('C0001');const evidenceTranslated=document.querySelector('#evidence').textContent.includes('Synthetic English conclusion.')&&document.querySelector('#evidence').textContent.includes('Synthetic English transcript.')&&!!document.querySelector('#evidence details');
+const captions=viewerCaptionRows()[0].translated_text==='Synthetic English caption.';
+const select=document.querySelector('#viewer-transcript-mode');select.value='source';select.onchange();
+const original=!document.querySelector('#transcript').textContent.includes('Synthetic English transcript.');
+select.value='bilingual';select.onchange();
+const bilingual=document.querySelector('#transcript').textContent.includes('Synthetic English transcript.');
+document.body.dataset.translationContract=[translated,captions,original,bilingual,evidenceTranslated].join(',');
+</script></body>'''
+with tempfile.TemporaryDirectory() as td:
+    result=chromium_dom(translated_page.replace(b'</body>',probe.encode()),Path(td)/'translation.html')
+    assert 'data-translation-contract="true,true,true,true,true"' in result.stdout
+print('viewer translation: language, original, bilingual and captions passed')
+
+# Audio + slides must show captions without relying on native video TextTracks.
+audio_probe = '''<script>
+const pick=document.querySelector('#viewer-caption-mode'),box=document.querySelector('#audio-captions');
+Object.defineProperty(mediaEl,'currentTime',{configurable:true,value:1});
+pick.value='translation';pick.onchange();mediaEl.dispatchEvent(new Event('timeupdate'));
+const translated=box.textContent.includes('Synthetic translation')&&!box.hidden;
+pick.value='bilingual';pick.onchange();const bilingual=box.textContent.includes('Synthetic translation')&&box.textContent.includes('虚构原文');
+Object.defineProperty(mediaEl,'currentTime',{configurable:true,value:8});mediaEl.dispatchEvent(new Event('seeked'));const cleared=box.textContent==='';
+pick.value='off';pick.onchange();const off=box.hidden;
+document.body.dataset.audioCaptionContract=[translated,bilingual,cleared,off].join(',');
+</script></body>'''
+with tempfile.TemporaryDirectory() as td:
+    result=chromium_dom(layout_pages['audio'].replace(b'</body>',audio_probe.encode()),Path(td)/'audio-captions.html')
+    assert 'data-audio-caption-contract="true,true,true,true"' in result.stdout
+print('audio Viewer: translated/bilingual playback, seek gap and off passed')

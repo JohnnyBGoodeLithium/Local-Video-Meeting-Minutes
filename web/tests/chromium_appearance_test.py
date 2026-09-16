@@ -54,8 +54,16 @@ def main():
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         try:
             port = wait_devtools_port(Path(tmp) / 'profile/DevToolsActivePort')
-            with urllib.request.urlopen(f'http://127.0.0.1:{port}/json/list') as response:
-                target = next(x for x in json.load(response) if x['type'] == 'page')
+            target = None
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                with urllib.request.urlopen(f'http://127.0.0.1:{port}/json/list') as response:
+                    target = next((x for x in json.load(response) if x['type'] == 'page'), None)
+                if target:
+                    break
+                time.sleep(.05)
+            if target is None:
+                raise RuntimeError('Chromium page target did not become available')
             cdp = CDP(target['webSocketDebuggerUrl'])
             cdp.call('Page.enable')
             cdp.call('Runtime.enable')

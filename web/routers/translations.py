@@ -26,7 +26,8 @@ def _translation_progress(job: dict, done: int, total: int) -> dict:
 
 def _translation_failed(job: dict, exc: Exception, *, source_missing: bool = False) -> None:
     """保留可操作的失败类型；不记录模型输出、节点正文或供应商错误正文。"""
-    unavailable = isinstance(exc, assistant.AssistantUnavailable)
+    unavailable = (isinstance(exc, assistant.AssistantUnavailable)
+                   and not isinstance(exc, assistant.AssistantInvalidOutput))
     code = ("TRANSLATION_SOURCE_MISSING" if source_missing else
             "TRANSLATION_SERVICE_UNAVAILABLE" if unavailable else
             "TRANSLATION_INVALID_OUTPUT")
@@ -150,6 +151,8 @@ def _run_minutes_translation(job: dict, mdir, title: str, target: str) -> None:
         document = translation.translate_minutes(
             mdir, title, source, evidence, dry_run=DRY_RUN, on_progress=progress,
             should_cancel=cancelled, target=target)
+        translation.translate_evidence(mdir, title, evidence, dry_run=DRY_RUN,
+                                       should_cancel=cancelled, target=target)
     except translation.TranslationCancelled:
         if job.get("status") != "cancelled":
             _set_status(job, "cancelled", finished=_now(), rc=None)
