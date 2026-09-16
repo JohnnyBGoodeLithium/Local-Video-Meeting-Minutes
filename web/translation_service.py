@@ -405,10 +405,25 @@ def _translate_batch(indexes: list[int], turns: list[dict], title: str,
             + "\n".join(context_lines))
     raw = assistant._chat(
         [{"role": "system", "content": system}, {"role": "user", "content": user}],
-        max_tokens=max(1200, len(targets) * 220), json_mode=True)
+        max_tokens=min(8192, max(1200, len(targets) * 220,
+                                sum(len(str(turns[i].get("text", ""))) for i in targets) * 2
+                                + len(targets) * 64)), json_mode=True)
     obj = _parse_json(raw)
-    by_id = {str(item.get("id")): item for item in obj.get("translations", [])
-             if isinstance(item, dict)}
+    items = obj.get("translations")
+    if not isinstance(items, list):
+        raise TranslationError("翻译结果缺少轮次列表")
+    by_id = {}
+    expected = {f"T{i + 1:06d}" for i in targets}
+    for item in items:
+        if (not isinstance(item, dict) or not isinstance(item.get("id"), str)
+                or item["id"] not in expected):
+            raise TranslationError("翻译结果包含无效目标 ID")
+        tid = item["id"]
+        if tid in by_id:
+            raise TranslationError(f"翻译结果重复目标 {tid}")
+        if not isinstance(item.get("translated_text"), str):
+            raise TranslationError(f"翻译结果目标 {tid} 不是文本")
+        by_id[tid] = item
     result = {}
     for i in targets:
         tid = f"T{i + 1:06d}"
@@ -428,6 +443,45 @@ def _translate_batch(indexes: list[int], turns: list[dict], title: str,
             "warnings": ["number_mismatch"] if missing_numbers else [],
         }
     return result
+
+
+def _translate_resilient(missing, turns, title, evidence, dry_run, target,
+                         should_cancel=None):
+    """At most two full attempts, then two attempts per <=3-turn fragment.
+
+    Yield each validated fragment immediately so later failure cannot discard it.
+    Transport failures are not retried or amplified into more provider requests.
+    """
+    def attempt(selected):
+        last = None
+        for _ in range(2):
+            if should_cancel and should_cancel():
+                raise TranslationCancelled("翻译已取消")
+            try:
+                result = _translate_batch(
+                    selected, turns, title, evidence, dry_run, target=target,
+                    target_indexes=selected)
+            except TranslationCancelled:
+                raise
+            except (TranslationError, assistant.AssistantInvalidOutput) as exc:
+                last = exc
+                continue
+            if should_cancel and should_cancel():
+                raise TranslationCancelled("翻译已取消")
+            return result, None
+        return None, last
+
+    result, error = attempt(missing)
+    if error is None:
+        yield result
+        return
+    if len(missing) <= 3:
+        raise error
+    for start in range(0, len(missing), 3):
+        result, error = attempt(missing[start:start + 3])
+        if error is not None:
+            raise error
+        yield result
 
 
 def translate_transcript(mdir: Path, title: str, evidence: dict, *, dry_run: bool = False,
@@ -484,12 +538,15 @@ def translate_transcript(mdir: Path, title: str, evidence: dict, *, dry_run: boo
                     }
             missing = [i for i in indexes if i not in entries]
             if missing:
-                translated = _translate_batch(
-                    indexes, turns, title, evidence, dry_run, target=target,
-                    target_indexes=missing)
-                if should_cancel and should_cancel():
-                    raise TranslationCancelled("翻译已取消")
-                entries.update(translated)
+                for translated in _translate_resilient(
+                        missing, turns, title, evidence, dry_run, target,
+                        should_cancel):
+                    entries.update(translated)
+                    document["turns"] = [entries[i] for i in sorted(entries)]
+                    document["updated_at"] = round(time.time(), 3)
+                    _write(path, document)
+                    if on_progress:
+                        on_progress(len(entries), len(turns))
             document["turns"] = [entries[i] for i in sorted(entries)]
             document["updated_at"] = round(time.time(), 3)
             _write(path, document)

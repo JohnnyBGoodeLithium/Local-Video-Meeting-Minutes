@@ -43,6 +43,7 @@ try:
         raise AssertionError("non-stream length finish must be rejected")
     except assistant.AssistantUnavailable as exc:
         assert "长度上限" in str(exc)
+        assert isinstance(exc, assistant.AssistantInvalidOutput)
 
     frames = [
         b'data: {"choices":[{"delta":{"content":"partial"},"finish_reason":null}]}\n\n',
