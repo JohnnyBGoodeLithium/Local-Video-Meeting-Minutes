@@ -75,19 +75,21 @@ def assert_minutes_templates_responsive(cdp):
   document.body.appendChild(dialog);
   const editor = createMinutesTemplateDialog(dialog);
   const root = document.documentElement;
-  const originalTheme = root.getAttribute('data-theme');
+  const originalTheme = root.getAttribute('data-fluent-theme');
+  const backgrounds = new Set();
   try {
     for (const item of MINUTES_TEMPLATES) for (const english of [false, true]) {
       const prompt = minutesTemplate(item.id, english).prompt;
       if (prompt.length > 8000 || (item.id !== 'custom' && !prompt)) throw new Error('invalid template');
     }
     for (const theme of ['dark', 'light']) {
-      root.setAttribute('data-theme', theme);
+      root.setAttribute('data-fluent-theme', theme);
       editor.show({english:true,onGenerate:()=>{throw new Error('unexpected generation');}});
       if (!dialog.textContent.includes('Knowledge sharing / training')) throw new Error('missing English copy');
       if (dialog.scrollWidth > dialog.clientWidth + 1 || dialog.getBoundingClientRect().right > innerWidth)
         throw new Error('preset dialog overflows narrow viewport');
       const text = dialog.querySelector('textarea');
+      backgrounds.add(getComputedStyle(text).backgroundColor);
       text.value = 'Discard this meeting draft';
       text.dispatchEvent(new Event('input'));
       editor.reset();
@@ -95,11 +97,12 @@ def assert_minutes_templates_responsive(cdp):
       if (!text.value.includes('Learning guide')) throw new Error('draft leaked across meetings');
       editor.reset();
     }
+    if (backgrounds.size !== 2) throw new Error('preset editor does not follow the active theme');
     return true;
   } finally {
     editor.reset(); dialog.remove();
-    if (originalTheme === null) root.removeAttribute('data-theme');
-    else root.setAttribute('data-theme', originalTheme);
+    if (originalTheme === null) root.removeAttribute('data-fluent-theme');
+    else root.setAttribute('data-fluent-theme', originalTheme);
   }
 })()
 """)

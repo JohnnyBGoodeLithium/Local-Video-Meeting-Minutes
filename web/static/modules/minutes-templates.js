@@ -12,7 +12,7 @@ export const MINUTES_TEMPLATES = [
 1. 学习导览：面向谁、解决什么问题、3—5 个学习要点。
 2. 核心概念与框架：解释定义、关系和差异；适合比较的内容可用表格，保留原术语，不擅自纠正专业名词。
 3. 方法与流程：按讲解顺序列出前提、输入、步骤、输出和需要人工核验的环节。
-4. 演示与实践案例：逐个梳理目标、输入、实际展示的步骤、观察到的结果和适用条件；明确区分‘讲者声称能做到’与‘现场已经演示’，不补写未展示的成功结果。
+4. 演示与实践案例：逐个梳理目标、输入、实际展示的步骤、观察到的结果和适用条件；明确区分‘讲者声称能做到’与‘现场已经演示’，不补写未展示的成功结果。只提到某个样本异常，不代表其他样本成功；结果未交代就不判断。
 5. 能力边界与注意事项：整理限制、失败条件、安全或数据注意事项；不要把一般提醒写成已经发生的事故。
 6. 互动练习与答疑：将假设题、练习题与真实提问分开；只记录资料里已有的回答，不替讲者作答。
 7. 学习路径与后续安排：保留提到的课程、资源与实践建议；只有明确分配的事项才写负责人和期限。
@@ -22,7 +22,7 @@ Organize supported material into:
 1. Learning guide: audience, problem addressed and 3–5 takeaways.
 2. Concepts and frameworks: definitions, relationships and comparisons; use tables when helpful and preserve original technical terms.
 3. Methods and workflows: prerequisites, inputs, explained steps, outputs and human checks.
-4. Demonstrations and examples: goal, input, steps actually shown, observed result and conditions. Separate claimed capabilities from demonstrated outcomes; never invent a successful result.
+4. Demonstrations and examples: goal, input, steps actually shown, observed result and conditions. Separate claimed capabilities from demonstrated outcomes; never invent a successful result. One reported failure does not imply other samples succeeded. Do not judge outcomes that were not reported.
 5. Limits and precautions: limitations, failure conditions and safety or data guidance; general advice is not an incident report.
 6. Exercises and questions: separate hypothetical quizzes from actual participant questions; include only answers present in the evidence.
 7. Further learning and next steps: mentioned courses, resources and practice suggestions; add owners and deadlines only for explicitly assigned actions.
