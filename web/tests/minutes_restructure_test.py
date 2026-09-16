@@ -7,6 +7,7 @@ import json
 import sys
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 
 PROJECT = Path(__file__).resolve().parents[2]
@@ -52,6 +53,22 @@ with tempfile.TemporaryDirectory(prefix="minutes-restructure-test-") as temp:
         f"# 会议纪要\n\n## 摘要\n\n- 虚构背景。\n\n{MARK_INFO}\n")
     assert f"- 虚构背景。 {MARK_INFO}" in repaired
     assistant._validate_restructured_minutes(repaired, facts)
+    concept_table = (
+        "# 学习笔记\n\n## 核心概念\n\n"
+        "| 概念 | 含义 |\n| :--- | ---: |\n"
+        f"| 虚构概念 | 虚构背景 {MARK_INFO} |\n")
+    assistant._validate_restructured_minutes(concept_table, facts)
+    for invalid in (
+        concept_table + "| 新状态 | 没有依据的描述 |\n",
+        concept_table + "| owner | unsupported claim |\n",
+        concept_table.replace("| :--- | ---: |\n", ""),
+        concept_table.replace("| :--- | ---: |", "| --- |"),
+    ):
+        try:
+            assistant._validate_restructured_minutes(invalid, facts)
+            raise AssertionError("unmarked data or a malformed table must not pass as a header")
+        except assistant.AssistantUnavailable:
+            pass
 
     proposal = assistant.preview_minutes_restructure(
         minutes, transcript, mdir / "minutes.evidence.json",
@@ -59,6 +76,27 @@ with tempfile.TemporaryDirectory(prefix="minutes-restructure-test-") as temp:
         assistant.revision(minutes), True)
     assert proposal["scope"] == "document" and proposal["target_heading"] == "整篇纪要"
     assert proposal["proposal_id"] and proposal["sources"] and MARK_INFO in proposal["after"]
+    invalid_preview = f"# 学习笔记\n\n- **演示结果**：\n  - 虚构背景 {MARK_INFO}\n"
+    valid_preview = f"# 学习笔记\n\n### 演示结果\n\n- 虚构背景 {MARK_INFO}\n"
+    def model_reply(markdown):
+        return json.dumps({"replacement_markdown": markdown, "summary": "虚构学习预览"})
+    with patch.object(assistant, "_chat", side_effect=[
+            model_reply(invalid_preview), model_reply(valid_preview)]) as model:
+        repaired_proposal = assistant.preview_minutes_restructure(
+            minutes, transcript, mdir / "minutes.evidence.json", "整理为学习笔记",
+            assistant.revision(transcript), assistant.revision(minutes), False)
+        assert model.call_count == 2
+        assert "第 3 行" in model.call_args.args[0][-1]["content"]
+        assert "### 演示结果" in repaired_proposal["after"]
+        assert minutes.read_text() == original and facts_path.read_bytes() == facts_before
+    with patch.object(assistant, "_chat", return_value=model_reply(invalid_preview)) as model:
+        try:
+            assistant.preview_minutes_restructure(
+                minutes, transcript, mdir / "minutes.evidence.json", "整理为学习笔记",
+                assistant.revision(transcript), assistant.revision(minutes), False)
+            raise AssertionError("a failed repair must not become a proposal")
+        except assistant.AssistantUnavailable:
+            assert model.call_count == 2, "repair attempts must stay bounded"
     try:
         assistant.apply_minutes_edit(minutes, proposal["proposal_id"])
         raise AssertionError("document proposal must not overwrite canonical minutes")

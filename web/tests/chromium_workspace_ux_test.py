@@ -18,6 +18,9 @@ import urllib.request
 from pathlib import Path
 
 from chromium_speaker_correction_test import CDP, wait_devtools_port
+from chromium_minutes_templates_test import (
+    assert_minutes_templates, assert_minutes_templates_responsive,
+)
 
 
 CHROME = (shutil.which("chromium") or shutil.which("chromium-browser")
@@ -86,6 +89,13 @@ def main() -> int:
 })()
 """)
                     raise RuntimeError(f"workspace did not finish loading: {diagnostic}")
+
+                assert_minutes_templates(cdp)
+                cdp.call("Emulation.setDeviceMetricsOverride", {
+                    "width": 360, "height": 740, "deviceScaleFactor": 1, "mobile": False,
+                })
+                assert_minutes_templates_responsive(cdp)
+                cdp.call("Emulation.clearDeviceMetricsOverride")
 
                 cdp.evaluate(r"""
 window.__workspaceUxE2E = 'running';

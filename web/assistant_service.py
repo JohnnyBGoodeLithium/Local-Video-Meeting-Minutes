@@ -602,7 +602,8 @@ def _validate_restructured_minutes(markdown: str, facts: dict) -> str:
     by_marker: dict[str, list[dict]] = {}
     for claim in claims:
         by_marker.setdefault(str(claim["marker"]), []).append(claim)
-    for line in value.splitlines():
+    lines = value.splitlines()
+    for index, line in enumerate(lines):
         stripped = line.strip()
         heading_match = re.match(r"^#{1,6}\s+(.+?)\s*$", stripped)
         if heading_match:
@@ -610,13 +611,18 @@ def _validate_restructured_minutes(markdown: str, facts: dict) -> str:
             continue
         if not stripped or re.fullmatch(r"[|:\-\s]+", stripped):
             continue
-        is_table_header = stripped.startswith("|") and any(
-            word in stripped.casefold() for word in
-            ("事项", "负责人", "期限", "状态", "fact", "owner", "due", "status"))
+        # A header is followed by a Markdown delimiter row; its vocabulary says
+        # nothing about whether it is a header. Data mentioning "status" still
+        # needs evidence, and concept/comparison headers need none.
+        next_line = lines[index + 1].strip() if index + 1 < len(lines) else ""
+        cells = next_line.strip("|").split("|")
+        is_table_header = ("|" in stripped and "|" in next_line
+                           and len(stripped.strip("|").split("|")) == len(cells)
+                           and all(re.fullmatch(r":?-+:?", cell.strip()) for cell in cells))
         if is_table_header:
             continue
         if not meeting_artifact.MARKER_RE.search(stripped):
-            raise AssistantUnavailable("重组结果存在没有依据标记的正文")
+            raise AssistantUnavailable(f"重组结果第 {index + 1} 行存在没有依据标记的正文")
         if re.sub(r"[\s_\-:：/]+", "", heading).casefold() in meeting_artifact.FORMAL_ACTION_SECTIONS:
             for marker in (match.group(0) for match in meeting_artifact.MARKER_RE.finditer(stripped)):
                 if not any(item.get("formal_action") for item in by_marker.get(marker, [])):
@@ -667,17 +673,37 @@ def preview_minutes_restructure(minutes_path: Path, transcript_path: Path,
             "每条事实必须独占一个项目符号或表格数据行，并逐字附上该事实原有 marker；不得创造或"
             "改写 marker。同一事实可在总体结构、关键结论、待办、人员或项目明细等不同阅读视角复用，"
             "但同一栏目不要重复。"
+            "分组标签一律使用 Markdown 小标题（如 ### 演示结果），不要用无依据的父级列表项"
+            "（如 - **演示结果**：）包住带依据的子项。每个方法或案例尽量合成紧凑的有据要点，"
+            "不要把同一事实拆成大量重复短句。只记录明确提供的结果：个别样本失败不代表其他"
+            "样本成功；没有记载结果的样本不作判断。"
             "除标题和表头/分隔行外，每一行正文都必须带 marker。允许筛选与合并"
             "事实，但合并时需附上全部对应 marker。输出 JSON：replacement_markdown、summary。"
             "replacement_markdown 必须从一级标题开始，不得输出代码围栏、解释、逐页详情或额外字段。"
         )
         user = (f"用户的纪要结构要求：\n{message}\n\n"
                 f"事实目录（每行一个 JSON，只能引用这些事实）：\n{catalog}")
-        obj = _parse_json_object(_chat([
+        messages = [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
-        ], max_tokens=8000, json_mode=True))
+        ]
+        obj = _parse_json_object(_chat(messages, max_tokens=8000, json_mode=True))
         replacement = str(obj.get("replacement_markdown") or "")
+        try:
+            _validate_restructured_minutes(replacement, facts)
+        except AssistantUnavailable as exc:
+            # One bounded format repair, still against the same fact snapshot.
+            # No deterministic invention of evidence for unmarked statements.
+            repair = (
+                f"上一份预览未通过校验：{exc}。请重新输出完整 JSON，修复格式并重新核对事实。"
+                "无依据的分组标签应改为 Markdown 小标题；无依据的事实正文应删除，不能随便"
+                "补贴 marker。特别核对演示结果，不能推断未交代样本的处理过程或成功状态。"
+                "保留原要求、已有来源和不确定性，只允许引用原事实目录。")
+            obj = _parse_json_object(_chat([
+                *messages, {"role": "assistant", "content": json.dumps(obj, ensure_ascii=False)},
+                {"role": "user", "content": repair},
+            ], max_tokens=8000, json_mode=True))
+            replacement = str(obj.get("replacement_markdown") or "")
         summary = str(obj.get("summary") or "已按要求重组整篇纪要").strip()[:300]
     replacement = _validate_restructured_minutes(replacement, facts)
     used_markers = {match.group(0) for match in meeting_artifact.MARKER_RE.finditer(replacement)}

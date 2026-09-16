@@ -1,46 +1,48 @@
 import { contentTypeOf, safeSourceUrl }
-  from "./modules/media-source.js?v=20260916p127";
+  from "./modules/media-source.js?v=20260916p128";
 import { buildUploadFormData, enqueueMediaUrl, isSingleLocalVideo }
-  from "./modules/imports.js?v=20260916p127";
+  from "./modules/imports.js?v=20260916p128";
 import { jobDisplayName, jobTaskLabel, selectJobPanel, compactJobPanel }
-  from "./modules/jobs.js?v=20260916p127";
+  from "./modules/jobs.js?v=20260916p128";
 import { jobPresentation }
-  from "./modules/job-progress.js?v=20260916p127";
+  from "./modules/job-progress.js?v=20260916p128";
 import { closeJobSheet, renderCompactJob, renderJobSheet, renderProcessingBanner }
-  from "./modules/job-progress-view.js?v=20260916p127";
+  from "./modules/job-progress-view.js?v=20260916p128";
 import { chooseInitialItem, deepLinkSeconds, filterLibrary, sortLibrary }
-  from "./modules/library.js?v=20260916p127";
+  from "./modules/library.js?v=20260916p128";
 import { adjacentReviewUnit, defaultReviewUnits, nearestReviewUnit,
   reviewIndexesFor, reviewUnitForTurn as findReviewUnitForTurn, turnEnd }
-  from "./modules/player-navigation.js?v=20260916p127";
+  from "./modules/player-navigation.js?v=20260916p128";
 import { nextSearchCursor, pendingReviewByTurn, transcriptSearchHits }
-  from "./modules/transcript.js?v=20260916p127";
+  from "./modules/transcript.js?v=20260916p128";
 import { renderTranscriptView }
-  from "./modules/transcript-view.js?v=20260916p127";
+  from "./modules/transcript-view.js?v=20260916p128";
 import { availableViewerMedia, exportSizeState, formatBytes, meetingExportHref, normalizeExportProfile,
   packExportHref }
-  from "./modules/export.js?v=20260916p127";
+  from "./modules/export.js?v=20260916p128";
 import { claimAction, claimIdsForTurn, evidenceSources, minutesState, normalizeReviewMode,
   resolveMinutesView, turnIndexAtTime, turnIndexesForSourceIds }
-  from "./modules/minutes.js?v=20260916p127";
+  from "./modules/minutes.js?v=20260916p128";
 import { renderMinutesView }
-  from "./modules/minutes-view.js?v=20260916p127";
+  from "./modules/minutes-view.js?v=20260916p128";
+import { createMinutesTemplateDialog }
+  from "./modules/minutes-templates.js?v=20260916p128";
 import { beginExampleSelection, beginIdentity, buildCorrectionApplyPayload,
   correctionSummary, createSpeakerCorrectionState, representativeTurns,
   resetSpeakerCorrection, setGroupAssignment, setIncludeSuggested, setPreview,
   toggleExample, withCorrectionError }
-  from "./modules/speaker-correction.js?v=20260916p127";
+  from "./modules/speaker-correction.js?v=20260916p128";
 import { renderCorrectionSheet, renderIdentityPopover }
-  from "./modules/speaker-correction-view.js?v=20260916p127";
+  from "./modules/speaker-correction-view.js?v=20260916p128";
 import { beginPhotoImport, createPhotoImportState, hydratePhotoCaptureTimes,
   markPhotoImportResult, photoUploadSpec, releasePhotoImport, removePhotoImportItem,
   setPhotoMeetingStart, setPhotoPositionMode, togglePhotoTimeSettings,
   withPhotoImportBusy, withPhotoImportError, formatPhotoBytes }
-  from "./modules/photo-import.js?v=20260916p127";
+  from "./modules/photo-import.js?v=20260916p128";
 import { renderPhotoImport }
-  from "./modules/photo-import-view.js?v=20260916p127";
+  from "./modules/photo-import-view.js?v=20260916p128";
 import { mountLiveContext }
-  from "./modules/live-context-view.js?v=20260916p127";
+  from "./modules/live-context-view.js?v=20260916p128";
 
 /* 会议列表 + 回顾工作台（装配入口；领域规则逐步迁往 modules/） */
 "use strict";
@@ -49,6 +51,7 @@ const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const WORKSPACE_KEY = "meeting-minutes:workspace:v1";
 let liveContextView = null;
+let minutesTemplateDialog = null;
 
 function readWorkspaceState() {
   try {
@@ -4776,19 +4779,20 @@ function renderAssistantSuggestions() {
 function startMinutesRestructure() {
   if (!state.bundle || state.assistantBusy || state.bundle.document_state === "draft"
       || state.bundle.evidence?.state !== "ready") return;
-  setReviewMode("minutes");
-  state.assistantNextIntent = "restructure";
-  openUtility("assistant");
-  const input = $("#assistant-input");
-  input.value = "";
-  input.placeholder = ui("restructurePlaceholder");
-  $("#assistant-state").textContent = isEnglishUi()
-    ? "This changes the minutes view only; the chronological meeting map stays unchanged."
-    : "只重组正式纪要；时间线性的会议脉络保持不变。";
-  input.focus();
+  const slug = state.slug;
+  minutesTemplateDialog ??= createMinutesTemplateDialog($("#minutes-template-dialog"));
+  minutesTemplateDialog.show({ english: isEnglishUi(), onGenerate: prompt => {
+    if (state.slug !== slug || state.assistantBusy) return;
+    setReviewMode("minutes");
+    state.assistantNextIntent = "restructure";
+    openUtility("assistant");
+    $("#assistant-input").value = prompt;
+    sendAssistant();
+  } });
 }
 
 function resetAssistant() {
+  minutesTemplateDialog?.reset();
   state.assistantRefs = [];
   state.assistantHistory = [];
   state.assistantMessages = [];
@@ -5010,8 +5014,10 @@ function renderAssistantMessages() {
           `<div class="edit-card-kicker">${p.scope === "document" ? (isEnglishUi() ? "Ready to restructure" : "准备重组") : (isEnglishUi() ? "Ready to update" : "准备更新")} · ${esc(p.target_heading)}</div>` +
           `<div class="edit-summary">${esc(p.summary || "已根据要求整理修改")}</div>` +
           `<div class="edit-actions">` +
-          `<button type="button" class="apply-edit primary" data-id="${esc(p.proposal_id)}">保存到纪要</button>` +
-          `<button type="button" class="dismiss-edit">取消</button>` +
+          `<button type="button" class="apply-edit primary" data-id="${esc(p.proposal_id)}">${p.scope === "document"
+            ? (isEnglishUi() ? "Save reading view" : "保存为阅读版本")
+            : (isEnglishUi() ? "Save to minutes" : "保存到纪要")}</button>` +
+          `<button type="button" class="dismiss-edit">${isEnglishUi() ? "Cancel" : "取消"}</button>` +
           `</div>` +
           `<div class="proposal-reading minutes">${proposalReadingHtml(p)}</div>` +
           `<details class="edit-before"><summary>${isEnglishUi() ? "Compare with the previous version" : "对照修改前版本"}</summary>` +
