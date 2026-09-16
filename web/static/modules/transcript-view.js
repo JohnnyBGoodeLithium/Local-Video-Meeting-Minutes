@@ -1,6 +1,6 @@
 /* Transcript DOM projection. All application state and side effects arrive as callbacks. */
 
-import { splitTurnChunks, turnReviewUnits } from "./transcript.js?v=20260916p130";
+import { splitTurnChunks, turnReviewUnits } from "./transcript.js?v=20260916p131";
 
 export function transcriptScrollAnchor(box) {
   const bounds = box.getBoundingClientRect();

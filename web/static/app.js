@@ -1,48 +1,48 @@
 import { contentTypeOf, safeSourceUrl }
-  from "./modules/media-source.js?v=20260916p130";
+  from "./modules/media-source.js?v=20260916p131";
 import { buildUploadFormData, enqueueMediaUrl, isSingleLocalVideo }
-  from "./modules/imports.js?v=20260916p130";
+  from "./modules/imports.js?v=20260916p131";
 import { jobDisplayName, jobTaskLabel, selectJobPanel, compactJobPanel }
-  from "./modules/jobs.js?v=20260916p130";
+  from "./modules/jobs.js?v=20260916p131";
 import { jobPresentation }
-  from "./modules/job-progress.js?v=20260916p130";
+  from "./modules/job-progress.js?v=20260916p131";
 import { closeJobSheet, renderCompactJob, renderJobSheet, renderProcessingBanner }
-  from "./modules/job-progress-view.js?v=20260916p130";
+  from "./modules/job-progress-view.js?v=20260916p131";
 import { chooseInitialItem, deepLinkSeconds, filterLibrary, sortLibrary }
-  from "./modules/library.js?v=20260916p130";
+  from "./modules/library.js?v=20260916p131";
 import { adjacentReviewUnit, defaultReviewUnits, nearestReviewUnit,
   reviewIndexesFor, reviewUnitForTurn as findReviewUnitForTurn, turnEnd }
-  from "./modules/player-navigation.js?v=20260916p130";
+  from "./modules/player-navigation.js?v=20260916p131";
 import { nextSearchCursor, pendingReviewByTurn, transcriptSearchHits }
-  from "./modules/transcript.js?v=20260916p130";
+  from "./modules/transcript.js?v=20260916p131";
 import { renderTranscriptView }
-  from "./modules/transcript-view.js?v=20260916p130";
+  from "./modules/transcript-view.js?v=20260916p131";
 import { availableViewerMedia, exportSizeState, formatBytes, meetingExportHref, normalizeExportProfile,
   packExportHref }
-  from "./modules/export.js?v=20260916p130";
+  from "./modules/export.js?v=20260916p131";
 import { claimAction, claimIdsForTurn, evidenceSources, minutesState, normalizeReviewMode,
   resolveMinutesView, turnIndexAtTime, turnIndexesForSourceIds }
-  from "./modules/minutes.js?v=20260916p130";
+  from "./modules/minutes.js?v=20260916p131";
 import { renderMinutesView }
-  from "./modules/minutes-view.js?v=20260916p130";
+  from "./modules/minutes-view.js?v=20260916p131";
 import { createMinutesTemplateDialog }
-  from "./modules/minutes-templates.js?v=20260916p130";
+  from "./modules/minutes-templates.js?v=20260916p131";
 import { beginExampleSelection, beginIdentity, buildCorrectionApplyPayload,
   correctionSummary, createSpeakerCorrectionState, representativeTurns,
   resetSpeakerCorrection, setGroupAssignment, setIncludeSuggested, setPreview,
   toggleExample, withCorrectionError }
-  from "./modules/speaker-correction.js?v=20260916p130";
+  from "./modules/speaker-correction.js?v=20260916p131";
 import { renderCorrectionSheet, renderIdentityPopover }
-  from "./modules/speaker-correction-view.js?v=20260916p130";
+  from "./modules/speaker-correction-view.js?v=20260916p131";
 import { beginPhotoImport, createPhotoImportState, hydratePhotoCaptureTimes,
   markPhotoImportResult, photoUploadSpec, releasePhotoImport, removePhotoImportItem,
   setPhotoMeetingStart, setPhotoPositionMode, togglePhotoTimeSettings,
   withPhotoImportBusy, withPhotoImportError, formatPhotoBytes }
-  from "./modules/photo-import.js?v=20260916p130";
+  from "./modules/photo-import.js?v=20260916p131";
 import { renderPhotoImport }
-  from "./modules/photo-import-view.js?v=20260916p130";
+  from "./modules/photo-import-view.js?v=20260916p131";
 import { mountLiveContext }
-  from "./modules/live-context-view.js?v=20260916p130";
+  from "./modules/live-context-view.js?v=20260916p131";
 
 /* 会议列表 + 回顾工作台（装配入口；领域规则逐步迁往 modules/） */
 "use strict";
@@ -3309,6 +3309,15 @@ function renderMinutes() {
   updateFocusedClaims();
 }
 
+function readingEvidenceText(value) {
+  return state.bundle?.reading_translations?.[state.uiLanguage]?.texts?.[value] || value || "";
+}
+function readingEvidenceTurn(index, source) {
+  return state.bundle?.reading_translations?.[state.uiLanguage]?.turns?.find(row => row.index === index)?.translated_text || source;
+}
+function evidenceOriginal(source, translated) {
+  return source && translated !== source ? `<details class="evidence-original"><summary>${isEnglishUi() ? "Original" : "原文"}</summary><p>${esc(source)}</p></details>` : "";
+}
 function structureClaimCard(id) {
   const claim = (state.bundle?.evidence?.claims || []).find(item => item.id === id);
   if (!claim) return "";
@@ -3322,7 +3331,7 @@ function structureClaimCard(id) {
   return `<button type="button" class="structure-claim" data-structure-claim="${esc(id)}">` +
     `<span class="structure-claim-meta"><i>${esc(kind)}</i><i>${esc(status)}</i>` +
     `${claim.start != null ? `<i>${fmt(claim.start)}</i>` : ""}</span>` +
-    `<b>${esc(action?.text || claim.text)}</b>` +
+    `<b>${esc(readingEvidenceText(action?.text || claim.text))}</b>` +
     (action ? `<small>${isEnglishUi() ? "Owner" : "负责人"}：${esc(action.owner || (isEnglishUi() ? "Unconfirmed" : "待确认"))} · ` +
       `${isEnglishUi() ? "Due" : "期限"}：${esc(action.deadline || (isEnglishUi() ? "Unconfirmed" : "待确认"))}` +
       `${action.status ? ` · ${esc(action.status)}` : ""}</small>` : "") +
@@ -3354,7 +3363,7 @@ function flowClaim(id) {
   if (!claim) return "";
   const action = claimAction(state.bundle?.evidence, claim);
   return `<button type="button" class="meeting-flow-claim" data-structure-claim="${esc(id)}">` +
-    `<b>${esc(action?.text || claim.text)}</b>` +
+    `<b>${esc(readingEvidenceText(action?.text || claim.text))}</b>` +
     `${claim.start != null ? `<small>${fmt(claim.start)} · ${isEnglishUi() ? "Verify evidence" : "核对依据"}</small>` :
       `<small>${isEnglishUi() ? "Verify evidence" : "核对依据"}</small>`}` +
     `</button>`;
@@ -3940,13 +3949,13 @@ function showMinutesEvidence(claimId, jumpToFirst = false) {
   const sources = evidenceSources(state.bundle, claim);
   const turns = sources.turns.map(item => ({ i: item.index, t: item.turn }));
   const pages = sources.pages;
-  let html = `<div class="evidence-claim">${esc(claim.text)}</div>` +
+  let html = `<div class="evidence-claim">${esc(readingEvidenceText(claim.text))}</div>` + evidenceOriginal(claim.text, readingEvidenceText(claim.text)) +
     `<div class="evidence-tags"><span>${esc(claim.kind)}</span><span>${esc(claim.status)}</span>` +
-    `<span>置信度 ${esc(claim.confidence)}</span></div>`;
+    `<span>${isEnglishUi() ? "Confidence" : "置信度"} ${esc(claim.confidence)}</span></div>`;
   for (const { i, t } of turns) {
     html += `<div class="evidence-source"><div><b>${esc(t.speaker)}</b>` +
       `<button type="button" class="evidence-seek" data-index="${i}">${fmt(t.start)}</button></div>` +
-      `<p>${esc(t.text)}</p></div>`;
+      `<p>${esc(readingEvidenceTurn(i, t.text))}</p>${evidenceOriginal(t.text, readingEvidenceTurn(i, t.text))}</div>`;
   }
   for (const p of pages) {
     const image = p.image
@@ -4144,7 +4153,7 @@ function renderQualityReview() {
       `${claim.turn_ids?.length || 0} ${qualityCopy("段原文", "excerpts")}</span>` +
       `<span>${claim.page_ids?.length || 0} ${qualityCopy("页画面", "visuals")}</span></div>` +
       `<button type="button" class="quality-evidence">${qualityCopy("打开相关原话", "Open source evidence")}</button></div>` +
-      `<div class="quality-claim-text">${esc(claim.text)}</div>` +
+      `<div class="quality-claim-text">${esc(readingEvidenceText(claim.text))}</div>` +
       (claim.speakers?.length ? `<div class="quality-speakers">${qualityCopy("发言", "Speakers")}：${esc(claim.speakers.join("、"))}</div>` : "") +
       (stale ? `<div class="quality-stale">${esc(qualityCopy(
         `相关内容有变化，原判断“${qualityLabelName(stale.label)}”已失效，请重新核对。`,

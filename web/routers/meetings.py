@@ -17,6 +17,7 @@ import meeting_topic_map
 import keyword_service
 import minutes_view_service
 import transcript_service
+import translation_service
 import voice_bank as vb
 from meeting_core import photos as meeting_photos
 from meeting_core import visual_result as vr, visual_workflow as vw
@@ -189,6 +190,19 @@ def clean_meeting_storage(slug: str):
         raise HTTPException(409, "会议仍在处理，完成后才能清理缓存")
     with STORAGE_LOCK:
         return _clean_meeting_cache(_mdir(slug))
+
+
+def _reading_translations(mdir: Path, title: str, evidence: dict) -> dict:
+    result = {}
+    revision = assistant.revision(mdir / "minutes.evidence.json")
+    for target in ("en", "zh-CN"):
+        display = _read_json(mdir / f"evidence.translation.{target}.json", {})
+        texts = (display.get("texts", {}) if display.get("status") == "complete"
+                 and display.get("source_revision") == revision else {})
+        transcript = translation_service.translation_payload(mdir, title, evidence, target)
+        result[target] = {"texts": texts,
+                          "turns": transcript["turns"] if transcript["state"] == "ready" else []}
+    return result
 
 
 @router.get("/api/meetings/{slug}/bundle")
@@ -370,6 +384,7 @@ def get_bundle(slug: str):
         "structure": structure,
         "photos": photo_visuals,
         "topic_map": topic_payload,
+        "reading_translations": _reading_translations(mdir, _meeting_identity(slug)["title"], evidence),
         "evidence": {
             "schema": evidence.get("schema"),
             "state": _evidence_state(mdir, evidence),
