@@ -450,3 +450,26 @@ with tempfile.TemporaryDirectory() as td:
                 if part.startswith('data-mobile-contract=')), "missing")))
 
 print("viewer boot: headless runtime passed")
+
+# Exported translations switch locally without network/model calls.
+translated_page = export_meeting._viewer_html(
+    'Synthetic bilingual review', '2026-01-01', '<p>Source</p>', EVIDENCE,
+    {'schema': 'test'}, TOPIC_MAP, 'media/video.mp4', 'video',
+    minutes_languages={'zh-CN': '<p>Source</p>', 'en': '<p>English minutes</p>'},
+    transcript_languages={'en': [{'index': 0, 'translated_text': 'Synthetic English transcript.'}]},
+    caption_languages={'en': [{'start': 0, 'end': 4, 'original_text': 'Source',
+                               'translated_text': 'Synthetic English caption.'}]})
+probe = '''<script>
+document.querySelector('[data-language="en"]').click();
+const translated=document.querySelector('#transcript').textContent.includes('Synthetic English transcript.');
+const captions=viewerCaptionRows()[0].translated_text==='Synthetic English caption.';
+const select=document.querySelector('#viewer-transcript-mode');select.value='source';select.onchange();
+const original=!document.querySelector('#transcript').textContent.includes('Synthetic English transcript.');
+select.value='bilingual';select.onchange();
+const bilingual=document.querySelector('#transcript').textContent.includes('Synthetic English transcript.');
+document.body.dataset.translationContract=[translated,captions,original,bilingual].join(',');
+</script></body>'''
+with tempfile.TemporaryDirectory() as td:
+    result=chromium_dom(translated_page.replace(b'</body>',probe.encode()),Path(td)/'translation.html')
+    assert 'data-translation-contract="true,true,true,true"' in result.stdout
+print('viewer translation: language, original, bilingual and captions passed')

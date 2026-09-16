@@ -358,7 +358,8 @@ def _readme(media_mode: str, document_state: str = "ready") -> str:
 2. 双击 viewer.html。它不需要安装服务，也不会调用 LLM 或联网。
 3. 纪要中的“依据”可打开对应逐字稿与页面证据。
 4. 左侧始终提供完整逐字稿；含媒体的包可点击任意时间码跳转播放。
-5. 右上角可切换中文 / EN；导出前已经生成的纪要、会议脉络和屏幕标题/短摘要译文会随包带入，离线端不会调用模型。
+5. 逐字稿默认跟随中文 / EN；也可选择原文或双语。视频下方的字幕菜单提供原文、翻译、双语。只有导出前完成的译文可离线使用。
+6. 右上角可切换中文 / EN；导出前已经生成的纪要、会议脉络和屏幕标题/短摘要译文会随包带入，离线端不会调用模型。
 
 内容
 - viewer.html：开箱即用的静态查看器（数据已内嵌，file:// 可用）
@@ -504,7 +505,9 @@ def _viewer_html(title: str, date: str, minutes_html: str, evidence: dict, integ
                  source_info: dict | None = None,
                  photos: list[dict] | None = None,
                  caption_cues: list[dict] | None = None,
-                 caption_target: str | None = None) -> bytes:
+                 caption_target: str | None = None,
+                 transcript_languages: dict | None = None,
+                 caption_languages: dict | None = None) -> bytes:
     duration = max((float(t.get("end", 0)) for t in evidence["sources"]["transcript"]), default=0)
     payload = {
         "title": title,
@@ -528,6 +531,8 @@ def _viewer_html(title: str, date: str, minutes_html: str, evidence: dict, integ
         "document_state": document_state,
         "caption_cues": caption_cues or [],
         "caption_target": caption_target,
+        "transcript_languages": transcript_languages or {},
+        "caption_languages": caption_languages or {},
         "product": {"name": "Meeting Minutes", "version": PRODUCT_VERSION},
     }
     page = VIEWER_TEMPLATE_PATH.read_text(encoding="utf-8").replace(
@@ -584,13 +589,18 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
     profiles = load_speaker_profiles(turns, bank_dir)
     transcript_revision = hashlib.sha256((mdir / "transcript.spk.json").read_bytes()).hexdigest()[:16]
     caption_translation, caption_target = None, None
+    transcript_languages, caption_languages = {}, {}
     for target in ("en", "zh-CN"):
         sidecar = _read_json(mdir / f"transcript.translation.{target}.json", {})
         if (sidecar.get("status") == "complete"
                 and sidecar.get("source_revision") == transcript_revision):
-            caption_translation = {**sidecar, "state": "ready"}
-            caption_target = target
-            break
+            transcript_languages[target] = sidecar.get("turns", [])
+            translated = {**sidecar, "state": "ready"}
+            caption_languages[target] = caption_projection.build_cues(
+                turns, profiles=profiles, translation=translated,
+                transcript_revision=transcript_revision)
+            if caption_translation is None:
+                caption_translation, caption_target = translated, target
     caption_cues = caption_projection.build_cues(
         turns, profiles=profiles, translation=caption_translation,
         transcript_revision=transcript_revision)
@@ -695,7 +705,9 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
                                         topic_map_languages, visuals_languages,
                                         speaker_navigation_rows, document_state, keywords,
                                         content_type, source_info, photos=photo_visuals,
-                                        caption_cues=caption_cues, caption_target=caption_target),
+                                        caption_cues=caption_cues, caption_target=caption_target,
+                                        transcript_languages=transcript_languages,
+                                        caption_languages=caption_languages),
             "README.txt": _readme(media_mode, document_state).encode("utf-8"),
             "AGENTS.md": _AGENTS_MD.encode("utf-8"),
             "assets/minutes.md": reading_minutes.encode("utf-8"),
