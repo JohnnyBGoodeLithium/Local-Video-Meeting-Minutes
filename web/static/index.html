@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>会议纪要</title>
-<link rel="stylesheet" href="/static/fluent-foundation.css?v=20260916p127">
-<link rel="stylesheet" href="/static/style.css?v=20260916p127">
-<link rel="stylesheet" href="/static/theme.css?v=20260916p127">
-<script src="/static/appearance.js?v=20260916p127"></script>
+<link rel="stylesheet" href="/static/fluent-foundation.css?v=20260916p128">
+<link rel="stylesheet" href="/static/style.css?v=20260916p128">
+<link rel="stylesheet" href="/static/theme.css?v=20260916p128">
+<script src="/static/appearance.js?v=20260916p128"></script>
 </head>
 <body class="page-index">
 <header class="topbar">
@@ -238,6 +238,23 @@
 </main>
 
 <button id="library-scrim" class="library-scrim hidden" type="button" aria-label="关闭会议列表"></button>
+
+<dialog id="minutes-template-dialog" class="dialog minutes-template-dialog"
+        aria-labelledby="minutes-template-title" aria-describedby="minutes-template-help">
+  <form>
+    <h3 id="minutes-template-title" data-template-copy="title">重组纪要</h3>
+    <label for="minutes-template-select" data-template-copy="preset">阅读结构</label>
+    <select id="minutes-template-select" aria-describedby="minutes-template-description"></select>
+    <p id="minutes-template-description" class="dim"></p>
+    <label for="minutes-template-prompt" data-template-copy="prompt">提示词 · 可编辑</label>
+    <textarea id="minutes-template-prompt" rows="12" maxlength="8000" required></textarea>
+    <p id="minutes-template-help" class="dim" data-template-copy="help"></p>
+    <div class="dialog-btns">
+      <button type="button" data-template-cancel data-template-copy="cancel">取消</button>
+      <button type="submit" class="primary" data-template-copy="generate">生成预览</button>
+    </div>
+  </form>
+</dialog>
 
 <div id="live-context-mask" class="mask hidden">
   <form id="live-context-form" class="dialog live-context-dialog" role="dialog" aria-modal="true"
@@ -496,6 +513,6 @@
 
 <div id="tl-tip" class="tl-tip hidden"></div>
 
-<script type="module" src="/static/app.js?v=20260916p127"></script>
+<script type="module" src="/static/app.js?v=20260916p128"></script>
 </body>
 </html>

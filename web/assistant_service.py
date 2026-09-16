@@ -602,7 +602,8 @@ def _validate_restructured_minutes(markdown: str, facts: dict) -> str:
     by_marker: dict[str, list[dict]] = {}
     for claim in claims:
         by_marker.setdefault(str(claim["marker"]), []).append(claim)
-    for line in value.splitlines():
+    lines = value.splitlines()
+    for index, line in enumerate(lines):
         stripped = line.strip()
         heading_match = re.match(r"^#{1,6}\s+(.+?)\s*$", stripped)
         if heading_match:
@@ -610,9 +611,14 @@ def _validate_restructured_minutes(markdown: str, facts: dict) -> str:
             continue
         if not stripped or re.fullmatch(r"[|:\-\s]+", stripped):
             continue
-        is_table_header = stripped.startswith("|") and any(
-            word in stripped.casefold() for word in
-            ("事项", "负责人", "期限", "状态", "fact", "owner", "due", "status"))
+        # A header is followed by a Markdown delimiter row; its vocabulary says
+        # nothing about whether it is a header. Data mentioning "status" still
+        # needs evidence, and concept/comparison headers need none.
+        next_line = lines[index + 1].strip() if index + 1 < len(lines) else ""
+        cells = next_line.strip("|").split("|")
+        is_table_header = ("|" in stripped and "|" in next_line
+                           and len(stripped.strip("|").split("|")) == len(cells)
+                           and all(re.fullmatch(r":?-+:?", cell.strip()) for cell in cells))
         if is_table_header:
             continue
         if not meeting_artifact.MARKER_RE.search(stripped):
