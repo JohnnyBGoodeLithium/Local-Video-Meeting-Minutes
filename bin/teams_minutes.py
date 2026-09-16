@@ -48,6 +48,7 @@ from meeting_core.progress_events import (output_ready, phase_done,
                                           progress as progress_event)
 from teams_transcript import TranscriptFormatError, parse_transcript
 from slide_pages import extract_pages
+from meeting_core.visual_mode import configure_extraction
 from minutes_by_page import generate as generate_minutes
 import meeting_topic_map
 import meeting_generation
@@ -186,6 +187,8 @@ def main() -> int:
     ap.add_argument("--num-speakers", type=int, default=None)
     ap.add_argument("--match-threshold", type=float, default=0.70, help="声纹跨会议匹配阈值")
     ap.add_argument("--no-vl", action="store_true", help="跳过 VL 画面解读(更快)")
+    ap.add_argument("--visual-mode", choices=["slides", "media"], default=None,
+                    help="共享屏幕(slides)或视频镜头(media)，独立于内容分类")
     args = ap.parse_args()
 
     if not args.mp4.is_file() or not args.transcript.is_file():
@@ -201,6 +204,7 @@ def main() -> int:
         "MEETING_DATA_ROOT", os.environ.get("MEETING_MINUTES_ROOT", ROOT))).expanduser().resolve()
     mdir = for_teams(data_root, title_slug, date_m.group(1) if date_m else "")
     mdir.mkdir(parents=True, exist_ok=True)
+    visual_mode = configure_extraction(mdir, args.visual_mode)
     original_mp4, original_transcript = args.mp4.resolve(), args.transcript.resolve()
     source_mp4 = materialize_source(original_mp4, mdir / f"source_video{args.mp4.suffix.lower()}")
     transcript_format = args.transcript.suffix.lower().lstrip(".")
@@ -288,10 +292,11 @@ def main() -> int:
     else:
         meeting_generation.begin_visual_enrichment(mdir)
 
-    print("[6/7] 抽屏幕共享逻辑页 ...", flush=True)
+    print("[6/7] 抽视频镜头页 ..." if visual_mode == "media"
+          else "[6/7] 抽屏幕共享逻辑页 ...", flush=True)
     progress_event("visual_extraction")
     t0 = time.time()
-    pages = extract_pages(source_mp4, mdir / "slides", mdir / "slides.json")
+    pages = extract_pages(source_mp4, mdir / "slides", mdir / "slides.json", mode=visual_mode)
     print(f"[meta] 逻辑页 {len(pages)} 页 | 抽页耗时 {time.time()-t0:.1f}s", flush=True)
     phase_done("visual_extraction", done=len(pages), total=len(pages), unit="pages")
 

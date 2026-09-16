@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>会议纪要</title>
-<link rel="stylesheet" href="/static/fluent-foundation.css?v=20260914p126">
-<link rel="stylesheet" href="/static/style.css?v=20260914p126">
-<link rel="stylesheet" href="/static/theme.css?v=20260914p126">
-<script src="/static/appearance.js?v=20260914p126"></script>
+<link rel="stylesheet" href="/static/fluent-foundation.css?v=20260916p127">
+<link rel="stylesheet" href="/static/style.css?v=20260916p127">
+<link rel="stylesheet" href="/static/theme.css?v=20260916p127">
+<script src="/static/appearance.js?v=20260916p127"></script>
 </head>
 <body class="page-index">
 <header class="topbar">
@@ -56,6 +56,15 @@
             <input type="radio" name="processing-mode" id="skip-vl" value="fast" aria-describedby="processing-mode-help">
             <span><b id="skip-vl-label">快速纪要</b><small id="processing-mode-help">跳过画面理解，但仍生成纪要和会议脉络；之后可以补充</small></span>
           </label>
+        </fieldset>
+        <fieldset class="processing-mode">
+          <legend id="visual-mode-label">画面类型</legend>
+          <select id="visual-mode" class="fluent-field" aria-labelledby="visual-mode-label" aria-describedby="visual-mode-help">
+            <option value="" id="visual-mode-default">默认：会议看共享屏幕，媒体看视频镜头</option>
+            <option value="slides" id="visual-mode-slides">共享屏幕／课件（分享、培训、录屏）</option>
+            <option value="media" id="visual-mode-media">视频镜头（实拍、发布会、演示）</option>
+          </select>
+          <small id="visual-mode-help">共享屏幕会过滤右侧参与者栏、摄像头和鼠标变化，减少重复截图；不改变内容分类或总结方式。</small>
         </fieldset>
         <label class="skip-vl"><input type="checkbox" id="ignore-transcript"> <span id="ignore-transcript-label">忽略附带逐字稿，改用本地语音识别</span></label>
       </details>
@@ -487,6 +496,6 @@
 
 <div id="tl-tip" class="tl-tip hidden"></div>
 
-<script type="module" src="/static/app.js?v=20260914p126"></script>
+<script type="module" src="/static/app.js?v=20260916p127"></script>
 </body>
 </html>

@@ -12,6 +12,8 @@ import time
 import uuid
 from pathlib import Path
 
+from fastapi import HTTPException
+
 from deps import (BANK_LOCK, CONTENT_TYPES, DATA_ROOT, DRY_RUN, DRY_RUN_DELAY, INBOX, JOBS_DIR,
                   MEETINGS, MEETING_META_LOCK, ROOT, _now)
 from job_progress import (apply_event, initial_progress, normalize_job_progress,
@@ -44,15 +46,20 @@ def _save_job(job: dict):
     tmp.replace(_job_path(job["id"]))
 
 
+def _set_status_locked(job: dict, status: str, **kw):
+    """调用方持有 BANK_LOCK，可将状态变更与取消/启动检查放在同一临界区。"""
+    job["status"] = status
+    job.update(kw)
+    if (isinstance(job.get("progress"), dict)
+            and job["progress"].get("schema") == "job-progress/v2"):
+        job["progress"] = normalize_job_progress(
+            job, (), now=float(job.get("finished") or _now()))
+    _save_job(job)
+
+
 def _set_status(job: dict, status: str, **kw):
     with BANK_LOCK:
-        job["status"] = status
-        job.update(kw)
-        if (isinstance(job.get("progress"), dict)
-                and job["progress"].get("schema") == "job-progress/v2"):
-            job["progress"] = normalize_job_progress(
-                job, (), now=float(job.get("finished") or _now()))
-        _save_job(job)
+        _set_status_locked(job, status, **kw)
 
 
 def _record_meeting_activity(job: dict) -> None:
@@ -157,7 +164,16 @@ def _apply_job_result(job: dict) -> None:
         _save_job(job)
 
 
-def _new_job(kind: str, **kw) -> dict:
+def _meeting_busy(slug: str) -> bool:
+    """调用方持有 BANK_LOCK；取消中的子进程退出前仍保护素材目录。"""
+    return any(
+        job.get("meeting") == slug and (
+            job.get("status") in {"queued", "running"}
+            or ((proc := PROCS.get(jid)) is not None and proc.poll() is None))
+        for jid, job in JOBS.items())
+
+
+def _new_job(kind: str, *, fresh_import: bool = False, **kw) -> dict:
     jid = uuid.uuid4().hex[:12]
     job = {"id": jid, "kind": kind, "status": "queued", "created": _now(),
            "queue_priority": default_priority(kind), "priority_boost": False,
@@ -165,6 +181,21 @@ def _new_job(kind: str, **kw) -> dict:
     if "progress" not in job:
         job["progress"] = initial_progress(job, job["created"])
     with BANK_LOCK:
+        slug = str(job.get("meeting") or "")
+        if slug:
+            mdir = (MEETINGS / slug).resolve()
+            if mdir.parent != MEETINGS.resolve():
+                raise HTTPException(400, "无效的资料目录")
+            if fresh_import:
+                if _meeting_busy(slug):
+                    raise HTTPException(409, "这份资料已有处理任务，请查看任务队列，勿重复导入；"
+                                        "如需更换分类，请在处理结束后使用原记录的“更多 → 标记为会议/媒体视频”")
+                if mdir.exists():
+                    raise HTTPException(409, "这份资料已经导入，请打开原记录重新分类、重新生成或恢复任务；"
+                                        "不会覆盖已有逐字稿和纪要")
+            elif kind != "upload" and not mdir.is_dir():
+                # 与删除共用锁：路由校验后目录被删除时，不再排入失去素材的派生任务。
+                raise HTTPException(409, "资料已被删除，请刷新列表")
         JOBS[jid] = job
         _save_job(job)
     return job
@@ -219,8 +250,11 @@ def _run_pipeline(job: dict):
         "phase": first_phase, "state": "running",
     }, started)
     progress["started_at"] = started
-    job["progress"] = progress
-    _set_status(job, "running", started=started, stage="准备处理")
+    with BANK_LOCK:
+        if job.get("cancel_requested"):
+            return
+        job["progress"] = progress
+        _set_status_locked(job, "running", started=started, stage="准备处理")
     cmd = job["cmd"]
     actual = [cmd[0], cmd[1], "--help"] if DRY_RUN else cmd
     if DRY_RUN:
@@ -230,11 +264,14 @@ def _run_pipeline(job: dict):
             if job.get("cancel_requested"):
                 return
     try:
-        proc = subprocess.Popen(
-            actual, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, env={**os.environ, "HF_HUB_OFFLINE": "1"},
-            start_new_session=True)   # 独立进程组: 取消时整组杀(含管线拉起的孙进程)
-        PROCS[job["id"]] = proc
+        with BANK_LOCK:
+            if job.get("cancel_requested"):
+                return
+            proc = subprocess.Popen(
+                actual, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, env={**os.environ, "HF_HUB_OFFLINE": "1"},
+                start_new_session=True)   # 独立进程组: 取消时整组杀(含管线拉起的孙进程)
+            PROCS[job["id"]] = proc
         for raw in proc.stdout or []:
             line = raw.rstrip()
             event = parse_event(line)

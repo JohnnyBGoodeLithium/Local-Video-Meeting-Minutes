@@ -169,6 +169,7 @@ def main() -> int:
     parser.add_argument("request", type=Path, help="私有请求 JSON（含 url）")
     parser.add_argument("--result", type=Path, required=True, help="仅含 meeting slug 的结果 JSON")
     parser.add_argument("--no-vl", action="store_true")
+    parser.add_argument("--visual-mode", choices=["slides", "media"], default=None)
     args = parser.parse_args()
 
     try:
@@ -200,6 +201,8 @@ def main() -> int:
                    "--meeting-dir", str(mdir), "--slug", title, "--media"]
         if args.no_vl:
             command.append("--no-vl")
+        if args.visual_mode:
+            command += ["--visual-mode", args.visual_mode]
         result = subprocess.run(command)
         if result.returncode:
             return result.returncode

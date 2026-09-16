@@ -90,6 +90,18 @@ def main() -> int:
                 cdp.evaluate(r"""
 window.__workspaceUxE2E = 'running';
 void (async () => {
+  const importOptions = document.querySelector('.import-options');
+  const visualMode = document.querySelector('#visual-mode');
+  importOptions.open = true;
+  visualMode.value = 'slides';
+  if (visualMode.value !== 'slides' || visualMode.options.length !== 3)
+    throw new Error('independent visual mode selector missing');
+  const selectBox = visualMode.getBoundingClientRect();
+  const importBox = importOptions.getBoundingClientRect();
+  if (selectBox.width <= 0 || selectBox.right > importBox.right + 1)
+    throw new Error('visual mode selector overflows import panel');
+  visualMode.value = '';
+  importOptions.open = false;
   const waitFor = async (fn, label, timeout = 10000) => {
     const end = Date.now() + timeout;
     while (Date.now() < end) {

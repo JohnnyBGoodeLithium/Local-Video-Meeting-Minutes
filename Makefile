@@ -38,6 +38,7 @@ package-check:
 	$(PY) web/tests/voice_draft_test.py
 	$(PY) web/tests/job_scheduler_test.py
 	$(PY) web/tests/job_log_safety_test.py
+	$(PY) web/tests/intake_lifecycle_test.py
 	$(PY) web/tests/job_progress_test.py
 	$(PY) web/tests/job_recovery_test.py
 	$(PY) web/tests/resource_policy_test.py
@@ -72,6 +73,7 @@ package-check:
 	$(PY) web/tests/bundled_diarization_test.py
 	$(PY) web/tests/live_release_boundary_test.py
 	$(PY) web/tests/slide_pages_test.py
+	$(PY) web/tests/visual_mode_test.py
 	$(PY) web/tests/media_shots_test.py
 	$(PY) web/tests/media_minutes_test.py
 	$(PY) web/tests/visual_budget_test.py
