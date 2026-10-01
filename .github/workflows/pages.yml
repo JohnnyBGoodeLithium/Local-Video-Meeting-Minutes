@@ -36,7 +36,7 @@ jobs:
         run: python scripts/build_product_pages.py --output _site
 
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v4
+        uses: actions/upload-pages-artifact@v5
         with:
           path: _site
 
