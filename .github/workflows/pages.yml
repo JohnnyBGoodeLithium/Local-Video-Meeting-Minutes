@@ -53,7 +53,7 @@ jobs:
     steps:
       - name: Deploy verified product site
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
 
       - name: Verify production Pages responses
         env:
