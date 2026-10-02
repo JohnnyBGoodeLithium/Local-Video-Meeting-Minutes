@@ -72,7 +72,7 @@ def main() -> int:
         "workflows:",
         "github.event.workflow_run.conclusion == 'success'",
         "github.event.workflow_run.head_sha",
-        "actions/configure-pages@v5",
+        "actions/configure-pages@v6",
         "scripts/build_product_pages.py --output _site",
         "actions/upload-pages-artifact@v4",
         "pages: write",
