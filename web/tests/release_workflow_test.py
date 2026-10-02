@@ -74,7 +74,7 @@ def main() -> int:
         "github.event.workflow_run.head_sha",
         "actions/configure-pages@v5",
         "scripts/build_product_pages.py --output _site",
-        "actions/upload-pages-artifact@v4",
+        "actions/upload-pages-artifact@v5",
         "pages: write",
         "id-token: write",
         "actions/deploy-pages@v4",
