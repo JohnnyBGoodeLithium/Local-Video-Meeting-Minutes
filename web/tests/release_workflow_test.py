@@ -77,7 +77,7 @@ def main() -> int:
         "actions/upload-pages-artifact@v4",
         "pages: write",
         "id-token: write",
-        "actions/deploy-pages@v4",
+        "actions/deploy-pages@v5",
         "publish-authorized-tag:",
         "needs: deploy",
         "Create explicitly authorized release tag",
