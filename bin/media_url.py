@@ -20,8 +20,10 @@ from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 from meeting_core.source_info import from_ytdlp
+from meeting_core.media_captions import (build_ytdlp_caption_fetcher,
+                                         CaptionPreparation, prepare_captions)
 from meeting_core.progress_events import phase_done, progress as progress_event
-from meeting_dir import for_teams
+from meeting_dir import for_teams, materialize_source
 from teams_minutes import slugify
 
 
@@ -30,6 +32,8 @@ BIN = ROOT / "bin"
 PY = Path(os.environ.get("MEETING_PYTHON", sys.executable)).expanduser()
 DEFAULT_MAX_DURATION = 6 * 60 * 60
 DEFAULT_MAX_FILESIZE = 8 * 1024 * 1024 * 1024
+MEDIA_EXTENSIONS = {".mp4", ".mkv", ".webm", ".mov", ".m4v", ".avi",
+                    ".flv", ".mpeg", ".mpg", ".ts", ".m2ts", ".ogg"}
 
 
 class MediaURLRejected(ValueError):
@@ -90,7 +94,31 @@ class _SafeLogger:
         return None
 
 
-def _download(url: str, destination: Path) -> tuple[Path, dict]:
+def _media_file(destination: Path) -> Path:
+    candidates = sorted(destination.glob("download.*"), key=lambda p: p.stat().st_mtime,
+                        reverse=True)
+    # 字幕、封面和下载器 sidecar 永远不能被误当作视频母版。
+    media = next((path for path in candidates if path.is_file()
+                  and path.suffix.lower() in MEDIA_EXTENSIONS), None)
+    if media is None:
+        raise RuntimeError("download_missing")
+    return media
+
+
+def _media_duration(media: Path) -> float | None:
+    """用下载后媒体校验字幕时间，避免平台预览时长与实际音轨不一致。"""
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", str(media)],
+            capture_output=True, text=True, check=True, timeout=30)
+        duration = float(result.stdout.strip())
+        return duration if 0 < duration < float("inf") else None
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+
+
+def _download(url: str, destination: Path) -> tuple[Path, dict, CaptionPreparation]:
     try:
         import yt_dlp
     except ImportError as exc:
@@ -145,16 +173,19 @@ def _download(url: str, destination: Path) -> tuple[Path, dict]:
             raise MediaURLRejected("duration_too_long")
         print("[meta] 链接已解析，开始下载公开视频", flush=True)
         info = downloader.extract_info(url, download=True)
-
-    candidates = sorted(destination.glob("download.*"), key=lambda p: p.stat().st_mtime,
-                        reverse=True)
-    media = next((path for path in candidates if path.is_file()
-                  and path.suffix.lower() not in {".json", ".part", ".ytdl"}), None)
-    if media is None:
-        raise RuntimeError("download_missing")
-    if media.stat().st_size > max_filesize:
-        raise MediaURLRejected("file_too_large")
-    return media, info if isinstance(info, dict) else preview
+        media = _media_file(destination)
+        if media.stat().st_size > max_filesize:
+            raise MediaURLRejected("file_too_large")
+        duration = _media_duration(media)
+        if duration and duration > max_duration:
+            raise MediaURLRejected("duration_too_long")
+        caption_info = dict(info if isinstance(info, dict) else preview)
+        if duration:
+            caption_info["duration"] = duration
+        captions = prepare_captions(
+            caption_info, destination / "captions", build_ytdlp_caption_fetcher(
+                downloader, validate_url=validate_public_url))
+    return media, info if isinstance(info, dict) else preview, captions
 
 
 def _atomic_json(path: Path, payload: dict) -> None:
@@ -162,6 +193,20 @@ def _atomic_json(path: Path, payload: dict) -> None:
     tmp = path.with_name(f".{path.name}.tmp-{os.getpid()}")
     tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=1), encoding="utf-8")
     os.replace(tmp, path)
+
+
+def _new_import_directory(base: Path) -> Path:
+    """每次链接导入创建独立资料，原子避免覆盖旧字幕、人工修正与并发导入。"""
+    for number in range(1, 1001):
+        destination = base if number == 1 else base.with_name(f"{base.name}-import-{number}")
+        try:
+            destination.mkdir(parents=True, exist_ok=False)
+        except FileExistsError:
+            continue
+        if number > 1:
+            print("[meta] 已有资料保持不变，本次创建独立导入副本", flush=True)
+        return destination
+    raise MediaURLRejected("too_many_import_copies")
 
 
 def main() -> int:
@@ -176,16 +221,17 @@ def main() -> int:
         progress_event("download", done=0, total=100, unit="percent")
         request = json.loads(args.request.read_text(encoding="utf-8"))
         url = validate_public_url(str(request.get("url") or ""))
-        media, info = _download(url, args.request.parent)
+        media, info, captions = _download(url, args.request.parent)
         phase_done("download", done=100, total=100, unit="percent")
         source_info = from_ytdlp(info)
+        source_info["captions"] = captions.provenance
         title = str(source_info.get("title") or "Internet media").strip()[:180] or "Internet media"
         upload_date = str(info.get("upload_date") or "")
         unique = hashlib.sha256(url.encode("utf-8")).hexdigest()[:8]
         data_root = Path(os.environ.get(
             "MEETING_DATA_ROOT", os.environ.get("MEETING_MINUTES_ROOT", ROOT))).resolve()
-        mdir = for_teams(data_root, f"{slugify(title)}-{unique}", upload_date)
-        mdir.mkdir(parents=True, exist_ok=True)
+        mdir = _new_import_directory(for_teams(
+            data_root, f"{slugify(title)}-{unique}", upload_date))
         _atomic_json(args.result, {"meeting": mdir.name})
 
         # 标题、来源与内容类型必须在生成语音草稿前可用：媒体 prompt、处理中列表和
@@ -197,8 +243,17 @@ def main() -> int:
         })
         _atomic_json(mdir / "source.json", {"source_info": source_info})
 
+        # 保存下载过的原始字幕（含被拒绝的尝试），不保存下载 URL、cookie 或请求头。
+        for raw in sorted((args.request.parent / "captions").glob("*.vtt")):
+            materialize_source(raw, mdir / "source_captions" / raw.name)
+
         command = [str(PY), str(BIN / "video_minutes.py"), str(media),
                    "--meeting-dir", str(mdir), "--slug", title, "--media"]
+        if captions.usable:
+            raw = materialize_source(captions.raw_path, mdir / "source.vtt")
+            command += ["--subtitle", str(raw), "--subtitle-language",
+                        captions.provenance["language"], "--subtitle-kind",
+                        captions.provenance["kind"]]
         if args.no_vl:
             command.append("--no-vl")
         if args.visual_mode:

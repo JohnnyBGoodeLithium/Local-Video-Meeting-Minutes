@@ -11,11 +11,35 @@ import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
+
+from .media_captions import project_caption_provenance
 
 
 SCHEMA = "media-source/v1"
 MAX_TEXT = 240
+
+
+def transcript_identity_context(mdir: Path, source: dict) -> tuple[str, str]:
+    """仅具名外部文稿允许按 VTT/DOCX 标签导航；文件存在不能升级通用字幕身份。"""
+    origin = str(source.get("transcript_source") or "").lower()
+    if origin not in {"external", "local_asr", "native_subtitle"}:
+        info = source.get("source_info")
+        captions = info.get("captions") if isinstance(info, dict) else {}
+        if (isinstance(captions, dict) and captions.get("source") == "native_subtitle") \
+                or (mdir / "subtitle.cues.json").is_file():
+            origin = "native_subtitle"
+        else:
+            origin = ("external" if source.get("transcript_format")
+                      or any((mdir / f"source.{suffix}").is_file() for suffix in ("vtt", "docx"))
+                      else "local_asr")
+    if origin != "external":
+        return origin, ""
+    transcript_format = str(source.get("transcript_format") or "").lower()
+    if not transcript_format:
+        transcript_format = next((suffix for suffix in ("vtt", "docx")
+                                  if (mdir / f"source.{suffix}").is_file()), "")
+    return origin, transcript_format
 
 
 def _text(value, limit: int = MAX_TEXT) -> str:
@@ -51,7 +75,24 @@ def _shareable_url(info: dict) -> str:
     # 临时签名、访问令牌或 CDN 鉴权信息，不能投影到 Viewer/KB。
     if extractor in {"generic", ""} and parsed.query:
         return ""
-    return url
+    return _public_page_url(url)
+
+
+def _public_page_url(value) -> str:
+    """只保留明确公开的页面定位参数；不导出任意平台的临时签名。"""
+    url = _http_url(value)
+    if not url:
+        return ""
+    parsed = urlsplit(url)
+    if not parsed.query:
+        return url
+    if (parsed.hostname or "").lower() in {"youtube.com", "www.youtube.com", "m.youtube.com"} \
+            and parsed.path == "/watch":
+        video = parse_qs(parsed.query).get("v", [""])[0]
+        if re.fullmatch(r"[A-Za-z0-9_-]{1,120}", video):
+            return urlunsplit((parsed.scheme, parsed.netloc, parsed.path,
+                               urlencode({"v": video}), ""))
+    return ""
 
 
 def _platform(info: dict) -> str:
@@ -116,10 +157,11 @@ def project_source_info(value) -> dict:
     if not isinstance(value, dict):
         return {}
     nested = value.get("source_info") if isinstance(value.get("source_info"), dict) else value
-    url = _http_url(nested.get("canonical_url") or nested.get("source_url"))
+    url = _public_page_url(nested.get("canonical_url") or nested.get("source_url"))
+    captions = project_caption_provenance(nested.get("captions"))
     if not url and not any(_text(nested.get(key)) for key in (
         "platform", "title", "publisher", "published_at"
-    )):
+    )) and not captions:
         return {}
     projected = {
         "schema": SCHEMA,
@@ -138,6 +180,8 @@ def project_source_info(value) -> dict:
         duration = 0
     if duration:
         projected["duration"] = round(duration, 3)
+    if captions:
+        projected["captions"] = captions
     return {key: value for key, value in projected.items() if value not in ("", None)}
 
 

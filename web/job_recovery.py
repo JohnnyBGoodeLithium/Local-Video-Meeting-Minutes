@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import os
 import json
+import hashlib
+import wave
 from pathlib import Path
 
 from deps import MEETINGS, PY, ROOT, _audio_path, _minutes_file, _video_path
@@ -158,13 +160,56 @@ def build_retranscribe_command(mdir: Path, num_speakers: int | None = None) -> l
 
 
 def build_speaker_resume_command(mdir: Path) -> list[str]:
-    """复用已完整落盘的 ASR，只重跑说话人分离及视频后续阶段。"""
+    """复用完整 ASR 或已验证的原文字幕，只重跑人物及视频后续阶段。"""
     video = _video_path(mdir)
-    if video is None or not (mdir / "audio.wav").is_file() \
-            or not (mdir / "stamps.json").is_file():
+    if video is None or not (mdir / "audio.wav").is_file():
         raise ValueError("missing_asr_checkpoint")
-    return [str(PY), str(ROOT / "bin" / "video_minutes.py"), str(video),
-            "--meeting-dir", str(mdir), "--reuse-asr"]
+    command = [str(PY), str(ROOT / "bin" / "video_minutes.py"), str(video),
+               "--meeting-dir", str(mdir)]
+    try:
+        source = json.loads((mdir / "source.json").read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        source = {}
+    except (OSError, ValueError) as exc:
+        raise ValueError("invalid_source_checkpoint") from exc
+    if not isinstance(source, dict):
+        raise ValueError("invalid_source_checkpoint")
+    info = source.get("source_info")
+    raw_captions = info.get("captions") if isinstance(info, dict) else {}
+    caption_origin = raw_captions.get("source") if isinstance(raw_captions, dict) else None
+    origin = source.get("transcript_source")
+    subtitle_checkpoint = (origin == "native_subtitle" or caption_origin == "native_subtitle"
+                           or (origin != "local_asr" and (
+                               (mdir / "subtitle.cues.json").is_file()
+                               or (mdir / "source.vtt").is_file())))
+    if subtitle_checkpoint:
+        # 旧 stamps 不能把缺失／不一致的字幕来源降级成 ASR 恢复。
+        if origin != "native_subtitle" or caption_origin != "native_subtitle":
+            raise ValueError("invalid_subtitle_checkpoint")
+        from meeting_core.media_captions import (MAX_CAPTION_BYTES, parse_caption_bytes,
+                                                 project_caption_provenance)
+        captions = project_caption_provenance(raw_captions)
+        raw = mdir / "source.vtt"
+        try:
+            with raw.open("rb") as stream:
+                raw_bytes = stream.read(MAX_CAPTION_BYTES + 1)
+            if captions.get("source") != "native_subtitle" \
+                    or captions.get("kind") not in {"human", "automatic"} \
+                    or not captions.get("language") \
+                    or len(raw_bytes) > MAX_CAPTION_BYTES \
+                    or hashlib.sha256(raw_bytes).hexdigest() != captions.get("raw_sha256"):
+                raise ValueError("invalid_subtitle_checkpoint")
+            with wave.open(str(mdir / "audio.wav"), "rb") as audio:
+                duration = audio.getnframes() / audio.getframerate()
+            parse_caption_bytes(raw_bytes, duration=duration)
+        except (OSError, ValueError, wave.Error, EOFError) as exc:
+            raise ValueError("invalid_subtitle_checkpoint") from exc
+        return command + ["--subtitle", str(raw), "--subtitle-language", captions["language"],
+                          "--subtitle-kind", captions["kind"],
+                          "--subtitle-sha256", captions["raw_sha256"]]
+    if not (mdir / "stamps.json").is_file():
+        raise ValueError("missing_asr_checkpoint")
+    return command + ["--reuse-asr"]
 
 
 def preemption_resume_spec(job: dict) -> dict:

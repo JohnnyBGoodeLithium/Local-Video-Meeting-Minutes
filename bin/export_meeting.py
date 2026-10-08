@@ -40,7 +40,7 @@ from meeting_artifact import (
 )
 from meeting_views import evidence_integrity
 from meeting_structure import build_structure, clean_model_text, visual_title
-from meeting_core.source_info import load_source_info
+from meeting_core.source_info import load_source_info, transcript_identity_context
 from meeting_core import photos as meeting_photos
 import meeting_topic_map
 import meeting_generation
@@ -611,10 +611,7 @@ def export_meeting(mdir: Path, out: Path, *, bank_dir: Path | None = None,
         turns, profiles=profiles, translation=caption_translation,
         transcript_revision=transcript_revision)
     source_meta = _read_json(mdir / "source.json", {})
-    transcript_format = str(source_meta.get("transcript_format") or "").lower()
-    if not transcript_format:
-        transcript_format = next((suffix for suffix in ("vtt", "docx")
-                                  if (mdir / f"source.{suffix}").is_file()), "")
+    _, transcript_format = transcript_identity_context(mdir, source_meta)
     speaker_navigation_rows = speaker_navigation(turns, profiles, transcript_format)
     evidence = build_evidence_document(mdir, minutes, turns, pages, descs, profiles,
                                        generation={"export_rebuilt": True})
