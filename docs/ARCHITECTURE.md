@@ -41,7 +41,7 @@ Viewer 的 local alias 只属于单个 MeetingPack 的展示层；Companion 的 
 | audio | 单个音频 | 本地 ASR → 说话人分离 → 纪要与检索 |
 | video | 普通会议录屏 | 本地 ASR 与说话人 + 逻辑页面；完整模式继续 VL，快速模式直接生成语音版正式纪要与脉络 |
 | teams | 录屏 + VTT/DOCX | 先读取外部文稿和姓名，再与本地声音对齐；同样支持快速纪要或完整分析 |
-| media | 本地视频或受限公开链接 | 镜头、论证角色和第一手来源；不生成会议式待办 |
+| media | 本地视频或受限公开链接 | 公开链接先选可验证原语言字幕，无可用字幕才 ASR；镜头、论证角色和第一手来源；不生成会议式待办 |
 | retranscribe | 已有母版 | 从私有快照与当前 provider 重建逐字稿及下游资产 |
 | regenerate / sync | 已有 canonical | 标准重生成可补缺；快速同步只复用完整 VL 缓存 |
 | visual upgrade | 已有语音版结果 | 复用媒体、逐字稿、人物和逻辑页，只补画面理解、正式纪要与脉络 |
@@ -60,6 +60,38 @@ Viewer 的 local alias 只属于单个 MeetingPack 的展示层；Companion 的 
 未定位图片仍进入资料解读，但不会伪造与某段发言的时间关联。
 
 公开链接下载只接受受限单条媒体。原始 URL 只进入私有 inbox；工作台、Viewer 与 KB 只投影 `media-source/v1` 的白名单字段，含临时 query 的 generic URL 不导出。
+
+### 公开视频字幕优先
+
+`media_url.py` 按平台明确原语言（或无冲突的原文轨道标记）选择：原文人工制作字幕 →
+原文自动字幕 → 本地 ASR。字幕语言列表顺序、界面语言和字幕姓名不能用来猜原语言；
+原语言未知／冲突、仅翻译轨道、未支持格式、下载失败、空／损坏字幕或错误时间轴均记录
+有限枚举原因，继续尝试下一条原文轨道。有界候选均不可用才回退；去重后最多尝试 8 个
+下载，人工／自动轨道各保留尝试容量，单个原文上限 16 MiB。触及候选上限时明确记录
+`candidate_limit`，不声称已穷尽平台所有字幕。当前解析合同为完整 WebVTT；
+不把 SRT/JSON/直播时间轴静默解释为同一格式。下载后的真实媒体时长用于校验。
+
+有效字幕直接走 `video_minutes.py --subtitle` 的通用 parser/signals，不进入 Teams 姓名对齐，
+也不启动 `transcribe.py`。音频说话人区分仍独立运行；只有某声音簇清楚覆盖一个 cue 时才
+归属到该声音簇，跨人物／不明确 cue 保持未知。不拆造字级时间，不把字幕内 `<v>` 姓名
+或正文标签认定为人物，不把人工制作字幕标为人工核验。原有会议 VTT/DOCX 上传路线保持
+Teams 合同；本变更不自动探测本地视频的嵌入字幕，也不改变本地上传的原语言确认方式。
+
+私有会议目录保留选中的 `source.vtt`、有界下载尝试的 `source_captions/*.vtt` 与规范化的
+`subtitle.cues.json`。字幕不会伪装成 ASR `stamps.json`。`source.json` 记录实际文字来源，
+`source_info.captions` 使用 `media-captions/v1` 白名单保留轨道类型、原语言及依据、导入时间、
+时间戳来源、选择／回退原因、cue 数和原文 SHA-256；不保存字幕下载地址、cookie、请求头或
+任意下载器字段。人工字幕使用 `platform_provided`，自动字幕使用 `automatic`，均非
+`human_corrected`。导出只带安全来源元数据，不打包这些原始字幕 sidecar。
+公开页面链接也重新过滤 query，只保留已知 YouTube 视频定位参数，不透传签名或令牌。
+
+人物阶段失败后，恢复必须重新验证原字幕、SHA-256 与音频时长；有效检查点继续使用字幕，
+不重新 ASR。损坏／缺失的字幕或来源元数据、排队后发生变化的字幕检查点均拒绝静默覆盖，
+即使目录残留旧 `stamps.json` 也不能改走 ASR。显式“本地重转写”仍按原有快照与授权边界执行。
+重复导入同一个公开链接时原子创建独立的 `-import-N` 副本，不复用旧字幕／下载尝试，也不
+覆盖旧资料及人工修改；早期失败后可重新导入新副本，不必删除旧资产。CLI 对既有 `source.vtt`
+只允许字节相同的输入，不同输入拒绝覆盖。在线 bundle 和 MeetingPack 共用来源身份判断，
+`native_subtitle` 不因 VTT 文件存在而升级成具名 Teams 文稿；未知字幕人物保持不可选。
 
 Live 中间层位于单场目录的 `.live/`：尽量 append-only 保存 timed text、speaker/frame event 和脱敏 metrics，checkpoint 原子替换。主页关闭不改变 worker；重启时从 checkpoint 恢复媒体序号。该目录不进入 Git、应用发布包、MeetingPack 或 KB，也不作为事实真源。
 

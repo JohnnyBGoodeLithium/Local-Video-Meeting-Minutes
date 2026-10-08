@@ -202,10 +202,15 @@ def speaker_navigation(turns: list[dict], profiles: list[dict],
                if str(turn.get("speaker") or "未知") == name and turn.get("voice")}
         for name in names
     }
+    # 显式 unknown／通用字幕 provenance 不能被旧文件格式推断升级为可信姓名。
+    untrusted_labels = {
+        str(turn.get("speaker") or "未知") for turn in turns
+        if turn.get("text_source") == "native_subtitle" or turn.get("speaker_source") == "unknown"
+    }
 
     def anonymous(name: str) -> bool:
         compact = re.sub(r"\s+", "", name).lower()
-        return (not compact or "(声音" in name or compact in {"未知", "未具名", "unknown"}
+        return (not compact or "(声音" in name or compact in {"未知", "未具名", "unknown", "说话人未知"}
                 or re.fullmatch(r"(?:说话人|speaker)\d+", compact) is not None)
 
     out = []
@@ -213,7 +218,7 @@ def speaker_navigation(turns: list[dict], profiles: list[dict],
         profile = profile_by_speaker.get(name, {})
         if profile.get("person_id"):
             basis, selectable = "verified_voice_binding", True
-        elif named_transcript and not anonymous(name):
+        elif named_transcript and name not in untrusted_labels and not anonymous(name):
             basis, selectable = "imported_transcript_label", True
         elif profile.get("voice_ids") or voices_by_speaker.get(name):
             basis, selectable = "session_voice_cluster", True

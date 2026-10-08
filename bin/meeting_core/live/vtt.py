@@ -48,7 +48,7 @@ def parse_webvtt_text(raw: str) -> list[WebVTTCue]:
     raw = raw.lstrip("\ufeff")
     cues: list[WebVTTCue] = []
     for block in re.split(r"\r?\n\s*\r?\n", raw):
-        if block.lstrip().startswith(("NOTE", "STYLE", "REGION")):
+        if re.match(r"^(?:NOTE|STYLE|REGION)(?:\s|$)", block.lstrip()):
             continue
         timing = _TIMING.search(block)
         if not timing:

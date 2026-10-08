@@ -33,6 +33,13 @@ signals = generic_subtitle_signals(cues, language="en")
 assert all(item.speaker is None and item.speaker_source == "unknown" for item in signals)
 assert all(item.text_source == "native_subtitle" for item in signals)
 
+# Legal cue identifiers beginning with reserved block words are not comments.
+prefixed = "WEBVTT\n\n" + "\n\n".join(
+    f"{identifier}\n00:00:0{index}.000 --> 00:00:0{index+1}.000\nSynthetic cue {index}."
+    for index, identifier in enumerate(("NOTEworthy", "STYLE1", "REGIONfoo")))
+assert [cue.text for cue in parse_webvtt_text(prefixed)] == [
+    "Synthetic cue 0.", "Synthetic cue 1.", "Synthetic cue 2."]
+
 try:
     parse_webvtt_text("WEBVTT\n\nno timing")
 except WebVTTError:

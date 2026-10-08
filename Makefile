@@ -45,6 +45,9 @@ package-check:
 	$(PY) web/tests/job_preemption_test.py
 	$(PY) web/tests/media_materialize_test.py
 	$(PY) web/tests/media_url_test.py
+	$(PY) web/tests/media_captions_test.py
+	$(PY) web/tests/subtitle_pipeline_test.py
+	$(PY) web/tests/subtitle_identity_test.py
 	$(PY) web/tests/retranscribe_local_test.py
 	$(PY) web/tests/teams_transcript_test.py
 	$(PY) web/tests/live_signal_test.py

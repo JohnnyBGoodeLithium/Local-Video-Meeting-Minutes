@@ -20,6 +20,7 @@ import transcript_service
 import translation_service
 import voice_bank as vb
 from meeting_core import photos as meeting_photos
+from meeting_core.source_info import transcript_identity_context
 from meeting_core import visual_result as vr, visual_workflow as vw
 from deps import (BANK_DIR, BANK_LOCK, CONTENT_TYPES, DRY_RUN, EVALUATIONS_DIR, MEETINGS, MD,
                   MEETING_META_LOCK, STORAGE_LOCK, artifact, assistant, _audio_path,
@@ -309,16 +310,7 @@ def get_bundle(slug: str):
     if action_candidates is None and minutes_path:
         action_candidates = artifact.action_candidates_from_minutes(
             minutes_path.read_text(encoding="utf-8"), actions)
-    transcript_source = str(src.get("transcript_source") or "").lower()
-    if transcript_source not in {"external", "local_asr"}:
-        transcript_source = ("external" if src.get("transcript_format")
-                             or any((mdir / f"source.{suffix}").is_file()
-                                    for suffix in ("vtt", "docx")) else "local_asr")
-    transcript_format = str(src.get("transcript_format") or "").lower() \
-        if transcript_source == "external" else ""
-    if transcript_source == "external" and not transcript_format:
-        transcript_format = next((suffix for suffix in ("vtt", "docx")
-                                  if (mdir / f"source.{suffix}").is_file()), "")
+    transcript_source, transcript_format = transcript_identity_context(mdir, src)
     profiles = evidence.get("speaker_profiles") or artifact.load_speaker_profiles(
         transcript, BANK_DIR)
     minutes_revision = assistant.revision(minutes_path) if minutes_path else None

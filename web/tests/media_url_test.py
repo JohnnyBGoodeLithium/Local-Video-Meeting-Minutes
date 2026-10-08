@@ -71,4 +71,36 @@ assert "canonical_url" not in generic
 assert generic["title"] == "Direct video"
 assert project_source_info(generic)["title"] == "Direct video"
 
+# Sharing revalidates both captions and links; a non-generic extractor is not a
+# reason to expose signed URLs, nor can a persisted sidecar bypass the whitelist.
+for extractor in ("Vimeo", "generic", "unrecognized"):
+    private = from_ytdlp({"extractor_key": extractor, "title": "Synthetic",
+                          "webpage_url": "https://example.invalid/video?token=private"})
+    assert "canonical_url" not in private
+    projected = project_source_info({"title": "Synthetic",
+                                    "canonical_url": "https://example.invalid/video?cookie=private"})
+    assert not projected.get("canonical_url")
+assert from_ytdlp({"extractor_key": "Youtube", "webpage_url":
+                  "https://www.youtube.com/watch?v=synthetic&token=private"})["canonical_url"] \
+    == "https://www.youtube.com/watch?v=synthetic"
+
+caption_meta = {
+    "schema": "media-captions/v1", "source": "native_subtitle", "kind": "human",
+    "language": "en", "original_language": "en", "language_evidence": "metadata",
+    "imported_at": "2026-01-02T00:00:00+00:00", "timestamp_source": "subtitle_cues",
+    "selection_policy": "original_human_then_automatic_then_asr",
+    "selection_reason": "original_human", "cue_count": 2, "raw_sha256": "a" * 64,
+    "url": "https://example.invalid/caption?token=private", "cookies": "private",
+    "filepath": "/private/caption.vtt", "http_headers": {"Authorization": "private"},
+    "attempts": [{"kind": "human", "language": "en", "format": "vtt",
+                  "status": "selected", "url": "private", "cookies": "private"}],
+}
+shared = project_source_info({"source_info": {**source, "captions": caption_meta}})
+assert shared["captions"]["source"] == "native_subtitle"
+assert shared["captions"]["kind"] == "human"
+assert shared["captions"]["timestamp_source"] == "subtitle_cues"
+assert "private" not in json.dumps(shared)
+assert "human_corrected" not in json.dumps(shared)
+assert project_source_info({"source_info": shared}) == shared
+
 print("media url/source info tests passed")
